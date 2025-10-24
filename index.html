@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contractor Paperwork Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&family=Lato:ital,wght@0,400;0,700;1,400&family=Lobster&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Montserrat:ital,wght@0,400;0,700;1,400&family=Open+Sans:ital,wght@0,400;0,700;1,400&family=Oswald:wght@400;700&family=Pacifico&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Raleway:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --card: #ffffff; --ring: #0000bb; --input: #d4d4d4; --muted: #f5f5f5; --accent: #FFCC91; --border: #e5e5e5; --radius: 0.5rem; --shadow: 0 2px 6px -2px rgba(0,0,0,.15); --chart-1: #DCC2F9; --chart-2: #398282; --chart-3: #96C0D6; --chart-4: #FF6B56; --chart-5: #611848; --popover: #f5f5f5; --primary: #0000bb; --spacing: 0.25rem; --font-mono: monospace; --font-sans: "Aeonik Pro", sans-serif; --secondary: #ededed; --shadow-lg: 0 0 8px rgba(0,0,0,.08); --shadow-md: 0 2px 10px -2px rgba(0,0,0,.2); --shadow-sm: 0 2px 4px -2px rgba(0,0,0,.18); --shadow-xl: 0 0 12px rgba(0,0,0,.1); --background: #f5f5f5; --font-serif: serif; --foreground: #000000; --shadow-2xl: 0 0 24px rgba(0,0,0,.15); --destructive: #FF6B56; --card-foreground: #000000; --muted-foreground: #737373; --accent-foreground: #000000; --popover-foreground: #000000; --primary-foreground: #ffffff; --secondary-foreground: #000000; --destructive-foreground: #000000;
+    }
+    .dark {
+      --card: #1a1a1a; --ring: #0000bb; --input: #525252; --muted: #2b2b2b; --accent: #FFCC91; --border: #404040; --radius: 0.5rem; --shadow: 0 2px 6px -2px rgba(0,0,0,.75); --chart-1: #DCC2F9; --chart-2: #398282; --chart-3: #96C0D6; --chart-4: #FF6B56; --chart-5: #611848; --popover: #1a1a1a; --primary: #0000bb; --font-mono: monospace; --font-sans: "Aeonik Pro", sans-serif; --secondary: #2b2b2b; --shadow-lg: 0 0 8px rgba(0,0,0,.7); --shadow-md: 0 2px 10px -2px rgba(0,0,0,.8); --shadow-sm: 0 2px 4px -2px rgba(0,0,0,.8); --shadow-xl: 0 0 12px rgba(0,0,0,.7); --background: #000000; --font-serif: serif; --foreground: #f5f5f5; --shadow-2xl: 0 0 24px rgba(0,0,0,.75); --destructive: #FF6B56; --card-foreground: #f5f5f5; --muted-foreground: #a3a3a3; --accent-foreground: #000000; --popover-foreground: #f5f5f5; --primary-foreground: #ffffff; --secondary-foreground: #f5f5f5; --destructive-foreground: #000000;
+    }
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+    }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+    .animate-float { animation: float 4s ease-in-out infinite; }
+    @keyframes pulse-bar { 0%, 100% { transform: scaleY(0.2); } 50% { transform: scaleY(1); } }
+    .animate-pulse-bar { animation: pulse-bar 1.2s infinite ease-in-out; }
+    [contenteditable] a {
+      color: var(--primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+  </style>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            border: 'var(--border)',
+            input: 'var(--input)',
+            ring: 'var(--ring)',
+            background: 'var(--background)',
+            foreground: 'var(--foreground)',
+            primary: { DEFAULT: 'var(--primary)', foreground: 'var(--primary-foreground)' },
+            secondary: { DEFAULT: 'var(--secondary)', foreground: 'var(--secondary-foreground)' },
+            destructive: { DEFAULT: 'var(--destructive)', foreground: 'var(--destructive-foreground)' },
+            muted: { DEFAULT: 'var(--muted)', foreground: 'var(--muted-foreground)' },
+            accent: { DEFAULT: 'var(--accent)', foreground: 'var(--accent-foreground)' },
+            popover: { DEFAULT: 'var(--popover)', foreground: 'var(--popover-foreground)' },
+            card: { DEFAULT: 'var(--card)', foreground: 'var(--card-foreground)' },
+          },
+          borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 2px)", sm: "calc(var(--radius) - 4px)" },
+        }
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="pdf-render-content" style="display: none; position: absolute; left: -9999px; top: 0; background: white; color: black;"></div>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^18.2.0/",
+    "react/": "https://aistudiocdn.com/react@^18.2.0/"
+  }
+}
+</script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
