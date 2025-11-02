@@ -3,393 +3,442 @@ import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobRep
 declare const jspdf: any;
 declare const html2canvas: any;
 
-export const generateInvoicePDF = (profile: UserProfile, job: Job, invoiceData: InvoiceData) => {
-  const { jsPDF } = jspdf;
-  const doc = new jsPDF();
-
-  // ... (existing invoice PDF logic remains unchanged)
-  // NOTE: For brevity, the existing unchanged code for generateInvoicePDF is omitted. 
-  // It should be kept as it was in the previous version.
-  const addHeader = () => {
-    if (profile.logoUrl) {
-      try {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        img.onload = function() {
-          const canvas = document.createElement('canvas');
-          // FIX: Use `img` instead of `this` to refer to the image element.
-          // The context of `this` inside the onload function is not the image element.
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          const ctx = canvas.getContext('2d');
-          ctx!.drawImage(img, 0, 0);
-          const dataUrl = canvas.toDataURL('image/jpeg');
-          const aspectRatio = img.naturalWidth / img.naturalHeight;
-          const imgWidth = 30;
-          const imgHeight = imgWidth / aspectRatio;
-          doc.addImage(dataUrl, 'JPEG', 15, 10, imgWidth, imgHeight);
-          addContent();
-          saveDoc();
-        };
-        img.onerror = function() {
-          console.error("Could not load image for PDF.");
-          doc.text("Logo", 25, 25);
-          addContent();
-          saveDoc();
-        };
-        img.src = profile.logoUrl;
-      } catch (e) {
-        console.error("Error adding image to PDF:", e);
-        doc.text("Logo", 25, 25);
-        addContent();
-        saveDoc();
-      }
-    } else {
-        doc.setFontSize(20);
-        doc.setFont(undefined, 'bold');
-        doc.text(profile.companyName, 15, 20);
-        doc.setFontSize(10);
-        doc.setFont(undefined, 'normal');
-        doc.text(profile.address || '', 15, 28);
-        doc.text(profile.phone || '', 15, 33);
-        doc.text(profile.website || '', 15, 38);
-        addContent();
-        saveDoc();
-    }
-  };
-  
-  const addContent = () => {
-    // ... (rest of the function is unchanged)
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
-    doc.text('BILL TO', 15, 60);
-    doc.setFont(undefined, 'normal');
-    doc.text(job.clientName, 15, 68);
-    doc.text(job.clientAddress, 15, 74);
-  };
-  
-  const saveDoc = () => {
-    doc.save(`Invoice-${invoiceData.invoiceNumber}-${job.clientName}.pdf`);
-  };
-
-  addHeader();
-};
-
-
-const showNotImplementedAlert = (docType: string) => {
-    alert(`${docType} PDF generation is not implemented yet.`);
-}
-
-export const generateDailyJobReportPDF = async (profile: UserProfile, data: DailyJobReportData, template: 'minimal' | 'bordered' | 'modern') => {
+export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoiceData: InvoiceData) => {
   const { jsPDF } = jspdf;
   const doc = new jsPDF('p', 'pt', 'a4');
-  const pageHeight = doc.internal.pageSize.getHeight();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 40;
   let yPos = margin;
 
-  const fonts = {
-    modern: { normal: 'Helvetica', bold: 'Helvetica-Bold' },
-    bordered: { normal: 'Times-Roman', bold: 'Times-Bold' },
-    minimal: { normal: 'Helvetica', bold: 'Helvetica-Bold' }
-  };
-  const themeFonts = fonts[template];
-  doc.setFont(themeFonts.normal);
-
-  if (template === 'bordered') {
-    doc.setDrawColor(0);
-    doc.setLineWidth(2);
-    doc.rect(margin / 2, margin / 2, pageWidth - margin, pageHeight - margin);
-    doc.setLineWidth(0.5);
-    doc.rect(margin / 2 + 4, margin / 2 + 4, pageWidth - margin - 8, pageHeight - margin - 8);
-  }
-
-  if (data.logoUrl) {
-    try {
-      const img = new Image();
-      img.src = data.logoUrl;
-      await new Promise(resolve => { img.onload = resolve; img.onerror = resolve; });
-      const logoWidth = 70;
-      const logoHeight = (img.naturalHeight * logoWidth) / img.naturalWidth;
-      doc.addImage(data.logoUrl, 'PNG', margin, yPos, logoWidth, logoHeight);
-    } catch(e) { console.error("Could not add logo", e); }
-  }
-
-  const headerTextX = pageWidth - margin;
-  if (template === 'modern') {
-    doc.setFillColor(41, 128, 185);
-    doc.rect(pageWidth / 2 - 20, yPos - 10, pageWidth / 2 + 60, 50, 'F');
-    doc.setFontSize(24);
-    doc.setFont(themeFonts.bold);
-    doc.setTextColor(255, 255, 255);
-    doc.text('Daily Job Report', headerTextX, yPos + 25, { align: 'right' });
-    yPos += 40;
-  } else {
-    doc.setFontSize(22);
-    doc.setFont(themeFonts.bold);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Daily Job Report', headerTextX, yPos + 20, { align: 'right' });
-  }
-
-  doc.setFontSize(10);
-  doc.setFont(themeFonts.normal);
-  doc.setTextColor(80);
-  doc.text(profile.companyName, headerTextX, yPos + 35, { align: 'right' });
-  doc.text(profile.address, headerTextX, yPos + 48, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
-  yPos += 80;
-  
-  doc.setDrawColor(template === 'modern' ? 41 : (template === 'bordered' ? 0 : 200));
-  doc.setLineWidth(template === 'modern' ? 2 : 1);
-  doc.line(margin, yPos, pageWidth - margin, yPos);
-  yPos += 25;
-
-  const headerY = yPos;
-  doc.setFontSize(11); doc.setFont(themeFonts.bold);
-  doc.text('Project Name:', margin, headerY);
-  doc.setFont(themeFonts.normal); doc.text(data.projectName, margin + 90, headerY);
-  doc.setFont(themeFonts.bold);
-  doc.text('Client:', margin, headerY + 20);
-  doc.setFont(themeFonts.normal); doc.text(data.clientName, margin + 90, headerY + 20);
-  doc.setFont(themeFonts.bold);
-  doc.text('Address:', margin, headerY + 40);
-  doc.setFont(themeFonts.normal); doc.text(data.projectAddress, margin + 90, headerY + 40, { maxWidth: pageWidth / 2 - margin - 90 });
-  
-  doc.setFont(themeFonts.bold);
-  doc.text('Report #:', pageWidth / 2 + 20, headerY);
-  doc.setFont(themeFonts.normal); doc.text(data.reportNumber, pageWidth / 2 + 90, headerY);
-  doc.setFont(themeFonts.bold);
-  doc.text('Date:', pageWidth / 2 + 20, headerY + 20);
-  doc.setFont(themeFonts.normal); doc.text(new Date(data.date).toLocaleDateString(), pageWidth / 2 + 90, headerY + 20);
-  doc.setFont(themeFonts.bold);
-  doc.text('Weather:', pageWidth / 2 + 20, headerY + 40);
-  doc.setFont(themeFonts.normal); doc.text(`${data.weather}, ${data.temperature}`, pageWidth / 2 + 90, headerY + 40);
-  
-  yPos = headerY + 65;
-  doc.line(margin, yPos, pageWidth - margin, yPos);
-  yPos += 20;
-
-  const editorElement = document.getElementById('pdf-render-content');
-  if (!editorElement) { alert("Could not find content to render for PDF."); return; }
-  
-  editorElement.innerHTML = data.content;
-  editorElement.style.display = 'block';
-  editorElement.style.width = `${pageWidth - margin * 2}px`;
-  editorElement.style.fontFamily = template === 'bordered' ? 'Times, serif' : 'Helvetica, sans-serif';
-  editorElement.style.color = '#000';
-
-  const links: { href: string; rect: DOMRect }[] = [];
-  editorElement.querySelectorAll('a').forEach(a => {
-    links.push({ href: a.href, rect: a.getBoundingClientRect() });
-    const span = document.createElement('span');
-    span.textContent = a.textContent;
-    span.style.color = '#0000bb';
-    span.style.textDecoration = 'underline';
-    a.replaceWith(span);
-  });
-  
-  const canvas = await html2canvas(editorElement, { scale: 2, useCORS: true });
-  const editorRect = editorElement.getBoundingClientRect();
-
-  editorElement.style.display = 'none';
-  editorElement.innerHTML = '';
-
-  const contentWidth = pageWidth - margin * 2;
-  const contentHeight = (canvas.height * contentWidth) / canvas.width;
-  
-  const scaleX = contentWidth / editorRect.width;
-  const scaleY = contentHeight / editorRect.height;
-  
-  let heightLeft = contentHeight;
-  let canvasSourceY = 0; // The y-coordinate within the source canvas image
-  let contentRenderedOnPdf = 0; // How much of the content's height has been rendered to the PDF
-  let isFirstChunk = true;
-  
-  let finalY = yPos; // Keep track of the final Y position
-  
-  while (heightLeft > 0) {
-    if (!isFirstChunk) {
-        doc.addPage();
-        yPos = margin;
-    }
-    
-    let spaceLeftOnPage = pageHeight - yPos - margin;
-    if (spaceLeftOnPage <= 0) { // Safety check in case the header fills the page
-        doc.addPage();
-        yPos = margin;
-        spaceLeftOnPage = pageHeight - margin * 2;
-    }
-
-    const chunkHeightOnPdf = Math.min(heightLeft, spaceLeftOnPage);
-    const chunkHeightOnCanvas = (chunkHeightOnPdf / contentHeight) * canvas.height;
-    
-    const canvasChunk = document.createElement('canvas');
-    canvasChunk.width = canvas.width;
-    canvasChunk.height = chunkHeightOnCanvas;
-    const ctx = canvasChunk.getContext('2d');
-    if (ctx) {
-        ctx.drawImage(canvas, 0, canvasSourceY, canvas.width, chunkHeightOnCanvas, 0, 0, canvas.width, chunkHeightOnCanvas);
+  // Function to add logo from either base64 data URL or a remote URL
+  const addLogo = async () => {
+    const logoSource = invoiceData.logoUrl || profile.logoUrl;
+    if (logoSource) {
+      try {
+        let dataUrl = logoSource;
+        // If it's a remote URL, fetch it and convert to base64
+        if (!logoSource.startsWith('data:image/')) {
+          const response = await fetch(logoSource);
+          const blob = await response.blob();
+          const reader = new FileReader();
+          dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
         
-        const chunkImgData = canvasChunk.toDataURL('image/png');
-        doc.addImage(chunkImgData, 'PNG', margin, yPos, contentWidth, chunkHeightOnPdf);
+        const img = new Image();
+        const imgLoadPromise = new Promise((resolve) => { img.onload = resolve; });
+        img.src = dataUrl;
+        await imgLoadPromise;
+        
+        const aspectRatio = img.naturalWidth / img.naturalHeight;
+        const imgWidth = 80;
+        const imgHeight = imgWidth / aspectRatio;
+        doc.addImage(dataUrl, 'PNG', margin, yPos, imgWidth, imgHeight);
+        yPos += imgHeight + 10;
+      } catch (e) {
+        console.error("Error adding image to PDF. Check CORS policy on the image URL.", e);
+      }
+    }
+  };
 
-        links.forEach(link => {
-            const linkRelativeY = (link.rect.top - editorRect.top) * scaleY;
-            
-            if (linkRelativeY >= contentRenderedOnPdf && linkRelativeY < (contentRenderedOnPdf + chunkHeightOnPdf)) {
-                const pdfX = margin + (link.rect.left - editorRect.left) * scaleX;
-                const pdfY = yPos + (linkRelativeY - contentRenderedOnPdf);
-                const pdfWidth = link.rect.width * scaleX;
-                const pdfHeight = link.rect.height * scaleY;
-                doc.link(pdfX, pdfY, pdfWidth, pdfHeight, { url: link.href });
+  await addLogo();
+  yPos = margin; // Reset yPos for header text
+
+  // Header
+  doc.setFontSize(24);
+  doc.setFont('helvetica', 'bold');
+  doc.text('INVOICE', pageWidth - margin, yPos + 20, { align: 'right' });
+  
+  yPos += 80;
+
+  // Use invoice-specific data with fallbacks to profile/job data
+  const companyName = invoiceData.companyName || profile.companyName;
+  const companyAddress = invoiceData.companyAddress || profile.address;
+  const companyPhone = invoiceData.companyPhone || profile.phone;
+  const companyWebsite = invoiceData.companyWebsite || profile.website;
+  const clientName = invoiceData.clientName || job.clientName;
+  const clientAddress = invoiceData.clientAddress || job.clientAddress;
+
+  // Company Details (left)
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text(companyName, margin, yPos);
+  doc.setFont('helvetica', 'normal');
+  yPos += 15;
+  if(companyAddress) { doc.text(companyAddress, margin, yPos, { maxWidth: pageWidth / 2.5 }); yPos += 15 * (doc.getTextDimensions(companyAddress, { maxWidth: pageWidth / 2.5 }).h / 10); }
+  if(companyPhone) { doc.text(companyPhone, margin, yPos); yPos += 15; }
+  if(companyWebsite) { doc.text(companyWebsite, margin, yPos, { style: 'link' }); }
+
+  // Bill To & Invoice Info (right)
+  let rightColY = margin + 80; 
+  const rightColX = pageWidth / 2;
+  
+  doc.setFont('helvetica', 'bold');
+  doc.text('BILL TO', rightColX, rightColY);
+  doc.setFont('helvetica', 'normal');
+  rightColY += 15;
+  doc.text(clientName, rightColX, rightColY);
+  rightColY += 15;
+  doc.text(clientAddress, rightColX, rightColY, { maxWidth: pageWidth / 2 - margin });
+  
+  rightColY = margin + 80;
+  const labelX = pageWidth - margin - 100;
+  const valueX = pageWidth - margin;
+
+  doc.setFont('helvetica', 'bold'); doc.text('Invoice #:', labelX, rightColY);
+  doc.setFont('helvetica', 'normal'); doc.text(invoiceData.invoiceNumber, valueX, rightColY, { align: 'right' });
+  rightColY += 15;
+  doc.setFont('helvetica', 'bold'); doc.text('Issue Date:', labelX, rightColY);
+  doc.setFont('helvetica', 'normal'); doc.text(invoiceData.issueDate, valueX, rightColY, { align: 'right' });
+  rightColY += 15;
+  doc.setFont('helvetica', 'bold'); doc.text('Due Date:', labelX, rightColY);
+  doc.setFont('helvetica', 'normal'); doc.text(invoiceData.dueDate, valueX, rightColY, { align: 'right' });
+
+  yPos = Math.max(yPos, rightColY) + 40;
+
+  // Line Items Table
+  const tableData = invoiceData.lineItems.map(item => [
+    item.description,
+    item.quantity,
+    `$${item.rate.toFixed(2)}`,
+    `$${(item.quantity * item.rate).toFixed(2)}`
+  ]);
+
+  (doc as any).autoTable({
+    startY: yPos,
+    head: [['Description', 'Quantity', 'Rate', 'Amount']],
+    body: tableData,
+    theme: 'striped',
+    headStyles: { fillColor: [34, 34, 34] }, // Dark grey header
+    styles: { fontSize: 10, cellPadding: 8 },
+    margin: { left: margin, right: margin }
+  });
+
+  yPos = (doc as any).autoTable.previous.finalY + 30;
+
+  // Totals
+  const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+  const subtotal = invoiceData.lineItems.reduce((acc, item) => acc + item.quantity * item.rate, 0);
+  const discount = invoiceData.discount || 0;
+  const shipping = invoiceData.shipping || 0;
+  const amountAfterDiscount = subtotal - discount;
+  const taxAmount = amountAfterDiscount * ((invoiceData.taxRate || 0) / 100);
+  const total = amountAfterDiscount + taxAmount + shipping;
+
+  const totalsX = pageWidth - margin - 200;
+  doc.setFontSize(10);
+  const addTotalLine = (label: string, value: string, isBold: boolean = false) => {
+    doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+    doc.text(label, totalsX, yPos);
+    doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+    doc.text(value, pageWidth - margin, yPos, { align: 'right' });
+    yPos += 20;
+  };
+
+  addTotalLine('Subtotal:', currencyFormatter.format(subtotal));
+  if (discount > 0) addTotalLine('Discount:', `- ${currencyFormatter.format(discount)}`);
+  if(invoiceData.taxRate > 0) addTotalLine(`Tax (${invoiceData.taxRate}%):`, currencyFormatter.format(taxAmount));
+  if (shipping > 0) addTotalLine('Shipping:', currencyFormatter.format(shipping));
+  
+  yPos += 5;
+  doc.setDrawColor(180);
+  doc.setLineWidth(1.5);
+  doc.line(totalsX - 10, yPos - 10, pageWidth - margin, yPos - 10);
+  
+  doc.setFontSize(12);
+  addTotalLine('Total:', currencyFormatter.format(total), true);
+
+  // Notes
+  if (invoiceData.notes) {
+    yPos = (doc as any).autoTable.previous.finalY + 30; // Reset yPos to be relative to the table
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Notes:', margin, yPos);
+    yPos += 15;
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoiceData.notes, margin, yPos, { maxWidth: pageWidth / 2.2 });
+  }
+
+  // Save PDF
+  doc.save(`Invoice-${invoiceData.invoiceNumber}-${clientName}.pdf`);
+};
+
+ const showNotImplementedAlert = (docType: string) => {
+     alert(`${docType} PDF generation is not implemented yet.`);
+ }
+export const generateDailyJobReportPDF = async (profile: UserProfile, data: DailyJobReportData, template: 'minimal' | 'bordered' | 'modern') => {
+   const { jsPDF } = jspdf;
+   const doc = new jsPDF('p', 'pt', 'a4');
+   const pageWidth = doc.internal.pageSize.getWidth();
+   const pageHeight = doc.internal.pageSize.getHeight();
+   const margin = 40;
+
+   // Use report-specific data with fallbacks to profile data
+   const companyName = data.companyName || profile.companyName;
+   const companyAddress = data.companyAddress || profile.address;
+   const companyPhone = data.companyPhone || profile.phone;
+   const companyWebsite = data.companyWebsite || profile.website;
+
+   const addLogo = async (yStart: number, xStart: number = margin, maxWidth: number = 60) => {
+    let logoHeight = 0;
+    const logoUrl = data.logoUrl || profile.logoUrl;
+    if (logoUrl) {
+      try {
+        let dataUrl = logoUrl;
+        if (!logoUrl.startsWith('data:image/')) {
+            const response = await fetch(logoUrl);
+            const blob = await response.blob();
+            const reader = new FileReader();
+            dataUrl = await new Promise<string>((resolve, reject) => {
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+        
+        const img = new Image();
+        const imgLoadPromise = new Promise((resolve) => { img.onload = resolve; });
+        img.src = dataUrl;
+        await imgLoadPromise;
+        
+        const aspectRatio = img.naturalWidth / img.naturalHeight;
+        const imgWidth = Math.min(maxWidth, 80);
+        const imgHeight = imgWidth / aspectRatio;
+        doc.addImage(dataUrl, 'PNG', xStart, yStart, imgWidth, imgHeight);
+        logoHeight = imgHeight;
+      } catch (e) {
+        console.error("Error adding image to PDF:", e);
+      }
+    }
+    return logoHeight;
+   };
+   
+   const addCompanyInfo = (yStart: number) => {
+      let y = yStart;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(companyName, margin, y);
+      y += 15;
+      doc.setFont('helvetica', 'normal');
+      if (companyAddress) {
+          const addressLines = doc.splitTextToSize(companyAddress, pageWidth / 3);
+          doc.text(addressLines, margin, y);
+          y += 15 * addressLines.length;
+      }
+      if (companyPhone) {
+          doc.text(companyPhone, margin, y);
+          y += 15;
+      }
+      if (companyWebsite) {
+          doc.text(companyWebsite, margin, y);
+          y += 15;
+      }
+      return y;
+   }
+
+   const addHeader = (title: string, y: number) => {
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text(title, pageWidth - margin, y, { align: 'right'});
+   }
+
+   const addFooter = () => {
+       const pageCount = (doc as any).internal.getNumberOfPages();
+       doc.setFontSize(8);
+       doc.setFont('helvetica', 'normal');
+       for (let i = 1; i <= pageCount; i++) {
+           doc.setPage(i);
+           doc.text(`Page ${i} of ${pageCount}`, margin, pageHeight - margin / 2);
+           doc.text(`${companyName} | Daily Job Report`, pageWidth / 2, pageHeight - margin / 2, { align: 'center' });
+           doc.text(new Date().toLocaleDateString(), pageWidth - margin, pageHeight - margin / 2, { align: 'right' });
+       }
+   };
+   
+   if (template === 'minimal') {
+      await addLogo(margin, pageWidth - margin - 60, 60);
+      addHeader('Daily Job Report', margin + 20);
+      let yPos = addCompanyInfo(margin + 20);
+
+      yPos = Math.max(yPos, margin + 80);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      const addInfoLine = (label: string, value: string, y: number, x: number) => {
+          doc.text(`${label}:`, x, y);
+          doc.setFont('helvetica', 'normal');
+          doc.text(value, x + 70, y, { maxWidth: pageWidth / 2.5 - 70 });
+          doc.setFont('helvetica', 'bold');
+          return y + 18;
+      };
+      
+      let rightColY = margin + 80;
+      const rightColX = pageWidth / 2;
+      addInfoLine('Project', data.projectName, rightColY, rightColX);
+      addInfoLine('Client', data.clientName, rightColY + 18, rightColX);
+      addInfoLine('Address', data.projectAddress, rightColY + 36, rightColX);
+      addInfoLine('Report #', data.reportNumber, rightColY + 72, rightColX);
+      addInfoLine('Date', data.date, rightColY + 90, rightColX);
+
+      yPos = Math.max(yPos, rightColY + 120);
+
+      doc.setDrawColor(200);
+      doc.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 20;
+
+      const contentElement = document.getElementById('pdf-render-content');
+      if (contentElement) {
+        contentElement.innerHTML = data.content;
+        await (doc as any).html(contentElement, {
+          x: margin,
+          y: yPos,
+          width: pageWidth - (margin * 2),
+          windowWidth: 600,
+          callback: () => {
+            addFooter();
+            doc.save(`${data.reportNumber}.pdf`);
+          }
+        });
+      }
+
+   } else if (template === 'bordered') {
+      const borderColor = [60, 60, 60];
+      doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+      doc.setLineWidth(2);
+      doc.rect(margin/2, margin/2, pageWidth - margin, pageHeight - margin);
+
+      await addLogo(margin + 10, pageWidth - margin - 70, 60);
+      addHeader('Daily Job Report', margin + 30);
+      let yPos = addCompanyInfo(margin + 30);
+
+      yPos = Math.max(yPos, margin + 80);
+      
+      const drawInfoBox = (title: string, info: {label: string, value: string}[]) => {
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+          doc.setFillColor(240, 240, 240);
+          doc.rect(margin, yPos, pageWidth - margin * 2, 20, 'F');
+          doc.setTextColor(50, 50, 50);
+          doc.text(title, margin + 10, yPos + 14);
+          yPos += 20;
+          
+          doc.setFontSize(10);
+          info.forEach(({label, value}) => {
+             yPos += 18;
+             doc.setFont('helvetica', 'bold');
+             doc.text(label, margin + 10, yPos);
+             doc.setFont('helvetica', 'normal');
+             doc.text(value, margin + 110, yPos, { maxWidth: pageWidth - margin * 2 - 120 });
+          });
+          yPos += 10;
+      }
+      
+      drawInfoBox('Project Details', [
+          {label: 'Project Name', value: data.projectName},
+          {label: 'Client Name', value: data.clientName},
+          {label: 'Address', value: data.projectAddress},
+          {label: 'Report #', value: data.reportNumber},
+          {label: 'Date', value: data.date},
+      ]);
+      
+      yPos += 10;
+      
+      const contentElement = document.getElementById('pdf-render-content');
+      if (contentElement) {
+        contentElement.innerHTML = `<div style="padding: 5px;">${data.content}</div>`;
+        await (doc as any).html(contentElement, {
+          x: margin,
+          y: yPos,
+          width: pageWidth - (margin * 2),
+          windowWidth: 600,
+          callback: () => {
+            addFooter();
+            doc.save(`${data.reportNumber}.pdf`);
+          }
+        });
+      }
+
+   } else { // Modern template
+      doc.setFillColor(34, 34, 34); // Dark header
+      doc.rect(0, 0, pageWidth, 90, 'F');
+
+      await addLogo(20, margin, 50);
+
+      doc.setFontSize(28);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('Daily Job Report', pageWidth - margin, 55, { align: 'right' });
+      
+      let yPos = 120;
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(150, 150, 150);
+      doc.text('FROM', margin, yPos);
+      doc.text('TO', pageWidth/2, yPos);
+      yPos += 14;
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(34, 34, 34);
+      
+      doc.text(companyName, margin, yPos);
+      doc.text(data.clientName, pageWidth/2, yPos);
+      yPos += 14;
+      
+      doc.setFontSize(9);
+      doc.text(companyAddress, margin, yPos, { maxWidth: pageWidth / 2.5 - margin });
+      doc.text(data.projectAddress, pageWidth/2, yPos, { maxWidth: pageWidth / 2.5 - margin });
+
+      yPos = Math.max(yPos, 120) + 45;
+
+      doc.setDrawColor(230, 230, 230);
+      doc.setLineWidth(1);
+      doc.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 25;
+
+      const contentElement = document.getElementById('pdf-render-content');
+      if (contentElement) {
+        contentElement.innerHTML = `<div style="font-family: Arial, sans-serif; font-size: 10pt;">${data.content}</div>`;
+        await (doc as any).html(contentElement, {
+          x: margin,
+          y: yPos,
+          width: pageWidth - (margin * 2),
+          windowWidth: 600,
+          callback: () => {
+            addFooter();
+            doc.save(`${data.reportNumber}.pdf`);
+          }
+        });
+      }
+   }
+};
+
+export const generateNotePDF = (profile: UserProfile, job: Job, data: NoteData) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.text(data.title, 20, 20);
+    doc.setFontSize(12);
+    const contentElement = document.getElementById('pdf-render-content');
+    if (contentElement) {
+        contentElement.innerHTML = data.content;
+        (doc as any).html(contentElement, {
+            x: 20,
+            y: 30,
+            callback: function (doc: any) {
+                doc.save(`Note-${data.title}.pdf`);
             }
         });
     }
-    
-    heightLeft -= chunkHeightOnPdf;
-    canvasSourceY += chunkHeightOnCanvas;
-    contentRenderedOnPdf += chunkHeightOnPdf;
-    finalY = yPos + chunkHeightOnPdf;
-    
-    isFirstChunk = false;
-  }
-
-  if(data.signatureUrl) {
-    const signatureHeight = 50;
-    const signatureSpacing = 40;
-    if (finalY + signatureSpacing + signatureHeight > pageHeight - margin) {
-        doc.addPage();
-        finalY = margin;
-    } else {
-        finalY += signatureSpacing;
-    }
-    
-    doc.setFont(themeFonts.bold);
-    doc.text('Signature:', margin, finalY);
-    try {
-        const sigImg = new Image();
-        sigImg.src = data.signatureUrl;
-        await new Promise(resolve => { sigImg.onload = resolve; sigImg.onerror = resolve; });
-        const sigWidth = 80;
-        const sigHeight = (sigImg.naturalHeight * sigWidth) / sigImg.naturalWidth;
-        doc.addImage(data.signatureUrl, 'PNG', margin, finalY + 5, sigWidth, sigHeight);
-    } catch(e) { console.error("Could not add signature", e); }
-  }
-  
-  doc.save(`DailyReport-${data.reportNumber}-${data.projectName}.pdf`);
 };
 
-export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData) => {
-    const { jsPDF } = jspdf;
-    const doc = new jsPDF('p', 'pt', 'a4');
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 40;
-    let yPos = margin;
-
-    doc.setFontSize(22);
-    doc.setFont('Helvetica', 'bold');
-    doc.text(data.title, pageWidth / 2, yPos, { align: 'center', maxWidth: pageWidth - margin * 2 });
-    yPos += doc.getTextDimensions(data.title, { maxWidth: pageWidth - margin * 2 }).h + 20;
-
-    doc.setDrawColor(200);
-    doc.setLineWidth(1);
-    doc.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 20;
-
-    const editorElement = document.getElementById('pdf-render-content');
-    if (!editorElement) {
-        alert("Could not find content to render for PDF.");
-        return;
-    }
-
-    editorElement.innerHTML = data.content;
-    editorElement.style.display = 'block';
-    editorElement.style.width = `${pageWidth - margin * 2}px`;
-    editorElement.style.fontFamily = 'Helvetica, sans-serif';
-    editorElement.style.color = '#000';
-
-    const links: { href: string; rect: DOMRect }[] = [];
-    editorElement.querySelectorAll('a').forEach(a => {
-        links.push({ href: a.href, rect: a.getBoundingClientRect() });
-        const span = document.createElement('span');
-        span.textContent = a.textContent;
-        span.style.color = '#0000bb';
-        span.style.textDecoration = 'underline';
-        a.replaceWith(span);
-    });
-
-    const canvas = await html2canvas(editorElement, { scale: 2, useCORS: true });
-    const editorRect = editorElement.getBoundingClientRect();
-
-    editorElement.style.display = 'none';
-    editorElement.innerHTML = '';
-
-    const contentWidth = pageWidth - margin * 2;
-    const contentHeight = (canvas.height * contentWidth) / canvas.width;
-
-    const scaleX = contentWidth / editorRect.width;
-    const scaleY = contentHeight / editorRect.height;
-
-    let heightLeft = contentHeight;
-    let canvasSourceY = 0;
-    let contentRenderedOnPdf = 0;
-    let isFirstChunk = true;
-
-    while (heightLeft > 0) {
-        if (!isFirstChunk) {
-            doc.addPage();
-            yPos = margin;
-        }
-
-        let spaceLeftOnPage = pageHeight - yPos - margin;
-        if (spaceLeftOnPage <= 0) {
-            doc.addPage();
-            yPos = margin;
-            spaceLeftOnPage = pageHeight - margin * 2;
-        }
-
-        const chunkHeightOnPdf = Math.min(heightLeft, spaceLeftOnPage);
-        const chunkHeightOnCanvas = (chunkHeightOnPdf / contentHeight) * canvas.height;
-
-        const canvasChunk = document.createElement('canvas');
-        canvasChunk.width = canvas.width;
-        canvasChunk.height = chunkHeightOnCanvas;
-        const ctx = canvasChunk.getContext('2d');
-        if (ctx) {
-            ctx.drawImage(canvas, 0, canvasSourceY, canvas.width, chunkHeightOnCanvas, 0, 0, canvas.width, chunkHeightOnCanvas);
-
-            const chunkImgData = canvasChunk.toDataURL('image/png');
-            doc.addImage(chunkImgData, 'PNG', margin, yPos, contentWidth, chunkHeightOnPdf);
-
-            links.forEach(link => {
-                const linkRelativeY = (link.rect.top - editorRect.top) * scaleY;
-                if (linkRelativeY >= contentRenderedOnPdf && linkRelativeY < (contentRenderedOnPdf + chunkHeightOnPdf)) {
-                    const pdfX = margin + (link.rect.left - editorRect.left) * scaleX;
-                    const pdfY = yPos + (linkRelativeY - contentRenderedOnPdf);
-                    const pdfWidth = link.rect.width * scaleX;
-                    const pdfHeight = link.rect.height * scaleY;
-                    doc.link(pdfX, pdfY, pdfWidth, pdfHeight, { url: link.href });
-                }
-            });
-        }
-
-        heightLeft -= chunkHeightOnPdf;
-        canvasSourceY += chunkHeightOnCanvas;
-        contentRenderedOnPdf += chunkHeightOnPdf;
-
-        isFirstChunk = false;
-    }
-
-    const safeTitle = data.title.replace(/[^a-z0-9]/gi, '_').toLowerCase().substring(0, 20);
-    doc.save(`Note-${safeTitle || 'untitled'}.pdf`);
-};
-
-
-export const generateEstimatePDF = (profile: UserProfile, job: Job, data: EstimateData) => showNotImplementedAlert('Estimate');
 export const generateWorkOrderPDF = (profile: UserProfile, job: Job, data: WorkOrderData) => showNotImplementedAlert('Work Order');
 export const generateTimeSheetPDF = (profile: UserProfile, job: Job, data: TimeSheetData) => showNotImplementedAlert('Time Sheet');
 export const generateMaterialLogPDF = (profile: UserProfile, job: Job, data: MaterialLogData) => showNotImplementedAlert('Material Log');
+export const generateEstimatePDF = (profile: UserProfile, job: Job, data: EstimateData) => showNotImplementedAlert('Estimate');
 export const generateExpenseLogPDF = (profile: UserProfile, job: Job, data: ExpenseLogData) => showNotImplementedAlert('Expense Log');
 export const generateWarrantyPDF = (profile: UserProfile, job: Job, data: WarrantyData) => showNotImplementedAlert('Warranty');
 export const generateReceiptPDF = (profile: UserProfile, job: Job, data: ReceiptData) => showNotImplementedAlert('Receipt');

@@ -1,164 +1,296 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from './hooks/useLocalStorage.ts';
-import type { UserProfile, Job, FormData, FormType } from './types.ts';
-import Settings from './components/Settings.tsx';
+// FIX: Removed 'type' from import to allow 'FormType' enum to be used as a value.
+import { UserProfile, Job, FormData as FormDataType, FormType, InvoiceData, DailyJobReportData, NoteData } from './types.ts';
+import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import Login from './components/Login.tsx';
+import Signup from './components/Signup.tsx';
 import SelectDocType from './components/SelectDocType.tsx';
 import InvoiceForm from './components/InvoiceForm.tsx';
 import DailyJobReportForm from './components/DailyJobReportForm.tsx';
 import NoteForm from './components/NoteForm.tsx';
+import Settings from './components/Settings.tsx';
 import Dock from './components/Dock.tsx';
-import { HomeIcon, PlusIcon, SettingsIcon, DocumentIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, GoogleIcon } from './components/Icons.tsx';
+import { Button } from './components/ui/Button.tsx';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/Card.tsx';
 
-// Dummy data for initial state
+// --- IMPORTANT: CONFIGURE YOUR SUPABASE CREDENTIALS ---
+// You can get these from your Supabase project dashboard at https://app.supabase.com
+const supabaseUrl = 'https://iauteblvljppwzsxloyd.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdXRlYmx2bGpwcHd6c3hsb3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1OTk0MTIsImV4cCI6MjA3NjE3NTQxMn0.W2Xu9TuO6odsnF5eK7iLPqV4KB0wVWXzmM2ofnKZw70';
+
+// Helper to check if credentials are placeholders
+const areCredentialsPlaceholders = !supabaseAnonKey || supabaseAnonKey.includes('YOUR_SUPABASE');
+
+// Initialize Supabase client
+const supabase: SupabaseClient | null = areCredentialsPlaceholders ? null : (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+
 const initialProfile: UserProfile = {
-  id: 'user1', email: 'contractor@example.com', name: 'John Doe', companyName: 'JD Contracting', logoUrl: '',
-  address: '123 Main St, Anytown, USA', phone: '555-123-4567', website: 'www.jdcontracting.com'
+  id: 'user123',
+  email: 'contractor@example.com',
+  name: 'John Doe',
+  companyName: 'Doe Construction',
+  logoUrl: '',
+  address: '123 Main St, Anytown, USA',
+  phone: '555-123-4567',
+  website: 'www.doeconstruction.com'
 };
-const initialJobs: Job[] = [];
-const initialForms: FormData[] = [];
 
+const initialJobs: Job[] = [
+  {
+    id: 'job1',
+    userId: 'user123',
+    name: 'Kitchen Remodel',
+    clientName: 'Jane Smith',
+    clientAddress: '456 Oak Ave, Anytown, USA',
+    startDate: '2023-10-01',
+    endDate: null,
+    status: 'active'
+  }
+];
+
+const ConfigurationWarning = () => (
+  <div className="flex items-center justify-center min-h-screen bg-background p-4">
+    <Card className="max-w-lg w-full">
+      <CardHeader>
+        <CardTitle className="text-destructive">Configuration Needed</CardTitle>
+        <CardDescription>
+          You need to add your Supabase credentials to get started.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p>Please open the file <code className="bg-muted px-2 py-1 rounded-md text-sm">App.tsx</code> in your editor.</p>
+        <p>Find the following lines and replace the placeholder values with your actual Supabase Project URL and Anon Key:</p>
+        <pre className="bg-muted p-4 rounded-md text-sm overflow-x-auto">
+          <code>
+            const supabaseUrl = 'YOUR_SUPABASE_URL';<br />
+            const supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
+          </code>
+        </pre>
+        <p>You can find these in your Supabase project's dashboard under <span className="font-semibold">Project Settings &gt; API</span>.</p>
+      </CardContent>
+    </Card>
+  </div>
+);
 
 const App: React.FC = () => {
-  const [profile, setProfile] = useLocalStorage<UserProfile>('user-profile', initialProfile);
+  type AppView = 
+    | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
+    | { screen: 'dashboard' }
+    | { screen: 'selectDocType'; jobId: string }
+    | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
+    | { screen: 'settings' };
+  
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<AppView>({ screen: 'auth', authScreen: 'login' });
+  
+  const [profile, setProfile] = useLocalStorage<UserProfile>('userProfile', initialProfile);
   const [jobs, setJobs] = useLocalStorage<Job[]>('jobs', initialJobs);
-  const [forms, setForms] = useLocalStorage<FormData[]>('forms', initialForms);
+  const [forms, setForms] = useLocalStorage<FormDataType[]>('forms', []);
 
-  const [screen, setScreen] = useState<'documents' | 'settings' | 'selectDoc' | 'editForm'>('documents');
-  const [activeForm, setActiveForm] = useState<FormData | null>(null);
-  const [newFormType, setNewFormType] = useState<FormType | null>(null);
-  
-  // A dummy job for context, since the job layer was removed but forms still need a job ID.
-  const getDummyJob = (): Job => {
-    if (jobs.length > 0) return jobs[0];
-    const newJob: Job = { 
-      id: 'job1', userId: profile.id, name: 'General Work', clientName: 'Default Client', 
-      clientAddress: '123 Client St', startDate: new Date().toISOString().split('T')[0], endDate: null, status: 'active' 
+  useEffect(() => {
+    if (!supabase) return;
+
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      if (session) {
+        setView({ screen: 'dashboard' });
+      }
+      setLoading(false);
     };
-    setJobs([newJob]);
-    return newJob;
-  };
+    getSession();
 
-  const handleSaveForm = (formData: FormData['data']) => {
-    if (activeForm) { // Editing existing form
-      setForms(forms.map(f => f.id === activeForm.id ? { ...f, data: formData } : f));
-    } else if (newFormType) { // Creating new form
-      const newForm: FormData = {
-        id: crypto.randomUUID(),
-        jobId: getDummyJob().id,
-        type: newFormType,
-        createdAt: new Date().toISOString(),
-        data: formData,
-      };
-      setForms([...forms, newForm]);
-    }
-    setActiveForm(null);
-    setNewFormType(null);
-    setScreen('documents');
-  };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        setView({ screen: 'dashboard' });
+      } else {
+        setView({ screen: 'auth', authScreen: 'login' });
+      }
+    });
 
-  const handleSelectDocType = (type: FormType) => {
-    setNewFormType(type);
-    setActiveForm(null);
-    setScreen('editForm');
-  };
+    return () => subscription.unsubscribe();
+  }, []);
 
-  const handleEditForm = (form: FormData) => {
-    setActiveForm(form);
-    setNewFormType(form.type);
-    setScreen('editForm');
+  // --- Auth Handlers ---
+  const handleLogin = async (email: string, pass: string) => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
+    if (error) throw error;
   };
   
-  const renderForm = () => {
-    const formType = activeForm?.type || newFormType;
-    if (!formType) return <p>Error: No form type selected.</p>;
+  const handleSignup = async (email: string, pass: string) => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signUp({ email: email, password: pass });
+    if (error) throw error;
+    setView({ screen: 'auth', authScreen: 'checkEmail' });
+  };
+  
+  const handleLoginWithGoogle = async () => {
+    if (!supabase) return;
+    await supabase.auth.signInWithOAuth({ provider: 'google' });
+  };
+  
+  const handleLogout = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+  };
+
+  // --- Navigation Handlers ---
+  const navigateToDashboard = () => setView({ screen: 'dashboard' });
+  const navigateToSettings = () => setView({ screen: 'settings' });
+  const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
+  
+  // --- Data Handlers ---
+  const handleSaveForm = (formData: any) => {
+    if (view.screen !== 'form') return;
     
-    const job = jobs.find(j => j.id === activeForm?.jobId) || getDummyJob();
-
-    switch (formType) {
-        case 'Invoice':
-            return <InvoiceForm 
-                        job={job} 
-                        userProfile={profile} 
-                        invoice={activeForm?.data as any} 
-                        onSave={handleSaveForm} 
-                        onClose={() => setScreen('documents')} 
-                    />
-        case 'Daily Job Report':
-            return <DailyJobReportForm 
-                        profile={profile}
-                        report={activeForm?.data as any}
-                        onSave={handleSaveForm}
-                        onBack={() => setScreen('documents')}
-                    />
-        case 'Note':
-            return <NoteForm
-                        profile={profile}
-                        job={job}
-                        note={activeForm?.data as any}
-                        onSave={handleSaveForm}
-                        onBack={() => setScreen('documents')}
-                    />
-        default:
-            // Placeholder for other forms
-            return (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-background text-foreground">
-                    <h2 className="text-2xl font-bold mb-4">{formType}</h2>
-                    <p className="text-muted-foreground mb-8">This form is coming soon!</p>
-                    <button onClick={() => setScreen('documents')} className="px-6 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90">
-                        Back to Documents
-                    </button>
-                </div>
-            )
+    let formToSave = forms.find(f => f.id === view.formId);
+    if (formToSave) {
+        const updatedForms = forms.map(f => f.id === view.formId ? {...f, data: formData} : f);
+        setForms(updatedForms);
+    } else {
+        const newForm: FormDataType = {
+            id: crypto.randomUUID(),
+            jobId: view.jobId,
+            type: view.formType,
+            createdAt: new Date().toISOString(),
+            data: formData,
+        };
+        setForms(prev => [...prev, {...newForm, data: formData}]);
     }
-  }
-
-  const renderScreen = () => {
-    switch (screen) {
-      case 'settings':
-        return <Settings profile={profile} setProfile={setProfile} onBack={() => setScreen('documents')} />;
-      case 'selectDoc':
-        return <SelectDocType onSelect={handleSelectDocType} onBack={() => setScreen('documents')} />;
-      case 'editForm':
-        return renderForm();
-      case 'documents':
-      default:
+    
+    navigateToDashboard();
+  };
+  
+  // --- Render Logic ---
+  const renderAuth = () => {
+    if (view.screen !== 'auth') return null;
+    switch(view.authScreen) {
+      case 'login':
+        return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} />;
+      case 'signup':
+        return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
+      case 'checkEmail':
         return (
-          <div className="p-4 md:p-8 w-full">
-            <header className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold text-foreground">{profile.companyName}</h1>
-            </header>
-            {forms.length === 0 ? (
-              <div className="flex flex-col items-center justify-center text-center h-[60vh]">
-                <DocumentIcon className="w-24 h-24 text-muted-foreground/50 mb-4" />
-                <h2 className="text-xl font-semibold text-foreground">No documents yet</h2>
-                <p className="text-muted-foreground">Tap + to create your first document</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {forms.map(form => (
-                  <button key={form.id} onClick={() => handleEditForm(form)} className="bg-card p-4 rounded-lg shadow-md text-left border border-border hover:border-primary transition-colors">
-                    <h3 className="font-bold text-card-foreground">{form.type}</h3>
-                    <p className="text-sm text-muted-foreground">{new Date(form.createdAt).toLocaleDateString()}</p>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center justify-center min-h-screen bg-background">
+            <Card className="w-full max-w-sm text-center">
+              <CardHeader>
+                <CardTitle>Check your email</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p>We've sent a confirmation link to your email address. Please click the link to complete your registration.</p>
+              </CardContent>
+            </Card>
           </div>
         );
     }
   };
 
+  const renderDashboard = () => {
+    const activeJob = jobs[0]; // For simplicity, always use the first job
+    return (
+      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8">
+        <header className="flex justify-between items-center mb-8">
+            <h1 className="text-2xl md:text-3xl font-bold">Welcome, {profile.name}!</h1>
+            <Button onClick={handleLogout} variant="outline">Logout</Button>
+        </header>
+
+        <Card>
+            <CardHeader>
+                <CardTitle>{activeJob.name}</CardTitle>
+                <CardDescription>{activeJob.clientName} - {activeJob.clientAddress}</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <h3 className="font-semibold mb-4">Project Documents</h3>
+                <div className="space-y-2">
+                    {forms.filter(f => f.jobId === activeJob.id).length === 0 && (
+                        <p className="text-muted-foreground">No documents yet. Click the '+' icon to create one.</p>
+                    )}
+                    {forms.filter(f => f.jobId === activeJob.id).map(form => (
+                        <div key={form.id} className="flex justify-between items-center p-3 rounded-md bg-muted">
+                            <span>{form.type} - {new Date(form.createdAt).toLocaleDateString()}</span>
+                            <Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: activeJob.id, formId: form.id })}>Edit</Button>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+      </div>
+    );
+  };
+  
+  const renderForm = () => {
+    if (view.screen !== 'form') return null;
+
+    const { formType, jobId, formId } = view;
+    const job = jobs.find(j => j.id === jobId);
+    const form = forms.find(f => f.id === formId);
+
+    if (!job) return <div>Job not found!</div>;
+
+    switch (formType) {
+      case FormType.Invoice:
+        return <InvoiceForm job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={navigateToDashboard} />;
+      case FormType.DailyJobReport:
+        return <DailyJobReportForm profile={profile} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={navigateToDashboard} />;
+      case FormType.Note:
+        return <NoteForm profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={navigateToDashboard} />;
+      default:
+        return (
+          <div className="p-8">
+            <h2 className="text-2xl mb-4">{formType} form is not implemented.</h2>
+            <Button onClick={navigateToDashboard}>Back to Dashboard</Button>
+          </div>
+        );
+    }
+  };
+  
+  const renderContent = () => {
+    if (areCredentialsPlaceholders) {
+      return <ConfigurationWarning />;
+    }
+    
+    if (loading) {
+      return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+    }
+
+    if (!session) {
+      return renderAuth();
+    }
+    
+    switch (view.screen) {
+      case 'dashboard':
+        return renderDashboard();
+      case 'selectDocType': {
+        const activeJob = jobs.find(j => j.id === view.jobId);
+        if (!activeJob) return <div>Error: Job not found</div>
+        return <SelectDocType onSelect={(type) => setView({ screen: 'form', formType: type, jobId: activeJob.id, formId: null })} onBack={navigateToDashboard} />;
+      }
+      case 'form':
+        return renderForm();
+      case 'settings':
+        return <Settings profile={profile} setProfile={setProfile} onBack={navigateToDashboard} />;
+      default:
+        return renderDashboard();
+    }
+  };
+
   return (
-    <div className="w-full h-screen font-sans bg-background text-foreground flex flex-col">
-      <main className="flex-1 pb-24">
-        {renderScreen()}
-      </main>
-      {screen === 'documents' && <Dock items={[
-        { icon: HomeIcon, label: 'Home', onClick: () => setScreen('documents') },
-        { icon: PlusIcon, label: 'Add New', onClick: () => setScreen('selectDoc') },
-        { icon: SettingsIcon, label: 'Settings', onClick: () => setScreen('settings') }
-      ]} />}
-    </div>
+    <main className="w-full min-h-screen bg-background">
+      {renderContent()}
+      {session && view.screen === 'dashboard' && (
+        <Dock items={[
+          { icon: HomeIcon, label: 'Dashboard', onClick: navigateToDashboard },
+          { icon: PlusIcon, label: 'New Document', onClick: () => navigateToNewDoc(jobs[0].id) },
+          { icon: SettingsIcon, label: 'Settings', onClick: navigateToSettings },
+        ]} />
+      )}
+    </main>
   );
 };
 

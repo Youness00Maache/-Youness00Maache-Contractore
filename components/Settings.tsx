@@ -19,6 +19,16 @@ const Settings: React.FC<SettingsProps> = ({ profile, setProfile, onBack }) => {
     setProfile(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setProfile(prev => ({ ...prev, logoUrl: event.target?.result as string }));
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    }
+  };
+
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col">
        <header className="flex items-center p-4 border-b border-border">
@@ -94,20 +104,25 @@ const Settings: React.FC<SettingsProps> = ({ profile, setProfile, onBack }) => {
                 />
               </div>
               <div className="md:col-span-2 flex flex-col space-y-1.5">
-                <Label htmlFor="logoUrl">Logo URL</Label>
+                <Label htmlFor="logoUrl">Company Logo</Label>
                 <Input
                   id="logoUrl"
-                  name="logoUrl"
-                  value={profile.logoUrl}
-                  onChange={handleChange}
-                  placeholder="https://example.com/logo.png"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="pt-2"
                 />
-                 <p className="mt-2 text-xs text-muted-foreground">Enter a direct URL to your company logo. For best PDF results, use a publicly accessible image.</p>
+                 {profile.logoUrl && (
+                    <div className="mt-2 p-2 bg-muted rounded-md self-start">
+                        <img src={profile.logoUrl} alt="Logo Preview" className="h-20 w-auto object-contain" />
+                    </div>
+                 )}
+                 <p className="mt-2 text-xs text-muted-foreground">Upload your company logo. This will be saved with your profile.</p>
               </div>
             </div>
           </CardContent>
           <CardFooter className="flex justify-end">
-             <Button>Save Changes</Button>
+             <Button onClick={onBack}>Save Changes</Button>
           </CardFooter>
         </Card>
       </main>

@@ -16,17 +16,13 @@ interface DailyJobReportFormProps {
   onBack: () => void;
 }
 
-const defaultReport: DailyJobReportData = {
+const defaultReport: Omit<DailyJobReportData, 'companyName' | 'companyAddress' | 'companyPhone' | 'companyWebsite' | 'clientName' | 'projectAddress' | 'projectName' | 'logoUrl'> = {
   reportNumber: `DR-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-001`,
   date: new Date().toISOString().split('T')[0],
   weather: '',
   temperature: '',
-  logoUrl: '',
   signatureUrl: '',
   content: '',
-  projectName: '',
-  clientName: '',
-  projectAddress: '',
   tags: [],
 };
 
@@ -44,7 +40,17 @@ const Modal: React.FC<{onClose: () => void, title: string, children: React.React
 );
 
 const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report, onSave, onBack }) => {
-  const [data, setData] = useState<DailyJobReportData>(report || defaultReport);
+  const [data, setData] = useState<DailyJobReportData>(report || {
+    ...defaultReport,
+    companyName: profile.companyName,
+    companyAddress: profile.address,
+    companyPhone: profile.phone,
+    companyWebsite: profile.website,
+    logoUrl: profile.logoUrl,
+    clientName: '', 
+    projectName: '',
+    projectAddress: '',
+  });
   const [page, setPage] = useState(1);
   const [showExportOptions, setShowExportOptions] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -443,44 +449,75 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const renderPageOne = () => (
     <Card>
       <CardHeader>
-        <CardTitle>Daily Job Report Details</CardTitle>
-        <CardDescription>Fill in the project and weather details for today's report.</CardDescription>
+        <CardTitle>Daily Report Setup</CardTitle>
+        <CardDescription>Confirm the details for this report. Changes made here only apply to this document.</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="flex flex-col space-y-1.5">
-            <Label htmlFor="projectName">Project Name</Label>
-            <Input id="projectName" name="projectName" value={data.projectName} onChange={handleChange} />
-          </div>
-          <div className="flex flex-col space-y-1.5">
-            <Label htmlFor="clientName">Client Name</Label>
-            <Input id="clientName" name="clientName" value={data.clientName} onChange={handleChange} />
-          </div>
-          <div className="md:col-span-2 flex flex-col space-y-1.5">
-              <Label htmlFor="projectAddress">Project Address</Label>
-              <Input id="projectAddress" name="projectAddress" value={data.projectAddress} onChange={handleChange} />
-          </div>
-          <div className="flex flex-col space-y-1.5">
-            <Label htmlFor="reportNumber">Report #</Label>
-            <Input id="reportNumber" name="reportNumber" value={data.reportNumber} onChange={handleChange} />
-          </div>
-           <div className="flex flex-col space-y-1.5">
-            <Label htmlFor="date">Date</Label>
-            <Input id="date" type="date" name="date" value={data.date} onChange={handleChange} />
-          </div>
-          <div className="flex flex-col space-y-1.5">
-            <Label htmlFor="weather">Weather</Label>
-            <Input id="weather" name="weather" value={data.weather} onChange={handleChange} placeholder="e.g., Sunny, Cloudy" />
-          </div>
-          <div className="flex flex-col space-y-1.5">
-            <Label htmlFor="temperature">Temperature (°F)</Label>
-            <Input id="temperature" name="temperature" value={data.temperature} onChange={handleChange} placeholder="e.g., 75°F" />
-          </div>
-           <div className="md:col-span-2 flex flex-col space-y-1.5">
-              <Label htmlFor="logoUrl">Company Logo</Label>
-              <Input id="logoUrl" type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'logoUrl')} className="pt-2" />
-              {data.logoUrl && <img src={data.logoUrl} alt="Logo Preview" className="mt-2 h-16 w-auto object-contain bg-white p-1 rounded-md" />}
-          </div>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Your Company</h3>
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="companyName">Company Name</Label>
+                    <Input id="companyName" name="companyName" value={data.companyName} onChange={handleChange} />
+                </div>
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="companyAddress">Address</Label>
+                    <Input id="companyAddress" name="companyAddress" value={data.companyAddress} onChange={handleChange} />
+                </div>
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="companyPhone">Phone</Label>
+                    <Input id="companyPhone" name="companyPhone" value={data.companyPhone} onChange={handleChange} />
+                </div>
+                  <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="companyWebsite">Website</Label>
+                    <Input id="companyWebsite" name="companyWebsite" value={data.companyWebsite} onChange={handleChange} />
+                </div>
+            </div>
+            <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Project & Client</h3>
+                  <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="projectName">Project Name</Label>
+                    <Input id="projectName" name="projectName" value={data.projectName} onChange={handleChange} />
+                  </div>
+                  <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="clientName">Client Name</Label>
+                    <Input id="clientName" name="clientName" value={data.clientName} onChange={handleChange} />
+                  </div>
+                  <div className="flex flex-col space-y-1.5">
+                      <Label htmlFor="projectAddress">Project Address</Label>
+                      <Input id="projectAddress" name="projectAddress" value={data.projectAddress} onChange={handleChange} />
+                  </div>
+            </div>
+        </div>
+        <div className="pt-4">
+            <h3 className="text-lg font-semibold border-b pb-2">Report Details & Logo</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
+              <div className="space-y-4">
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="reportNumber">Report #</Label>
+                    <Input id="reportNumber" name="reportNumber" value={data.reportNumber} onChange={handleChange} />
+                </div>
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="date">Date</Label>
+                    <Input id="date" type="date" name="date" value={data.date} onChange={handleChange} />
+                </div>
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="weather">Weather</Label>
+                    <Input id="weather" name="weather" value={data.weather} onChange={handleChange} placeholder="e.g., Sunny, Cloudy" />
+                </div>
+                <div className="flex flex-col space-y-1.5">
+                    <Label htmlFor="temperature">Temperature (°F)</Label>
+                    <Input id="temperature" name="temperature" value={data.temperature} onChange={handleChange} placeholder="e.g., 75°F" />
+                </div>
+              </div>
+              <div className="space-y-4">
+                  <div className="flex flex-col space-y-1.5">
+                      <Label htmlFor="logoUrl">Company Logo</Label>
+                      <Input id="logoUrl" type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'logoUrl')} className="pt-2" />
+                      {data.logoUrl && <img src={data.logoUrl} alt="Logo Preview" className="mt-2 h-20 w-auto object-contain bg-muted p-2 rounded-md self-start" />}
+                  </div>
+              </div>
+            </div>
         </div>
       </CardContent>
       <CardFooter className="flex justify-end space-x-2">

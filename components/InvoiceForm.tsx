@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
+import { BackArrowIcon } from './Icons.tsx';
 
 interface InvoiceFormProps {
   job: Job;
@@ -14,24 +15,48 @@ interface InvoiceFormProps {
   onClose: () => void;
 }
 
-const defaultInvoice: InvoiceData = {
+const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'companyName' | 'companyAddress' | 'companyPhone' | 'companyWebsite' | 'logoUrl'> = {
   invoiceNumber: `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-001`,
   issueDate: new Date().toISOString().split('T')[0],
   dueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0],
   lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, rate: 0 }],
   taxRate: 0,
+  discount: 0,
+  shipping: 0,
   notes: 'Thank you for your business.',
 };
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose }) => {
-  const [invoiceData, setInvoiceData] = useState<InvoiceData>(invoice || defaultInvoice);
+  const [page, setPage] = useState(1);
+  const [invoiceData, setInvoiceData] = useState<InvoiceData>(
+    invoice || {
+      ...defaultInvoice,
+      companyName: userProfile.companyName,
+      companyAddress: userProfile.address,
+      companyPhone: userProfile.phone,
+      companyWebsite: userProfile.website,
+      clientName: job.clientName,
+      clientAddress: job.clientAddress,
+      logoUrl: userProfile.logoUrl,
+    }
+  );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setInvoiceData(prev => ({ ...prev, [name]: value }));
+    setInvoiceData(prev => ({ ...prev, [name]: name === 'taxRate' || name === 'discount' || name === 'shipping' ? parseFloat(value) || 0 : value }));
   };
 
-  const handleLineItemChange = (id: string, field: keyof LineItem, value: string | number) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setInvoiceData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    }
+  };
+
+  const handleLineItemChange = (id: string, field: keyof Omit<LineItem, 'id'>, value: string | number) => {
     setInvoiceData(prev => ({
       ...prev,
       lineItems: prev.lineItems.map(item =>
@@ -55,45 +80,101 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   };
 
   const calculateSubtotal = () => {
-    return invoiceData.lineItems.reduce((acc, item) => acc + item.quantity * item.rate, 0);
+    return invoiceData.lineItems.reduce((acc, item) => acc + (Number(item.quantity) || 0) * (Number(item.rate) || 0), 0);
   };
   
   const subtotal = calculateSubtotal();
-  const taxAmount = subtotal * (invoiceData.taxRate / 100);
-  const total = subtotal + taxAmount;
+  const discountAmount = invoiceData.discount || 0;
+  const shippingAmount = invoiceData.shipping || 0;
+  const taxableAmount = subtotal - discountAmount;
+  const taxAmount = taxableAmount * ((invoiceData.taxRate || 0) / 100);
+  const total = taxableAmount + taxAmount + shippingAmount;
 
   const handleSave = () => {
     onSave(invoiceData);
   };
   
-  const handleExport = () => {
+  const handleDownload = () => {
     generateInvoicePDF(userProfile, job, invoiceData);
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-start pt-10 z-50 overflow-y-auto">
-      <Card className="w-full max-w-4xl relative animate-fade-in-down my-8">
-        <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground z-10">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
+  const handleSaveAndDownload = () => {
+    handleSave();
+    handleDownload();
+  };
+
+  const renderPageOne = () => (
+    <Card className="w-full max-w-4xl animate-fade-in-down my-8">
         <CardHeader>
-          <CardTitle>Invoice</CardTitle>
-          <CardDescription>Create a new invoice for {job.clientName}.</CardDescription>
+            <CardTitle>Invoice Setup</CardTitle>
+            <CardDescription>Confirm the details for this invoice. Changes made here will only apply to this document.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <h3 className="font-bold text-lg">{userProfile.companyName}</h3>
-              <p className="text-sm text-muted-foreground">{userProfile.address}</p>
-              <p className="text-sm text-muted-foreground">{userProfile.email}</p>
+        <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold border-b pb-2">Your Company</h3>
+                    <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="companyName">Company Name</Label>
+                        <Input id="companyName" name="companyName" value={invoiceData.companyName} onChange={handleInputChange} />
+                    </div>
+                    <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="companyAddress">Address</Label>
+                        <Input id="companyAddress" name="companyAddress" value={invoiceData.companyAddress} onChange={handleInputChange} />
+                    </div>
+                    <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="companyPhone">Phone</Label>
+                        <Input id="companyPhone" name="companyPhone" value={invoiceData.companyPhone} onChange={handleInputChange} />
+                    </div>
+                     <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="companyWebsite">Website</Label>
+                        <Input id="companyWebsite" name="companyWebsite" value={invoiceData.companyWebsite} onChange={handleInputChange} />
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold border-b pb-2">Bill To</h3>
+                     <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="clientName">Client Name</Label>
+                        <Input id="clientName" name="clientName" value={invoiceData.clientName} onChange={handleInputChange} />
+                    </div>
+                    <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="clientAddress">Client Address</Label>
+                        <Input id="clientAddress" name="clientAddress" value={invoiceData.clientAddress} onChange={handleInputChange} />
+                    </div>
+                </div>
             </div>
-            <div className="text-left md:text-right">
-              <h3 className="font-bold text-lg">Bill To:</h3>
-              <p>{job.clientName}</p>
-              <p className="text-sm text-muted-foreground">{job.clientAddress}</p>
+             <div className="pt-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Company Logo</h3>
+                <div className="flex flex-col space-y-1.5 mt-4">
+                    <Label htmlFor="logoUrl">Upload Logo</Label>
+                    <Input id="logoUrl" type="file" accept="image/*" onChange={handleFileChange} className="pt-2" />
+                    {invoiceData.logoUrl && <img src={invoiceData.logoUrl} alt="Logo Preview" className="mt-2 h-20 w-auto object-contain bg-muted p-2 rounded-md self-start" />}
+                </div>
+             </div>
+        </CardContent>
+        <CardFooter className="flex justify-end space-x-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={() => setPage(2)}>Next</Button>
+        </CardFooter>
+    </Card>
+  );
+
+  const renderPageTwo = () => (
+    <Card className="w-full max-w-4xl relative animate-fade-in-down my-8">
+        <header className="grid grid-cols-3 items-center p-4 border-b">
+            <div className="flex justify-start">
+                 <Button variant="ghost" size="sm" onClick={() => setPage(1)} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
+                    <BackArrowIcon className="h-9 w-9" />
+                </Button>
             </div>
-          </div>
-          
+            <div className="text-center">
+                <CardTitle>Create Invoice</CardTitle>
+                <CardDescription className="whitespace-nowrap">For {invoiceData.clientName}</CardDescription>
+            </div>
+            <div className="flex justify-end">
+                <div className="w-12"></div>
+            </div>
+        </header>
+        <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
               <div className="flex flex-col space-y-1.5">
                   <Label htmlFor="invoiceNumber">Invoice #</Label>
@@ -112,46 +193,70 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
           {/* Line Items Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-                <thead className="text-xs text-muted-foreground uppercase">
+                <thead className="text-xs text-muted-foreground uppercase bg-muted">
                     <tr>
-                        <th scope="col" className="px-4 py-3">Description</th>
-                        <th scope="col" className="px-4 py-3 w-24">Quantity</th>
-                        <th scope="col" className="px-4 py-3 w-28">Rate</th>
-                        <th scope="col" className="px-4 py-3 w-28 text-right">Total</th>
+                        <th scope="col" className="px-4 py-3 font-medium">Description</th>
+                        <th scope="col" className="px-4 py-3 w-24 font-medium">Quantity</th>
+                        <th scope="col" className="px-4 py-3 w-48 font-medium">Rate</th>
+                        <th scope="col" className="px-4 py-3 w-48 text-right font-medium">Amount</th>
                         <th scope="col" className="px-4 py-3 w-12"></th>
                     </tr>
                 </thead>
                 <tbody>
                     {invoiceData.lineItems.map((item) => (
-                        <tr key={item.id} className="border-b dark:border-gray-700">
-                            <td className="px-4 py-1"><Input type="text" value={item.description} onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)} className="w-full bg-transparent border-none focus:ring-0 p-1"/></td>
-                            <td className="px-4 py-1"><Input type="number" value={item.quantity} onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)} className="w-full bg-transparent border-none focus:ring-0 p-1"/></td>
-                            <td className="px-4 py-1"><Input type="number" value={item.rate} onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)} className="w-full bg-transparent border-none focus:ring-0 p-1"/></td>
-                            <td className="px-4 py-1 font-medium text-right">${(item.quantity * item.rate).toFixed(2)}</td>
-                            <td className="px-4 py-1"><button onClick={() => removeLineItem(item.id)} className="text-red-500 hover:text-red-700">&times;</button></td>
+                        <tr key={item.id} className="border-b dark:border-gray-700 hover:bg-muted/50 align-top">
+                            <td className="px-2 py-1">
+                                <textarea
+                                    value={item.description}
+                                    onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
+                                    onInput={(e) => {
+                                        const target = e.target as HTMLTextAreaElement;
+                                        target.style.height = 'auto';
+                                        target.style.height = `${target.scrollHeight}px`;
+                                    }}
+                                    rows={1}
+                                    placeholder="Item description"
+                                    className="w-full bg-transparent border-none focus:ring-0 p-1 resize-none overflow-hidden leading-tight"
+                                    style={{ minHeight: '2.5rem' }}
+                                />
+                            </td>
+                            <td className="px-2 py-1">
+                                <Input type="number" value={item.quantity} onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)} className="w-full bg-transparent border-none focus:ring-0 p-1"/>
+                            </td>
+                            <td className="px-2 py-1">
+                                <Input type="number" value={item.rate} onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)} className="w-full bg-transparent border-none focus:ring-0 p-1"/>
+                            </td>
+                            <td className="px-4 py-2 font-medium text-right">${(item.quantity * item.rate).toFixed(2)}</td>
+                            <td className="px-4 py-1 text-center">
+                                <button onClick={() => removeLineItem(item.id)} className="text-muted-foreground hover:text-destructive font-bold mt-1.5">&times;</button>
+                            </td>
                         </tr>
                     ))}
                 </tbody>
             </table>
           </div>
-          <button onClick={addLineItem} className="mt-4 text-primary hover:text-primary/90 text-sm font-semibold">+ Add Item</button>
+          <Button onClick={addLineItem} variant="link" className="mt-2 px-0 text-primary hover:text-primary/90 text-sm font-semibold">+ Add Item</Button>
 
           {/* Totals Section */}
           <div className="flex justify-end mt-6">
-            <div className="w-full max-w-xs space-y-2">
+            <div className="w-full max-w-sm space-y-2">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal:</span>
                 <span className="font-medium">${subtotal.toFixed(2)}</span>
               </div>
+               <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Discount ($):</span>
+                <Input type="number" name="discount" value={invoiceData.discount} onChange={handleInputChange} className="w-20 h-8 text-right"/>
+              </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Tax (%):</span>
-                <Input type="number" name="taxRate" value={invoiceData.taxRate} onChange={handleInputChange} className="w-20 h-8"/>
+                <Input type="number" name="taxRate" value={invoiceData.taxRate} onChange={handleInputChange} className="w-20 h-8 text-right"/>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax Amount:</span>
-                <span className="font-medium">${taxAmount.toFixed(2)}</span>
+               <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Shipping ($):</span>
+                <Input type="number" name="shipping" value={invoiceData.shipping} onChange={handleInputChange} className="w-20 h-8 text-right"/>
               </div>
-              <div className="flex justify-between border-t pt-2 dark:border-gray-600">
+              <div className="flex justify-between border-t pt-2 mt-2 dark:border-gray-600">
                 <span className="font-bold text-lg">Total:</span>
                 <span className="font-bold text-lg">${total.toFixed(2)}</span>
               </div>
@@ -165,15 +270,20 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
           </div>
 
         </CardContent>
-        <CardFooter className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSave}>Save Invoice</Button>
-            <Button variant="secondary" onClick={handleExport} className="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                Export PDF
-            </Button>
+        <CardFooter className="flex justify-between items-center">
+             <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <div className="flex space-x-2">
+                <Button variant="secondary" onClick={handleSave}>Save Invoice</Button>
+                <Button variant="secondary" onClick={handleDownload}>Download PDF</Button>
+                <Button onClick={handleSaveAndDownload}>Save & Download</Button>
+            </div>
         </CardFooter>
       </Card>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-start pt-10 z-50 overflow-y-auto">
+      {page === 1 ? renderPageOne() : renderPageTwo()}
     </div>
   );
 };

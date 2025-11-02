@@ -123,22 +123,60 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
         { label: 'Huge', value: 7 },
     ];
 
-    const fonts = [
+    const initialFonts = [
       { name: 'Default', family: 'var(--font-sans)' },
       { name: 'Serif', family: 'var(--font-serif)' },
       { name: 'Mono', family: 'var(--font-mono)' },
-      { name: 'Roboto', family: 'Roboto, sans-serif' },
-      { name: 'Open Sans', family: '"Open Sans", sans-serif' },
-      { name: 'Lato', family: 'Lato, sans-serif' },
-      { name: 'Montserrat', family: 'Montserrat, sans-serif' },
-      { name: 'Oswald', family: 'Oswald, sans-serif' },
-      { name: 'Raleway', family: 'Raleway, sans-serif' },
-      { name: 'Merriweather', family: 'Merriweather, serif' },
-      { name: 'Playfair Display', family: '"Playfair Display", serif' },
+      { name: 'Abril Fatface', family: '"Abril Fatface", cursive' },
+      { name: 'Alfa Slab One', family: '"Alfa Slab One", cursive' },
+      { name: 'Anton', family: 'Anton, sans-serif' },
+      { name: 'Arvo', family: 'Arvo, serif' },
+      { name: 'Bangers', family: 'Bangers, cursive' },
+      { name: 'Bebas Neue', family: '"Bebas Neue", sans-serif' },
+      { name: 'Bitter', family: 'Bitter, serif' },
+      { name: 'Cabin', family: 'Cabin, sans-serif' },
+      { name: 'Caveat', family: 'Caveat, cursive' },
+      { name: 'Comfortaa', family: 'Comfortaa, sans-serif' },
+      { name: 'Cormorant Garamond', family: '"Cormorant Garamond", serif' },
+      { name: 'Crimson Text', family: '"Crimson Text", serif' },
       { name: 'Dancing Script', family: '"Dancing Script", cursive' },
-      { name: 'Pacifico', family: 'Pacifico, cursive' },
+      { name: 'DM Sans', family: '"DM Sans", sans-serif' },
+      { name: 'EB Garamond', family: '"EB Garamond", serif' },
+      { name: 'Indie Flower', family: '"Indie Flower", cursive' },
+      { name: 'Inconsolata', family: 'Inconsolata, monospace' },
+      { name: 'Inter', family: 'Inter, sans-serif' },
+      { name: 'JetBrains Mono', family: '"JetBrains Mono", monospace' },
+      { name: 'Josefin Sans', family: '"Josefin Sans", sans-serif' },
+      { name: 'Lato', family: 'Lato, sans-serif' },
       { name: 'Lobster', family: 'Lobster, cursive' },
+      { name: 'Lora', family: 'Lora, serif' },
+      { name: 'Merriweather', family: 'Merriweather, serif' },
+      { name: 'Montserrat', family: 'Montserrat, sans-serif' },
+      { name: 'Nunito', family: 'Nunito, sans-serif' },
+      { name: 'Open Sans', family: '"Open Sans", sans-serif' },
+      { name: 'Oswald', family: 'Oswald, sans-serif' },
+      { name: 'Pacifico', family: 'Pacifico, cursive' },
+      { name: 'Patrick Hand', family: '"Patrick Hand", cursive' },
+      { name: 'Permanent Marker', family: '"Permanent Marker", cursive' },
+      { name: 'Playfair Display', family: '"Playfair Display", serif' },
+      { name: 'Poppins', family: 'Poppins, sans-serif' },
+      { name: 'PT Serif', family: '"PT Serif", serif' },
+      { name: 'Raleway', family: 'Raleway, sans-serif' },
+      { name: 'Righteous', family: 'Righteous, sans-serif' },
+      { name: 'Roboto', family: 'Roboto, sans-serif' },
+      { name: 'Rubik', family: 'Rubik, sans-serif' },
+      { name: 'Shadows Into Light Two', family: '"Shadows Into Light Two", cursive' },
+      { name: 'Source Code Pro', family: '"Source Code Pro", monospace' },
+      { name: 'Space Grotesk', family: '"Space Grotesk", sans-serif' },
+      { name: 'Space Mono', family: '"Space Mono", monospace' },
+      { name: 'Ubuntu', family: 'Ubuntu, sans-serif' },
+      { name: 'Work Sans', family: '"Work Sans", sans-serif' },
     ];
+
+    const specialFonts = initialFonts.slice(0, 3);
+    const googleFonts = initialFonts.slice(3).sort((a, b) => a.name.localeCompare(b.name));
+    const fonts = [...specialFonts, ...googleFonts];
+
 
     const alignmentButtons = [
         { label: 'Align Left', icon: AlignLeftIcon, align: 'left' as const },
@@ -185,7 +223,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
                         )}
                     </div>
                     {showFontDropdown && (
-                        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-40 bg-popover border border-border rounded-md shadow-lg z-20 max-h-60 overflow-y-auto">
+                        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-48 bg-popover border border-border rounded-md shadow-lg z-20 max-h-60 overflow-y-auto">
                             {fonts.map(font => (
                                 <button
                                     key={font.name}

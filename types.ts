@@ -46,7 +46,17 @@ export interface InvoiceData {
   dueDate: string;
   lineItems: LineItem[];
   taxRate: number; // as a percentage, e.g., 8 for 8%
+  discount?: number; // as a currency amount
+  shipping?: number; // as a currency amount
   notes: string;
+  // Per-invoice customizable fields
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  clientAddress?: string;
+  logoUrl?: string; // Can be a URL from settings or a base64 string from upload
 }
 
 export interface WorkOrderData {
@@ -70,6 +80,11 @@ export interface DailyJobReportData {
   clientName: string;
   projectAddress: string;
   tags?: string[];
+  // Per-report customizable company fields
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
 }
 
 export interface TimeSheetData {
