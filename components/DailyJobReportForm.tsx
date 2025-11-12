@@ -56,6 +56,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
   
   // State for modals
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -278,8 +279,17 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   };
   
   const handleExport = async (template: 'minimal' | 'bordered' | 'modern') => {
-      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-      await generateDailyJobReportPDF(profile, { ...data, content: finalContent }, template);
+      setIsExporting(true);
+      setShowExportOptions(false);
+      try {
+        const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+        await generateDailyJobReportPDF(profile, { ...data, content: finalContent }, template);
+      } catch (error) {
+        console.error("Failed to export PDF:", error);
+        alert("An error occurred while exporting the PDF. Please check the browser console for more details.");
+      } finally {
+        setIsExporting(false);
+      }
   };
   
   const handleEditorCommand = (command: string, value?: any) => {
@@ -715,17 +725,17 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
             <div className="flex items-center gap-2 justify-end">
                 {page === 2 && (
                     <>
-                        <Button onClick={handleSave}>Save</Button>
+                        <Button onClick={handleSave} disabled={isExporting}>Save</Button>
                         <div className="relative">
-                            <Button variant="secondary" size="sm" onClick={() => setShowExportOptions(prev => !prev)} className="flex items-center gap-2">
+                            <Button variant="secondary" size="sm" onClick={() => !isExporting && setShowExportOptions(prev => !prev)} disabled={isExporting} className="flex items-center gap-2">
                                 <ExportIcon className="h-4 w-4" />
-                                <span>Export</span>
+                                <span>{isExporting ? 'Exporting...' : 'Export'}</span>
                             </Button>
                             {showExportOptions && (
                                 <div className="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-lg z-10">
-                                    <button onClick={() => { handleExport('modern'); setShowExportOptions(false); }} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent rounded-t-md">Modern PDF</button>
-                                    <button onClick={() => { handleExport('bordered'); setShowExportOptions(false); }} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent">Bordered PDF</button>
-                                    <button onClick={() => { handleExport('minimal'); setShowExportOptions(false); }} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent rounded-b-md">Minimal PDF</button>
+                                    <button onClick={() => handleExport('modern')} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent rounded-t-md">Modern PDF</button>
+                                    <button onClick={() => handleExport('bordered')} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent">Bordered PDF</button>
+                                    <button onClick={() => handleExport('minimal')} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent rounded-b-md">Minimal PDF</button>
                                 </div>
                             )}
                         </div>

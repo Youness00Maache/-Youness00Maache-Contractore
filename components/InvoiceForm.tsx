@@ -41,6 +41,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
       logoUrl: userProfile.logoUrl,
     }
   );
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -95,13 +96,21 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
     onSave(invoiceData);
   };
   
-  const handleDownload = () => {
-    generateInvoicePDF(userProfile, job, invoiceData);
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      await generateInvoicePDF(userProfile, job, invoiceData);
+    } catch (error) {
+      console.error("Failed to generate PDF:", error);
+      alert("An error occurred while generating the PDF. Please check the browser console for more details.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
-  const handleSaveAndDownload = () => {
+  const handleSaveAndDownload = async () => {
     handleSave();
-    handleDownload();
+    await handleDownload();
   };
 
   const renderPageOne = () => (
@@ -291,9 +300,13 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
         <CardFooter className="flex justify-between items-center">
              <Button variant="outline" onClick={onClose}>Cancel</Button>
             <div className="flex space-x-2">
-                <Button variant="secondary" onClick={handleSave}>Save Invoice</Button>
-                <Button variant="secondary" onClick={handleDownload}>Download PDF</Button>
-                <Button onClick={handleSaveAndDownload}>Save & Download</Button>
+                <Button variant="secondary" onClick={handleSave} disabled={isDownloading}>Save Invoice</Button>
+                <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
+                    {isDownloading ? 'Downloading...' : 'Download PDF'}
+                </Button>
+                <Button onClick={handleSaveAndDownload} disabled={isDownloading}>
+                    {isDownloading ? 'Downloading...' : 'Save & Download'}
+                </Button>
             </div>
         </CardFooter>
       </Card>
