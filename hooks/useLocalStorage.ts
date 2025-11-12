@@ -1,8 +1,5 @@
+import { useState, useEffect, Dispatch, SetStateAction, useCallback } from 'react';
 
-
-import { useState, useEffect, Dispatch, SetStateAction } from 'react';
-
-// FIX: Changed React.Dispatch and React.SetStateAction to Dispatch and SetStateAction and imported them from react.
 export function useLocalStorage<T,>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
@@ -14,20 +11,26 @@ export function useLocalStorage<T,>(key: string, initialValue: T): [T, Dispatch<
     }
   });
 
-  const setValue = (value: T | ((val: T) => T)) => {
+  const setValue: Dispatch<SetStateAction<T>> = useCallback((value) => {
     try {
-      const valueToStore = value instanceof Function ? value(storedValue) : value;
-      setStoredValue(valueToStore);
-      window.localStorage.setItem(key, JSON.stringify(valueToStore));
+      setStoredValue(prev => {
+        const valueToStore = value instanceof Function ? value(prev) : value;
+        window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        return valueToStore;
+      });
     } catch (error) {
       console.error(error);
     }
-  };
+  }, [key]);
 
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === key) {
-        setStoredValue(JSON.parse(e.newValue || 'null'));
+        try {
+            setStoredValue(JSON.parse(e.newValue || 'null'));
+        } catch (error) {
+            console.error('Error parsing stored value:', error);
+        }
       }
     };
     window.addEventListener('storage', handleStorageChange);

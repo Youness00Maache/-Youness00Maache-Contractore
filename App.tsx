@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from './hooks/useLocalStorage.ts';
 // FIX: Removed 'type' from import to allow 'FormType' enum to be used as a value.
 import { UserProfile, Job, FormData as FormDataType, FormType, InvoiceData, DailyJobReportData, NoteData } from './types.ts';
-import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import Signup from './components/Signup.tsx';
 import SelectDocType from './components/SelectDocType.tsx';
@@ -94,10 +94,34 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!supabase) return;
 
+    // Function to sync profile with Supabase user data
+    const syncProfile = (user: User) => {
+      if (!user) return;
+      const fullName = user.user_metadata?.full_name;
+      let nameToSet = fullName;
+      if (!nameToSet && user.email) {
+          const namePart = user.email.split('@')[0];
+          nameToSet = namePart.replace(/[._-]/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+      }
+
+      setProfile(prevProfile => {
+        // Only overwrite name if it's the default placeholder or it's a new user.
+        const shouldUpdateName = prevProfile.name === 'John Doe' || prevProfile.id !== user.id;
+
+        return {
+          ...prevProfile,
+          id: user.id,
+          email: user.email || prevProfile.email,
+          name: shouldUpdateName ? (nameToSet || prevProfile.name) : prevProfile.name,
+        };
+      });
+    }
+
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       if (session) {
+        syncProfile(session.user);
         setView({ screen: 'dashboard' });
       }
       setLoading(false);
@@ -107,6 +131,7 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
+        syncProfile(session.user);
         setView({ screen: 'dashboard' });
       } else {
         setView({ screen: 'auth', authScreen: 'login' });
@@ -114,7 +139,7 @@ const App: React.FC = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [setProfile]);
 
   // --- Auth Handlers ---
   const handleLogin = async (email: string, pass: string) => {
@@ -132,7 +157,12 @@ const App: React.FC = () => {
   
   const handleLoginWithGoogle = async () => {
     if (!supabase) return;
-    await supabase.auth.signInWithOAuth({ provider: 'google' });
+    await supabase.auth.signInWithOAuth({ 
+        provider: 'google',
+        options: {
+            redirectTo: window.location.origin,
+        },
+    });
   };
   
   const handleLogout = async () => {
