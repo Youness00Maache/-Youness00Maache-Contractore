@@ -3,6 +3,8 @@ import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobRep
 declare const jspdf: any;
 declare const html2canvas: any;
 
+const PAYPAL_LOGO_BASE64 = 'data:image/png;base64,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';
+
 export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoiceData: InvoiceData) => {
   const { jsPDF } = jspdf;
   const doc = new jsPDF('p', 'pt', 'a4');
@@ -151,16 +153,43 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
   doc.setFontSize(12);
   addTotalLine('Total:', currencyFormatter.format(total), true);
 
+  yPos -= 10; // Adjust yPos to be above the total line for alignment
+  
+  const leftColY = (doc as any).autoTable.previous.finalY + 30;
+
   // Notes
   if (invoiceData.notes) {
-    yPos = (doc as any).autoTable.previous.finalY + 30; // Reset yPos to be relative to the table
+    let noteY = leftColY;
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text('Notes:', margin, yPos);
-    yPos += 15;
+    doc.text('Notes:', margin, noteY);
+    noteY += 15;
     doc.setFont('helvetica', 'normal');
-    doc.text(invoiceData.notes, margin, yPos, { maxWidth: pageWidth / 2.2 });
+    doc.text(invoiceData.notes, margin, noteY, { maxWidth: pageWidth / 2.5 });
   }
+
+  // PayPal Button
+  if (invoiceData.paypalLink) {
+    const buttonWidth = 140;
+    const buttonHeight = 35;
+    const buttonX = totalsX;
+    const buttonY = yPos + 20;
+    const borderRadius = 8;
+
+    doc.setFillColor(0, 69, 124); // PayPal Blue
+    doc.roundedRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius, borderRadius, 'F');
+    
+    // The logo is a P inside another P. We can roughly recreate this.
+    doc.addImage(PAYPAL_LOGO_BASE64, 'PNG', buttonX + 10, buttonY + 7.5, 20, 20);
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('Pay with PayPal', buttonX + 38, buttonY + buttonHeight / 2, { baseline: 'middle' });
+
+    doc.link(buttonX, buttonY, buttonWidth, buttonHeight, { url: invoiceData.paypalLink });
+  }
+
 
   // Save PDF
   doc.save(`Invoice-${invoiceData.invoiceNumber}-${clientName}.pdf`);

@@ -49,6 +49,7 @@ export interface InvoiceData {
   discount?: number; // as a currency amount
   shipping?: number; // as a currency amount
   notes: string;
+  paypalLink?: string; // Optional PayPal payment link
   // Per-invoice customizable fields
   companyName?: string;
   companyAddress?: string;

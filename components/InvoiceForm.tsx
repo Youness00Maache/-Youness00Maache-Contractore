@@ -24,6 +24,7 @@ const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'compan
   discount: 0,
   shipping: 0,
   notes: 'Thank you for your business.',
+  paypalLink: '',
 };
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose }) => {
@@ -267,6 +268,23 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
           <div className="mt-8">
               <Label htmlFor="notes">Notes</Label>
               <textarea id="notes" name="notes" value={invoiceData.notes} onChange={handleInputChange} rows={3} className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"></textarea>
+          </div>
+          
+          {/* Payment Options */}
+          <div className="mt-8">
+            <h3 className="text-lg font-semibold border-b pb-2 mb-4">Payment Options</h3>
+            <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="paypalLink">PayPal Payment Link</Label>
+                <Input
+                    id="paypalLink"
+                    type="url"
+                    name="paypalLink"
+                    value={invoiceData.paypalLink || ''}
+                    onChange={handleInputChange}
+                    placeholder="https://paypal.me/yourusername"
+                />
+                <p className="text-xs text-muted-foreground pt-1">Add your PayPal link to allow clients to pay directly from the PDF.</p>
+            </div>
           </div>
 
         </CardContent>
