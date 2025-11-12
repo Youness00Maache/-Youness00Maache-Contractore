@@ -52,67 +52,71 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <form onSubmit={handleLogin}>
-          <CardHeader>
-            <CardTitle>Login</CardTitle>
-            <CardDescription>Enter your credentials to access your account.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={loading}
-              />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
-              />
-            </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Logging in...' : 'Login'}
-            </Button>
-            
-            <div className="relative w-full">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
+      <div className="flex flex-col items-center text-center">
+        <h1 className="text-4xl font-bold mb-2 tracking-tight">Contractor AI</h1>
+        <p className="text-muted-foreground mb-6">Your All-in-One Paperwork Hub</p>
+        <Card className="w-full max-w-sm">
+          <form onSubmit={handleLogin}>
+            <CardHeader>
+              <CardTitle>Login</CardTitle>
+              <CardDescription>Enter your credentials to access your account.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col space-y-1.5 text-left">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                />
               </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">
-                  Or continue with
-                </span>
+              <div className="flex flex-col space-y-1.5 text-left">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                />
               </div>
-            </div>
-
-            <Button variant="outline" type="button" className="w-full flex items-center gap-2" onClick={handleGoogleLogin} disabled={loading}>
-              <GoogleIcon className="h-4 w-4" />
-              Sign in with Google
-            </Button>
-
-            <p className="text-sm text-center text-muted-foreground">
-              Don't have an account?{' '}
-              <Button variant="link" type="button" onClick={onSwitchToSignup} className="p-0 h-auto">
-                Sign up
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? 'Logging in...' : 'Login'}
               </Button>
-            </p>
-          </CardFooter>
-        </form>
-      </Card>
+              
+              <div className="relative w-full">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">
+                    Or continue with
+                  </span>
+                </div>
+              </div>
+
+              <Button variant="outline" type="button" className="w-full flex items-center gap-2" onClick={handleGoogleLogin} disabled={loading}>
+                <GoogleIcon className="h-4 w-4" />
+                Sign in with Google
+              </Button>
+
+              <p className="text-sm text-center text-muted-foreground">
+                Don't have an account?{' '}
+                <Button variant="link" type="button" onClick={onSwitchToSignup} className="p-0 h-auto">
+                  Sign up
+                </Button>
+              </p>
+            </CardFooter>
+          </form>
+        </Card>
+      </div>
     </div>
   );
 };
