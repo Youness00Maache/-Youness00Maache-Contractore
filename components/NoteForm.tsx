@@ -41,7 +41,6 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
-  const [isExporting, setIsExporting] = useState(false);
   
   // State for modals
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -252,16 +251,8 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
   };
   
   const handleExport = async () => {
-    setIsExporting(true);
-    try {
-      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-      await generateNotePDF(profile, job, { ...data, content: finalContent });
-    } catch (error) {
-      console.error("Failed to export PDF:", error);
-      alert("An error occurred while exporting the note. Please check the browser console for more details.");
-    } finally {
-      setIsExporting(false);
-    }
+    const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+    await generateNotePDF(profile, job, { ...data, content: finalContent });
   };
   
   const handleEditorCommand = (command: string, value?: any) => {
@@ -543,10 +534,10 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             </div>
             <h1 className="text-xl font-bold text-center whitespace-nowrap">Note</h1>
             <div className="flex items-center gap-2 justify-end">
-                <Button onClick={handleSave} disabled={isExporting}>Save</Button>
-                 <Button variant="secondary" size="sm" onClick={handleExport} disabled={isExporting} className="flex items-center gap-2">
+                <Button onClick={handleSave}>Save</Button>
+                 <Button variant="secondary" size="sm" onClick={handleExport} className="flex items-center gap-2">
                     <ExportIcon className="h-4 w-4" />
-                    <span>{isExporting ? 'Exporting...' : 'Export'}</span>
+                    <span>Export</span>
                 </Button>
             </div>
         </header>
