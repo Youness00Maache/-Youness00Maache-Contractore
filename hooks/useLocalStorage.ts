@@ -15,11 +15,31 @@ export function useLocalStorage<T,>(key: string, initialValue: T): [T, Dispatch<
     try {
       setStoredValue(prev => {
         const valueToStore = value instanceof Function ? value(prev) : value;
-        window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        try {
+          window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (e) {
+          if (e instanceof Error && e.name === 'QuotaExceededError') {
+            console.warn(`localStorage quota exceeded for key "${key}". Clearing old data...`);
+            // Try to clear some space - delete the oldest item
+            try {
+              const allKeys = Object.keys(window.localStorage);
+              if (allKeys.length > 0) {
+                const oldestKey = allKeys[0];
+                window.localStorage.removeItem(oldestKey);
+                // Retry saving
+                window.localStorage.setItem(key, JSON.stringify(valueToStore));
+              }
+            } catch (clearError) {
+              console.error('Could not free up localStorage space:', clearError);
+            }
+          } else {
+            throw e;
+          }
+        }
         return valueToStore;
       });
     } catch (error) {
-      console.error(error);
+      console.error('localStorage error:', error);
     }
   }, [key]);
 

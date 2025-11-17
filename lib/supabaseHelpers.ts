@@ -96,11 +96,11 @@ export const loadDocumentsByJob = async (supabase: SupabaseClient, jobId: string
     }
 
     // Load documents for this user and job
+    // Load all documents for the user, then filter in memory by jobId
     const { data, error } = await supabase
       .from('Users documents')
       .select('*')
-      .eq('user_id', user.id)
-      .filter('data', 'ilike', `%"jobId":"${jobId}"%`);
+      .eq('user_id', user.id);
 
     if (error) {
       throw error;
@@ -138,16 +138,18 @@ export const saveCompanySettings = async (
       throw new Error('User not authenticated');
     }
 
-    // Prepare settings payload
+    // Prepare settings payload with minimal columns
     const settingsPayload = {
       user_id: user.id,
-      company_name: settings.companyName || '',
-      contact_name: settings.name || '',
-      email: settings.email || '',
-      phone: settings.phone || '',
-      address: settings.address || '',
-      website: settings.website || '',
-      logo_url: settings.logoUrl || '',
+      data: {
+        companyName: settings.companyName || '',
+        name: settings.name || '',
+        email: settings.email || '',
+        phone: settings.phone || '',
+        address: settings.address || '',
+        website: settings.website || '',
+        logoUrl: settings.logoUrl || '',
+      }
     };
 
     // Upsert the company settings
@@ -190,6 +192,10 @@ export const loadCompanySettings = async (supabase: SupabaseClient): Promise<any
       throw error;
     }
 
+    // Return the data field if it exists, otherwise return the whole object
+    if (data && data.data) {
+      return { ...data.data, id: data.id };
+    }
     return data || null;
   } catch (error) {
     console.error('Error loading company settings:', error);
