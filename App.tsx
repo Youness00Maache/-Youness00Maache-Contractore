@@ -4,6 +4,7 @@ import { useLocalStorage } from './hooks/useLocalStorage.ts';
 // FIX: Removed 'type' from import to allow 'FormType' enum to be used as a value.
 import { UserProfile, Job, FormData as FormDataType, FormType, InvoiceData, DailyJobReportData, NoteData } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
+import { saveDocument, loadDocumentsByJob, loadCompanySettings } from './lib/supabaseHelpers.ts';
 import Login from './components/Login.tsx';
 import Signup from './components/Signup.tsx';
 import SelectDocType from './components/SelectDocType.tsx';
@@ -141,6 +142,50 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, [setProfile]);
 
+  // Load documents and company settings from Supabase when session changes
+  useEffect(() => {
+    if (!supabase || !session) return;
+
+    const loadData = async () => {
+      try {
+        // Load company settings
+        const settings = await loadCompanySettings(supabase);
+        if (settings) {
+          // Map from database column names to profile property names
+          setProfile(prev => ({
+            ...prev,
+            companyName: settings.company_name || prev.companyName,
+            name: settings.contact_name || prev.name,
+            email: settings.email || prev.email,
+            phone: settings.phone || prev.phone,
+            address: settings.address || prev.address,
+            website: settings.website || prev.website,
+            logoUrl: settings.logo_url || prev.logoUrl,
+          }));
+        }
+
+        // Load documents for the first job
+        if (jobs.length > 0) {
+          const documents = await loadDocumentsByJob(supabase, jobs[0].id);
+          // Convert documents from Supabase format to local FormData format
+          const formData = documents.map((doc: any) => ({
+            id: doc.id,
+            jobId: doc.job_id,
+            type: doc.type,
+            createdAt: doc.created_at || new Date().toISOString(),
+            data: doc.data,
+          }));
+          setForms(formData);
+        }
+      } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+        // Continue with local data if Supabase fails
+      }
+    };
+
+    loadData();
+  }, [supabase, session, jobs]);
+
   // --- Auth Handlers ---
   const handleLogin = async (email: string, pass: string) => {
     if (!supabase) return;
@@ -176,25 +221,42 @@ const App: React.FC = () => {
   const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
   
   // --- Data Handlers ---
-  const handleSaveForm = (formData: any) => {
+  const handleSaveForm = async (formData: any) => {
     if (view.screen !== 'form') return;
     
-    let formToSave = forms.find(f => f.id === view.formId);
-    if (formToSave) {
-        const updatedForms = forms.map(f => f.id === view.formId ? {...f, data: formData} : f);
-        setForms(updatedForms);
-    } else {
-        const newForm: FormDataType = {
-            id: crypto.randomUUID(),
-            jobId: view.jobId,
-            type: view.formType,
-            createdAt: new Date().toISOString(),
-            data: formData,
-        };
-        setForms(prev => [...prev, {...newForm, data: formData}]);
+    try {
+      // Save to Supabase
+      if (supabase && session) {
+        await saveDocument(
+          supabase,
+          view.formType,
+          formData,
+          view.jobId,
+          view.formId
+        );
+      }
+      
+      // Also update local state for immediate feedback
+      let formToSave = forms.find(f => f.id === view.formId);
+      if (formToSave) {
+          const updatedForms = forms.map(f => f.id === view.formId ? {...f, data: formData} : f);
+          setForms(updatedForms);
+      } else {
+          const newForm: FormDataType = {
+              id: crypto.randomUUID(),
+              jobId: view.jobId,
+              type: view.formType,
+              createdAt: new Date().toISOString(),
+              data: formData,
+          };
+          setForms(prev => [...prev, {...newForm, data: formData}]);
+      }
+      
+      navigateToDashboard();
+    } catch (error) {
+      console.error('Error saving form:', error);
+      alert('Error saving document. Please try again.');
     }
-    
-    navigateToDashboard();
   };
   
   // --- Render Logic ---
@@ -304,7 +366,7 @@ const App: React.FC = () => {
       case 'form':
         return renderForm();
       case 'settings':
-        return <Settings profile={profile} setProfile={setProfile} onBack={navigateToDashboard} />;
+        return <Settings profile={profile} setProfile={setProfile} onBack={navigateToDashboard} supabase={supabase} />;
       default:
         return renderDashboard();
     }

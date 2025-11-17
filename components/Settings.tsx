@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { UserProfile } from '../types';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { saveCompanySettings } from '../lib/supabaseHelpers.ts';
 // FIX: Added .tsx extension to the import path to resolve the module error.
 import { BackArrowIcon } from './Icons.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
@@ -11,9 +13,13 @@ interface SettingsProps {
   profile: UserProfile;
   setProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
   onBack: () => void;
+  supabase?: SupabaseClient | null;
 }
 
-const Settings: React.FC<SettingsProps> = ({ profile, setProfile, onBack }) => {
+const Settings: React.FC<SettingsProps> = ({ profile, setProfile, onBack, supabase }) => {
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setProfile(prev => ({ ...prev, [name]: value }));
@@ -26,6 +32,32 @@ const Settings: React.FC<SettingsProps> = ({ profile, setProfile, onBack }) => {
         setProfile(prev => ({ ...prev, logoUrl: event.target?.result as string }));
       };
       reader.readAsDataURL(e.target.files[0]);
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    setIsSaving(true);
+    setSaveMessage(null);
+
+    try {
+      // Save to Supabase if available
+      if (supabase) {
+        await saveCompanySettings(supabase, profile);
+        setSaveMessage({ type: 'success', message: 'Company settings saved successfully!' });
+      } else {
+        setSaveMessage({ type: 'success', message: 'Settings updated locally.' });
+      }
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      setSaveMessage({ 
+        type: 'error', 
+        message: 'Error saving settings. Please try again.' 
+      });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -121,8 +153,24 @@ const Settings: React.FC<SettingsProps> = ({ profile, setProfile, onBack }) => {
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex justify-end">
-             <Button onClick={onBack}>Save Changes</Button>
+          <CardFooter className="flex justify-between items-center">
+            <div>
+              {saveMessage && (
+                <p className={`text-sm font-medium ${
+                  saveMessage.type === 'success' 
+                    ? 'text-green-600' 
+                    : 'text-red-600'
+                }`}>
+                  {saveMessage.message}
+                </p>
+              )}
+            </div>
+            <div className="space-x-2">
+              <Button variant="outline" onClick={onBack}>Cancel</Button>
+              <Button onClick={handleSaveChanges} disabled={isSaving}>
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
           </CardFooter>
         </Card>
       </main>
