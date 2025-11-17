@@ -38,6 +38,7 @@ const Modal: React.FC<{onClose: () => void, title: string, children: React.React
 
 const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack }) => {
   const [data, setData] = useState<NoteData>(note || defaultNote);
+  const [isSaving, setIsSaving] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
@@ -245,9 +246,17 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
     }
   };
 
-  const handleSave = () => {
-    const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-    onSave({ ...data, content: finalContent });
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+      await onSave({ ...data, content: finalContent });
+    } catch (error) {
+      console.error('Error saving note:', error);
+      alert('Failed to save note. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
   
   const handleExport = async () => {
@@ -534,7 +543,9 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             </div>
             <h1 className="text-xl font-bold text-center whitespace-nowrap">Note</h1>
             <div className="flex items-center gap-2 justify-end">
-                <Button onClick={handleSave}>Save</Button>
+                <Button onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? 'Saving...' : 'Save'}
+                </Button>
                  <Button variant="secondary" size="sm" onClick={handleExport} className="flex items-center gap-2">
                     <ExportIcon className="h-4 w-4" />
                     <span>Export</span>

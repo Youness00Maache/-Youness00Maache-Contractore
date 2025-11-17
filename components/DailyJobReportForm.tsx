@@ -53,6 +53,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   });
   const [page, setPage] = useState(1);
   const [showExportOptions, setShowExportOptions] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
@@ -272,9 +273,17 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     }
   };
 
-  const handleSave = () => {
-    const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-    onSave({ ...data, content: finalContent });
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+      await onSave({ ...data, content: finalContent });
+    } catch (error) {
+      console.error('Error saving daily job report:', error);
+      alert('Failed to save report. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
   
   const handleExport = async (template: 'minimal' | 'bordered' | 'modern') => {
@@ -715,7 +724,9 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
             <div className="flex items-center gap-2 justify-end">
                 {page === 2 && (
                     <>
-                        <Button onClick={handleSave}>Save</Button>
+                        <Button onClick={handleSave} disabled={isSaving}>
+                            {isSaving ? 'Saving...' : 'Save'}
+                        </Button>
                         <div className="relative">
                             <Button variant="secondary" size="sm" onClick={() => setShowExportOptions(prev => !prev)} className="flex items-center gap-2">
                                 <ExportIcon className="h-4 w-4" />

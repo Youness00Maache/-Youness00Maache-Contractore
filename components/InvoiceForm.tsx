@@ -29,6 +29,7 @@ const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'compan
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose }) => {
   const [page, setPage] = useState(1);
+  const [isSaving, setIsSaving] = useState(false);
   const [invoiceData, setInvoiceData] = useState<InvoiceData>(
     invoice || {
       ...defaultInvoice,
@@ -91,17 +92,33 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   const taxAmount = taxableAmount * ((invoiceData.taxRate || 0) / 100);
   const total = taxableAmount + taxAmount + shippingAmount;
 
-  const handleSave = () => {
-    onSave(invoiceData);
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSave(invoiceData);
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+      alert('Failed to save invoice. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
   
   const handleDownload = () => {
     generateInvoicePDF(userProfile, job, invoiceData);
   };
 
-  const handleSaveAndDownload = () => {
-    handleSave();
-    handleDownload();
+  const handleSaveAndDownload = async () => {
+    setIsSaving(true);
+    try {
+      await onSave(invoiceData);
+      handleDownload();
+    } catch (error) {
+      console.error('Error saving and downloading invoice:', error);
+      alert('Failed to save invoice. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const renderPageOne = () => (
@@ -289,11 +306,17 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
 
         </CardContent>
         <CardFooter className="flex justify-between items-center">
-             <Button variant="outline" onClick={onClose}>Cancel</Button>
+             <Button variant="outline" onClick={onClose} disabled={isSaving}>Cancel</Button>
             <div className="flex space-x-2">
-                <Button variant="secondary" onClick={handleSave}>Save Invoice</Button>
-                <Button variant="secondary" onClick={handleDownload}>Download PDF</Button>
-                <Button onClick={handleSaveAndDownload}>Save & Download</Button>
+                <Button variant="secondary" onClick={handleSave} disabled={isSaving}>
+                  {isSaving ? 'Saving...' : 'Save Invoice'}
+                </Button>
+                <Button variant="secondary" onClick={handleDownload} disabled={isSaving}>
+                  {isSaving ? 'Saving...' : 'Download PDF'}
+                </Button>
+                <Button onClick={handleSaveAndDownload} disabled={isSaving}>
+                  {isSaving ? 'Saving...' : 'Save & Download'}
+                </Button>
             </div>
         </CardFooter>
       </Card>
