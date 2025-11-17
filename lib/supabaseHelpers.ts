@@ -23,7 +23,6 @@ export const saveDocument = async (
     const documentPayload = {
       user_id: user.id,
       type: docType,
-      job_id: jobId,
       data: docData,
     };
 
@@ -101,13 +100,23 @@ export const loadDocumentsByJob = async (supabase: SupabaseClient, jobId: string
       .from('Users documents')
       .select('*')
       .eq('user_id', user.id)
-      .eq('job_id', jobId);
+      .filter('data', 'ilike', `%"jobId":"${jobId}"%`);
 
     if (error) {
       throw error;
     }
 
-    return data || [];
+    // Filter in memory since JSONB filtering can be complex
+    const filtered = (data || []).filter(doc => {
+      try {
+        const jobId_in_data = doc.data?.jobId || doc.data?.job_id;
+        return jobId_in_data === jobId;
+      } catch {
+        return false;
+      }
+    });
+
+    return filtered;
   } catch (error) {
     console.error('Error loading documents for job:', error);
     throw error;
