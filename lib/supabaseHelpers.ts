@@ -31,7 +31,7 @@ export const saveDocument = async (
     if (formId) {
       // Update existing document
       result = await supabase
-        .from('documents')
+        .from('Users documents')
         .update(documentPayload)
         .eq('id', formId)
         .eq('user_id', user.id)
@@ -39,7 +39,7 @@ export const saveDocument = async (
     } else {
       // Create new document
       result = await supabase
-        .from('documents')
+        .from('Users documents')
         .insert(documentPayload)
         .select();
     }
@@ -69,7 +69,7 @@ export const loadDocuments = async (supabase: SupabaseClient) => {
 
     // Load documents for this user
     const { data, error } = await supabase
-      .from('documents')
+      .from('Users documents')
       .select('*')
       .eq('user_id', user.id);
 
@@ -98,7 +98,7 @@ export const loadDocumentsByJob = async (supabase: SupabaseClient, jobId: string
 
     // Load documents for this user and job
     const { data, error } = await supabase
-      .from('documents')
+      .from('Users documents')
       .select('*')
       .eq('user_id', user.id)
       .eq('job_id', jobId);
@@ -201,7 +201,7 @@ export const deleteDocument = async (supabase: SupabaseClient, documentId: strin
 
     // Delete only if it belongs to this user
     const { error } = await supabase
-      .from('documents')
+      .from('Users documents')
       .delete()
       .eq('id', documentId)
       .eq('user_id', user.id);
