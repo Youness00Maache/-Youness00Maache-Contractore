@@ -8,6 +8,7 @@ import { Button } from './ui/Button.tsx';
 import { BackArrowIcon, ExportIcon } from './Icons.tsx';
 import { generateWorkOrderPDF } from '../services/pdfGenerator.ts';
 import TemplateSelector from './TemplateSelector.tsx';
+import SignaturePad from './SignaturePad.tsx';
 
 interface Props {
   job: any;
@@ -25,6 +26,7 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
     materialsUsed: '',
     hours: 0,
     cost: 0,
+    signatureUrl: '',
   });
   const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
@@ -73,6 +75,17 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
                 <div><Label>Hours</Label><Input type="number" name="hours" value={formData.hours} onChange={handleChange} /></div>
                 <div><Label>Total Cost ($)</Label><Input type="number" name="cost" value={formData.cost} onChange={handleChange} /></div>
               </div>
+              
+              <div className="mt-4">
+                <Label>Customer Signature</Label>
+                <div className="mt-2">
+                    <SignaturePad 
+                        onSave={(url) => setFormData(prev => ({...prev, signatureUrl: url}))}
+                        initialDataUrl={formData.signatureUrl}
+                    />
+                </div>
+              </div>
+
               <div className="pt-4 border-t border-border">
                   <TemplateSelector selected={templateId} onSelect={setTemplateId} />
               </div>

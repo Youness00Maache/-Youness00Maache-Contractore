@@ -27,6 +27,7 @@ const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'compan
   shipping: 0,
   notes: 'Thank you for your business.',
   paypalLink: '',
+  status: 'Draft',
 };
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose }) => {
@@ -46,7 +47,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setInvoiceData(prev => ({ ...prev, [name]: name === 'taxRate' || name === 'discount' || name === 'shipping' ? parseFloat(value) || 0 : value }));
   };
@@ -115,7 +116,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
     <Card className="w-full max-w-4xl animate-fade-in-down my-8">
         <CardHeader>
             <CardTitle>Invoice Setup</CardTitle>
-            <CardDescription>Confirm the details for this invoice. Changes made here will only apply to this document.</CardDescription>
+            <CardDescription>Confirm the details for this invoice.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -152,7 +153,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
             </div>
 
             <div className="pt-4">
-                <h3 className="text-lg font-semibold border-b pb-2">Invoice Details & Logo</h3>
+                <h3 className="text-lg font-semibold border-b pb-2">Invoice Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
                   <div className="space-y-4">
                     <div className="flex flex-col space-y-1.5">
@@ -166,6 +167,22 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
                      <div className="flex flex-col space-y-1.5">
                         <Label htmlFor="dueDate">Due Date</Label>
                         <Input id="dueDate" type="date" name="dueDate" value={invoiceData.dueDate} onChange={handleInputChange} />
+                    </div>
+                    <div className="flex flex-col space-y-1.5">
+                        <Label htmlFor="status">Status</Label>
+                        <select 
+                            id="status" 
+                            name="status" 
+                            value={invoiceData.status} 
+                            onChange={handleInputChange}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                            <option value="Draft">Draft</option>
+                            <option value="Sent">Sent</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Overdue">Overdue</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
                     </div>
                   </div>
                   <div className="space-y-4">

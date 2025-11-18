@@ -1,4 +1,5 @@
 
+
 export enum FormType {
   WorkOrder = "Work Order",
   DailyJobReport = "Daily Job Report",
@@ -24,6 +25,17 @@ export interface UserProfile {
   jobTitle?: string;
   subscriptionTier?: 'Basic' | 'Premium';
   language?: string;
+}
+
+export interface Client {
+  id: string;
+  user_id: string;
+  name: string;
+  address: string;
+  email: string;
+  phone: string;
+  notes?: string;
+  created_at?: string;
 }
 
 export interface Job {
@@ -54,6 +66,7 @@ export interface InvoiceData {
   shipping?: number; // as a currency amount
   notes: string;
   paypalLink?: string;
+  status: 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled';
   // Per-invoice customizable fields
   companyName?: string;
   companyAddress?: string;
@@ -71,6 +84,7 @@ export interface WorkOrderData {
   materialsUsed: string;
   hours: number;
   cost: number;
+  signatureUrl?: string;
 }
 
 export interface DailyJobReportData {
@@ -120,6 +134,7 @@ export interface EstimateData {
   lineItems: LineItem[];
   terms: string;
   notes: string;
+  status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
 }
 
 export interface ExpenseLogData {
@@ -135,6 +150,7 @@ export interface WarrantyData {
   duration: string;
   coverage: string;
   conditions: string;
+  signatureUrl?: string;
 }
 
 export interface NoteData {

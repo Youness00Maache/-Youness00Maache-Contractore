@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-// FIX: 'FormType' is an enum used as a value, so it must be imported with a regular `import`, not `import type`.
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
@@ -19,13 +18,15 @@ import WarrantyForm from './components/WarrantyForm.tsx';
 import ReceiptForm from './components/ReceiptForm.tsx';
 
 import Settings from './components/Settings.tsx';
+import ClientsView from './components/ClientsView.tsx';
 import Dock from './components/Dock.tsx';
 import JobForm from './components/JobForm.tsx';
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
-// FIX: Import the 'Label' component to resolve the 'Cannot find name' error.
 import { Label } from './components/ui/Label.tsx';
+import { Input } from './components/ui/Input.tsx';
+import { translations } from './utils/translations.ts';
 
 // --- IMPORTANT: CONFIGURE YOUR SUPABASE CREDENTIALS ---
 // You can get these from your Supabase project dashboard at https://app.supabase.com
@@ -45,6 +46,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- This will DELETE ALL DATA in these tables.
 DROP TABLE IF EXISTS public.documents CASCADE;
 DROP TABLE IF EXISTS public.jobs CASCADE;
+DROP TABLE IF EXISTS public.clients CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
 DROP TABLE IF EXISTS "public"."Users documents" CASCADE; -- Clean up conflicting table names
 DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
@@ -83,12 +85,13 @@ CREATE POLICY "Users can update their own profile." ON public.profiles
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, name, company_name)
+  INSERT INTO public.profiles (id, email, name, company_name, language)
   VALUES (
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1)),
-    COALESCE(NEW.raw_user_meta_data->>'company_name', (SPLIT_PART(NEW.email, '@', 1) || '''s Company'))
+    COALESCE(NEW.raw_user_meta_data->>'company_name', (SPLIT_PART(NEW.email, '@', 1) || '''s Company')),
+    'English'
   );
   RETURN NEW;
 END;
@@ -99,7 +102,26 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 5. Create JOBS table
+-- 5. Create CLIENTS table
+CREATE TABLE public.clients (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  address TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own clients" ON public.clients
+  FOR ALL USING (auth.uid() = user_id);
+  
+CREATE INDEX IF NOT EXISTS idx_clients_user_id ON public.clients(user_id);
+
+-- 6. Create JOBS table
 -- This table stores job/project information.
 CREATE TABLE public.jobs (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -114,13 +136,15 @@ CREATE TABLE public.jobs (
 );
 COMMENT ON TABLE public.jobs IS 'Stores job or project information for users.';
 
--- 6. Set up RLS for the jobs table
+-- 7. Set up RLS for the jobs table
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can manage their own jobs." ON public.jobs
   FOR ALL USING (auth.uid() = user_id);
+  
+CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON public.jobs(user_id);
 
--- 7. Create DOCUMENTS table
+-- 8. Create DOCUMENTS table
 -- This table stores all forms and documents related to jobs.
 CREATE TABLE public.documents (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -132,7 +156,7 @@ CREATE TABLE public.documents (
 );
 COMMENT ON TABLE public.documents IS 'Stores all documents like invoices, reports, etc., related to a job.';
 
--- 8. Set up RLS for the documents table
+-- 9. Set up RLS for the documents table
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 
 -- Explicit policies for better control and debugging
@@ -147,8 +171,11 @@ CREATE POLICY "Users can update their own documents" ON public.documents
 
 CREATE POLICY "Users can delete their own documents" ON public.documents
   FOR DELETE USING (auth.uid() = user_id);
+  
+CREATE INDEX IF NOT EXISTS idx_documents_user_id ON public.documents(user_id);
+CREATE INDEX IF NOT EXISTS idx_documents_job_id ON public.documents(job_id);
 
--- 9. Create Storage bucket for logos
+-- 10. Create Storage bucket for logos
 -- This part must be done from the Supabase Dashboard UI.
 -- Go to Storage -> Create a new bucket.
 -- Enter "logos" as the bucket name and mark it as a Public bucket.
@@ -158,7 +185,7 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('logos', 'logos', true)
 ON CONFLICT (id) DO NOTHING;
 
--- 10. Add RLS policies for the "logos" bucket
+-- 11. Add RLS policies for the "logos" bucket
 -- Drop existing policies first to prevent errors on re-run
 DROP POLICY IF EXISTS "Allow authenticated view access to logos" ON storage.objects;
 DROP POLICY IF EXISTS "Allow users to upload their own logo" ON storage.objects;
@@ -245,7 +272,8 @@ const App: React.FC = () => {
     | { screen: 'selectDocType'; jobId: string }
     | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
     | { screen: 'settings' }
-    | { screen: 'profile' }; // Added profile screen
+    | { screen: 'profile' }
+    | { screen: 'clients' }; 
   
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -263,6 +291,10 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem('theme');
     return (savedTheme === 'light' || savedTheme === 'dark') ? savedTheme : 'dark';
   });
+
+  // Dashboard specific state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -305,7 +337,7 @@ const App: React.FC = () => {
             .eq('id', user.id)
             .single();
 
-        if (profileError && profileError.code !== 'PGRST116') { // Ignore "Not found" error
+        if (profileError && profileError.code !== 'PGRST116') { 
             console.error('Error fetching profile:', profileError.message);
             // Check for schema-related errors
             if (/relation "public.profiles" does not exist|invalid input syntax for type bigint|Could not find the table 'public.profiles'|schema cache/i.test(profileError.message)) {
@@ -332,9 +364,17 @@ const App: React.FC = () => {
             };
         } else if (!profileError || profileError.code === 'PGRST116') {
             setLoadingMessage('Creating your account...');
-            // This is a fallback in case the DB trigger fails. Usually the trigger handles profile creation.
-            const namePart = user.email!.split('@')[0];
-            const nameToSet = namePart.replace(/[._-]/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            
+            // Try to get name from metadata (Google/OAuth), otherwise fallback to email
+            const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
+            const metaAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+            let nameToSet = metaName;
+
+            if (!nameToSet) {
+                const namePart = user.email!.split('@')[0];
+                nameToSet = namePart.replace(/[._-]/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            }
+            
             const { data: newProfileData, error: createError } = await supabase
                 .from('profiles')
                 .insert({
@@ -342,13 +382,13 @@ const App: React.FC = () => {
                     email: user.email,
                     name: nameToSet,
                     company_name: `${nameToSet}'s Company`,
+                    logo_url: metaAvatar,
                 })
                 .select()
                 .single();
 
             if (createError) {
                  console.error("Error creating profile:", createError.message);
-                 // Catch 'email' column missing or other schema issues here
                  if (/Could not find the 'email' column|relation "public.profiles" does not exist|invalid input syntax for type bigint|schema cache/i.test(createError.message)) {
                      setDbSetupError(SQL_SETUP_SCRIPT);
                      setLoading(false);
@@ -414,6 +454,18 @@ const App: React.FC = () => {
             }
         } else setForms(formsData?.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at })) || []);
         
+        // 4. Check for clients table (lightweight check)
+        setLoadingMessage('Checking database...');
+        const { error: clientsError } = await supabase.from('clients').select('id').limit(1);
+        if (clientsError) {
+            // If clients table missing, suggest setup
+            if (/relation "public.clients" does not exist|schema cache/i.test(clientsError.message)) {
+                setDbSetupError(SQL_SETUP_SCRIPT);
+                setLoading(false);
+                return;
+            }
+        }
+
         setView({ screen: 'dashboard' });
         setLoading(false);
     };
@@ -451,6 +503,7 @@ const App: React.FC = () => {
   const navigateToSettings = () => setView({ screen: 'settings' });
   const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
   const navigateToCreateJob = () => setView({ screen: 'createJob' });
+  const navigateToClients = () => setView({ screen: 'clients' });
   
   // --- Data Handlers ---
   const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null) => {
@@ -465,7 +518,7 @@ const App: React.FC = () => {
           } catch (error) {
               console.error('Logo upload failed:', error);
               setLoading(false);
-              return; // Optionally show an error to the user
+              return;
           }
       }
 
@@ -486,10 +539,11 @@ const App: React.FC = () => {
       const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
 
       if (error) {
-          console.error('Error saving profile:', error);
-           // Catch schema issues during save
-           if (/Could not find the|relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(error.message)) {
+          console.error('Error saving profile:', JSON.stringify(error, null, 2));
+           if (/Could not find the|relation "public.profiles" does not exist|invalid input syntax|schema cache|column.*does not exist/i.test(error.message)) {
               setDbSetupError(SQL_SETUP_SCRIPT);
+           } else {
+              alert(`Error saving profile: ${error.message}`);
            }
       } else if (data) {
           setProfile({
@@ -542,8 +596,6 @@ const App: React.FC = () => {
     setLoading(true);
     setLoadingMessage('Saving document...');
 
-    // If creating a new form, don't send 'id' or send it as undefined so DB generates it.
-    // If updating, 'view.formId' will be present.
     const formRecord: any = {
       user_id: session.user.id,
       job_id: view.jobId,
@@ -559,7 +611,6 @@ const App: React.FC = () => {
 
     if (error) {
       console.error('Error saving document:', error);
-      // Check if the error is due to RLS or schema issues
       if (/policy|permission|relation|column/i.test(error.message)) {
           alert(`Error saving document: ${error.message}. Please check database setup.`);
       }
@@ -573,6 +624,12 @@ const App: React.FC = () => {
     setLoading(false);
   };
   
+  // Get translation helper
+  const getTranslation = () => {
+      const lang = profile?.language || 'English';
+      return translations[lang] || translations['English'];
+  }
+
   // --- Render Logic ---
   const renderAuth = () => {
     if (view.screen !== 'auth') return null;
@@ -599,18 +656,51 @@ const App: React.FC = () => {
 
   const renderDashboard = () => {
     if (!profile) return null;
+    const t = getTranslation();
+
+    const filteredJobs = jobs.filter(j => 
+        j.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        j.clientName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const activeJobsCount = jobs.filter(j => j.status === 'active').length;
+    
+    // Financial Analytics Calculation
+    let totalInvoiced = 0;
+    let outstandingPayments = 0;
+
+    forms.forEach(form => {
+        if (form.type === FormType.Invoice) {
+            const data = form.data as InvoiceData;
+            // Safe safe parsing
+            const subtotal = data.lineItems ? data.lineItems.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.rate || 0)), 0) : 0;
+            const discount = Number(data.discount || 0);
+            const shipping = Number(data.shipping || 0);
+            const taxRate = Number(data.taxRate || 0);
+            const taxAmount = (subtotal - discount) * (taxRate / 100);
+            const total = (subtotal - discount) + taxAmount + shipping;
+
+            totalInvoiced += total;
+            
+            if (data.status !== 'Paid') {
+                outstandingPayments += total;
+            }
+        }
+    });
+    
+    // Currency formatter
+    const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 
     return (
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-        <header className="flex justify-between items-center mb-8">
+        <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
             <div className="flex items-center gap-4">
                 <AppLogo className="w-12 h-12 drop-shadow-md" />
-                <h1 className="text-2xl md:text-3xl font-bold">Welcome, {profile.name.split(' ')[0]}!</h1>
+                <h1 className="text-2xl md:text-3xl font-bold">{t.welcome}, {profile.name.split(' ')[0]}!</h1>
             </div>
             <div className="flex items-center gap-4">
-              <Button onClick={navigateToCreateJob}>+ New Job</Button>
+              <Button onClick={navigateToCreateJob}>+ {t.newJob}</Button>
               
-              {/* Profile Button - Now navigates to Profile screen */}
               <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">
                   {profile.logoUrl ? (
                       <img src={profile.logoUrl} alt="Profile" className="h-full w-full object-cover" />
@@ -620,28 +710,62 @@ const App: React.FC = () => {
               </Button>
             </div>
         </header>
+
+        {/* Analytics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <Card className="p-4 flex items-center space-x-4 bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-900">
+                <div className="p-3 bg-green-100 text-green-600 rounded-full"><CreditCardIcon className="w-6 h-6" /></div>
+                <div><p className="text-sm text-muted-foreground">Total Invoiced</p><p className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(totalInvoiced)}</p></div>
+            </Card>
+             <Card className="p-4 flex items-center space-x-4 bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-900">
+                <div className="p-3 bg-red-100 text-red-600 rounded-full"><ClockIcon className="w-6 h-6" /></div>
+                <div><p className="text-sm text-muted-foreground">Outstanding</p><p className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(outstandingPayments)}</p></div>
+            </Card>
+             <Card className="p-4 flex items-center space-x-4">
+                <div className="p-3 bg-blue-100 text-blue-600 rounded-full"><HomeIcon className="w-6 h-6" /></div>
+                <div><p className="text-sm text-muted-foreground">Active Jobs</p><p className="text-2xl font-bold">{activeJobsCount}</p></div>
+            </Card>
+             <Card className="p-4 flex items-center space-x-4">
+                <div className="p-3 bg-purple-100 text-purple-600 rounded-full"><CheckCircleIcon className="w-6 h-6" /></div>
+                <div><p className="text-sm text-muted-foreground">Completed Jobs</p><p className="text-2xl font-bold">{jobs.length - activeJobsCount}</p></div>
+            </Card>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative mb-6">
+            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input 
+                placeholder="Search jobs..." 
+                className="pl-10" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+            />
+        </div>
         
-        <h2 className="text-xl font-semibold mb-4">Your Jobs</h2>
-        {jobs.length === 0 ? (
+        <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
+        {filteredJobs.length === 0 ? (
           <Card className="text-center p-8">
-            <CardTitle>No jobs yet</CardTitle>
-            <CardDescription className="mt-2">Click "+ New Job" to get started.</CardDescription>
+            <CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle>
+            <CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription>
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {jobs.map(job => (
-              <Card key={job.id} className="flex flex-col">
+            {filteredJobs.map(job => (
+              <Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200">
                 <CardHeader>
-                  <CardTitle>{job.name}</CardTitle>
-                  <CardDescription>{job.clientName}</CardDescription>
+                  <CardTitle className="truncate">{job.name}</CardTitle>
+                  <CardDescription className="truncate">{job.clientName}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-grow">
-                  <p className="text-sm text-muted-foreground">{job.clientAddress}</p>
-                  <p className="text-sm text-muted-foreground mt-2">Status: <span className="capitalize font-medium text-foreground">{job.status}</span></p>
+                  <p className="text-sm text-muted-foreground truncate">{job.clientAddress}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                      <span className={`w-2 h-2 rounded-full ${job.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                      <p className="text-sm text-muted-foreground capitalize">{job.status}</p>
+                  </div>
                 </CardContent>
                 <CardFooter>
                   <Button className="w-full" onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}>
-                    View Project
+                    {t.viewProject}
                   </Button>
                 </CardFooter>
               </Card>
@@ -656,8 +780,25 @@ const App: React.FC = () => {
     if (view.screen !== 'jobDetails' || !profile) return null;
     const job = jobs.find(j => j.id === view.jobId);
     if (!job) return <div>Job not found!</div>;
+    const t = getTranslation();
 
-    const jobForms = forms.filter(f => f.jobId === job.id);
+    const jobForms = forms.filter(f => f.jobId === job.id).filter(f => 
+        f.type.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
+        (f.data as any).invoiceNumber?.toLowerCase().includes(docSearchQuery.toLowerCase()) || 
+        (f.data as any).estimateNumber?.toLowerCase().includes(docSearchQuery.toLowerCase())
+    );
+
+    const getStatusBadge = (form: FormDataType) => {
+        const status = (form.data as any).status;
+        if (!status) return null;
+        
+        let colorClass = "bg-gray-100 text-gray-800";
+        if (status === 'Paid' || status === 'Accepted') colorClass = "bg-green-100 text-green-800";
+        else if (status === 'Sent') colorClass = "bg-blue-100 text-blue-800";
+        else if (status === 'Overdue' || status === 'Rejected' || status === 'Cancelled') colorClass = "bg-red-100 text-red-800";
+
+        return <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>{status}</span>;
+    };
 
     return (
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
@@ -672,18 +813,38 @@ const App: React.FC = () => {
         </header>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Project Documents</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>{t.projectDocs}</CardTitle>
+             {/* Document Search */}
+             <div className="relative w-full max-w-xs">
+                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3 w-3" />
+                <Input 
+                    placeholder="Filter docs..." 
+                    className="pl-8 h-8 text-sm"
+                    value={docSearchQuery}
+                    onChange={(e) => setDocSearchQuery(e.target.value)}
+                />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {jobForms.length === 0 && (
-                  <p className="text-muted-foreground">No documents yet. Click the '+' icon in the dock to create one.</p>
+                  <p className="text-muted-foreground py-4 text-center">{t.noDocsYet}</p>
               )}
               {jobForms.map(form => (
-                  <div key={form.id} className="flex justify-between items-center p-3 rounded-md bg-muted">
-                      <span>{form.type} - {new Date(form.createdAt).toLocaleDateString()}</span>
-                      <Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>Edit</Button>
+                  <div key={form.id} className="flex justify-between items-center p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors group">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-background rounded-full text-primary">
+                             {/* Simple icon mapping or generic doc icon */}
+                             <span className="text-xs font-bold">{form.type.substring(0,2).toUpperCase()}</span>
+                          </div>
+                          <div>
+                              <p className="font-medium">{form.type}</p>
+                              <p className="text-xs text-muted-foreground">{new Date(form.createdAt).toLocaleDateString()}</p>
+                          </div>
+                          {getStatusBadge(form)}
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>{t.edit}</Button>
                   </div>
               ))}
             </div>
@@ -736,13 +897,16 @@ const App: React.FC = () => {
   };
 
   const getDockItems = () => {
+    const t = getTranslation();
     const items = [
-      { icon: HomeIcon, label: 'Dashboard', onClick: navigateToDashboard },
+      { icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard },
     ];
     if (view.screen === 'jobDetails') {
-      items.push({ icon: PlusIcon, label: 'New Document', onClick: () => navigateToNewDoc(view.jobId) });
+      items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc(view.jobId) });
+    } else {
+        items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
     }
-    items.push({ icon: SettingsIcon, label: 'Settings', onClick: navigateToSettings });
+    items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
     return items;
   };
   
@@ -765,7 +929,7 @@ const App: React.FC = () => {
       case 'jobDetails':
         return renderJobDetails();
       case 'createJob':
-        return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} />;
+        return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} />;
       case 'selectDocType': {
         const activeJob = jobs.find(j => j.id === view.jobId);
         if (!activeJob) return <div>Error: Job not found</div>
@@ -774,9 +938,13 @@ const App: React.FC = () => {
       case 'form':
         return renderForm();
       case 'settings':
-        return <Settings mode="settings" profile={profile!} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
+        if (!profile) return null;
+        return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
       case 'profile':
-        return <Settings mode="profile" profile={profile!} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
+        if (!profile) return null;
+        return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
+      case 'clients':
+        return <ClientsView onBack={navigateToDashboard} supabase={supabase} session={session} />;
       default:
         return renderDashboard();
     }
@@ -785,7 +953,7 @@ const App: React.FC = () => {
   return (
     <main className="w-full min-h-screen bg-background">
       {renderContent()}
-      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails') && (
+      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
         <Dock items={getDockItems()} />
       )}
     </main>

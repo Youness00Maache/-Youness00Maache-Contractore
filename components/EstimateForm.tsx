@@ -25,6 +25,7 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
     lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, rate: 0 }],
     terms: 'Valid for 7 days.',
     notes: '',
+    status: 'Draft',
   });
   const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
@@ -62,8 +63,21 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
           <Card className="max-w-4xl mx-auto w-full">
             <CardHeader><CardTitle>Create Estimate</CardTitle></CardHeader>
             <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><Label>Estimate #</Label><Input value={formData.estimateNumber} onChange={e => setFormData({...formData, estimateNumber: e.target.value})} /></div>
+                    <div>
+                        <Label>Status</Label>
+                        <select 
+                            value={formData.status} 
+                            onChange={e => setFormData({...formData, status: e.target.value as any})}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                            <option value="Draft">Draft</option>
+                            <option value="Sent">Sent</option>
+                            <option value="Accepted">Accepted</option>
+                            <option value="Rejected">Rejected</option>
+                        </select>
+                    </div>
                     <div><Label>Issue Date</Label><Input type="date" value={formData.issueDate} onChange={e => setFormData({...formData, issueDate: e.target.value})} /></div>
                     <div><Label>Expiry Date</Label><Input type="date" value={formData.expiryDate} onChange={e => setFormData({...formData, expiryDate: e.target.value})} /></div>
                 </div>

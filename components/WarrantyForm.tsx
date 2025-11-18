@@ -8,6 +8,7 @@ import { Button } from './ui/Button.tsx';
 import { BackArrowIcon, ExportIcon } from './Icons.tsx';
 import { generateWarrantyPDF } from '../services/pdfGenerator.ts';
 import TemplateSelector from './TemplateSelector.tsx';
+import SignaturePad from './SignaturePad.tsx';
 
 interface Props {
   job: any;
@@ -23,6 +24,7 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
     duration: '1 Year',
     coverage: 'Labor and materials for installation defects.',
     conditions: 'Warranty void if damage caused by negligence or natural disasters.',
+    signatureUrl: '',
   });
   const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
@@ -56,6 +58,16 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
               <div><Label>Warranty Duration</Label><Input name="duration" value={formData.duration} onChange={handleChange} placeholder="e.g. 1 Year" /></div>
               <div><Label>Coverage</Label><textarea name="coverage" className="w-full p-2 border rounded-md bg-background" rows={4} value={formData.coverage} onChange={handleChange} /></div>
               <div><Label>Conditions</Label><textarea name="conditions" className="w-full p-2 border rounded-md bg-background" rows={4} value={formData.conditions} onChange={handleChange} /></div>
+
+              <div className="mt-4">
+                <Label>Authorized Signature</Label>
+                <div className="mt-2">
+                    <SignaturePad 
+                        onSave={(url) => setFormData(prev => ({...prev, signatureUrl: url}))}
+                        initialDataUrl={formData.signatureUrl}
+                    />
+                </div>
+              </div>
 
                <div className="pt-4 border-t border-border">
                  <TemplateSelector selected={templateId} onSelect={setTemplateId} />

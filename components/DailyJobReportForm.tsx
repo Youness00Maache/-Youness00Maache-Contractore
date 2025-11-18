@@ -10,6 +10,7 @@ import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import TemplateSelector from './TemplateSelector.tsx';
+import SignaturePad from './SignaturePad.tsx';
 
 interface DailyJobReportFormProps {
   profile: UserProfile;
@@ -527,6 +528,17 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                       <Input id="logoUrl" type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'logoUrl')} className="pt-2" />
                       {data.logoUrl && <img src={data.logoUrl} alt="Logo Preview" className="mt-2 h-20 w-auto object-contain bg-muted p-2 rounded-md self-start" />}
                   </div>
+                  
+                  <div className="flex flex-col space-y-1.5">
+                    <Label>Sign Here</Label>
+                     <div className="mt-2">
+                        <SignaturePad 
+                            onSave={(url) => setData(prev => ({...prev, signatureUrl: url}))}
+                            initialDataUrl={data.signatureUrl}
+                        />
+                    </div>
+                  </div>
+
               </div>
             </div>
         </div>

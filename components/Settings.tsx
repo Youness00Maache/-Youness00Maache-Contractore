@@ -22,35 +22,43 @@ const languages = [
 ];
 
 const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout }) => {
-  const [profile, setProfile] = useState<UserProfile>(initialProfile);
+  // Safeguard against null/undefined initialProfile to prevent crashes
+  const [profile, setProfile] = useState<UserProfile>(initialProfile || {
+      id: '', email: '', name: '', companyName: '', logoUrl: '', address: '', phone: '', website: '',
+      jobTitle: '', subscriptionTier: 'Basic', language: 'English'
+  });
+  
   const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string>(initialProfile.logoUrl || '');
+  const [logoPreview, setLogoPreview] = useState<string>(initialProfile?.logoUrl || '');
   
   // Split name logic for display/editing (Only needed for profile mode)
-  const [firstName, setFirstName] = useState(initialProfile.name ? initialProfile.name.split(' ')[0] : '');
-  const [lastName, setLastName] = useState(initialProfile.name ? initialProfile.name.split(' ').slice(1).join(' ') : '');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
 
-  // Update local state when initialProfile changes (e.g., after save)
+  // Update local state when initialProfile changes (e.g., after save or load)
   useEffect(() => {
-      setProfile(initialProfile);
-      setLogoPreview(initialProfile.logoUrl || '');
-      if (initialProfile.name) {
-          setFirstName(initialProfile.name.split(' ')[0]);
-          setLastName(initialProfile.name.split(' ').slice(1).join(' '));
+      if (initialProfile) {
+          setProfile(initialProfile);
+          setLogoPreview(initialProfile.logoUrl || '');
+          if (initialProfile.name) {
+              const parts = initialProfile.name.split(' ');
+              setFirstName(parts[0]);
+              setLastName(parts.slice(1).join(' '));
+          }
       }
   }, [initialProfile]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setProfile(prev => ({ ...prev, [name]: value }));
-  };
-
-  // Effect to sync name parts to profile state
+  // Sync local name state to profile object when editing in Profile mode
   useEffect(() => {
       if (mode === 'profile') {
           setProfile(prev => ({...prev, name: `${firstName} ${lastName}`.trim() }));
       }
   }, [firstName, lastName, mode]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setProfile(prev => ({ ...prev, [name]: value }));
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -61,7 +69,6 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
     }
   };
 
-  // Clean up object URL on unmount
   useEffect(() => {
     return () => {
       if (logoPreview && logoPreview.startsWith('blob:')) {
@@ -73,6 +80,8 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
   const handleSaveChanges = () => {
     onSave(profile, logoFile);
   };
+
+  if (!profile) return <div className="p-8 text-center">Loading...</div>;
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
