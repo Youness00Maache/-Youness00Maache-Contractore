@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { NoteData, UserProfile, Job } from '../types.ts';
 import { generateNotePDF } from '../services/pdfGenerator.ts';
@@ -8,6 +9,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
+import TemplateSelector from './TemplateSelector.tsx';
 
 interface NoteFormProps {
   profile: UserProfile;
@@ -38,10 +40,11 @@ const Modal: React.FC<{onClose: () => void, title: string, children: React.React
 
 const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack }) => {
   const [data, setData] = useState<NoteData>(note || defaultNote);
-  const [isSaving, setIsSaving] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
+  const [templateId, setTemplateId] = useState('standard');
+  const [isDownloading, setIsDownloading] = useState(false);
   
   // State for modals
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -246,22 +249,22 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
     }
   };
 
-  const handleSave = async () => {
-    try {
-      setIsSaving(true);
-      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-      await onSave({ ...data, content: finalContent });
-    } catch (error) {
-      console.error('Error saving note:', error);
-      alert('Failed to save note. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
+  const handleSave = () => {
+    const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+    onSave({ ...data, content: finalContent });
   };
   
-  const handleExport = async () => {
-    const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-    await generateNotePDF(profile, job, { ...data, content: finalContent });
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+        const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+        await generateNotePDF(profile, job, { ...data, content: finalContent }, templateId);
+    } catch(e) {
+        console.error(e);
+        alert('Error');
+    } finally {
+        setIsDownloading(false);
+    }
   };
   
   const handleEditorCommand = (command: string, value?: any) => {
@@ -543,13 +546,6 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             </div>
             <h1 className="text-xl font-bold text-center whitespace-nowrap">Note</h1>
             <div className="flex items-center gap-2 justify-end">
-                <Button onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? 'Saving...' : 'Save'}
-                </Button>
-                 <Button variant="secondary" size="sm" onClick={handleExport} className="flex items-center gap-2">
-                    <ExportIcon className="h-4 w-4" />
-                    <span>Export</span>
-                </Button>
             </div>
         </header>
         <div className="flex-1">
@@ -623,7 +619,19 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
                                 </div>
                             </div>
                         </div>
+                        <div className="pt-4 border-t border-border">
+                            <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+                        </div>
                     </CardContent>
+                     <CardFooter className="flex justify-end gap-2 flex-wrap">
+                        <Button variant="outline" onClick={handleSave}>Save Only</Button>
+                        <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
+                            <ExportIcon className="h-4 w-4 mr-2"/> Download PDF
+                        </Button>
+                        <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading}>
+                            Save & Download
+                        </Button>
+                    </CardFooter>
                 </Card>
             </div>
         </div>

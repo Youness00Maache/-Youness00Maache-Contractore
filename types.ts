@@ -1,3 +1,4 @@
+
 export enum FormType {
   WorkOrder = "Work Order",
   DailyJobReport = "Daily Job Report",
@@ -20,6 +21,9 @@ export interface UserProfile {
   address: string;
   phone: string;
   website: string;
+  jobTitle?: string;
+  subscriptionTier?: 'Basic' | 'Premium';
+  language?: string;
 }
 
 export interface Job {
@@ -49,7 +53,7 @@ export interface InvoiceData {
   discount?: number; // as a currency amount
   shipping?: number; // as a currency amount
   notes: string;
-  paypalLink?: string; // Optional PayPal payment link
+  paypalLink?: string;
   // Per-invoice customizable fields
   companyName?: string;
   companyAddress?: string;

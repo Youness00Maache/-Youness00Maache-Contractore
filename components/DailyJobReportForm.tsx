@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DailyJobReportData, UserProfile } from '../types.ts';
 import { generateDailyJobReportPDF } from '../services/pdfGenerator.ts';
@@ -8,6 +9,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
+import TemplateSelector from './TemplateSelector.tsx';
 
 interface DailyJobReportFormProps {
   profile: UserProfile;
@@ -52,11 +54,11 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     projectAddress: '',
   });
   const [page, setPage] = useState(1);
-  const [showExportOptions, setShowExportOptions] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
+  const [templateId, setTemplateId] = useState('standard');
+  const [isDownloading, setIsDownloading] = useState(false);
   
   // State for modals
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -273,22 +275,22 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     }
   };
 
-  const handleSave = async () => {
-    try {
-      setIsSaving(true);
-      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-      await onSave({ ...data, content: finalContent });
-    } catch (error) {
-      console.error('Error saving daily job report:', error);
-      alert('Failed to save report. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
+  const handleSave = () => {
+    const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+    onSave({ ...data, content: finalContent });
   };
   
-  const handleExport = async (template: 'minimal' | 'bordered' | 'modern') => {
-      const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-      await generateDailyJobReportPDF(profile, { ...data, content: finalContent }, template);
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+        const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
+        await generateDailyJobReportPDF(profile, { ...data, content: finalContent }, templateId);
+    } catch (e) {
+        console.error(e);
+        alert('Error generating PDF');
+    } finally {
+        setIsDownloading(false);
+    }
   };
   
   const handleEditorCommand = (command: string, value?: any) => {
@@ -528,6 +530,9 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
               </div>
             </div>
         </div>
+        <div className="pt-4 border-t border-border">
+             <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+        </div>
       </CardContent>
       <CardFooter className="flex justify-end space-x-2">
         <Button variant="outline" onClick={onBack}>Cancel</Button>
@@ -602,6 +607,18 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
             </div>
         </div>
       </CardContent>
+      <CardFooter className="flex justify-between">
+        <Button variant="outline" onClick={() => setPage(1)}>Back</Button>
+        <div className="flex gap-2 flex-wrap justify-end">
+             <Button variant="outline" onClick={handleSave}>Save Only</Button>
+            <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
+                {isDownloading ? '...' : 'Download PDF'}
+            </Button>
+            <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading}>
+                Save & Download
+            </Button>
+        </div>
+      </CardFooter>
     </Card>
   );
 
@@ -722,26 +739,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
             </div>
             <h1 className="text-xl font-bold text-center whitespace-nowrap">Daily Job Report</h1>
             <div className="flex items-center gap-2 justify-end">
-                {page === 2 && (
-                    <>
-                        <Button onClick={handleSave} disabled={isSaving}>
-                            {isSaving ? 'Saving...' : 'Save'}
-                        </Button>
-                        <div className="relative">
-                            <Button variant="secondary" size="sm" onClick={() => setShowExportOptions(prev => !prev)} className="flex items-center gap-2">
-                                <ExportIcon className="h-4 w-4" />
-                                <span>Export</span>
-                            </Button>
-                            {showExportOptions && (
-                                <div className="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-lg z-10">
-                                    <button onClick={() => { handleExport('modern'); setShowExportOptions(false); }} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent rounded-t-md">Modern PDF</button>
-                                    <button onClick={() => { handleExport('bordered'); setShowExportOptions(false); }} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent">Bordered PDF</button>
-                                    <button onClick={() => { handleExport('minimal'); setShowExportOptions(false); }} className="block w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent rounded-b-md">Minimal PDF</button>
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
             </div>
         </header>
         <div className="flex-1">

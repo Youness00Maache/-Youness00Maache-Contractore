@@ -1,9 +1,10 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { GoogleIcon } from './Icons.tsx';
+import { GoogleIcon, AppLogo } from './Icons.tsx';
 
 interface SignupProps {
   onSignup: (email: string, pass: string) => Promise<void>;
@@ -63,10 +64,13 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onLoginWithGoogle, onSwitchTo
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
-      <div className="flex flex-col items-center text-center">
-        <h1 className="text-4xl font-bold mb-2 tracking-tight">Contractor AI</h1>
-        <p className="text-muted-foreground mb-6">Your All-in-One Paperwork Hub</p>
-        <Card className="w-full max-w-sm">
+      <div className="flex flex-col items-center text-center w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center">
+            <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
+            <h1 className="text-4xl font-bold mb-2 tracking-tight">Contractor AI</h1>
+            <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
+        </div>
+        <Card className="w-full">
           <form onSubmit={handleSignup}>
             <CardHeader>
               <CardTitle>Create Account</CardTitle>

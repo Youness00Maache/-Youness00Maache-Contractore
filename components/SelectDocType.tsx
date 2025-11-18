@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { FormType } from '../types';
 // FIX: Added .tsx extension to the import path to resolve the module error.
