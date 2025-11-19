@@ -165,8 +165,22 @@ const templates: Record<string, TemplateStyle> = {
     }
 };
 
-const getTemplate = (id: string | undefined): TemplateStyle => {
-    return templates[id || 'standard'] || templates.standard;
+// Helper to get style and override with custom colors
+const getTemplate = (id: string | undefined, customColors?: { primary: string, secondary: string }): TemplateStyle => {
+    const baseTemplate = templates[id || 'standard'] || templates.standard;
+    if (customColors) {
+        // Shallow copy to avoid mutating original template definition
+        return {
+            ...baseTemplate,
+            primaryColor: customColors.primary,
+            secondaryColor: customColors.secondary,
+            // Adjust derived colors if needed, for now basic override
+            headerColor: baseTemplate.headerColor === '#ffffff' ? '#ffffff' : customColors.primary,
+            headerTextColor: baseTemplate.headerColor === '#ffffff' ? customColors.primary : '#ffffff',
+            borderColor: customColors.secondary
+        };
+    }
+    return baseTemplate;
 };
 
 const hexToRgb = (hex: string) => {
@@ -178,13 +192,60 @@ const hexToRgb = (hex: string) => {
     ] : [0, 0, 0];
 };
 
+// Helper function to robustly load images and detect format
+const loadImage = async (url: string): Promise<{ data: string; format: string; width: number; height: number } | null> => {
+    try {
+        let dataUrl = url;
+        // Fetch if it's not a data URL
+        if (!url.startsWith('data:image/')) {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                // Simple format detection
+                let format = 'PNG'; // Default
+                if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) format = 'JPEG';
+                if (dataUrl.startsWith('data:image/webp')) format = 'WEBP';
+                
+                resolve({
+                    data: dataUrl,
+                    format: format,
+                    width: img.naturalWidth,
+                    height: img.naturalHeight
+                });
+            };
+            img.onerror = () => {
+                console.error('Failed to load image:', url);
+                resolve(null);
+            };
+            // Important: Handle CORS if not data URL
+            if (!dataUrl.startsWith('data:')) {
+                img.crossOrigin = 'Anonymous';
+            }
+            img.src = dataUrl;
+        });
+    } catch (e) {
+        console.error("Error processing image:", e);
+        return null;
+    }
+};
+
 
 const addHeader = async (doc: any, profile: UserProfile, title: string, dateLabel: string, dateValue: string, style: TemplateStyle) => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 40;
     let yPos = margin;
     
-    // Header Background for styles that support it
+    // Header Background
     if (style.headerColor !== '#ffffff') {
         doc.setFillColor(...hexToRgb(style.headerColor));
         doc.rect(0, 0, pageWidth, 120, 'F');
@@ -192,28 +253,13 @@ const addHeader = async (doc: any, profile: UserProfile, title: string, dateLabe
 
     // Logo
     if (profile.logoUrl) {
-        try {
-            let dataUrl = profile.logoUrl;
-             if (!dataUrl.startsWith('data:image/')) {
-                 const response = await fetch(dataUrl);
-                 const blob = await response.blob();
-                 const reader = new FileReader();
-                 dataUrl = await new Promise<string>((resolve, reject) => {
-                     reader.onload = () => resolve(reader.result as string);
-                     reader.onerror = reject;
-                     reader.readAsDataURL(blob);
-                 });
-             }
-            const img = new Image();
-            const imgLoadPromise = new Promise((resolve) => { img.onload = resolve; });
-            img.src = dataUrl;
-            await imgLoadPromise;
-            const aspectRatio = img.naturalWidth / img.naturalHeight;
+        const imgData = await loadImage(profile.logoUrl);
+        if (imgData) {
+            const aspectRatio = imgData.width / imgData.height;
             const imgWidth = 60;
             const imgHeight = imgWidth / aspectRatio;
-            doc.addImage(dataUrl, 'PNG', margin, yPos, imgWidth, imgHeight);
-        } catch (e) {
-            console.error("Error adding logo:", e);
+            // Use detected format
+            doc.addImage(imgData.data, imgData.format, margin, yPos, imgWidth, imgHeight);
         }
     }
 
@@ -224,7 +270,7 @@ const addHeader = async (doc: any, profile: UserProfile, title: string, dateLabe
     
     doc.setFontSize(10);
     doc.setFont(style.font, 'normal');
-    doc.setTextColor(...hexToRgb(style.headerTextColor)); // Keep header text color for date too if bg is colored
+    doc.setTextColor(...hexToRgb(style.headerTextColor));
     doc.text(dateLabel + ": " + dateValue, pageWidth - margin, yPos + 45, { align: 'right' });
 
     yPos += 70;
@@ -255,44 +301,24 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
       const margin = 40;
       let yPos = margin;
 
-      const style = getTemplate(templateId);
+      const style = getTemplate(templateId, invoiceData.themeColors);
 
-      // Header background if needed
-       if (style.headerColor !== '#ffffff') {
+      if (style.headerColor !== '#ffffff') {
         doc.setFillColor(...hexToRgb(style.headerColor));
         doc.rect(0, 0, pageWidth, 130, 'F');
       }
 
-      const addLogo = async () => {
-        const logoSource = invoiceData.logoUrl || profile.logoUrl;
-        if (logoSource) {
-          try {
-            let dataUrl = logoSource;
-            if (!logoSource.startsWith('data:image/')) {
-              const response = await fetch(logoSource);
-              const blob = await response.blob();
-              const reader = new FileReader();
-              dataUrl = await new Promise<string>((resolve, reject) => {
-                reader.onload = () => resolve(reader.result as string);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-            }
-            const img = new Image();
-            const imgLoadPromise = new Promise((resolve) => { img.onload = resolve; });
-            img.src = dataUrl;
-            await imgLoadPromise;
-            const aspectRatio = img.naturalWidth / img.naturalHeight;
-            const imgWidth = 80;
-            const imgHeight = imgWidth / aspectRatio;
-            doc.addImage(dataUrl, 'PNG', margin, yPos, imgWidth, imgHeight);
-          } catch (e) {
-            console.error("Error adding image to PDF:", e);
+      const logoSource = invoiceData.logoUrl || profile.logoUrl;
+      if (logoSource) {
+          const imgData = await loadImage(logoSource);
+          if (imgData) {
+              const aspectRatio = imgData.width / imgData.height;
+              const imgWidth = 80;
+              const imgHeight = imgWidth / aspectRatio;
+              doc.addImage(imgData.data, imgData.format, margin, yPos, imgWidth, imgHeight);
           }
-        }
-      };
+      }
 
-      await addLogo();
       yPos = margin; 
 
       doc.setFontSize(24);
@@ -325,8 +351,8 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
       let rightColY = margin + 80; 
       const rightColX = pageWidth / 2;
       
-      doc.setTextColor(...hexToRgb(style.headerTextColor)); // ensure header text color
-      if(style.headerColor === '#ffffff') doc.setTextColor(...hexToRgb(style.textColor)); // reset if white header
+      doc.setTextColor(...hexToRgb(style.headerTextColor)); 
+      if(style.headerColor === '#ffffff') doc.setTextColor(...hexToRgb(style.textColor));
 
       doc.setFont(style.font, 'bold');
       doc.text('BILL TO', rightColX, rightColY);
@@ -351,7 +377,6 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
 
       yPos = Math.max(yPos, rightColY) + 40;
 
-      // Reset text color for body
       doc.setTextColor(...hexToRgb(style.textColor));
 
       const tableData = invoiceData.lineItems.map(item => [
@@ -417,7 +442,7 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
       doc.setFontSize(12);
       doc.setTextColor(...hexToRgb(style.primaryColor));
       addTotalLine('Total:', currencyFormatter.format(total), true);
-      doc.setTextColor(...hexToRgb(style.textColor)); // reset
+      doc.setTextColor(...hexToRgb(style.textColor)); 
       finalY = yPos;
 
       if (invoiceData.notes) {
@@ -432,6 +457,23 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
         finalY = Math.max(finalY, yPos + noteLines.length * 12);
       }
 
+      // Signature
+      if (invoiceData.signatureUrl) {
+        yPos = finalY + 30;
+        const sigImg = await loadImage(invoiceData.signatureUrl);
+        if (sigImg) {
+             // Check page space
+             if (yPos + 60 > pageHeight - margin) {
+                 doc.addPage();
+                 yPos = margin;
+             }
+             doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
+             doc.setFontSize(10);
+             doc.text("Authorized Signature", margin, yPos + 55);
+             finalY = yPos + 70;
+        }
+      }
+
       if (invoiceData.paypalLink) {
         const buttonWidth = 140;
         const buttonHeight = 35;
@@ -442,7 +484,7 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
         }
 
         doc.link(buttonX, buttonY, buttonWidth, buttonHeight, { url: invoiceData.paypalLink });
-        doc.setFillColor(255, 196, 58); // PayPal Gold
+        doc.setFillColor(255, 196, 58); 
         doc.roundedRect(buttonX, buttonY, buttonWidth, buttonHeight, 5, 5, 'F');
         const logoWidth = 90;
         const logoHeight = 22.5;
@@ -467,47 +509,30 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 40;
-      const style = getTemplate(templateId);
+      const style = getTemplate(templateId, data.themeColors);
 
       const companyName = data.companyName || profile.companyName;
 
-      // Header BG
       if (style.headerColor !== '#ffffff') {
         doc.setFillColor(...hexToRgb(style.headerColor));
         doc.rect(0, 0, pageWidth, 100, 'F');
       }
 
-      const addLogo = async (yStart: number, xStart: number = margin, maxWidth: number = 60) => {
-        const logoUrl = data.logoUrl || profile.logoUrl;
-        if (logoUrl) {
-          try {
-            let dataUrl = logoUrl;
-            if (!logoUrl.startsWith('data:image/')) {
-                const response = await fetch(logoUrl);
-                const blob = await response.blob();
-                const reader = new FileReader();
-                dataUrl = await new Promise<string>((resolve, reject) => {
-                    reader.onload = () => resolve(reader.result as string);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                });
-            }
-            const img = new Image();
-            await new Promise(resolve => { img.onload = resolve; img.src = dataUrl; });
-            const aspectRatio = img.naturalWidth / img.naturalHeight;
-            const imgWidth = Math.min(maxWidth, 80);
+      const logoUrl = data.logoUrl || profile.logoUrl;
+      if (logoUrl) {
+          const imgData = await loadImage(logoUrl);
+          if (imgData) {
+            const aspectRatio = imgData.width / imgData.height;
+            const imgWidth = Math.min(60, 80);
             const imgHeight = imgWidth / aspectRatio;
-            doc.addImage(dataUrl, 'PNG', xStart, yStart, imgWidth, imgHeight);
-          } catch (e) { console.error("Error adding image:", e); }
-        }
-      };
-      
-      const addHeader = (title: string, y: number) => {
-          doc.setFontSize(24);
-          doc.setFont(style.headerFont, 'bold');
-          doc.setTextColor(...hexToRgb(style.headerTextColor));
-          doc.text(title, pageWidth - margin, y, { align: 'right'});
+            doc.addImage(imgData.data, imgData.format, margin, margin - 10, imgWidth, imgHeight);
+          }
       }
+      
+      doc.setFontSize(24);
+      doc.setFont(style.headerFont, 'bold');
+      doc.setTextColor(...hexToRgb(style.headerTextColor));
+      doc.text('Daily Job Report', pageWidth - margin, margin + 30, { align: 'right'});
 
       const addFooter = () => {
           if (style.showFooterLine) {
@@ -528,9 +553,6 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
       if (!contentElement) {
           return reject(new Error('PDF render element not found'));
       }
-
-      await addLogo(margin - 10);
-      addHeader('Daily Job Report', margin + 30);
       
       doc.setFontSize(12);
       if (style.headerColor !== '#ffffff') doc.setTextColor(...hexToRgb(style.headerTextColor));
@@ -539,7 +561,6 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
       doc.text(`Project: ${data.projectName}`, margin, margin + 80);
       doc.text(`Date: ${data.date}`, margin, margin + 95);
       
-      // Reset text color for content
       doc.setTextColor(...hexToRgb(style.textColor));
 
       contentElement.innerHTML = `<div style="font-family: ${style.font === 'times' ? 'serif' : style.font === 'courier' ? 'monospace' : 'sans-serif'}; font-size: 10pt; color: ${style.textColor};">${data.content}</div>`;
@@ -551,23 +572,17 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
         windowWidth: 600,
         autoPaging: 'text',
         callback: async (doc: any) => {
-           // Add Signature if present
            if (data.signatureUrl) {
              const pageCount = doc.internal.getNumberOfPages();
              doc.setPage(pageCount);
              const pageHeight = doc.internal.pageSize.getHeight();
              
-             try {
-                const img = new Image();
-                await new Promise(resolve => { img.onload = resolve; img.src = data.signatureUrl; });
-                
-                // Simply place signature at the bottom
-                const sigY = pageHeight - margin - 60; 
-                doc.addImage(data.signatureUrl, 'PNG', margin, sigY, 120, 40);
-                doc.setFontSize(10);
-                doc.text("Signed", margin, sigY + 50);
-             } catch(e) {
-                 console.error("Error adding signature", e);
+             const sigImg = await loadImage(data.signatureUrl);
+             if (sigImg) {
+                 const sigY = pageHeight - margin - 60; 
+                 doc.addImage(sigImg.data, sigImg.format, margin, sigY, 120, 40);
+                 doc.setFontSize(10);
+                 doc.text("Signed", margin, sigY + 50);
              }
            }
 
@@ -583,12 +598,11 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
 };
 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
 
-    // Header Strip
     if (style.headerColor !== '#ffffff') {
         doc.setFillColor(...hexToRgb(style.headerColor));
         doc.rect(0, 0, pageWidth, 60, 'F');
@@ -616,7 +630,7 @@ export const generateNotePDF = async (profile: UserProfile, job: Job, data: Note
 };
 
 export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data: WorkOrderData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
@@ -652,17 +666,20 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data:
     yPos += 60;
 
     if (data.signatureUrl) {
-        doc.addImage(data.signatureUrl, 'PNG', margin, yPos, 120, 40);
-        doc.setFontSize(10);
-        doc.setTextColor(...hexToRgb(style.textColor));
-        doc.text("Authorized Signature", margin, yPos + 50);
+        const sigImg = await loadImage(data.signatureUrl);
+        if (sigImg) {
+            doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
+            doc.setFontSize(10);
+            doc.setTextColor(...hexToRgb(style.textColor));
+            doc.text("Authorized Signature", margin, yPos + 50);
+        }
     }
 
     doc.save(`WorkOrder-${data.title}.pdf`);
 };
 
 export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data: TimeSheetData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
@@ -686,7 +703,7 @@ export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data:
 };
 
 export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
@@ -718,7 +735,7 @@ export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, dat
 };
 
 export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
@@ -757,13 +774,28 @@ export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: 
         doc.setFont(style.font, 'bold'); doc.text('Terms & Conditions:', margin, finalY); finalY += 15;
         doc.setFont(style.font, 'normal'); doc.setFontSize(10);
         doc.text(doc.splitTextToSize(data.terms, doc.internal.pageSize.getWidth() - 2*margin), margin, finalY);
+        finalY += 20 + (doc.splitTextToSize(data.terms, doc.internal.pageSize.getWidth() - 2*margin).length * 10);
+    }
+
+    if (data.signatureUrl) {
+        const sigImg = await loadImage(data.signatureUrl);
+        if (sigImg) {
+            if (finalY + 60 > doc.internal.pageSize.getHeight() - margin) {
+                 doc.addPage();
+                 finalY = margin;
+            }
+            doc.addImage(sigImg.data, sigImg.format, margin, finalY, 120, 40);
+            doc.setFontSize(10);
+            doc.setTextColor(...hexToRgb(style.textColor));
+            doc.text("Accepted By", margin, finalY + 50);
+        }
     }
 
     doc.save(`Estimate-${data.estimateNumber}.pdf`);
 };
 
 export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data: ExpenseLogData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
@@ -788,13 +820,12 @@ export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data
 };
 
 export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: WarrantyData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
     let yPos = await addHeader(doc, profile, 'CERTIFICATE OF WARRANTY', 'Date', data.completedDate, style);
 
-    // Decorative Border for Warranty
     doc.setDrawColor(...hexToRgb(style.primaryColor));
     doc.setLineWidth(2);
     doc.rect(20, 20, doc.internal.pageSize.getWidth() - 40, doc.internal.pageSize.getHeight() - 40);
@@ -823,18 +854,21 @@ export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: 
 
     yPos += 60;
     if (data.signatureUrl) {
-        doc.addImage(data.signatureUrl, 'PNG', margin, yPos, 120, 40);
-        doc.setFontSize(10);
-        doc.text("Authorized Signature", margin, yPos + 50);
+        const sigImg = await loadImage(data.signatureUrl);
+        if (sigImg) {
+            doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
+            doc.setFontSize(10);
+            doc.text("Authorized Signature", margin, yPos + 50);
+        }
     }
 
     doc.save(`Warranty-${job.name}.pdf`);
 };
 
 export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string) => {
-    const style = getTemplate(templateId);
+    const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
-    const doc = new jsPDF('p', 'pt', 'a5'); // A5 is good for receipts
+    const doc = new jsPDF('p', 'pt', 'a5'); 
     const margin = 30;
     let yPos = await addHeader(doc, profile, 'RECEIPT', 'Date', data.date, style);
 

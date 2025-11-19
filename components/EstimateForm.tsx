@@ -8,6 +8,7 @@ import { Button } from './ui/Button.tsx';
 import { BackArrowIcon, ExportIcon } from './Icons.tsx';
 import { generateEstimatePDF } from '../services/pdfGenerator.ts';
 import TemplateSelector from './TemplateSelector.tsx';
+import SignaturePad from './SignaturePad.tsx';
 
 interface Props {
   job: any;
@@ -26,8 +27,10 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
     terms: 'Valid for 7 days.',
     notes: '',
     status: 'Draft',
+    signatureUrl: '',
+    templateId: 'standard',
+    themeColors: { primary: '#000000', secondary: '#666666' }
   });
-  const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
 
   const updateItem = (id: string, field: keyof LineItem, value: any) => {
@@ -45,7 +48,7 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      await generateEstimatePDF(profile, job, formData, templateId);
+      await generateEstimatePDF(profile, job, formData, formData.templateId || 'standard');
     } catch (e) { console.error(e); alert('Error'); }
     finally { setIsDownloading(false); }
   }
@@ -95,9 +98,24 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
                 </div>
                 <div className="flex justify-end text-xl font-bold">Total: ${total.toFixed(2)}</div>
                 <div><Label>Terms</Label><textarea className="w-full p-2 border rounded-md bg-background" rows={2} value={formData.terms} onChange={e => setFormData({...formData, terms: e.target.value})} /></div>
+                
+                <div className="mt-4">
+                    <Label>Client Acceptance Signature</Label>
+                    <div className="mt-2">
+                        <SignaturePad 
+                            onSave={(url) => setFormData(prev => ({...prev, signatureUrl: url}))}
+                            initialDataUrl={formData.signatureUrl}
+                        />
+                    </div>
+                </div>
 
                  <div className="pt-4 border-t border-border">
-                     <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+                     <TemplateSelector 
+                         selectedTemplateId={formData.templateId || 'standard'} 
+                         onSelectTemplate={(id) => setFormData(prev => ({ ...prev, templateId: id }))} 
+                         themeColors={formData.themeColors}
+                         onColorsChange={(colors) => setFormData(prev => ({ ...prev, themeColors: colors }))}
+                     />
                 </div>
             </CardContent>
             <CardFooter className="flex justify-end gap-2 flex-wrap">

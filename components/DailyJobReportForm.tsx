@@ -27,6 +27,8 @@ const defaultReport: Omit<DailyJobReportData, 'companyName' | 'companyAddress' |
   signatureUrl: '',
   content: '',
   tags: [],
+  templateId: 'standard',
+  themeColors: { primary: '#000000', secondary: '#666666' }
 };
 
 const Modal: React.FC<{onClose: () => void, title: string, children: React.ReactNode, className?: string}> = ({ children, onClose, title, className = 'max-w-sm' }) => (
@@ -58,7 +60,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
-  const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
   
   // State for modals
@@ -285,7 +286,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     setIsDownloading(true);
     try {
         const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
-        await generateDailyJobReportPDF(profile, { ...data, content: finalContent }, templateId);
+        await generateDailyJobReportPDF(profile, { ...data, content: finalContent }, data.templateId || 'standard');
     } catch (e) {
         console.error(e);
         alert('Error generating PDF');
@@ -543,7 +544,12 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
             </div>
         </div>
         <div className="pt-4 border-t border-border">
-             <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+            <TemplateSelector 
+                 selectedTemplateId={data.templateId || 'standard'} 
+                 onSelectTemplate={(id) => setData(prev => ({ ...prev, templateId: id }))} 
+                 themeColors={data.themeColors}
+                 onColorsChange={(colors) => setData(prev => ({ ...prev, themeColors: colors }))}
+             />
         </div>
       </CardContent>
       <CardFooter className="flex justify-end space-x-2">

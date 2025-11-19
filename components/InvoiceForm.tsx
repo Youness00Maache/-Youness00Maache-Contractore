@@ -8,6 +8,7 @@ import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import { BackArrowIcon, ExportIcon } from './Icons.tsx';
 import TemplateSelector from './TemplateSelector.tsx';
+import SignaturePad from './SignaturePad.tsx';
 
 interface InvoiceFormProps {
   job: Job;
@@ -28,6 +29,7 @@ const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'compan
   notes: 'Thank you for your business.',
   paypalLink: '',
   status: 'Draft',
+  signatureUrl: '',
 };
 
 const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose }) => {
@@ -42,9 +44,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
       clientName: job.clientName,
       clientAddress: job.clientAddress,
       logoUrl: userProfile.logoUrl,
+      templateId: 'standard',
+      themeColors: { primary: '#0000bb', secondary: '#666666' }
     }
   );
-  const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -103,7 +106,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      await generateInvoicePDF(userProfile, job, invoiceData, templateId);
+      await generateInvoicePDF(userProfile, job, invoiceData, invoiceData.templateId || 'standard');
     } catch (error) {
       console.error("Failed to generate PDF:", error);
       alert("An error occurred while generating the PDF. Please check the browser console for more details.");
@@ -339,9 +342,25 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
               className="mt-1 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
+          
+          {/* Signature */}
+          <div className="mt-4">
+            <Label>Authorized Signature (Optional)</Label>
+            <div className="mt-2">
+                <SignaturePad 
+                    onSave={(url) => setInvoiceData(prev => ({...prev, signatureUrl: url}))}
+                    initialDataUrl={invoiceData.signatureUrl}
+                />
+            </div>
+          </div>
 
           <div className="pt-4 border-t border-border">
-             <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+             <TemplateSelector 
+                 selectedTemplateId={invoiceData.templateId || 'standard'} 
+                 onSelectTemplate={(id) => setInvoiceData(prev => ({ ...prev, templateId: id }))} 
+                 themeColors={invoiceData.themeColors}
+                 onColorsChange={(colors) => setInvoiceData(prev => ({ ...prev, themeColors: colors }))}
+             />
           </div>
         </div>
 

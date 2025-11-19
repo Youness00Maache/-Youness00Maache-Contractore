@@ -24,8 +24,9 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
     hoursWorked: 8,
     overtimeHours: 0,
     notes: '',
+    templateId: 'standard',
+    themeColors: { primary: '#000000', secondary: '#666666' }
   });
-  const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -36,7 +37,7 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
    const handleDownload = async () => {
       setIsDownloading(true);
       try {
-        await generateTimeSheetPDF(profile, job, formData, templateId);
+        await generateTimeSheetPDF(profile, job, formData, formData.templateId || 'standard');
       } catch (e) {
         console.error(e);
         alert('Error generating PDF');
@@ -67,7 +68,12 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
               <div><Label>Notes</Label><textarea name="notes" className="w-full p-2 border rounded-md bg-background" rows={3} value={formData.notes} onChange={handleChange} /></div>
               
               <div className="pt-4 border-t border-border">
-                 <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+                 <TemplateSelector 
+                     selectedTemplateId={formData.templateId || 'standard'} 
+                     onSelectTemplate={(id) => setFormData(prev => ({ ...prev, templateId: id }))} 
+                     themeColors={formData.themeColors}
+                     onColorsChange={(colors) => setFormData(prev => ({ ...prev, themeColors: colors }))}
+                 />
               </div>
             </CardContent>
             <CardFooter className="flex justify-end gap-2 flex-wrap">

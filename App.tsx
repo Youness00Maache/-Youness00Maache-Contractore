@@ -21,7 +21,8 @@ import Settings from './components/Settings.tsx';
 import ClientsView from './components/ClientsView.tsx';
 import Dock from './components/Dock.tsx';
 import JobForm from './components/JobForm.tsx';
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon } from './components/Icons.tsx';
+import Welcome from './components/Welcome.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
@@ -265,6 +266,7 @@ const uploadFile = async (bucket: string, file: File, userId: string): Promise<s
 
 const App: React.FC = () => {
   type AppView = 
+    | { screen: 'welcome' }
     | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
     | { screen: 'dashboard' }
     | { screen: 'jobDetails'; jobId: string }
@@ -278,7 +280,7 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-  const [view, setView] = useState<AppView>({ screen: 'auth', authScreen: 'login' });
+  const [view, setView] = useState<AppView>({ screen: 'welcome' });
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -306,7 +308,10 @@ const App: React.FC = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setLoading(false);
+      if (!session) {
+          setLoading(false);
+          // View stays as 'welcome' by default
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -315,7 +320,8 @@ const App: React.FC = () => {
         setProfile(null);
         setJobs([]);
         setForms([]);
-        setView({ screen: 'auth', authScreen: 'login' });
+        setView({ screen: 'welcome' });
+        setLoading(false);
       }
     });
 
@@ -496,6 +502,7 @@ const App: React.FC = () => {
   
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setView({ screen: 'welcome' });
   };
 
   // --- Navigation Handlers ---
@@ -782,20 +789,55 @@ const App: React.FC = () => {
     if (!job) return <div>Job not found!</div>;
     const t = getTranslation();
 
-    const jobForms = forms.filter(f => f.jobId === job.id).filter(f => 
-        f.type.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
-        (f.data as any).invoiceNumber?.toLowerCase().includes(docSearchQuery.toLowerCase()) || 
-        (f.data as any).estimateNumber?.toLowerCase().includes(docSearchQuery.toLowerCase())
-    );
+    // Helper to extract specific document titles for display and search
+    const getDocTitle = (form: FormDataType) => {
+      const d = form.data as any;
+      switch (form.type) {
+        case FormType.Invoice: return `Invoice #${d.invoiceNumber || '?'}`;
+        case FormType.Estimate: return `Estimate #${d.estimateNumber || '?'}`;
+        case FormType.WorkOrder: return d.title || 'Work Order';
+        case FormType.DailyJobReport: return `Report #${d.reportNumber || ''} (${d.date})`;
+        case FormType.Note: return d.title || 'Untitled Note';
+        case FormType.TimeSheet: return `Time Sheet - ${d.workerName}`;
+        case FormType.MaterialLog: return `Material Log - ${d.date}`;
+        case FormType.ExpenseLog: return `Expense - ${d.item} ($${d.amount})`;
+        case FormType.Warranty: return `Warranty - ${d.duration}`;
+        case FormType.Receipt: return `Receipt - $${d.amount}`;
+        default: return form.type;
+      }
+    };
+
+    const jobForms = forms.filter(f => f.jobId === job.id).filter(f => {
+        const title = getDocTitle(f).toLowerCase();
+        const type = f.type.toLowerCase();
+        const query = docSearchQuery.toLowerCase();
+        return title.includes(query) || type.includes(query);
+    });
+
+    const getDocIcon = (type: FormType) => {
+       switch(type) {
+         case FormType.Invoice: return InvoiceIcon;
+         case FormType.Estimate: return EstimateIcon;
+         case FormType.DailyJobReport: return DailyReportIcon;
+         case FormType.WorkOrder: return WorkOrderIcon;
+         case FormType.Note: return NoteIcon;
+         case FormType.TimeSheet: return TimeSheetIcon;
+         case FormType.MaterialLog: return MaterialLogIcon;
+         case FormType.ExpenseLog: return ExpenseLogIcon;
+         case FormType.Warranty: return WarrantyIcon;
+         case FormType.Receipt: return ReceiptIcon;
+         default: return InvoiceIcon;
+       }
+    };
 
     const getStatusBadge = (form: FormDataType) => {
         const status = (form.data as any).status;
         if (!status) return null;
         
-        let colorClass = "bg-gray-100 text-gray-800";
-        if (status === 'Paid' || status === 'Accepted') colorClass = "bg-green-100 text-green-800";
-        else if (status === 'Sent') colorClass = "bg-blue-100 text-blue-800";
-        else if (status === 'Overdue' || status === 'Rejected' || status === 'Cancelled') colorClass = "bg-red-100 text-red-800";
+        let colorClass = "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+        if (status === 'Paid' || status === 'Accepted') colorClass = "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+        else if (status === 'Sent') colorClass = "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400";
+        else if (status === 'Overdue' || status === 'Rejected' || status === 'Cancelled') colorClass = "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
 
         return <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>{status}</span>;
     };
@@ -806,21 +848,21 @@ const App: React.FC = () => {
           <Button variant="ghost" size="icon" onClick={navigateToDashboard} className="mr-4 h-10 w-10">
             <BackArrowIcon className="h-6 w-6" />
           </Button>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">{job.name}</h1>
-            <p className="text-muted-foreground">{job.clientName} - {job.clientAddress}</p>
+          <div className="overflow-hidden">
+            <h1 className="text-2xl md:text-3xl font-bold truncate">{job.name}</h1>
+            <p className="text-muted-foreground truncate">{job.clientName}</p>
           </div>
         </header>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CardTitle>{t.projectDocs}</CardTitle>
              {/* Document Search */}
              <div className="relative w-full max-w-xs">
                 <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3 w-3" />
                 <Input 
-                    placeholder="Filter docs..." 
-                    className="pl-8 h-8 text-sm"
+                    placeholder="Search by title..." 
+                    className="pl-8 h-9 text-sm"
                     value={docSearchQuery}
                     onChange={(e) => setDocSearchQuery(e.target.value)}
                 />
@@ -829,24 +871,28 @@ const App: React.FC = () => {
           <CardContent>
             <div className="space-y-2">
               {jobForms.length === 0 && (
-                  <p className="text-muted-foreground py-4 text-center">{t.noDocsYet}</p>
+                  <p className="text-muted-foreground py-8 text-center">{t.noDocsYet}</p>
               )}
-              {jobForms.map(form => (
-                  <div key={form.id} className="flex justify-between items-center p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors group">
-                      <div className="flex items-center gap-3">
-                          <div className="p-2 bg-background rounded-full text-primary">
-                             {/* Simple icon mapping or generic doc icon */}
-                             <span className="text-xs font-bold">{form.type.substring(0,2).toUpperCase()}</span>
-                          </div>
-                          <div>
-                              <p className="font-medium">{form.type}</p>
-                              <p className="text-xs text-muted-foreground">{new Date(form.createdAt).toLocaleDateString()}</p>
-                          </div>
-                          {getStatusBadge(form)}
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>{t.edit}</Button>
-                  </div>
-              ))}
+              {jobForms.map(form => {
+                  const Icon = getDocIcon(form.type);
+                  return (
+                    <div key={form.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors gap-3">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="p-2 bg-background rounded-full text-primary shrink-0">
+                               <Icon className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="font-medium truncate">{getDocTitle(form)}</p>
+                                <p className="text-xs text-muted-foreground">{form.type} • {new Date(form.createdAt).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 justify-end">
+                            {getStatusBadge(form)}
+                            <Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>{t.edit}</Button>
+                        </div>
+                    </div>
+                  );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -920,7 +966,15 @@ const App: React.FC = () => {
     }
 
     if (!session) {
-      return renderAuth();
+        if (view.screen === 'welcome') {
+            return (
+                <Welcome 
+                    onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })}
+                    onLogin={() => setView({ screen: 'auth', authScreen: 'login' })}
+                />
+            );
+        }
+        return renderAuth();
     }
     
     switch (view.screen) {

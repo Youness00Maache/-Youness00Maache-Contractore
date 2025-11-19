@@ -25,8 +25,9 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
     coverage: 'Labor and materials for installation defects.',
     conditions: 'Warranty void if damage caused by negligence or natural disasters.',
     signatureUrl: '',
+    templateId: 'standard',
+    themeColors: { primary: '#000000', secondary: '#666666' }
   });
-  const [templateId, setTemplateId] = useState('standard');
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -36,7 +37,7 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      await generateWarrantyPDF(profile, job, formData, templateId);
+      await generateWarrantyPDF(profile, job, formData, formData.templateId || 'standard');
     } catch (e) { console.error(e); alert('Error'); }
     finally { setIsDownloading(false); }
   }
@@ -70,7 +71,12 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
               </div>
 
                <div className="pt-4 border-t border-border">
-                 <TemplateSelector selected={templateId} onSelect={setTemplateId} />
+                    <TemplateSelector 
+                         selectedTemplateId={formData.templateId || 'standard'} 
+                         onSelectTemplate={(id) => setFormData(prev => ({ ...prev, templateId: id }))} 
+                         themeColors={formData.themeColors}
+                         onColorsChange={(colors) => setFormData(prev => ({ ...prev, themeColors: colors }))}
+                     />
               </div>
             </CardContent>
             <CardFooter className="flex justify-end gap-2 flex-wrap">

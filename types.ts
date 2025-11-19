@@ -56,28 +56,37 @@ export interface LineItem {
   rate: number;
 }
 
-export interface InvoiceData {
+// Base interface for styling
+export interface DocumentStyle {
+    templateId?: string;
+    themeColors?: {
+        primary: string;
+        secondary: string;
+    };
+}
+
+export interface InvoiceData extends DocumentStyle {
   invoiceNumber: string;
   issueDate: string;
   dueDate: string;
   lineItems: LineItem[];
-  taxRate: number; // as a percentage, e.g., 8 for 8%
-  discount?: number; // as a currency amount
-  shipping?: number; // as a currency amount
+  taxRate: number;
+  discount?: number;
+  shipping?: number;
   notes: string;
   paypalLink?: string;
   status: 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled';
-  // Per-invoice customizable fields
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;
   companyWebsite?: string;
   clientName?: string;
   clientAddress?: string;
-  logoUrl?: string; // Can be a URL from settings or a base64 string from upload
+  logoUrl?: string;
+  signatureUrl?: string;
 }
 
-export interface WorkOrderData {
+export interface WorkOrderData extends DocumentStyle {
   title: string;
   date: string;
   description: string;
@@ -87,26 +96,25 @@ export interface WorkOrderData {
   signatureUrl?: string;
 }
 
-export interface DailyJobReportData {
+export interface DailyJobReportData extends DocumentStyle {
   reportNumber: string;
   date: string;
   weather: string;
   temperature: string;
-  logoUrl: string; // Base64 data URL
-  signatureUrl: string; // Base64 data URL
-  content: string; // HTML string from the rich text editor
+  logoUrl: string;
+  signatureUrl: string;
+  content: string;
   projectName: string;
   clientName: string;
   projectAddress: string;
   tags?: string[];
-  // Per-report customizable company fields
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;
   companyWebsite?: string;
 }
 
-export interface TimeSheetData {
+export interface TimeSheetData extends DocumentStyle {
   workerName: string;
   date: string;
   hoursWorked: number;
@@ -122,12 +130,12 @@ export interface MaterialLogItem {
   unitCost: number;
 }
 
-export interface MaterialLogData {
+export interface MaterialLogData extends DocumentStyle {
   date: string;
   items: MaterialLogItem[];
 }
 
-export interface EstimateData {
+export interface EstimateData extends DocumentStyle {
   estimateNumber: string;
   issueDate: string;
   expiryDate: string;
@@ -135,9 +143,10 @@ export interface EstimateData {
   terms: string;
   notes: string;
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
+  signatureUrl?: string;
 }
 
-export interface ExpenseLogData {
+export interface ExpenseLogData extends DocumentStyle {
   date: string;
   item: string;
   vendor: string;
@@ -145,7 +154,7 @@ export interface ExpenseLogData {
   amount: number;
 }
 
-export interface WarrantyData {
+export interface WarrantyData extends DocumentStyle {
   completedDate: string;
   duration: string;
   coverage: string;
@@ -153,13 +162,13 @@ export interface WarrantyData {
   signatureUrl?: string;
 }
 
-export interface NoteData {
+export interface NoteData extends DocumentStyle {
   title: string;
   content: string;
   tags: string[];
 }
 
-export interface ReceiptData {
+export interface ReceiptData extends DocumentStyle {
     date: string;
     from: string;
     amount: number;
