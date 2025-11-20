@@ -7,7 +7,8 @@
   <meta name="theme-color" content="#0000bb">
   <title>Contractor Paperwork Hub</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="apple-touch-icon" href="/logo.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://youness00-maache-contractore.vercel.app/favicon-96x96.png">
+  <link rel="apple-touch-icon" href="https://youness00-maache-contractore.vercel.app/contractore-ai-logo.png">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -98,7 +99,8 @@
 </head>
 <body>
   <div id="root"></div>
-  <div id="pdf-render-content" style="display: none; position: absolute; left: -9999px; top: 0; background: white; color: black;"></div>
+  <!-- Fixed: PDF Render Content Container. Positioned off-screen by default but will be moved by JS for rendering. -->
+  <div id="pdf-render-content" style="position: fixed; left: -9999px; top: 0; width: 700px; background: white; color: black; z-index: -1;"></div>
   <script type="importmap">
 {
   "imports": {

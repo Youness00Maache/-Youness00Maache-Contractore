@@ -19,10 +19,11 @@ import ReceiptForm from './components/ReceiptForm.tsx';
 
 import Settings from './components/Settings.tsx';
 import ClientsView from './components/ClientsView.tsx';
+import AnalyticsView from './components/AnalyticsView.tsx';
 import Dock from './components/Dock.tsx';
 import JobForm from './components/JobForm.tsx';
 import Welcome from './components/Welcome.tsx';
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
@@ -275,7 +276,8 @@ const App: React.FC = () => {
     | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
     | { screen: 'settings' }
     | { screen: 'profile' }
-    | { screen: 'clients' }; 
+    | { screen: 'clients' }
+    | { screen: 'analytics' }; 
   
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -304,6 +306,13 @@ const App: React.FC = () => {
     root.classList.add(theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  // Persist view state to localStorage whenever it changes, unless it's welcome or auth
+  useEffect(() => {
+    if (view.screen !== 'welcome' && view.screen !== 'auth' && !loading) {
+      localStorage.setItem('app_view_state', JSON.stringify(view));
+    }
+  }, [view, loading]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -420,6 +429,7 @@ const App: React.FC = () => {
 
         // 2. Fetch or create jobs
         setLoadingMessage('Loading jobs...');
+        let loadedJobs: Job[] = [];
         const { data: jobsData, error: jobsError } = await supabase.from('jobs').select('*').eq('user_id', user.id);
         
         if (jobsError) {
@@ -430,7 +440,8 @@ const App: React.FC = () => {
                 return;
             }
         } else if (jobsData && jobsData.length > 0) {
-            setJobs(jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id})));
+            loadedJobs = jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
+            setJobs(loadedJobs);
         } else {
             setLoadingMessage('Creating first project...');
             const { data: newJobData, error: createJobError } = await supabase
@@ -445,7 +456,10 @@ const App: React.FC = () => {
                     return;
                  }
             }
-            else if (newJobData) setJobs(newJobData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id})));
+            else if (newJobData) {
+                loadedJobs = newJobData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
+                setJobs(loadedJobs);
+            }
         }
 
         // 3. Fetch forms
@@ -472,7 +486,33 @@ const App: React.FC = () => {
             }
         }
 
-        setView({ screen: 'dashboard' });
+        // 5. Restore View State or Default to Dashboard
+        const savedViewStr = localStorage.getItem('app_view_state');
+        let nextView: AppView = { screen: 'dashboard' };
+
+        if (savedViewStr) {
+            try {
+                const savedView = JSON.parse(savedViewStr);
+                // Ensure we don't restore to a auth/welcome screen if we are logged in
+                if (savedView.screen !== 'welcome' && savedView.screen !== 'auth') {
+                    // Validate job existence if the view depends on a job
+                    if ('jobId' in savedView) {
+                        if (loadedJobs.some(j => j.id === savedView.jobId)) {
+                            nextView = savedView;
+                        } else {
+                             // Job might have been deleted, fallback to dashboard
+                             nextView = { screen: 'dashboard' };
+                        }
+                    } else {
+                        nextView = savedView;
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to restore saved view state", e);
+            }
+        }
+
+        setView(nextView);
         setLoading(false);
     };
     fetchData();
@@ -502,6 +542,7 @@ const App: React.FC = () => {
   
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    localStorage.removeItem('app_view_state'); // Clear state on logout
     setView({ screen: 'welcome' });
   };
 
@@ -511,6 +552,7 @@ const App: React.FC = () => {
   const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
   const navigateToCreateJob = () => setView({ screen: 'createJob' });
   const navigateToClients = () => setView({ screen: 'clients' });
+  const navigateToAnalytics = () => setView({ screen: 'analytics' });
   
   // --- Data Handlers ---
   const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null) => {
@@ -670,34 +712,6 @@ const App: React.FC = () => {
         j.clientName.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const activeJobsCount = jobs.filter(j => j.status === 'active').length;
-    
-    // Financial Analytics Calculation
-    let totalInvoiced = 0;
-    let outstandingPayments = 0;
-
-    forms.forEach(form => {
-        if (form.type === FormType.Invoice) {
-            const data = form.data as InvoiceData;
-            // Safe safe parsing
-            const subtotal = data.lineItems ? data.lineItems.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.rate || 0)), 0) : 0;
-            const discount = Number(data.discount || 0);
-            const shipping = Number(data.shipping || 0);
-            const taxRate = Number(data.taxRate || 0);
-            const taxAmount = (subtotal - discount) * (taxRate / 100);
-            const total = (subtotal - discount) + taxAmount + shipping;
-
-            totalInvoiced += total;
-            
-            if (data.status !== 'Paid') {
-                outstandingPayments += total;
-            }
-        }
-    });
-    
-    // Currency formatter
-    const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
-
     return (
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
         <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
@@ -707,7 +721,9 @@ const App: React.FC = () => {
             </div>
             <div className="flex items-center gap-4">
               <Button onClick={navigateToCreateJob}>+ {t.newJob}</Button>
-              
+              <Button variant="outline" onClick={navigateToAnalytics} className="flex items-center gap-2">
+                  <BarChartIcon className="w-4 h-4" /> Insights
+              </Button>
               <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">
                   {profile.logoUrl ? (
                       <img src={profile.logoUrl} alt="Profile" className="h-full w-full object-cover" />
@@ -717,26 +733,6 @@ const App: React.FC = () => {
               </Button>
             </div>
         </header>
-
-        {/* Analytics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Card className="p-4 flex items-center space-x-4 bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-900">
-                <div className="p-3 bg-green-100 text-green-600 rounded-full"><CreditCardIcon className="w-6 h-6" /></div>
-                <div><p className="text-sm text-muted-foreground">Total Invoiced</p><p className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(totalInvoiced)}</p></div>
-            </Card>
-             <Card className="p-4 flex items-center space-x-4 bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-900">
-                <div className="p-3 bg-red-100 text-red-600 rounded-full"><ClockIcon className="w-6 h-6" /></div>
-                <div><p className="text-sm text-muted-foreground">Outstanding</p><p className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(outstandingPayments)}</p></div>
-            </Card>
-             <Card className="p-4 flex items-center space-x-4">
-                <div className="p-3 bg-blue-100 text-blue-600 rounded-full"><HomeIcon className="w-6 h-6" /></div>
-                <div><p className="text-sm text-muted-foreground">Active Jobs</p><p className="text-2xl font-bold">{activeJobsCount}</p></div>
-            </Card>
-             <Card className="p-4 flex items-center space-x-4">
-                <div className="p-3 bg-purple-100 text-purple-600 rounded-full"><CheckCircleIcon className="w-6 h-6" /></div>
-                <div><p className="text-sm text-muted-foreground">Completed Jobs</p><p className="text-2xl font-bold">{jobs.length - activeJobsCount}</p></div>
-            </Card>
-        </div>
 
         {/* Search Bar */}
         <div className="relative mb-6">
@@ -999,6 +995,8 @@ const App: React.FC = () => {
         return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
       case 'clients':
         return <ClientsView onBack={navigateToDashboard} supabase={supabase} session={session} />;
+      case 'analytics':
+        return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
       default:
         return renderDashboard();
     }
@@ -1007,7 +1005,7 @@ const App: React.FC = () => {
   return (
     <main className="w-full min-h-screen bg-background">
       {renderContent()}
-      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
+      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients' || view.screen === 'analytics') && (
         <Dock items={getDockItems()} />
       )}
     </main>

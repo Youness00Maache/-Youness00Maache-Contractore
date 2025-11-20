@@ -194,6 +194,36 @@ export const EyeOffIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+// Analytics Icons
+export const BarChartIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <line x1="12" y1="20" x2="12" y2="10" />
+    <line x1="18" y1="20" x2="18" y2="4" />
+    <line x1="6" y1="20" x2="6" y2="16" />
+  </svg>
+);
+
+export const TrendingUpIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+    <polyline points="17 6 23 6 23 12" />
+  </svg>
+);
+
+export const AwardIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <circle cx="12" cy="8" r="7" />
+    <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+  </svg>
+);
+
+export const PieChartIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+    <path d="M22 12A10 10 0 0 0 12 2v10z" />
+  </svg>
+);
+
 // New Icons for Landing Page
 export const PlayIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -303,14 +333,21 @@ export const AppLogo: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (pro
   const [error, setError] = useState(false);
 
   if (error) {
-    // Fallback SVG Logo
+    // High-quality Fallback SVG Logo (Blue Square with Hard Hat + Doc)
     return (
       <div {...props} className={`flex items-center justify-center ${props.className || 'w-12 h-12'}`} role="img" aria-label="Contractor AI Logo">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-primary">
-            <rect width="18" height="18" x="3" y="3" rx="2" className="fill-primary/20 stroke-primary" />
-            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" className="fill-background stroke-primary"/>
-            <polyline points="14 2 14 8 20 8" className="stroke-primary"/>
-            <path d="M12 12h.01" className="stroke-primary"/>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" className="w-full h-full">
+           {/* Blue Rounded Square Background */}
+           <rect width="100" height="100" rx="20" fill="#2563EB" />
+           
+           {/* White Document Icon */}
+           <path d="M30 25 h30 l15 15 v35 h-45 z" fill="white" opacity="0.9"/>
+           <path d="M30 25 h30 l15 15" fill="none" stroke="#E5E7EB" strokeWidth="2"/>
+           
+           {/* Hard Hat Icon Overlay */}
+           <path d="M35 55 C35 40, 65 40, 65 55" stroke="#2563EB" strokeWidth="6" fill="none" strokeLinecap="round"/>
+           <path d="M28 55 H72" stroke="#2563EB" strokeWidth="6" strokeLinecap="round"/>
+           <path d="M50 40 V55" stroke="#2563EB" strokeWidth="4" strokeLinecap="round"/>
         </svg>
       </div>
     );
@@ -318,7 +355,7 @@ export const AppLogo: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (pro
 
   return (
     <img 
-      src="/logo.png" 
+      src="https://youness00-maache-contractore.vercel.app/contractore-ai-logo.png" 
       alt="App Logo" 
       onError={() => setError(true)}
       {...props} 

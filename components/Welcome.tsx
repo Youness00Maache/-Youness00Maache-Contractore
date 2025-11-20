@@ -51,9 +51,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
             <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-                    <div className="bg-primary text-white p-1.5 rounded-lg">
-                        <AppLogo className="w-6 h-6" />
-                    </div>
+                    <AppLogo className="w-9 h-9" />
                     <span className="text-xl font-bold tracking-tight text-slate-900">Contractor AI</span>
                 </div>
 
@@ -364,9 +362,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 mb-12">
                   <div className="col-span-2 lg:col-span-2">
                       <div className="flex items-center gap-2 mb-4">
-                          <div className="bg-primary text-white p-1 rounded-md">
-                             <AppLogo className="w-5 h-5" />
-                          </div>
+                          <AppLogo className="w-8 h-8" />
                           <span className="text-xl font-bold text-slate-900">Contractor AI</span>
                       </div>
                       <p className="text-slate-500 text-sm max-w-xs mb-6">

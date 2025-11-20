@@ -32,7 +32,7 @@ const defaultReport: Omit<DailyJobReportData, 'companyName' | 'companyAddress' |
 };
 
 const Modal: React.FC<{onClose: () => void, title: string, children: React.ReactNode, className?: string}> = ({ children, onClose, title, className = 'max-w-sm' }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4" onClick={onClose}>
         <Card className={`w-full ${className}`} onClick={e => e.stopPropagation()}>
             <CardHeader>
                 <CardTitle>{title}</CardTitle>
@@ -76,7 +76,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
 
   // New state and refs for camera modal
   const [showCameraModal, setShowCameraModal] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
@@ -89,14 +89,13 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     if (page === 2 && editorRef.current) {
         editorRef.current.innerHTML = data.content;
     }
-  }, [page, data.content]);
+  }, [page]);
 
   useEffect(() => {
     const editor = editorRef.current;
     if (page === 2 && editor) {
         const handleClick = (e: MouseEvent) => {
             const targetElement = e.target as HTMLElement;
-            // Allow opening links with a simple click
             if (targetElement.tagName === 'A' && editor.contains(targetElement)) {
                 e.preventDefault();
                 const href = (targetElement as HTMLAnchorElement).href;
@@ -112,12 +111,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     }
   }, [page]);
 
-  useEffect(() => {
-    if (showCameraModal && videoRef.current && streamRef.current) {
-        videoRef.current.srcObject = streamRef.current;
-    }
-  }, [showCameraModal]);
-  
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         if (tableColorPickerRef.current && !tableColorPickerRef.current.contains(event.target as Node)) {
@@ -135,11 +128,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
 
     const handleMouseDown = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-
-        // If clicking on a resize handle, do nothing
-        if (target.closest('[data-resize-handle]')) {
-            return;
-        }
+        if (target.closest('[data-resize-handle]')) return;
 
         const targetImage = target.closest('img');
         const tableWrapper = target.closest('div[style*="display: inline-block"]');
@@ -157,10 +146,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     };
     
     document.addEventListener('mousedown', handleMouseDown);
-    
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-    };
+    return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [page]);
 
   // Effect to position the element resizer UI
@@ -172,7 +158,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                 setResizerState(null);
                 return;
             };
-            // Ensure the element is still in the DOM
             if (!document.body.contains(selectedElement)) {
                 setSelectedElement(null);
                 return;
@@ -189,7 +174,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
         };
 
         updateResizerPosition();
-        
         const observer = new MutationObserver(updateResizerPosition);
         observer.observe(selectedElement, { attributes: true, attributeFilter: ['style', 'width', 'height', 'src'] });
         
@@ -240,42 +224,84 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     }
   };
 
-  const openCamera = async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        streamRef.current = stream;
-        setShowCameraModal(true);
-    } catch (err) {
-        console.error("Error accessing camera:", err);
-        alert("Could not access the camera. Please ensure you have granted permission and the camera is not in use by another app.");
-    }
+  // START CAMERA LOGIC
+  const startCamera = async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Camera API is not supported in this browser.");
+          return;
+      }
+
+      try {
+          // Check if any video devices exist first
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          
+          if (videoDevices.length === 0) {
+              alert("No camera found on this device.");
+              return;
+          }
+
+          let stream;
+          try {
+            // First try to get the environment (rear) camera
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+          } catch (e) {
+            // Fallback to any available video device if environment facing mode is not supported (e.g. on laptops)
+            console.warn("Environment camera not found, falling back to default video device.");
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: true 
+            });
+          }
+          
+          streamRef.current = stream;
+          setShowCameraModal(true);
+      } catch (err: any) {
+          console.error("Error accessing camera:", err);
+          if (err.name === 'NotAllowedError') {
+              alert("Camera permission denied. Please allow access in settings.");
+          } else if (err.name === 'NotFoundError') {
+              alert("No camera found.");
+          } else {
+              alert("Error accessing camera: " + (err.message || "Unknown error"));
+          }
+      }
   };
 
-  const closeCamera = () => {
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-    }
-    setShowCameraModal(false);
+  const stopCamera = () => {
+      if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+      }
+      setShowCameraModal(false);
   };
 
-  const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d');
+  // React callback ref to attach stream when modal DOM renders
+  const videoCallbackRef = useCallback((node: HTMLVideoElement) => {
+      videoRef.current = node;
+      if (node && streamRef.current) {
+          node.srcObject = streamRef.current;
+          node.play().catch(e => console.log("Play error:", e));
+      }
+  }, [showCameraModal]);
 
-        if (context) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-
-            const dataUrl = canvas.toDataURL('image/jpeg');
-            insertImageIntoEditor(dataUrl);
-            closeCamera();
-        }
-    }
+  const capturePhoto = () => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0);
+              const dataUrl = canvas.toDataURL('image/jpeg');
+              insertImageIntoEditor(dataUrl);
+              stopCamera();
+          }
+      }
   };
+  // END CAMERA LOGIC
 
   const handleSave = () => {
     const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
@@ -345,13 +371,10 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
         if (selection) {
             selection.removeAllRanges();
             selection.addRange(savedSelection);
-            
-            // Ensure URL has a protocol to be a valid, absolute link
             let finalUrl = linkUrl;
             if (!/^https?:\/\//i.test(finalUrl) && !/^mailto:/i.test(finalUrl)) {
                 finalUrl = 'https://' + finalUrl;
             }
-
             document.execCommand('createLink', false, finalUrl);
         }
     }
@@ -372,14 +395,12 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const insertTable = () => {
     if (editorRef.current) {
         let tableItselfHTML = `<table style="border-collapse: collapse; width: 100%; border: 1px solid ${tableBorderColor};"><tbody>`;
-        // Header Row
         tableItselfHTML += `<tr style="background-color: ${tableHeaderColor};">`;
         for (let j = 0; j < tableCols; j++) {
             tableItselfHTML += `<th style="border: 1px solid ${tableBorderColor}; padding: 8px; min-width: 40px; font-weight: bold; text-align: left;"><br></th>`;
         }
         tableItselfHTML += '</tr>';
 
-        // Body Rows
         for (let i = 1; i < tableRows; i++) {
             tableItselfHTML += '<tr>';
             for (let j = 0; j < tableCols; j++) {
@@ -412,14 +433,15 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const handleVoiceInput = useCallback((transcript: string) => {
     if (editorRef.current) {
       editorRef.current.focus();
-      document.execCommand('insertText', false, transcript + ' ');
+      setTimeout(() => {
+         document.execCommand('insertText', false, transcript + ' ');
+      }, 50);
     }
   }, []);
 
   const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-
     if (!selectedElement) return;
 
     resizeStartRef.current = {
@@ -436,13 +458,10 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
 
   const handleResizeMouseMove = useCallback((e: MouseEvent) => {
     if (!resizeStartRef.current || !selectedElement) return;
-    
     const { x, width, aspectRatio } = resizeStartRef.current;
-    
     const dx = e.clientX - x;
     const newWidth = width + dx;
-    
-    if (newWidth > 20) { // minimum width
+    if (newWidth > 20) { 
       const newHeight = newWidth / aspectRatio;
       selectedElement.style.width = `${newWidth}px`;
       selectedElement.style.height = `${newHeight}px`;
@@ -453,75 +472,39 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     document.removeEventListener('mousemove', handleResizeMouseMove);
     document.removeEventListener('mouseup', handleResizeMouseUp);
     resizeStartRef.current = null;
-    
-    if (editorRef.current) {
-        setData(prev => ({...prev, content: editorRef.current!.innerHTML }));
-    }
+    if (editorRef.current) setData(prev => ({...prev, content: editorRef.current!.innerHTML }));
   }, [handleResizeMouseMove]);
 
   const renderPageOne = () => (
     <Card>
       <CardHeader>
         <CardTitle>Daily Report Setup</CardTitle>
-        <CardDescription>Confirm the details for this report. Changes made here only apply to this document.</CardDescription>
+        <CardDescription>Confirm details.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-4">
                 <h3 className="text-lg font-semibold border-b pb-2">Your Company</h3>
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="companyName">Company Name</Label>
-                    <Input id="companyName" name="companyName" value={data.companyName} onChange={handleChange} />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="companyAddress">Address</Label>
-                    <Input id="companyAddress" name="companyAddress" value={data.companyAddress} onChange={handleChange} />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="companyPhone">Phone</Label>
-                    <Input id="companyPhone" name="companyPhone" value={data.companyPhone} onChange={handleChange} />
-                </div>
-                  <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="companyWebsite">Website</Label>
-                    <Input id="companyWebsite" name="companyWebsite" value={data.companyWebsite} onChange={handleChange} />
-                </div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="companyName">Company Name</Label><Input id="companyName" name="companyName" value={data.companyName} onChange={handleChange} /></div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="companyAddress">Address</Label><Input id="companyAddress" name="companyAddress" value={data.companyAddress} onChange={handleChange} /></div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="companyPhone">Phone</Label><Input id="companyPhone" name="companyPhone" value={data.companyPhone} onChange={handleChange} /></div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="companyWebsite">Website</Label><Input id="companyWebsite" name="companyWebsite" value={data.companyWebsite} onChange={handleChange} /></div>
             </div>
             <div className="space-y-4">
                 <h3 className="text-lg font-semibold border-b pb-2">Project & Client</h3>
-                  <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="projectName">Project Name</Label>
-                    <Input id="projectName" name="projectName" value={data.projectName} onChange={handleChange} />
-                  </div>
-                  <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="clientName">Client Name</Label>
-                    <Input id="clientName" name="clientName" value={data.clientName} onChange={handleChange} />
-                  </div>
-                  <div className="flex flex-col space-y-1.5">
-                      <Label htmlFor="projectAddress">Project Address</Label>
-                      <Input id="projectAddress" name="projectAddress" value={data.projectAddress} onChange={handleChange} />
-                  </div>
+                  <div className="flex flex-col space-y-1.5"><Label htmlFor="projectName">Project Name</Label><Input id="projectName" name="projectName" value={data.projectName} onChange={handleChange} /></div>
+                  <div className="flex flex-col space-y-1.5"><Label htmlFor="clientName">Client Name</Label><Input id="clientName" name="clientName" value={data.clientName} onChange={handleChange} /></div>
+                  <div className="flex flex-col space-y-1.5"><Label htmlFor="projectAddress">Project Address</Label><Input id="projectAddress" name="projectAddress" value={data.projectAddress} onChange={handleChange} /></div>
             </div>
         </div>
         <div className="pt-4">
             <h3 className="text-lg font-semibold border-b pb-2">Report Details & Logo</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
               <div className="space-y-4">
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="reportNumber">Report #</Label>
-                    <Input id="reportNumber" name="reportNumber" value={data.reportNumber} onChange={handleChange} />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="date">Date</Label>
-                    <Input id="date" type="date" name="date" value={data.date} onChange={handleChange} />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="weather">Weather</Label>
-                    <Input id="weather" name="weather" value={data.weather} onChange={handleChange} placeholder="e.g., Sunny, Cloudy" />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                    <Label htmlFor="temperature">Temperature (°F)</Label>
-                    <Input id="temperature" name="temperature" value={data.temperature} onChange={handleChange} placeholder="e.g., 75°F" />
-                </div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="reportNumber">Report #</Label><Input id="reportNumber" name="reportNumber" value={data.reportNumber} onChange={handleChange} /></div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="date">Date</Label><Input id="date" type="date" name="date" value={data.date} onChange={handleChange} /></div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="weather">Weather</Label><Input id="weather" name="weather" value={data.weather} onChange={handleChange} placeholder="e.g., Sunny" /></div>
+                <div className="flex flex-col space-y-1.5"><Label htmlFor="temperature">Temperature (°F)</Label><Input id="temperature" name="temperature" value={data.temperature} onChange={handleChange} placeholder="e.g., 75°F" /></div>
               </div>
               <div className="space-y-4">
                   <div className="flex flex-col space-y-1.5">
@@ -529,7 +512,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                       <Input id="logoUrl" type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'logoUrl')} className="pt-2" />
                       {data.logoUrl && <img src={data.logoUrl} alt="Logo Preview" className="mt-2 h-20 w-auto object-contain bg-muted p-2 rounded-md self-start" />}
                   </div>
-                  
                   <div className="flex flex-col space-y-1.5">
                     <Label>Sign Here</Label>
                      <div className="mt-2">
@@ -539,7 +521,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                         />
                     </div>
                   </div>
-
               </div>
             </div>
         </div>
@@ -577,39 +558,13 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
             >
             </div>
              {resizerState && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        top: resizerState.top,
-                        left: resizerState.left,
-                        width: resizerState.width,
-                        height: resizerState.height,
-                        border: '2px solid var(--primary)',
-                        pointerEvents: 'none',
-                        boxSizing: 'border-box',
-                    }}
-                >
-                    <div
-                        data-resize-handle="bottom-right"
-                        onMouseDown={handleResizeMouseDown}
-                        style={{
-                            position: 'absolute',
-                            bottom: -6,
-                            right: -6,
-                            width: 12,
-                            height: 12,
-                            backgroundColor: 'var(--card)',
-                            border: '2px solid var(--primary)',
-                            borderRadius: '50%',
-                            cursor: 'se-resize',
-                            pointerEvents: 'auto',
-                        }}
-                    />
+                <div style={{ position: 'absolute', top: resizerState.top, left: resizerState.left, width: resizerState.width, height: resizerState.height, border: '2px solid var(--primary)', pointerEvents: 'none', boxSizing: 'border-box' }}>
+                    <div data-resize-handle="bottom-right" onMouseDown={handleResizeMouseDown} style={{ position: 'absolute', bottom: -6, right: -6, width: 12, height: 12, backgroundColor: 'var(--card)', border: '2px solid var(--primary)', borderRadius: '50%', cursor: 'se-resize', pointerEvents: 'auto' }} />
                 </div>
             )}
             <div className="w-full py-4 flex items-start justify-center gap-4 md:gap-8">
                 <div className="flex flex-col items-center gap-2 text-center">
-                    <button title="Take Picture" className="group w-16 h-16 rounded-xl flex items-center justify-center transition-colors bg-card border border-border hover:bg-secondary" type="button" onClick={openCamera}>
+                    <button title="Take Picture" className="group w-16 h-16 rounded-xl flex items-center justify-center transition-colors bg-card border border-border hover:bg-secondary" type="button" onClick={startCamera}>
                         <CameraIcon className="w-6 h-6 text-foreground/70" />
                     </button>
                     <p className="h-4 text-xs text-foreground/70">Camera</p>
@@ -673,10 +628,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                             <div className="flex-1 space-y-1.5">
                                 <Label>Border Color</Label>
                                 <div className="relative">
-                                    <button 
-                                        className="w-full h-10 rounded-md border border-input flex items-center px-3 text-left"
-                                        onClick={() => setShowTableColorPicker(prev => prev === 'border' ? null : 'border')}
-                                    >
+                                    <button className="w-full h-10 rounded-md border border-input flex items-center px-3 text-left" onClick={() => setShowTableColorPicker(prev => prev === 'border' ? null : 'border')}>
                                         <div className="w-6 h-6 rounded-full border" style={{ backgroundColor: tableBorderColor }}></div>
                                         <span className="ml-2 text-sm">{tableBorderColor}</span>
                                     </button>
@@ -684,13 +636,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                                         <div className="absolute top-12 left-0 w-48 bg-popover border border-border rounded-md shadow-lg z-20 p-2">
                                             <div className='grid grid-cols-7 gap-1'>
                                                 {colors.map(color => (
-                                                    <button
-                                                        key={color}
-                                                        onClick={() => { setTableBorderColor(color); setShowTableColorPicker(null); }}
-                                                        className="w-5 h-5 rounded-full border border-border/20 transition-transform hover:scale-110"
-                                                        style={{ backgroundColor: color }}
-                                                        aria-label={color}
-                                                    />
+                                                    <button key={color} onClick={() => { setTableBorderColor(color); setShowTableColorPicker(null); }} className="w-5 h-5 rounded-full border border-border/20 transition-transform hover:scale-110" style={{ backgroundColor: color }} aria-label={color} />
                                                 ))}
                                             </div>
                                         </div>
@@ -700,10 +646,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                             <div className="flex-1 space-y-1.5">
                                 <Label>Header Color</Label>
                                 <div className="relative">
-                                    <button 
-                                         className="w-full h-10 rounded-md border border-input flex items-center px-3 text-left"
-                                         onClick={() => setShowTableColorPicker(prev => prev === 'header' ? null : 'header')}
-                                    >
+                                    <button className="w-full h-10 rounded-md border border-input flex items-center px-3 text-left" onClick={() => setShowTableColorPicker(prev => prev === 'header' ? null : 'header')}>
                                         <div className="w-6 h-6 rounded-full border" style={{ backgroundColor: tableHeaderColor }}></div>
                                         <span className="ml-2 text-sm">{tableHeaderColor}</span>
                                     </button>
@@ -711,13 +654,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                                         <div className="absolute top-12 left-0 w-48 bg-popover border border-border rounded-md shadow-lg z-20 p-2">
                                             <div className='grid grid-cols-7 gap-1'>
                                                 {colors.map(color => (
-                                                    <button
-                                                        key={color}
-                                                        onClick={() => { setTableHeaderColor(color); setShowTableColorPicker(null); }}
-                                                        className="w-5 h-5 rounded-full border border-border/20 transition-transform hover:scale-110"
-                                                        style={{ backgroundColor: color }}
-                                                        aria-label={color}
-                                                    />
+                                                    <button key={color} onClick={() => { setTableHeaderColor(color); setShowTableColorPicker(null); }} className="w-5 h-5 rounded-full border border-border/20 transition-transform hover:scale-110" style={{ backgroundColor: color }} aria-label={color} />
                                                 ))}
                                             </div>
                                         </div>
@@ -733,14 +670,16 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
                 </div>
             </Modal>
         )}
+        
         {showCameraModal && (
-            <Modal title="Take Photo" onClose={closeCamera} className="max-w-2xl">
+            <Modal title="Take Photo" onClose={stopCamera} className="max-w-2xl">
                 <div className="space-y-4">
-                    <video ref={videoRef} autoPlay playsInline className="w-full h-auto max-h-[60vh] rounded-md bg-black" />
+                    {/* Added muted attribute */}
+                    <video ref={videoCallbackRef} autoPlay playsInline muted className="w-full h-auto max-h-[60vh] rounded-md bg-black" />
                     <canvas ref={canvasRef} className="hidden" />
                     <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={closeCamera}>Cancel</Button>
-                        <Button onClick={takePhoto}>
+                        <Button variant="outline" onClick={stopCamera}>Cancel</Button>
+                        <Button onClick={capturePhoto}>
                             <CameraIcon className="w-4 h-4 mr-2" />
                             Take Photo
                         </Button>

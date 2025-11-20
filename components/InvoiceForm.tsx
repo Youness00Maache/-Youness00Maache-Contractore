@@ -49,6 +49,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
     }
   );
   const [isDownloading, setIsDownloading] = useState(false);
+  // State to toggle payment link visibility
+  const [showPaymentLink, setShowPaymentLink] = useState(!!invoiceData.paypalLink);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -216,15 +218,15 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
         {/* Line Items */}
         <div className="space-y-4">
           <div className="grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground px-2">
-            <div className="col-span-5">Description</div>
-            <div className="col-span-2">Quantity</div>
+            <div className="col-span-4">Description</div>
+            <div className="col-span-3">Quantity</div>
             <div className="col-span-2">Rate</div>
             <div className="col-span-2">Amount</div>
             <div className="col-span-1"></div>
           </div>
           {invoiceData.lineItems.map((item) => (
             <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-5">
+              <div className="col-span-4">
                 <Input
                   type="text"
                   placeholder="Service or product description"
@@ -232,7 +234,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
                   onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
                 />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-3">
                 <Input
                   type="number"
                   placeholder="1"
@@ -316,18 +318,39 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
         </div>
         
         <div className="pt-4 space-y-6">
-          {/* PayPal Link */}
-          <div>
-            <Label htmlFor="paypalLink">PayPal Payment Link (Optional)</Label>
-            <Input
-              id="paypalLink"
-              name="paypalLink"
-              type="url"
-              placeholder="https://paypal.me/yourusername"
-              value={invoiceData.paypalLink || ''}
-              onChange={handleInputChange}
-              className="mt-1"
-            />
+          {/* Payment Link Section with Toggle */}
+          <div className="space-y-2">
+             <div className="flex items-center gap-2">
+                <input 
+                    type="checkbox" 
+                    id="showPaymentLink" 
+                    className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                    checked={showPaymentLink}
+                    onChange={(e) => {
+                        setShowPaymentLink(e.target.checked);
+                        if (!e.target.checked) {
+                            setInvoiceData(prev => ({ ...prev, paypalLink: '' }));
+                        }
+                    }}
+                />
+                <Label htmlFor="showPaymentLink" className="cursor-pointer select-none">Include Payment Link</Label>
+             </div>
+             
+             {showPaymentLink && (
+                <div className="pl-6 animate-in fade-in slide-in-from-top-2">
+                    <Label htmlFor="paypalLink" className="text-xs text-muted-foreground">PayPal/Stripe URL</Label>
+                    <Input
+                    id="paypalLink"
+                    name="paypalLink"
+                    type="url"
+                    placeholder="https://paypal.me/yourusername"
+                    value={invoiceData.paypalLink || ''}
+                    onChange={handleInputChange}
+                    className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">A "Pay Now" button will be added to the PDF.</p>
+                </div>
+             )}
           </div>
 
           {/* Notes */}

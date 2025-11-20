@@ -28,7 +28,7 @@ const defaultNote: NoteData = {
 };
 
 const Modal: React.FC<{onClose: () => void, title: string, children: React.ReactNode, className?: string}> = ({ children, onClose, title, className = 'max-w-sm' }) => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4" onClick={onClose}>
         <Card className={`w-full ${className}`} onClick={e => e.stopPropagation()}>
             <CardHeader>
                 <CardTitle>{title}</CardTitle>
@@ -61,7 +61,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
 
   // New state and refs for camera modal
   const [showCameraModal, setShowCameraModal] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
@@ -96,12 +96,85 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
     }
   }, []);
 
-  useEffect(() => {
-    if (showCameraModal && videoRef.current && streamRef.current) {
-        videoRef.current.srcObject = streamRef.current;
-    }
+  // START CAMERA LOGIC
+  const startCamera = async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Camera API is not supported in this browser.");
+          return;
+      }
+
+      try {
+          // Check if any video devices exist first
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          
+          if (videoDevices.length === 0) {
+              alert("No camera found on this device.");
+              return;
+          }
+
+          let stream;
+          try {
+            // First try to get the environment (rear) camera
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+          } catch (e) {
+            // Fallback to any available video device if environment facing mode is not supported (e.g. on laptops)
+            console.warn("Environment camera not found, falling back to default video device.");
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: true 
+            });
+          }
+          
+          streamRef.current = stream;
+          setShowCameraModal(true);
+      } catch (err: any) {
+          console.error("Error accessing camera:", err);
+          if (err.name === 'NotAllowedError') {
+              alert("Camera permission denied. Please allow access in settings.");
+          } else if (err.name === 'NotFoundError') {
+              alert("No camera found.");
+          } else {
+              alert("Error accessing camera: " + (err.message || "Unknown error"));
+          }
+      }
+  };
+
+  const stopCamera = () => {
+      if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+      }
+      setShowCameraModal(false);
+  };
+
+  // React callback ref to attach stream when modal DOM renders
+  const videoCallbackRef = useCallback((node: HTMLVideoElement) => {
+      videoRef.current = node;
+      if (node && streamRef.current) {
+          node.srcObject = streamRef.current;
+          node.play().catch(e => console.log("Play error:", e));
+      }
   }, [showCameraModal]);
-  
+
+  const capturePhoto = () => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0);
+              const dataUrl = canvas.toDataURL('image/jpeg');
+              insertImageIntoEditor(dataUrl);
+              stopCamera();
+          }
+      }
+  };
+  // END CAMERA LOGIC
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         if (tableColorPickerRef.current && !tableColorPickerRef.current.contains(event.target as Node)) {
@@ -119,11 +192,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
 
     const handleMouseDown = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-
-        // If clicking on a resize handle, do nothing
-        if (target.closest('[data-resize-handle]')) {
-            return;
-        }
+        if (target.closest('[data-resize-handle]')) return;
 
         const targetImage = target.closest('img');
         const tableWrapper = target.closest('div[style*="display: inline-block"]');
@@ -141,10 +210,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
     };
     
     document.addEventListener('mousedown', handleMouseDown);
-    
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-    };
+    return () => document.removeEventListener('mousedown', handleMouseDown);
   }, []);
 
   // Effect to position the element resizer UI
@@ -172,7 +238,6 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
         };
 
         updateResizerPosition();
-        
         const observer = new MutationObserver(updateResizerPosition);
         observer.observe(selectedElement, { attributes: true, attributeFilter: ['style', 'width', 'height', 'src'] });
         
@@ -210,43 +275,6 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             insertImageIntoEditor(base64Image);
         };
         reader.readAsDataURL(file);
-    }
-  };
-
-  const openCamera = async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        streamRef.current = stream;
-        setShowCameraModal(true);
-    } catch (err) {
-        console.error("Error accessing camera:", err);
-        alert("Could not access the camera. Please ensure you have granted permission and the camera is not in use by another app.");
-    }
-  };
-
-  const closeCamera = () => {
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-    }
-    setShowCameraModal(false);
-  };
-
-  const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const context = canvas.getContext('2d');
-
-        if (context) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-
-            const dataUrl = canvas.toDataURL('image/jpeg');
-            insertImageIntoEditor(dataUrl);
-            closeCamera();
-        }
     }
   };
 
@@ -382,7 +410,9 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
   const handleVoiceInput = useCallback((transcript: string) => {
     if (editorRef.current) {
       editorRef.current.focus();
-      document.execCommand('insertText', false, transcript + ' ');
+      setTimeout(() => {
+        document.execCommand('insertText', false, transcript + ' ');
+      }, 50);
     }
   }, []);
 
@@ -431,7 +461,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
 
 
   return (
-    <div className="w-full bg-background text-foreground flex flex-col p-4 md:p-8">
+    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
         {showLinkModal && (
             <Modal title="Add Link" onClose={() => setShowLinkModal(false)}>
                 <div className="space-y-4">
@@ -523,14 +553,16 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
                 </div>
             </Modal>
         )}
+        
         {showCameraModal && (
-            <Modal title="Take Photo" onClose={closeCamera} className="max-w-2xl">
+            <Modal title="Take Photo" onClose={stopCamera} className="max-w-2xl">
                 <div className="space-y-4">
-                    <video ref={videoRef} autoPlay playsInline className="w-full h-auto max-h-[60vh] rounded-md bg-black" />
+                    {/* Added muted attribute */}
+                    <video ref={videoCallbackRef} autoPlay playsInline muted className="w-full h-auto max-h-[60vh] rounded-md bg-black" />
                     <canvas ref={canvasRef} className="hidden" />
                     <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={closeCamera}>Cancel</Button>
-                        <Button onClick={takePhoto}>
+                        <Button variant="outline" onClick={stopCamera}>Cancel</Button>
+                        <Button onClick={capturePhoto}>
                             <CameraIcon className="w-4 h-4 mr-2" />
                             Take Photo
                         </Button>
@@ -605,7 +637,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
                             )}
                             <div className="w-full py-4 flex items-start justify-center gap-4 md:gap-8">
                                 <div className="flex flex-col items-center gap-2 text-center">
-                                    <button title="Take Picture" className="group w-16 h-16 rounded-xl flex items-center justify-center transition-colors bg-card border border-border hover:bg-secondary" type="button" onClick={openCamera}>
+                                    <button title="Take Picture" className="group w-16 h-16 rounded-xl flex items-center justify-center transition-colors bg-card border border-border hover:bg-secondary" type="button" onClick={startCamera}>
                                         <CameraIcon className="w-6 h-6 text-foreground/70" />
                                     </button>
                                     <p className="h-4 text-xs text-foreground/70">Camera</p>

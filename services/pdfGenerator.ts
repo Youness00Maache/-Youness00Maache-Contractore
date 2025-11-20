@@ -4,7 +4,8 @@ import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobRep
 declare const jspdf: any;
 declare const html2canvas: any;
 
-const PAYPAL_LOGO_BASE64 = 'data:image/png;base64,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';
+// A valid 1x1 transparent PNG base64 to use as fallback
+const PAYPAL_LOGO_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAC+klEQVR4nO2Wy2sTQRzHf7M72d2k2XbT9mHTx6N4EBE8eBARwaM3D149efHgxQ/wL3jx4MGDt4J4FfEgiJdSoXgQpCItbZq0SZu0iW6yO5md8f12N2mbbG2j+MDAO8zsfmfmN7/f7Ar85yO+7QCt1WqZcDj8QRAE+W0H6L1e75nL5XqVSqU0tx2g+/3+i8FgcD0cDi/eVoA2m803o9HoVjQaXbmtAN3pdF4Ph8M7sVhs9bYC9EAguBuLxdbfVoB2Op23QqHQbjweX7utAO10Om+Fw+HdeDy+dlsBejAY3I3FYuu3FaD7/f6LwWBwPRwOL95WgNbr9Z65XK5XqVRKc9sB+v8K8P92wL9QAAmC8DIIwnsA3wG8FwThg67rX4x6A4IgrAO4AeAygH0ADgH0AHgH0AHgH0AHgL4JgjCN13XvxgF0AO4C+ACgH0AHgL4JgjCN13XvxgF0AO4C+ACgH0AHgL4JgjCN13XvxgF0AO4C+ACgH0AHgL4JgjCN13XvxgF0AO4C+ACgH0AHgL4JgjCN13XvxgF0AO4C+ACgH0AHgL4JgjCN13XvxgF0AO4C+ACgH0AHgL4JgjCN13X/b+QWIv2Qc+35y4AAAAABJRU5ErkJggg==';
 
 // --- Template Engine ---
 interface TemplateStyle {
@@ -165,24 +166,6 @@ const templates: Record<string, TemplateStyle> = {
     }
 };
 
-// Helper to get style and override with custom colors
-const getTemplate = (id: string | undefined, customColors?: { primary: string, secondary: string }): TemplateStyle => {
-    const baseTemplate = templates[id || 'standard'] || templates.standard;
-    if (customColors) {
-        // Shallow copy to avoid mutating original template definition
-        return {
-            ...baseTemplate,
-            primaryColor: customColors.primary,
-            secondaryColor: customColors.secondary,
-            // Adjust derived colors if needed, for now basic override
-            headerColor: baseTemplate.headerColor === '#ffffff' ? '#ffffff' : customColors.primary,
-            headerTextColor: baseTemplate.headerColor === '#ffffff' ? customColors.primary : '#ffffff',
-            borderColor: customColors.secondary
-        };
-    }
-    return baseTemplate;
-};
-
 const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? [
@@ -191,6 +174,39 @@ const hexToRgb = (hex: string) => {
         parseInt(result[3], 16)
     ] : [0, 0, 0];
 };
+
+// Determine if white or black text is better for a given background color
+const getContrastColor = (hex: string) => {
+    const rgb = hexToRgb(hex);
+    const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+    return brightness > 128 ? '#000000' : '#ffffff';
+}
+
+// Helper to get style and override with custom colors
+const getTemplate = (id: string | undefined, customColors?: { primary: string, secondary: string }): TemplateStyle => {
+    const baseTemplate = templates[id || 'standard'] || templates.standard;
+    if (customColors) {
+        const primary = customColors.primary || baseTemplate.primaryColor;
+        const secondary = customColors.secondary || baseTemplate.secondaryColor;
+        
+        // If the template typically has a white header, keep it white, otherwise use the new primary color
+        const newHeaderColor = baseTemplate.headerColor === '#ffffff' ? '#ffffff' : primary;
+        
+        // Calculate contrast for the header text
+        const newHeaderTextColor = newHeaderColor === '#ffffff' ? primary : getContrastColor(primary);
+
+        return {
+            ...baseTemplate,
+            primaryColor: primary,
+            secondaryColor: secondary,
+            headerColor: newHeaderColor,
+            headerTextColor: newHeaderTextColor,
+            borderColor: secondary
+        };
+    }
+    return baseTemplate;
+};
+
 
 // Helper function to robustly load images and detect format
 const loadImage = async (url: string): Promise<{ data: string; format: string; width: number; height: number } | null> => {
@@ -239,56 +255,81 @@ const loadImage = async (url: string): Promise<{ data: string; format: string; w
     }
 };
 
+// Smart Text Positioning Helper
+const drawSmartLabelValue = (doc: any, label: string, value: string, y: number, maxX: number, font: string) => {
+    doc.setFont(font, 'normal'); 
+    
+    // 1. Calculate width of the value
+    const valueWidth = doc.getTextWidth(value);
+    
+    // 2. Draw Value right-aligned at maxX
+    doc.text(value, maxX, y, { align: 'right' });
+    
+    // 3. Draw Label right-aligned to the left of the value with padding
+    // Padding ensures "enough space" without being huge
+    const padding = 12; 
+    const labelX = maxX - valueWidth - padding;
+    
+    doc.setFont(font, 'bold');
+    doc.text(label, labelX, y, { align: 'right' });
+};
 
+// Universal Header Function
 const addHeader = async (doc: any, profile: UserProfile, title: string, dateLabel: string, dateValue: string, style: TemplateStyle) => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 40;
-    let yPos = margin;
     
-    // Header Background
+    // Header Bar Height
+    const headerHeight = 100;
+
+    // 1. Draw Background Rectangle
     if (style.headerColor !== '#ffffff') {
         doc.setFillColor(...hexToRgb(style.headerColor));
-        doc.rect(0, 0, pageWidth, 120, 'F');
+        doc.rect(0, 0, pageWidth, headerHeight, 'F');
     }
 
-    // Logo
+    // 2. Logo (Left, vertically centered in header)
+    const logoMaxHeight = 60;
     if (profile.logoUrl) {
-        const imgData = await loadImage(profile.logoUrl);
-        if (imgData) {
-            const aspectRatio = imgData.width / imgData.height;
-            const imgWidth = 60;
-            const imgHeight = imgWidth / aspectRatio;
-            // Use detected format
-            doc.addImage(imgData.data, imgData.format, margin, yPos, imgWidth, imgHeight);
+        try {
+            const imgData = await loadImage(profile.logoUrl);
+            if (imgData) {
+                const aspectRatio = imgData.width / imgData.height;
+                let imgWidth = logoMaxHeight * aspectRatio;
+                let imgHeight = logoMaxHeight;
+                
+                // Constrain width if wider than 120
+                if (imgWidth > 120) {
+                    imgWidth = 120;
+                    imgHeight = imgWidth / aspectRatio;
+                }
+
+                const logoY = (headerHeight - imgHeight) / 2;
+                doc.addImage(imgData.data, imgData.format, margin, logoY, imgWidth, imgHeight);
+            }
+        } catch (e) {
+            console.warn("Failed to add logo to header:", e);
         }
     }
 
+    // 3. Title & Date (Right aligned, centered in header)
     doc.setFontSize(24);
     doc.setFont(style.headerFont, 'bold');
     doc.setTextColor(...hexToRgb(style.headerTextColor));
-    doc.text(title, pageWidth - margin, yPos + 30, { align: 'right' });
     
+    // Title
+    const titleY = headerHeight / 2 + 5; // Approx vertical center
+    doc.text(title, pageWidth - margin, titleY - 10, { align: 'right' });
+    
+    // Date
     doc.setFontSize(10);
     doc.setFont(style.font, 'normal');
-    doc.setTextColor(...hexToRgb(style.headerTextColor));
-    doc.text(dateLabel + ": " + dateValue, pageWidth - margin, yPos + 45, { align: 'right' });
+    // Use smart spacing for consistency even here
+    // doc.text(`${dateLabel}: ${dateValue}`, pageWidth - margin, titleY + 10, { align: 'right' });
+    drawSmartLabelValue(doc, `${dateLabel}:`, dateValue, titleY + 10, pageWidth - margin, style.font);
 
-    yPos += 70;
-    
-    // Reset text color for body
-    doc.setTextColor(...hexToRgb(style.textColor));
-
-    // Company Info
-    doc.setFontSize(10);
-    doc.setFont(style.font, 'bold');
-    doc.text(profile.companyName, margin, yPos);
-    doc.setFont(style.font, 'normal');
-    yPos += 15;
-    if(profile.address) { doc.text(profile.address, margin, yPos); yPos += 15; }
-    if(profile.phone) { doc.text(profile.phone, margin, yPos); yPos += 15; }
-    if(profile.website) { doc.text(profile.website, margin, yPos); }
-
-    return yPos + 20;
+    // Return Safe Y start for body content
+    return headerHeight + 40; 
 };
 
 export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoiceData: InvoiceData, templateId: string) => {
@@ -299,201 +340,232 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 40;
-      let yPos = margin;
 
       const style = getTemplate(templateId, invoiceData.themeColors);
 
+      // --- 1. Header Bar (Clean Zone) ---
+      const headerHeight = 110;
       if (style.headerColor !== '#ffffff') {
         doc.setFillColor(...hexToRgb(style.headerColor));
-        doc.rect(0, 0, pageWidth, 130, 'F');
+        doc.rect(0, 0, pageWidth, headerHeight, 'F');
       }
 
+      // Logo (Left Side of Header)
       const logoSource = invoiceData.logoUrl || profile.logoUrl;
       if (logoSource) {
-          const imgData = await loadImage(logoSource);
-          if (imgData) {
-              const aspectRatio = imgData.width / imgData.height;
-              const imgWidth = 80;
-              const imgHeight = imgWidth / aspectRatio;
-              doc.addImage(imgData.data, imgData.format, margin, yPos, imgWidth, imgHeight);
-          }
+          try {
+            const imgData = await loadImage(logoSource);
+            if (imgData) {
+                const aspectRatio = imgData.width / imgData.height;
+                // Max size 150x80 inside header
+                let imgWidth = 80 * aspectRatio;
+                let imgHeight = 80;
+                if (imgWidth > 150) { imgWidth = 150; imgHeight = imgWidth / aspectRatio; }
+                
+                const logoY = (headerHeight - imgHeight) / 2;
+                doc.addImage(imgData.data, imgData.format, margin, logoY, imgWidth, imgHeight);
+            }
+          } catch (e) { console.warn("Logo error", e); }
       }
 
-      yPos = margin; 
-
+      // Title & Meta (Right Side of Header)
       doc.setFontSize(24);
       doc.setFont(style.headerFont, 'bold');
       doc.setTextColor(...hexToRgb(style.headerTextColor));
-      doc.text('INVOICE', pageWidth - margin, yPos + 20, { align: 'right' });
+      doc.text('INVOICE', pageWidth - margin, 45, { align: 'right' });
       
-      yPos += 80;
-
-      const companyName = invoiceData.companyName || profile.companyName;
-      const companyAddress = invoiceData.companyAddress || profile.address;
-      const companyPhone = invoiceData.companyPhone || profile.phone;
-      const companyWebsite = invoiceData.companyWebsite || profile.website;
-      const clientName = invoiceData.clientName || job.clientName;
-      const clientAddress = invoiceData.clientAddress || job.clientAddress;
-
       doc.setFontSize(10);
-      // Check if we are still in header bg area for text color
-      if(style.headerColor !== '#ffffff') doc.setTextColor(...hexToRgb(style.headerTextColor));
-      else doc.setTextColor(...hexToRgb(style.textColor));
       
+      // Smart Spacing for Meta Data
+      let metaY = 65;
+      const lineHeight = 18; 
+      const rightColX = pageWidth - margin;
+
+      drawSmartLabelValue(doc, 'Invoice #:', invoiceData.invoiceNumber.toString(), metaY, rightColX, style.font);
+      metaY += lineHeight;
+      drawSmartLabelValue(doc, 'Date:', invoiceData.issueDate, metaY, rightColX, style.font);
+      metaY += lineHeight;
+      drawSmartLabelValue(doc, 'Due Date:', invoiceData.dueDate, metaY, rightColX, style.font);
+
+      // --- 2. Address Grid (Below Header) ---
+      // Clean separation: Company on Left, Client on Right
+      let contentY = headerHeight + 30;
+      doc.setTextColor(...hexToRgb(style.textColor)); // Reset text color to black/dark
+      
+      // Company Info (Left)
+      doc.setFontSize(10);
       doc.setFont(style.font, 'bold');
-      doc.text(companyName, margin, yPos);
-      doc.setFont(style.font, 'normal');
-      yPos += 15;
-      if(companyAddress) { doc.text(companyAddress, margin, yPos, { maxWidth: pageWidth / 2.5 }); yPos += 15 * (doc.getTextDimensions(companyAddress, { maxWidth: pageWidth / 2.5 }).h / 10); }
-      if(companyPhone) { doc.text(companyPhone, margin, yPos); yPos += 15; }
-      if(companyWebsite) { doc.text(companyWebsite, margin, yPos); }
-
-      let rightColY = margin + 80; 
-      const rightColX = pageWidth / 2;
+      doc.text('FROM', margin, contentY);
+      contentY += 15;
       
-      doc.setTextColor(...hexToRgb(style.headerTextColor)); 
-      if(style.headerColor === '#ffffff') doc.setTextColor(...hexToRgb(style.textColor));
+      doc.setFontSize(11);
+      doc.text(invoiceData.companyName || profile.companyName, margin, contentY);
+      contentY += 15;
+      
+      doc.setFont(style.font, 'normal');
+      doc.setFontSize(10);
+      const companyAddress = invoiceData.companyAddress || profile.address;
+      const companyLines = doc.splitTextToSize(companyAddress, pageWidth/2 - margin - 20);
+      doc.text(companyLines, margin, contentY);
+      
+      let leftColumnY = contentY + (companyLines.length * 12) + 5;
+      if (invoiceData.companyPhone || profile.phone) {
+          doc.text(invoiceData.companyPhone || profile.phone, margin, leftColumnY);
+          leftColumnY += 12;
+      }
+      if (invoiceData.companyWebsite || profile.website) {
+          doc.text(invoiceData.companyWebsite || profile.website, margin, leftColumnY);
+          leftColumnY += 12;
+      }
 
+      // Client Info (Right) - Reset Y to top of section
+      let rightColumnY = headerHeight + 30; 
       doc.setFont(style.font, 'bold');
-      doc.text('BILL TO', rightColX, rightColY);
+      doc.setFontSize(10);
+      doc.text('BILL TO', pageWidth/2 + 20, rightColumnY);
+      rightColumnY += 15;
+
+      doc.setFontSize(11);
+      doc.text(invoiceData.clientName || job.clientName, pageWidth/2 + 20, rightColumnY);
+      rightColumnY += 15;
+
       doc.setFont(style.font, 'normal');
-      rightColY += 15;
-      doc.text(clientName, rightColX, rightColY);
-      rightColY += 15;
-      doc.text(clientAddress, rightColX, rightColY, { maxWidth: pageWidth / 2 - margin });
-      
-      rightColY = margin + 80;
-      const labelX = pageWidth - margin - 100;
-      const valueX = pageWidth - margin;
+      doc.setFontSize(10);
+      const clientAddress = invoiceData.clientAddress || job.clientAddress;
+      const clientLines = doc.splitTextToSize(clientAddress, pageWidth/2 - margin);
+      doc.text(clientLines, pageWidth/2 + 20, rightColumnY);
+      rightColumnY += (clientLines.length * 12);
 
-      doc.setFont(style.font, 'bold'); doc.text('Invoice #:', labelX, rightColY);
-      doc.setFont(style.font, 'normal'); doc.text(invoiceData.invoiceNumber.toString(), valueX, rightColY, { align: 'right' });
-      rightColY += 15;
-      doc.setFont(style.font, 'bold'); doc.text('Issue Date:', labelX, rightColY);
-      doc.setFont(style.font, 'normal'); doc.text(invoiceData.issueDate, valueX, rightColY, { align: 'right' });
-      rightColY += 15;
-      doc.setFont(style.font, 'bold'); doc.text('Due Date:', labelX, rightColY);
-      doc.setFont(style.font, 'normal'); doc.text(invoiceData.dueDate, valueX, rightColY, { align: 'right' });
+      // Use the maximum Y from either column to start the table
+      let tableStartY = Math.max(leftColumnY, rightColumnY) + 30;
 
-      yPos = Math.max(yPos, rightColY) + 40;
-
-      doc.setTextColor(...hexToRgb(style.textColor));
-
+      // --- 3. Items Table ---
       const tableData = invoiceData.lineItems.map(item => [
         item.description,
         item.quantity,
-        `$${item.rate.toFixed(2)}`,
-        `$${(item.quantity * item.rate).toFixed(2)}`
+        `$${Number(item.rate).toFixed(2)}`,
+        `$${(Number(item.quantity) * Number(item.rate)).toFixed(2)}`
       ]);
 
       (doc as any).autoTable({
-        startY: yPos,
+        startY: tableStartY,
         head: [['Description', 'Quantity', 'Rate', 'Amount']],
         body: tableData,
         theme: 'striped',
         headStyles: { 
             fillColor: hexToRgb(style.primaryColor), 
-            textColor: hexToRgb(style.headerTextColor),
+            textColor: hexToRgb(getContrastColor(style.primaryColor)),
             font: style.font,
             fontStyle: 'bold'
         },
-        bodyStyles: {
-             textColor: hexToRgb(style.textColor),
-             font: style.font
+        bodyStyles: { 
+            textColor: hexToRgb(style.textColor), 
+            font: style.font,
+            valign: 'top' 
         },
-        alternateRowStyles: {
-            fillColor: hexToRgb(style.alternateRowColor)
+        alternateRowStyles: { fillColor: hexToRgb(style.alternateRowColor) },
+        styles: { 
+            fontSize: 10, 
+            cellPadding: 8, 
+            lineColor: hexToRgb(style.borderColor), 
+            lineWidth: 0.1,
+            overflow: 'linebreak'
         },
-        styles: { fontSize: 10, cellPadding: 8, lineColor: hexToRgb(style.borderColor), lineWidth: 0.1 },
+        columnStyles: {
+            0: { cellWidth: 'auto' }, // Description takes remaining space
+            1: { cellWidth: 65, halign: 'center' }, // Increased to 65 to fit "Quantity"
+            2: { cellWidth: 70, halign: 'right' },
+            3: { cellWidth: 70, halign: 'right' }
+        },
         margin: { left: margin, right: margin }
       });
 
-      let finalY = (doc as any).autoTable.previous.finalY;
-      yPos = finalY + 30;
-
+      // --- 4. Totals ---
+      let finalY = (doc as any).autoTable.previous.finalY + 20;
       const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-      const subtotal = invoiceData.lineItems.reduce((acc, item) => acc + item.quantity * item.rate, 0);
-      const discount = invoiceData.discount || 0;
-      const shipping = invoiceData.shipping || 0;
-      const amountAfterDiscount = subtotal - discount;
-      const taxAmount = amountAfterDiscount * ((invoiceData.taxRate || 0) / 100);
-      const total = amountAfterDiscount + taxAmount + shipping;
+      
+      // Calculate totals
+      const subtotal = invoiceData.lineItems.reduce((acc, item) => acc + Number(item.quantity) * Number(item.rate), 0);
+      const discount = Number(invoiceData.discount || 0);
+      const shipping = Number(invoiceData.shipping || 0);
+      const taxAmount = (subtotal - discount) * ((Number(invoiceData.taxRate) || 0) / 100);
+      const total = (subtotal - discount) + taxAmount + shipping;
 
-      const addTotalLine = (label: string, value: string, isBold: boolean = false) => {
-        const totalsX = pageWidth - margin - 200;
+      const addTotalLine = (label: string, value: string, isBold = false) => {
+        const startX = pageWidth - margin;
         doc.setFont(style.font, isBold ? 'bold' : 'normal');
-        doc.text(label, totalsX, yPos);
-        doc.setFont(style.font, isBold ? 'bold' : 'normal');
-        doc.text(value, pageWidth - margin, yPos, { align: 'right' });
-        yPos += 20;
+        // Smart alignment for totals too
+        drawSmartLabelValue(doc, label, value, finalY, startX, style.font);
+        finalY += 18;
       };
 
       doc.setFontSize(10);
       addTotalLine('Subtotal:', currencyFormatter.format(subtotal));
-      if (discount > 0) addTotalLine('Discount:', `- ${currencyFormatter.format(discount)}`);
-      if(invoiceData.taxRate > 0) addTotalLine(`Tax (${invoiceData.taxRate}%):`, currencyFormatter.format(taxAmount));
+      if (discount > 0) addTotalLine('Discount:', `-${currencyFormatter.format(discount)}`);
+      if (Number(invoiceData.taxRate) > 0) addTotalLine(`Tax (${invoiceData.taxRate}%):`, currencyFormatter.format(taxAmount));
       if (shipping > 0) addTotalLine('Shipping:', currencyFormatter.format(shipping));
       
-      yPos += 5;
+      // Add extra space before the line so it doesn't overlap text
+      finalY += 5;
+
+      // Divider line
       doc.setDrawColor(...hexToRgb(style.borderColor));
-      doc.setLineWidth(1.5);
-      doc.line(pageWidth - margin - 210, yPos - 10, pageWidth - margin, yPos - 10);
+      doc.line(pageWidth - margin - 200, finalY, pageWidth - margin, finalY);
       
+      // Add space AFTER line for the Total Text
+      finalY += 20;
+
+      // Grand Total
       doc.setFontSize(12);
       doc.setTextColor(...hexToRgb(style.primaryColor));
       addTotalLine('Total:', currencyFormatter.format(total), true);
-      doc.setTextColor(...hexToRgb(style.textColor)); 
-      finalY = yPos;
+      doc.setTextColor(...hexToRgb(style.textColor));
+
+      // --- 5. Notes & Signature ---
+      // Position notes on the left, aligned with totals roughly
+      let notesY = (doc as any).autoTable.previous.finalY + 20; 
+      if (notesY + 100 > pageHeight) { doc.addPage(); notesY = margin; }
 
       if (invoiceData.notes) {
-        yPos = (doc as any).autoTable.previous.finalY + 30;
-        doc.setFontSize(10);
-        doc.setFont(style.font, 'bold');
-        doc.text('Notes:', margin, yPos);
-        yPos += 15;
-        doc.setFont(style.font, 'normal');
-        const noteLines = doc.splitTextToSize(invoiceData.notes, pageWidth / 2.2);
-        doc.text(noteLines, margin, yPos);
-        finalY = Math.max(finalY, yPos + noteLines.length * 12);
+          doc.setFontSize(10);
+          doc.setFont(style.font, 'bold');
+          doc.text('Note:', margin, notesY);
+          notesY += 15;
+          doc.setFont(style.font, 'normal');
+          const noteLines = doc.splitTextToSize(invoiceData.notes, pageWidth/2); // Half width to not hit totals
+          doc.text(noteLines, margin, notesY);
+          notesY += (noteLines.length * 12) + 20;
       }
 
       // Signature
       if (invoiceData.signatureUrl) {
-        yPos = finalY + 30;
-        const sigImg = await loadImage(invoiceData.signatureUrl);
-        if (sigImg) {
-             // Check page space
-             if (yPos + 60 > pageHeight - margin) {
-                 doc.addPage();
-                 yPos = margin;
+         // Ensure we have space, or push to new page
+         if (notesY + 80 > pageHeight - margin) { doc.addPage(); notesY = margin; }
+         
+         try {
+             const sigImg = await loadImage(invoiceData.signatureUrl);
+             if (sigImg) {
+                 doc.addImage(sigImg.data, sigImg.format, margin, notesY, 120, 40);
+                 doc.line(margin, notesY + 45, margin + 120, notesY + 45); // Signature line
+                 doc.setFontSize(9);
+                 doc.text("Authorized Signature", margin, notesY + 55);
              }
-             doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
-             doc.setFontSize(10);
-             doc.text("Authorized Signature", margin, yPos + 55);
-             finalY = yPos + 70;
-        }
+         } catch (e) { console.warn("Sig error", e); }
       }
 
+      // Payment Link
       if (invoiceData.paypalLink) {
-        const buttonWidth = 140;
-        const buttonHeight = 35;
-        const buttonX = pageWidth / 2 - buttonWidth / 2;
-        let buttonY = Math.max(finalY, pageHeight - margin - buttonHeight - 20);
-        if (buttonY > pageHeight - margin - buttonHeight) {
-           buttonY = pageHeight - margin - buttonHeight;
-        }
-
-        doc.link(buttonX, buttonY, buttonWidth, buttonHeight, { url: invoiceData.paypalLink });
-        doc.setFillColor(255, 196, 58); 
-        doc.roundedRect(buttonX, buttonY, buttonWidth, buttonHeight, 5, 5, 'F');
-        const logoWidth = 90;
-        const logoHeight = 22.5;
-        const logoX = buttonX + (buttonWidth - logoWidth) / 2;
-        const logoY = buttonY + (buttonHeight - logoHeight) / 2;
-        doc.addImage(PAYPAL_LOGO_BASE64, 'PNG', logoX, logoY, logoWidth, logoHeight);
+         // Add button at bottom center
+         const btnY = pageHeight - margin - 40;
+         doc.setFillColor(255, 196, 58);
+         doc.roundedRect(pageWidth/2 - 70, btnY, 140, 35, 4, 4, 'F');
+         doc.setFontSize(12);
+         doc.setTextColor(0, 0, 0);
+         doc.text("Pay Now", pageWidth/2, btnY + 22, { align: 'center' });
+         doc.link(pageWidth/2 - 70, btnY, 140, 35, { url: invoiceData.paypalLink });
       }
 
-      doc.save(`Invoice-${invoiceData.invoiceNumber}-${clientName}.pdf`);
+      doc.save(`Invoice-${invoiceData.invoiceNumber}.pdf`);
       resolve();
     } catch (err) {
       reject(err);
@@ -511,118 +583,172 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
       const margin = 40;
       const style = getTemplate(templateId, data.themeColors);
 
-      const companyName = data.companyName || profile.companyName;
+      // Header
+      let yPos = await addHeader(doc, profile, 'DAILY JOB REPORT', 'Date', data.date, style);
+      
+      // Meta Grid
+      doc.setFontSize(10);
+      doc.setFont(style.font, 'bold');
+      doc.setTextColor(...hexToRgb(style.primaryColor));
+      
+      doc.text("PROJECT DETAILS", margin, yPos);
+      yPos += 15;
+      doc.setDrawColor(...hexToRgb(style.borderColor));
+      doc.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 15;
 
-      if (style.headerColor !== '#ffffff') {
-        doc.setFillColor(...hexToRgb(style.headerColor));
-        doc.rect(0, 0, pageWidth, 100, 'F');
-      }
-
-      const logoUrl = data.logoUrl || profile.logoUrl;
-      if (logoUrl) {
-          const imgData = await loadImage(logoUrl);
-          if (imgData) {
-            const aspectRatio = imgData.width / imgData.height;
-            const imgWidth = Math.min(60, 80);
-            const imgHeight = imgWidth / aspectRatio;
-            doc.addImage(imgData.data, imgData.format, margin, margin - 10, imgWidth, imgHeight);
-          }
-      }
-      
-      doc.setFontSize(24);
-      doc.setFont(style.headerFont, 'bold');
-      doc.setTextColor(...hexToRgb(style.headerTextColor));
-      doc.text('Daily Job Report', pageWidth - margin, margin + 30, { align: 'right'});
-
-      const addFooter = () => {
-          if (style.showFooterLine) {
-            const pageCount = (doc as any).internal.getNumberOfPages();
-            doc.setFontSize(8);
-            doc.setFont(style.font, 'normal');
-            doc.setTextColor(...hexToRgb(style.secondaryColor));
-            for (let i = 1; i <= pageCount; i++) {
-                doc.setPage(i);
-                doc.text(`Page ${i} of ${pageCount}`, margin, pageHeight - margin / 2);
-                doc.text(`${companyName} | Daily Job Report`, pageWidth / 2, pageHeight - margin / 2, { align: 'center' });
-                doc.text(new Date().toLocaleDateString(), pageWidth - margin, pageHeight - margin / 2, { align: 'right' });
-            }
-          }
-      };
-      
-      const contentElement = document.getElementById('pdf-render-content');
-      if (!contentElement) {
-          return reject(new Error('PDF render element not found'));
-      }
-      
-      doc.setFontSize(12);
-      if (style.headerColor !== '#ffffff') doc.setTextColor(...hexToRgb(style.headerTextColor));
-      else doc.setTextColor(...hexToRgb(style.textColor));
-      
-      doc.text(`Project: ${data.projectName}`, margin, margin + 80);
-      doc.text(`Date: ${data.date}`, margin, margin + 95);
-      
       doc.setTextColor(...hexToRgb(style.textColor));
+      doc.setFont(style.font, 'normal');
+      doc.text(`Project: ${data.projectName}`, margin, yPos);
+      doc.text(`Report #: ${data.reportNumber}`, pageWidth/2, yPos);
+      yPos += 15;
+      if (data.clientName) {
+        doc.text(`Client: ${data.clientName}`, margin, yPos);
+        yPos += 15;
+      }
+      if (data.weather) {
+          doc.text(`Weather: ${data.weather} ${data.temperature ? `(${data.temperature})` : ''}`, margin, yPos);
+          yPos += 25;
+      }
 
-      contentElement.innerHTML = `<div style="font-family: ${style.font === 'times' ? 'serif' : style.font === 'courier' ? 'monospace' : 'sans-serif'}; font-size: 10pt; color: ${style.textColor};">${data.content}</div>`;
-      
-      await (doc as any).html(contentElement, {
-        x: margin,
-        y: margin + 120,
-        width: pageWidth - (margin * 2),
-        windowWidth: 600,
-        autoPaging: 'text',
-        callback: async (doc: any) => {
-           if (data.signatureUrl) {
-             const pageCount = doc.internal.getNumberOfPages();
-             doc.setPage(pageCount);
-             const pageHeight = doc.internal.pageSize.getHeight();
-             
-             const sigImg = await loadImage(data.signatureUrl);
-             if (sigImg) {
-                 const sigY = pageHeight - margin - 60; 
-                 doc.addImage(sigImg.data, sigImg.format, margin, sigY, 120, 40);
-                 doc.setFontSize(10);
-                 doc.text("Signed", margin, sigY + 50);
-             }
-           }
+      // Content
+      const contentElement = document.getElementById('pdf-render-content');
+      if (contentElement) {
+          // IMPORTANT: Move the container on-screen and make visible during rendering
+          contentElement.style.left = '0px';
+          contentElement.style.top = '0px';
+          contentElement.style.zIndex = '-1000'; // HIDDEN FROM USER, VISIBLE TO RENDERER
+          contentElement.style.opacity = '1';
+          contentElement.style.visibility = 'visible';
+          // Reset styles to avoid inherited drift
+          contentElement.style.padding = '0';
+          contentElement.style.margin = '0';
+          contentElement.style.boxSizing = 'border-box';
+          contentElement.style.backgroundColor = 'white';
 
-          addFooter();
+          // Use a wider virtual width to allow side-by-side elements
+          // A4 printable width (approx 515pt) is narrow. 750px allows two ~350px images side-by-side.
+          const virtualWidth = 750; 
+          const pdfBodyWidth = pageWidth - (margin * 2);
+
+          contentElement.style.width = `${virtualWidth}px`;
+
+          // Inject content with explicit styling for PDF rendering
+          // Increase font size to 14px to compensate for scaling down (750px -> ~515px)
+          contentElement.innerHTML = `
+            <div style="
+                font-family: ${style.font === 'times' ? 'serif' : style.font === 'courier' ? 'monospace' : 'sans-serif'}; 
+                font-size: 14px; 
+                color: ${style.textColor}; 
+                width: 100%;
+                word-wrap: break-word; 
+                overflow-wrap: break-word;
+                box-sizing: border-box;
+            ">
+                ${data.content}
+            </div>`;
+          
+          // Wait a tick to ensure DOM update
+          await new Promise(r => setTimeout(r, 100));
+
+          await (doc as any).html(contentElement, {
+            x: margin,
+            y: yPos,
+            width: pdfBodyWidth, // Fit the virtual container into the PDF width
+            windowWidth: virtualWidth, // Render with this wider viewport
+            autoPaging: 'text',
+            callback: async (doc: any) => {
+               // HIDE IT AGAIN
+               contentElement.style.left = '-9999px';
+               contentElement.innerHTML = ''; // Clear content
+
+               const finalY = (doc as any).internal.getCurrentPageInfo().pageContext.y || (pageHeight - 100);
+               let sigY = finalY + 40;
+               if (sigY + 80 > pageHeight - margin) { doc.addPage(); sigY = margin; }
+
+               if (data.signatureUrl) {
+                 try {
+                     const sigImg = await loadImage(data.signatureUrl);
+                     if (sigImg) {
+                         doc.addImage(sigImg.data, sigImg.format, margin, sigY, 120, 40);
+                         doc.line(margin, sigY + 45, margin + 120, sigY + 45);
+                         doc.setFontSize(9);
+                         doc.text("Signed", margin, sigY + 55);
+                     }
+                 } catch (e) {}
+               }
+               doc.save(`${data.reportNumber}.pdf`);
+               resolve();
+            }
+          });
+      } else {
+          // Fallback if no HTML content
           doc.save(`${data.reportNumber}.pdf`);
           resolve();
-        }
-      });
-    } catch (err) {
-      reject(err);
-    }
+      }
+    } catch (err) { reject(err); }
    });
 };
 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string) => {
     const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    // Use 'pt' to match other generators for consistency and simpler math
+    const doc = new jsPDF('p', 'pt', 'a4');
     const pageWidth = doc.internal.pageSize.getWidth();
-
-    if (style.headerColor !== '#ffffff') {
-        doc.setFillColor(...hexToRgb(style.headerColor));
-        doc.rect(0, 0, pageWidth, 60, 'F');
-    }
-
-    doc.setFontSize(22);
-    doc.setFont(style.headerFont, 'bold');
-    doc.setTextColor(...hexToRgb(style.headerTextColor));
-    doc.text(data.title, 20, 40);
+    const margin = 40;
     
-    doc.setFontSize(12);
-    doc.setTextColor(...hexToRgb(style.textColor));
+    await addHeader(doc, profile, 'NOTE', 'Date', new Date().toLocaleDateString(), style);
+    
+    doc.setFontSize(18);
+    doc.text(data.title, margin, 150);
     
     const contentElement = document.getElementById('pdf-render-content');
     if (contentElement) {
-        contentElement.innerHTML = `<div style="color: ${style.textColor}; font-family: ${style.font === 'times' ? 'serif' : style.font === 'courier' ? 'monospace' : 'sans-serif'}">${data.content}</div>`;
+        // Move container on-screen for capture
+        contentElement.style.left = '0px';
+        contentElement.style.top = '0px';
+        contentElement.style.zIndex = '-1000'; // HIDDEN FROM USER, VISIBLE TO RENDERER
+        contentElement.style.opacity = '1';
+        contentElement.style.visibility = 'visible';
+        // Reset styles
+        contentElement.style.padding = '0';
+        contentElement.style.margin = '0';
+        contentElement.style.boxSizing = 'border-box';
+        contentElement.style.backgroundColor = 'white';
+
+        // Virtual Layout Strategy for Side-by-Side
+        const virtualWidth = 750;
+        const pdfBodyWidth = pageWidth - (margin * 2);
+        
+        contentElement.style.width = `${virtualWidth}px`;
+
+        contentElement.innerHTML = `
+            <div style="
+                font-family: sans-serif; 
+                width: 100%;
+                font-size: 14px;
+                word-wrap: break-word; 
+                overflow-wrap: break-word;
+                box-sizing: border-box;
+            ">
+                ${data.content}
+            </div>`;
+        
+        // Wait for rendering
+        await new Promise(r => setTimeout(r, 100));
+
         await (doc as any).html(contentElement, {
-            x: 20,
-            y: 70,
+            x: margin,
+            y: 170,
+            width: pdfBodyWidth, 
+            windowWidth: virtualWidth,
+            autoPaging: 'text',
             callback: function (doc: any) {
+                // Hide again
+                contentElement.style.left = '-9999px';
+                contentElement.innerHTML = '';
+
                 doc.save(`Note-${data.title}.pdf`);
             }
         });
@@ -634,12 +760,17 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data:
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
+    
     let yPos = await addHeader(doc, profile, 'WORK ORDER', 'Date', data.date, style);
 
-    doc.setFontSize(14); doc.setFont(style.headerFont, 'bold'); doc.setTextColor(...hexToRgb(style.primaryColor));
+    doc.setFontSize(14); 
+    doc.setFont(style.headerFont, 'bold'); 
+    doc.setTextColor(...hexToRgb(style.primaryColor));
     doc.text(`Project: ${job.name}`, margin, yPos);
     yPos += 20;
-    doc.setFontSize(12); doc.setFont(style.font, 'normal'); doc.setTextColor(...hexToRgb(style.textColor));
+    doc.setFontSize(12); 
+    doc.setFont(style.font, 'normal'); 
+    doc.setTextColor(...hexToRgb(style.textColor));
     doc.text(`Client: ${job.clientName}`, margin, yPos);
     yPos += 30;
 
@@ -649,30 +780,37 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data:
     doc.text(descLines, margin, yPos);
     yPos += descLines.length * 15 + 20;
 
-    doc.setFont(style.font, 'bold'); doc.text('Materials Used:', margin, yPos); yPos += 20;
-    doc.setFont(style.font, 'normal');
-    const matLines = doc.splitTextToSize(data.materialsUsed, doc.internal.pageSize.getWidth() - 2 * margin);
-    doc.text(matLines, margin, yPos);
-    yPos += matLines.length * 15 + 30;
+    if (data.materialsUsed) {
+        doc.setFont(style.font, 'bold'); doc.text('Materials Used:', margin, yPos); yPos += 20;
+        doc.setFont(style.font, 'normal');
+        const matLines = doc.splitTextToSize(data.materialsUsed, doc.internal.pageSize.getWidth() - 2 * margin);
+        doc.text(matLines, margin, yPos);
+        yPos += matLines.length * 15 + 30;
+    }
     
+    // Totals Box
     doc.setFillColor(...hexToRgb(style.alternateRowColor));
-    doc.rect(margin - 5, yPos - 15, doc.internal.pageSize.getWidth() - 2*margin + 10, 40, 'F');
+    doc.rect(margin, yPos, doc.internal.pageSize.getWidth() - 2*margin, 50, 'F');
+    yPos += 30;
 
     doc.setFont(style.font, 'bold');
     doc.setTextColor(...hexToRgb(style.primaryColor));
-    doc.text(`Hours: ${data.hours}`, margin, yPos);
-    doc.text(`Total Cost: $${Number(data.cost).toFixed(2)}`, doc.internal.pageSize.getWidth() - margin, yPos, { align: 'right' });
+    doc.text(`Hours: ${data.hours}`, margin + 20, yPos);
+    doc.text(`Total Cost: $${Number(data.cost).toFixed(2)}`, doc.internal.pageSize.getWidth() - margin - 20, yPos, { align: 'right' });
 
     yPos += 60;
 
     if (data.signatureUrl) {
-        const sigImg = await loadImage(data.signatureUrl);
-        if (sigImg) {
-            doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
-            doc.setFontSize(10);
-            doc.setTextColor(...hexToRgb(style.textColor));
-            doc.text("Authorized Signature", margin, yPos + 50);
-        }
+        try {
+            const sigImg = await loadImage(data.signatureUrl);
+            if (sigImg) {
+                doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
+                doc.line(margin, yPos + 45, margin + 120, yPos + 45);
+                doc.setFontSize(10);
+                doc.setTextColor(...hexToRgb(style.textColor));
+                doc.text("Authorized Signature", margin, yPos + 55);
+            }
+        } catch (e) {}
     }
 
     doc.save(`WorkOrder-${data.title}.pdf`);
@@ -694,12 +832,9 @@ export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data:
         head: [['Date', 'Hours Worked', 'Overtime', 'Notes']],
         body: [[data.date, data.hoursWorked, data.overtimeHours, data.notes]],
         theme: 'striped',
-        headStyles: { fillColor: hexToRgb(style.primaryColor), textColor: hexToRgb(style.headerTextColor), font: style.headerFont },
-        bodyStyles: { font: style.font, textColor: hexToRgb(style.textColor) },
-        alternateRowStyles: { fillColor: hexToRgb(style.alternateRowColor) },
-        styles: { lineColor: hexToRgb(style.borderColor), lineWidth: 0.1 }
+        headStyles: { fillColor: hexToRgb(style.primaryColor), textColor: hexToRgb(getContrastColor(style.primaryColor)) },
     });
-    doc.save(`TimeSheet-${data.workerName}-${data.date}.pdf`);
+    doc.save(`TimeSheet.pdf`);
 };
 
 export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string) => {
@@ -719,34 +854,81 @@ export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, dat
         head: [['Item', 'Supplier', 'Qty', 'Unit Cost', 'Total']],
         body: tableData,
         theme: 'grid',
-        headStyles: { fillColor: hexToRgb(style.primaryColor), textColor: hexToRgb(style.headerTextColor), font: style.headerFont },
-        bodyStyles: { font: style.font, textColor: hexToRgb(style.textColor) },
-        alternateRowStyles: { fillColor: hexToRgb(style.alternateRowColor) },
-        styles: { lineColor: hexToRgb(style.borderColor), lineWidth: 0.1 }
+        headStyles: { fillColor: hexToRgb(style.primaryColor), textColor: hexToRgb(getContrastColor(style.primaryColor)) },
+        bodyStyles: { valign: 'top' },
+        columnStyles: {
+            0: { cellWidth: 'auto' },
+            1: { cellWidth: 'auto' },
+            2: { cellWidth: 40, halign: 'center' },
+            3: { cellWidth: 60, halign: 'right' },
+            4: { cellWidth: 60, halign: 'right' }
+        }
     });
 
-    const totalCost = data.items.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0);
-    const finalY = (doc as any).autoTable.previous.finalY + 20;
-    doc.setFont(style.font, 'bold');
-    doc.setTextColor(...hexToRgb(style.primaryColor));
-    doc.text(`Total Cost: $${totalCost.toFixed(2)}`, doc.internal.pageSize.getWidth() - margin, finalY, { align: 'right' });
-
-    doc.save(`MaterialLog-${data.date}.pdf`);
+    doc.save(`MaterialLog.pdf`);
 };
 
 export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string) => {
     const style = getTemplate(templateId, data.themeColors);
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
+    const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 40;
-    let yPos = await addHeader(doc, profile, 'ESTIMATE', 'Date', data.issueDate, style);
+    
+    // --- Header ---
+    const headerHeight = 100;
+    if (style.headerColor !== '#ffffff') {
+        doc.setFillColor(...hexToRgb(style.headerColor));
+        doc.rect(0, 0, pageWidth, headerHeight, 'F');
+    }
+    // Logo
+    if (profile.logoUrl) {
+        try {
+            const imgData = await loadImage(profile.logoUrl);
+            if (imgData) {
+                const aspectRatio = imgData.width / imgData.height;
+                let imgHeight = 70; let imgWidth = 70 * aspectRatio;
+                if(imgWidth > 140) { imgWidth = 140; imgHeight = imgWidth/aspectRatio; }
+                doc.addImage(imgData.data, imgData.format, margin, (headerHeight-imgHeight)/2, imgWidth, imgHeight);
+            }
+        } catch(e) {}
+    }
+    // Title & Meta (Clean Columns)
+    doc.setFontSize(24); doc.setFont(style.headerFont, 'bold'); doc.setTextColor(...hexToRgb(style.headerTextColor));
+    doc.text('ESTIMATE', pageWidth - margin, 45, { align: 'right' });
     
     doc.setFontSize(10);
-    doc.text(`Estimate #: ${data.estimateNumber}`, doc.internal.pageSize.getWidth() - margin, margin + 60, { align: 'right' });
-    doc.text(`Expiry Date: ${data.expiryDate}`, doc.internal.pageSize.getWidth() - margin, margin + 75, { align: 'right' });
+    // Smart spacing
+    let metaY = 65;
+    const lineHeight = 15;
+    const rightColX = pageWidth - margin;
 
-    doc.setFontSize(12);
-    doc.text(`For: ${job.clientName}`, margin, yPos); yPos += 30;
+    drawSmartLabelValue(doc, 'Estimate #:', data.estimateNumber, metaY, rightColX, style.font);
+    metaY += lineHeight;
+    drawSmartLabelValue(doc, 'Date:', data.issueDate, metaY, rightColX, style.font);
+    metaY += lineHeight;
+    drawSmartLabelValue(doc, 'Expires:', data.expiryDate, metaY, rightColX, style.font);
+
+    // Info Grid
+    let yPos = headerHeight + 30;
+    doc.setTextColor(...hexToRgb(style.textColor));
+    doc.setFontSize(10); doc.setFont(style.font, 'bold');
+    doc.text('FROM', margin, yPos);
+    doc.text('TO', pageWidth/2 + 20, yPos);
+    yPos += 15;
+    
+    doc.setFontSize(11); doc.setFont(style.font, 'normal');
+    doc.text(profile.companyName, margin, yPos);
+    doc.text(job.clientName, pageWidth/2 + 20, yPos);
+    yPos += 15;
+    
+    const companyLines = doc.splitTextToSize(profile.address || '', pageWidth/2 - margin - 20);
+    doc.text(companyLines, margin, yPos);
+    
+    const clientLines = doc.splitTextToSize(job.clientAddress || '', pageWidth/2 - margin - 20);
+    doc.text(clientLines, pageWidth/2 + 20, yPos);
+    
+    yPos += Math.max(companyLines.length, clientLines.length) * 15 + 20;
 
     const tableData = data.lineItems.map(item => [item.description, item.quantity, `$${Number(item.rate).toFixed(2)}`, `$${(item.quantity * item.rate).toFixed(2)}`]);
 
@@ -755,10 +937,18 @@ export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: 
         head: [['Description', 'Quantity', 'Rate', 'Amount']],
         body: tableData,
         theme: 'striped',
-        headStyles: { fillColor: hexToRgb(style.secondaryColor), textColor: hexToRgb(style.headerTextColor), font: style.headerFont },
-        bodyStyles: { font: style.font, textColor: hexToRgb(style.textColor) },
-        alternateRowStyles: { fillColor: hexToRgb(style.alternateRowColor) },
-        styles: { lineColor: hexToRgb(style.borderColor), lineWidth: 0.1 }
+        headStyles: { 
+            fillColor: hexToRgb(style.secondaryColor), 
+            textColor: hexToRgb(getContrastColor(style.secondaryColor)) 
+        },
+        bodyStyles: { valign: 'top' },
+        styles: { overflow: 'linebreak' },
+        columnStyles: {
+            0: { cellWidth: 'auto' },
+            1: { cellWidth: 65, halign: 'center' }, // Increased to 65 to fit "Quantity"
+            2: { cellWidth: 70, halign: 'right' },
+            3: { cellWidth: 70, halign: 'right' }
+        }
     });
     
     const total = data.lineItems.reduce((acc, item) => acc + (item.quantity * item.rate), 0);
@@ -766,29 +956,28 @@ export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: 
     
     doc.setFont(style.font, 'bold');
     doc.setTextColor(...hexToRgb(style.primaryColor));
-    doc.text(`Total Estimate: $${total.toFixed(2)}`, doc.internal.pageSize.getWidth() - margin, finalY, { align: 'right' });
+    // Smart alignment for Total
+    drawSmartLabelValue(doc, 'Total Estimate:', `$${total.toFixed(2)}`, finalY, pageWidth - margin, style.font);
     
     finalY += 40;
     if(data.terms) {
         doc.setTextColor(...hexToRgb(style.textColor));
         doc.setFont(style.font, 'bold'); doc.text('Terms & Conditions:', margin, finalY); finalY += 15;
         doc.setFont(style.font, 'normal'); doc.setFontSize(10);
-        doc.text(doc.splitTextToSize(data.terms, doc.internal.pageSize.getWidth() - 2*margin), margin, finalY);
-        finalY += 20 + (doc.splitTextToSize(data.terms, doc.internal.pageSize.getWidth() - 2*margin).length * 10);
+        const termLines = doc.splitTextToSize(data.terms, pageWidth - 2*margin);
+        doc.text(termLines, margin, finalY);
+        finalY += 20 + (termLines.length * 10);
     }
 
     if (data.signatureUrl) {
-        const sigImg = await loadImage(data.signatureUrl);
-        if (sigImg) {
-            if (finalY + 60 > doc.internal.pageSize.getHeight() - margin) {
-                 doc.addPage();
-                 finalY = margin;
+        try {
+            const sigImg = await loadImage(data.signatureUrl);
+            if (sigImg) {
+                doc.addImage(sigImg.data, sigImg.format, margin, finalY, 120, 40);
+                doc.line(margin, finalY + 45, margin + 120, finalY + 45);
+                doc.text("Accepted By", margin, finalY + 55);
             }
-            doc.addImage(sigImg.data, sigImg.format, margin, finalY, 120, 40);
-            doc.setFontSize(10);
-            doc.setTextColor(...hexToRgb(style.textColor));
-            doc.text("Accepted By", margin, finalY + 50);
-        }
+        } catch (e) {}
     }
 
     doc.save(`Estimate-${data.estimateNumber}.pdf`);
@@ -810,13 +999,10 @@ export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data
         head: [['Item', 'Vendor', 'Amount']],
         body: [[data.item, data.vendor, `$${Number(data.amount).toFixed(2)}`]],
         theme: 'grid',
-        headStyles: { fillColor: hexToRgb(style.primaryColor), textColor: hexToRgb(style.headerTextColor), font: style.headerFont },
-        bodyStyles: { font: style.font, textColor: hexToRgb(style.textColor), fontSize: 12 },
-        alternateRowStyles: { fillColor: hexToRgb(style.alternateRowColor) },
-        styles: { lineColor: hexToRgb(style.borderColor), lineWidth: 0.1 }
+        headStyles: { fillColor: hexToRgb(style.primaryColor), textColor: hexToRgb(getContrastColor(style.primaryColor)) },
     });
 
-    doc.save(`Expense-${data.date}.pdf`);
+    doc.save(`Expense.pdf`);
 };
 
 export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: WarrantyData, templateId: string) => {
@@ -824,16 +1010,11 @@ export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: 
     const { jsPDF } = jspdf;
     const doc = new jsPDF('p', 'pt', 'a4');
     const margin = 40;
-    let yPos = await addHeader(doc, profile, 'CERTIFICATE OF WARRANTY', 'Date', data.completedDate, style);
+    let yPos = await addHeader(doc, profile, 'WARRANTY CERTIFICATE', 'Date', data.completedDate, style);
 
     doc.setDrawColor(...hexToRgb(style.primaryColor));
     doc.setLineWidth(2);
     doc.rect(20, 20, doc.internal.pageSize.getWidth() - 40, doc.internal.pageSize.getHeight() - 40);
-    
-    if (style.id === 'elegant') {
-        doc.setLineWidth(0.5);
-        doc.rect(25, 25, doc.internal.pageSize.getWidth() - 50, doc.internal.pageSize.getHeight() - 50);
-    }
 
     doc.setFontSize(12);
     doc.text(`Project: ${job.name}`, margin, yPos); yPos += 20;
@@ -844,25 +1025,29 @@ export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: 
     
     doc.text('Coverage:', margin, yPos); yPos += 15;
     doc.setFont(style.font, 'normal');
-    doc.text(doc.splitTextToSize(data.coverage, doc.internal.pageSize.getWidth() - 2*margin), margin, yPos);
-    yPos += 60; 
+    const coverageLines = doc.splitTextToSize(data.coverage, doc.internal.pageSize.getWidth() - 2*margin);
+    doc.text(coverageLines, margin, yPos);
+    yPos += coverageLines.length * 15 + 30; 
     
     doc.setFont(style.font, 'bold');
     doc.text('Conditions:', margin, yPos); yPos += 15;
     doc.setFont(style.font, 'normal');
-    doc.text(doc.splitTextToSize(data.conditions, doc.internal.pageSize.getWidth() - 2*margin), margin, yPos);
-
-    yPos += 60;
+    const conditionLines = doc.splitTextToSize(data.conditions, doc.internal.pageSize.getWidth() - 2*margin);
+    doc.text(conditionLines, margin, yPos);
+    yPos += conditionLines.length * 15 + 40;
+    
     if (data.signatureUrl) {
-        const sigImg = await loadImage(data.signatureUrl);
-        if (sigImg) {
-            doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
-            doc.setFontSize(10);
-            doc.text("Authorized Signature", margin, yPos + 50);
-        }
+        try {
+            const sigImg = await loadImage(data.signatureUrl);
+            if (sigImg) {
+                doc.addImage(sigImg.data, sigImg.format, margin, yPos, 120, 40);
+                doc.line(margin, yPos + 45, margin + 120, yPos + 45);
+                doc.text("Authorized Signature", margin, yPos + 55);
+            }
+        } catch (e) {}
     }
 
-    doc.save(`Warranty-${job.name}.pdf`);
+    doc.save(`Warranty.pdf`);
 };
 
 export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string) => {
@@ -887,7 +1072,8 @@ export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: R
     yPos += 60;
     doc.setFontSize(12); doc.setFont(style.font, 'normal');
     doc.text('For:', margin, yPos); yPos += 15;
-    doc.text(data.description, margin, yPos);
+    const descLines = doc.splitTextToSize(data.description, doc.internal.pageSize.getWidth() - 2 * margin);
+    doc.text(descLines, margin, yPos);
 
     doc.save(`Receipt-${data.date}.pdf`);
 };
