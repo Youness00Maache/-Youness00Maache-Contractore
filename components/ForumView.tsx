@@ -1,0 +1,691 @@
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
+import { Button } from './ui/Button.tsx';
+import { Input } from './ui/Input.tsx';
+import { Label } from './ui/Label.tsx';
+import { BackArrowIcon, MessageSquareIcon, ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, SendIcon, UploadImageIcon, XCircleIcon, CameraIcon } from './Icons.tsx';
+
+interface ForumViewProps {
+  onBack: () => void;
+  supabase: any;
+  session: any;
+  onUploadImage: (file: File) => Promise<string>;
+}
+
+interface Post {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  upvotes: number;
+  downvotes: number;
+  image_url?: string;
+  created_at: string;
+  user_id: string;
+  profiles?: { name: string; logo_url: string };
+  userVote?: 'up' | 'down' | null;
+}
+
+interface Comment {
+    id: string;
+    content: string;
+    created_at: string;
+    user_id: string;
+    profiles?: { name: string; logo_url: string };
+}
+
+type Category = 'General' | 'Suggestion' | 'Project Showcase';
+
+// Helper to compress image to under 200KB
+const compressImage = async (file: File): Promise<File> => {
+    // If already small enough, return original
+    if (file.size <= 200 * 1024) return file;
+
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+
+            // Scale down dimensions first if massive (helps compression)
+            const MAX_WIDTH = 1600;
+            if (width > MAX_WIDTH) {
+                height = (height * MAX_WIDTH) / width;
+                width = MAX_WIDTH;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                reject(new Error("Canvas context not available"));
+                return;
+            }
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Iteratively reduce quality until under 200KB
+            let quality = 0.8;
+            
+            const tryCompress = () => {
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error("Compression failed"));
+                            return;
+                        }
+                        
+                        if (blob.size <= 200 * 1024 || quality <= 0.1) {
+                            // Success or min quality reached
+                            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: 'image/jpeg' });
+                            resolve(compressedFile);
+                        } else {
+                            // Try again with lower quality
+                            quality -= 0.1;
+                            tryCompress();
+                        }
+                    },
+                    'image/jpeg',
+                    quality
+                );
+            };
+
+            tryCompress();
+        };
+        img.onerror = (err) => reject(err);
+    });
+};
+
+const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage }) => {
+  const [activeTab, setActiveTab] = useState<Category>('General');
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showNewPostModal, setShowNewPostModal] = useState(false);
+  const [newPost, setNewPost] = useState({ title: '', content: '' });
+  const [newPostImage, setNewPostImage] = useState<File | null>(null);
+  const [newPostImagePreview, setNewPostImagePreview] = useState<string>('');
+  const [isPosting, setIsPosting] = useState(false);
+  
+  // Comment/Detail View State
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState('');
+
+  // Camera State
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const categoryDescriptions: Record<Category, string> = {
+      'General': 'General discussion about the trade. Ask questions, share news, or chat with peers.',
+      'Suggestion': 'This is a suggestions forum. Users suggest features to add to the app that they think will be really cool.',
+      'Project Showcase': 'Share photos of your latest work and get feedback from the community.'
+  };
+
+  useEffect(() => {
+    if (session) fetchPosts();
+  }, [session, activeTab]);
+
+  // Clean up object URL on unmount or change
+  useEffect(() => {
+      return () => {
+          if (newPostImagePreview) URL.revokeObjectURL(newPostImagePreview);
+      };
+  }, [newPostImagePreview]);
+
+  const fetchPosts = async () => {
+      setLoading(true);
+      
+      // 1. Fetch Posts
+      const { data: postsData, error: postsError } = await supabase
+          .from('forum_posts')
+          .select(`
+            *,
+            profiles:user_id (name, logo_url)
+          `)
+          .eq('category', activeTab)
+          .order('created_at', { ascending: false });
+
+      if (postsError) {
+          console.error("Error fetching posts:", JSON.stringify(postsError, null, 2));
+          // Only alert if it's not a "no table" error which might happen during setup
+          if (!postsError.message.includes('does not exist')) {
+             alert(`Error fetching posts: ${postsError.message || JSON.stringify(postsError)}`);
+          }
+          setLoading(false);
+          return;
+      }
+
+      // 2. Fetch User Votes for these posts to highlight arrows
+      const { data: votesData } = await supabase
+        .from('forum_votes')
+        .select('post_id, vote_type')
+        .eq('user_id', session.user.id);
+
+      const votesMap = new Map();
+      if (votesData) {
+          votesData.forEach((v: any) => votesMap.set(v.post_id, v.vote_type));
+      }
+
+      const formattedPosts = (postsData || []).map((p: any) => ({
+          ...p,
+          userVote: votesMap.get(p.id) || null,
+          // Calculate simple score for sorting
+          score: (p.upvotes || 0) - (p.downvotes || 0)
+      }));
+
+      // Sort by "Hot" (Score) by default
+      formattedPosts.sort((a: any, b: any) => b.score - a.score);
+
+      setPosts(formattedPosts);
+      setLoading(false);
+  };
+
+  const handleVote = async (postId: string, type: 'up' | 'down') => {
+      const postIndex = posts.findIndex(p => p.id === postId);
+      if (postIndex === -1) return;
+      
+      const post = posts[postIndex];
+      const currentVote = post.userVote;
+      
+      // Optimistic UI Update
+      const newPosts = [...posts];
+      let newUpvotes = post.upvotes;
+      let newDownvotes = post.downvotes;
+
+      if (currentVote === type) {
+          // Toggle off
+          if (type === 'up') newUpvotes--;
+          else newDownvotes--;
+          newPosts[postIndex] = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null };
+          
+          await supabase.from('forum_votes').delete().match({ post_id: postId, user_id: session.user.id });
+      } else {
+          // Change vote or new vote
+          if (currentVote === 'up') newUpvotes--;
+          if (currentVote === 'down') newDownvotes--;
+          
+          if (type === 'up') newUpvotes++;
+          else newDownvotes++;
+
+          newPosts[postIndex] = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type };
+
+          // Upsert vote
+          await supabase.from('forum_votes').upsert({ post_id: postId, user_id: session.user.id, vote_type: type }, { onConflict: 'post_id, user_id' });
+      }
+      
+      setPosts(newPosts);
+
+      // Sync counts to DB (simplification: just update the counts directly)
+      await supabase.from('forum_posts').update({ upvotes: newUpvotes, downvotes: newDownvotes }).eq('id', postId);
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          const originalFile = e.target.files[0];
+          try {
+              const compressedFile = await compressImage(originalFile);
+              setNewPostImage(compressedFile);
+              setNewPostImagePreview(URL.createObjectURL(compressedFile));
+          } catch (err) {
+              console.error("Compression error", err);
+              alert("Could not process image.");
+          }
+      }
+  };
+
+  // START CAMERA LOGIC
+  const startCamera = async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Camera API is not supported in this browser.");
+          return;
+      }
+
+      try {
+          // Check if any video devices exist first
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          
+          if (videoDevices.length === 0) {
+              alert("No camera found on this device.");
+              return;
+          }
+
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+          } catch (e) {
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: true 
+            });
+          }
+          
+          streamRef.current = stream;
+          setShowCameraModal(true);
+      } catch (err: any) {
+          console.error("Error accessing camera:", err);
+          alert("Error accessing camera: " + (err.message || "Unknown error"));
+      }
+  };
+
+  const stopCamera = () => {
+      if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+      }
+      setShowCameraModal(false);
+  };
+
+  const videoCallbackRef = useCallback((node: HTMLVideoElement) => {
+      videoRef.current = node;
+      if (node && streamRef.current) {
+          node.srcObject = streamRef.current;
+          node.play().catch(e => console.log("Play error:", e));
+      }
+  }, [showCameraModal]);
+
+  const capturePhoto = async () => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (video && canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0);
+              
+              // Convert canvas to blob/file
+              canvas.toBlob(async (blob) => {
+                  if (blob) {
+                      const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                      try {
+                          const compressedFile = await compressImage(file);
+                          setNewPostImage(compressedFile);
+                          setNewPostImagePreview(URL.createObjectURL(compressedFile));
+                          stopCamera();
+                      } catch (err) {
+                          console.error("Compression error", err);
+                          alert("Could not process photo.");
+                      }
+                  }
+              }, 'image/jpeg', 0.9);
+          }
+      }
+  };
+  // END CAMERA LOGIC
+
+  const handleCreatePost = async () => {
+      if (!newPost.title || !newPost.content) return;
+      
+      setIsPosting(true);
+      let imageUrl = null;
+
+      try {
+          if (newPostImage) {
+              try {
+                imageUrl = await onUploadImage(newPostImage);
+              } catch (uploadError: any) {
+                  console.error("Upload error:", uploadError);
+                  // Check if it's a missing bucket error
+                  if (uploadError.message && (uploadError.message.includes('Bucket not found') || uploadError.message.includes('row not found'))) {
+                      throw new Error("Forum image bucket not found. Please run the Database Setup script again from the dashboard.");
+                  }
+                  throw new Error(`Image upload failed: ${uploadError.message || 'Unknown error'}`);
+              }
+          }
+
+          const { error } = await supabase.from('forum_posts').insert({
+              user_id: session.user.id,
+              title: newPost.title,
+              content: newPost.content,
+              category: activeTab,
+              image_url: imageUrl
+          });
+
+          if (error) {
+              console.error("Supabase Insert Error:", error);
+              throw error;
+          }
+
+          setShowNewPostModal(false);
+          setNewPost({ title: '', content: '' });
+          setNewPostImage(null);
+          setNewPostImagePreview('');
+          // Refresh posts to show the new one
+          await fetchPosts();
+
+      } catch (error: any) {
+          console.error("Error creating post:", error);
+          let msg = "Unknown error";
+          if (error?.message) {
+            msg = error.message;
+          } else if (error?.error_description) {
+             msg = error.error_description;
+          } else if (typeof error === 'string') {
+            msg = error;
+          } else {
+            try {
+                msg = JSON.stringify(error);
+            } catch (e) {
+                msg = "Could not stringify error details";
+            }
+          }
+          alert(`Failed to post: ${msg}`);
+      } finally {
+          setIsPosting(false);
+      }
+  };
+
+  const openPost = async (post: Post) => {
+      setSelectedPost(post);
+      // Fetch comments
+      const { data } = await supabase
+        .from('forum_comments')
+        .select('*, profiles:user_id(name, logo_url)')
+        .eq('post_id', post.id)
+        .order('created_at', { ascending: true });
+      
+      setComments(data || []);
+  };
+
+  const handleAddComment = async () => {
+      if (!newComment.trim() || !selectedPost) return;
+      
+      const { data, error } = await supabase
+        .from('forum_comments')
+        .insert({
+            post_id: selectedPost.id,
+            user_id: session.user.id,
+            content: newComment
+        })
+        .select('*, profiles:user_id(name, logo_url)')
+        .single();
+
+      if (!error && data) {
+          setComments([...comments, data]);
+          setNewComment('');
+      } else if (error) {
+          console.error("Error adding comment:", error);
+          alert(`Failed to comment: ${error.message}`);
+      }
+  };
+
+  return (
+    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
+      <header className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
+        <div className="flex items-center">
+             <Button variant="ghost" size="sm" onClick={selectedPost ? () => setSelectedPost(null) : onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
+                <BackArrowIcon className="h-9 w-9" />
+            </Button>
+            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
+                <MessageSquareIcon className="w-8 h-8 text-primary" />
+                Community Forum
+            </h1>
+         </div>
+         {!selectedPost && (
+             <Button onClick={() => setShowNewPostModal(true)}>+ New Post</Button>
+         )}
+      </header>
+
+      {/* Camera Modal */}
+      {showCameraModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={stopCamera}>
+                <Card className="w-full max-w-lg" onClick={e => e.stopPropagation()}>
+                    <CardHeader>
+                        <CardTitle>Take Photo</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <video ref={videoCallbackRef} autoPlay playsInline muted className="w-full h-auto max-h-[60vh] rounded-md bg-black" />
+                        <canvas ref={canvasRef} className="hidden" />
+                    </CardContent>
+                    <CardFooter className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={stopCamera}>Cancel</Button>
+                        <Button onClick={capturePhoto}>
+                            <CameraIcon className="w-4 h-4 mr-2" /> Capture
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </div>
+      )}
+
+      {!selectedPost ? (
+          // --- Feed View ---
+          <div className="max-w-4xl mx-auto w-full space-y-6">
+              {/* Tabs */}
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                  {(['General', 'Suggestion', 'Project Showcase'] as Category[]).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${
+                            activeTab === tab 
+                            ? 'bg-primary text-primary-foreground shadow-md' 
+                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        }`}
+                      >
+                          {tab}
+                      </button>
+                  ))}
+              </div>
+
+              {/* Category Description Banner */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 px-4 py-3 rounded-lg border border-blue-200 dark:border-blue-800 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
+                  <MessageCircleIcon className="w-5 h-5 shrink-0 mt-0.5" />
+                  <p className="text-sm font-medium">{categoryDescriptions[activeTab]}</p>
+              </div>
+
+              {/* Posts List */}
+              <div className="space-y-4">
+                  {loading ? (
+                      <div className="text-center py-10 text-muted-foreground">Loading community...</div>
+                  ) : posts.length === 0 ? (
+                      <div className="text-center py-10 bg-muted/30 rounded-lg">
+                          <p className="text-muted-foreground">No posts in this category yet. Be the first!</p>
+                      </div>
+                  ) : (
+                      posts.map(post => (
+                          <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden" onClick={() => openPost(post)}>
+                              <div className="flex">
+                                  {/* Voting Sidebar */}
+                                  <div className="flex flex-col items-center p-3 bg-muted/30 border-r border-border gap-1 min-w-[50px]" onClick={e => e.stopPropagation()}>
+                                      <button 
+                                        onClick={() => handleVote(post.id, 'up')}
+                                        className={`p-1 rounded hover:bg-background ${post.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}
+                                      >
+                                          <ThumbsUpIcon className="w-5 h-5" />
+                                      </button>
+                                      <span className="text-sm font-bold font-mono">{(post.upvotes - post.downvotes)}</span>
+                                      <button 
+                                        onClick={() => handleVote(post.id, 'down')}
+                                        className={`p-1 rounded hover:bg-background ${post.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}
+                                      >
+                                          <ThumbsDownIcon className="w-5 h-5" />
+                                      </button>
+                                  </div>
+                                  {/* Content */}
+                                  <div className="flex-1 p-4">
+                                      <h3 className="text-lg font-semibold mb-1">{post.title}</h3>
+                                      <p className="text-sm text-muted-foreground line-clamp-3 mb-3 whitespace-pre-wrap">{post.content}</p>
+                                      
+                                      {/* Image Preview in Feed */}
+                                      {post.image_url && (
+                                          <div className="mb-3 rounded-md overflow-hidden max-h-48 w-full bg-muted flex justify-center">
+                                              <img src={post.image_url} alt="Post attachment" className="h-full object-contain" />
+                                          </div>
+                                      )}
+
+                                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                          <div className="flex items-center gap-2">
+                                              {post.profiles?.logo_url ? (
+                                                  <img src={post.profiles.logo_url} className="w-5 h-5 rounded-full object-cover" alt="avatar" />
+                                              ) : (
+                                                  <div className="w-5 h-5 bg-primary/20 rounded-full" />
+                                              )}
+                                              <span>{post.profiles?.name || 'Unknown'}</span>
+                                              <span>•</span>
+                                              <span>{new Date(post.created_at).toLocaleDateString()}</span>
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                              <MessageCircleIcon className="w-4 h-4" />
+                                              <span>Comments</span>
+                                          </div>
+                                      </div>
+                                  </div>
+                              </div>
+                          </Card>
+                      ))
+                  )}
+              </div>
+          </div>
+      ) : (
+          // --- Detail View ---
+          <div className="max-w-4xl mx-auto w-full h-full flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto space-y-6 pb-4">
+                  {/* Original Post */}
+                  <Card>
+                      <div className="flex">
+                          <div className="flex flex-col items-center p-4 bg-muted/30 border-r border-border gap-2 min-w-[60px]">
+                              <button onClick={() => handleVote(selectedPost.id, 'up')} className={`p-1 rounded hover:bg-background ${posts.find(p=>p.id===selectedPost.id)?.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                  <ThumbsUpIcon className="w-6 h-6" />
+                              </button>
+                              <span className="text-lg font-bold">{(posts.find(p=>p.id===selectedPost.id)?.upvotes || 0) - (posts.find(p=>p.id===selectedPost.id)?.downvotes || 0)}</span>
+                              <button onClick={() => handleVote(selectedPost.id, 'down')} className={`p-1 rounded hover:bg-background ${posts.find(p=>p.id===selectedPost.id)?.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                                  <ThumbsDownIcon className="w-6 h-6" />
+                              </button>
+                          </div>
+                          <div className="flex-1 p-6">
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                                  <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">{selectedPost.category}</span>
+                                  <span>Posted by {selectedPost.profiles?.name || 'User'}</span>
+                                  <span>• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
+                              </div>
+                              <h2 className="text-2xl font-bold mb-4">{selectedPost.title}</h2>
+                              <p className="text-foreground whitespace-pre-wrap leading-relaxed mb-6">{selectedPost.content}</p>
+                              
+                              {selectedPost.image_url && (
+                                  <div className="rounded-lg overflow-hidden border border-border">
+                                      <img src={selectedPost.image_url} alt="Post content" className="w-full h-auto" />
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  </Card>
+
+                  {/* Comments Section */}
+                  <div className="space-y-4 pl-4 border-l-2 border-muted ml-4">
+                      <h3 className="font-semibold text-lg">Comments ({comments.length})</h3>
+                      {comments.map(comment => (
+                          <div key={comment.id} className="bg-card p-4 rounded-lg border border-border">
+                              <div className="flex items-center gap-2 mb-2">
+                                  {comment.profiles?.logo_url ? (
+                                      <img src={comment.profiles.logo_url} className="w-6 h-6 rounded-full object-cover" />
+                                  ) : (
+                                      <div className="w-6 h-6 bg-secondary rounded-full" />
+                                  )}
+                                  <span className="text-sm font-medium">{comment.profiles?.name || 'Unknown'}</span>
+                                  <span className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</span>
+                              </div>
+                              <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+
+              {/* Add Comment Bar */}
+              <div className="bg-background pt-4 border-t border-border">
+                  <div className="flex gap-2">
+                      <Input 
+                        value={newComment} 
+                        onChange={(e) => setNewComment(e.target.value)} 
+                        placeholder="Add to the discussion..." 
+                        className="flex-1"
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+                      />
+                      <Button onClick={handleAddComment} disabled={!newComment.trim()}>
+                          <SendIcon className="w-4 h-4 mr-2" /> Post
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* New Post Modal */}
+      {showNewPostModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewPostModal(false)}>
+              <Card className="w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                  <CardHeader>
+                      <CardTitle>Create New Post</CardTitle>
+                      <CardDescription>Share with the community in {activeTab}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 overflow-y-auto">
+                      <div className="space-y-1.5">
+                          <Label>Title</Label>
+                          <Input value={newPost.title} onChange={e => setNewPost({...newPost, title: e.target.value})} placeholder="What's on your mind?" />
+                      </div>
+                      <div className="space-y-1.5">
+                          <Label>Content</Label>
+                          <textarea 
+                            className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                            value={newPost.content} 
+                            onChange={e => setNewPost({...newPost, content: e.target.value})} 
+                            placeholder="Elaborate on your topic..."
+                          />
+                      </div>
+                      <div className="space-y-1.5">
+                          <Label>Image (Optional)</Label>
+                          <div className="flex flex-wrap items-center gap-3">
+                              <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  className="relative overflow-hidden flex-1"
+                              >
+                                  <UploadImageIcon className="w-4 h-4 mr-2" />
+                                  Upload Photo
+                                  <input 
+                                      type="file" 
+                                      accept="image/*" 
+                                      onChange={handleImageSelect}
+                                      className="absolute inset-0 opacity-0 cursor-pointer" 
+                                  />
+                              </Button>
+                              <Button variant="outline" onClick={startCamera} className="flex-1">
+                                  <CameraIcon className="w-4 h-4 mr-2" />
+                                  Take Picture
+                              </Button>
+                          </div>
+                          
+                          {newPostImagePreview && (
+                              <div className="relative w-full h-32 mt-2 rounded-md overflow-hidden border border-border bg-muted">
+                                  <img src={newPostImagePreview} alt="Preview" className="w-full h-full object-contain" />
+                                  <button 
+                                      onClick={() => {
+                                          setNewPostImage(null);
+                                          setNewPostImagePreview('');
+                                      }}
+                                      className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-red-500 transition-colors"
+                                  >
+                                      <XCircleIcon className="w-5 h-5" />
+                                  </button>
+                              </div>
+                          )}
+                      </div>
+                  </CardContent>
+                  <CardFooter className="flex justify-end gap-2 border-t pt-4">
+                      <Button variant="outline" onClick={() => setShowNewPostModal(false)}>Cancel</Button>
+                      <Button onClick={handleCreatePost} disabled={isPosting}>
+                          {isPosting ? 'Posting...' : 'Post'}
+                      </Button>
+                  </CardFooter>
+              </Card>
+          </div>
+      )}
+    </div>
+  );
+};
+
+export default ForumView;

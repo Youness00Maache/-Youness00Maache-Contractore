@@ -1,4 +1,3 @@
-
 {
   "name": "Contractor AI: Paperwork Hub",
   "short_name": "ContractorAI",
@@ -8,12 +7,12 @@
   "theme_color": "#0000bb",
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "https://youness00-maache-contractore.vercel.app/contractore-ai-logo.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/logo.png",
+      "src": "https://youness00-maache-contractore.vercel.app/contractore-ai-logo.png",
       "sizes": "512x512",
       "type": "image/png"
     }

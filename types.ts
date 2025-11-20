@@ -46,7 +46,7 @@ export interface Job {
   clientAddress: string;
   startDate: string;
   endDate: string | null;
-  status: 'active' | 'completed' | 'pending';
+  status: 'active' | 'completed' | 'inactive' | 'paused';
 }
 
 export interface LineItem {

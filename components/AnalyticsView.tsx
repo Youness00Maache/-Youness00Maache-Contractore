@@ -1,9 +1,10 @@
 
-import React from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { FormType, Job, FormData as FormDataType, InvoiceData, EstimateData } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, CreditCardIcon, ClockIcon, CheckCircleIcon, TrendingUpIcon, AwardIcon, PieChartIcon, BarChartIcon } from './Icons.tsx';
+import { BackArrowIcon, CreditCardIcon, ClockIcon, TrendingUpIcon, AwardIcon, PieChartIcon, BarChartIcon, CalendarIcon, CheckCircleIcon } from './Icons.tsx';
 
 interface AnalyticsViewProps {
   jobs: Job[];
@@ -12,85 +13,193 @@ interface AnalyticsViewProps {
 }
 
 const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) => {
-  
-  // --- Calculations ---
+  // Date State for Filtering
+  const [startDate, setStartDate] = useState(() => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1); // Default last 30 days
+      return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  let totalInvoiced = 0;
-  let outstandingPayments = 0;
-  let totalJobValue = 0;
-  let invoiceCount = 0;
+  // --- Metrics Calculation ---
+  const metrics = useMemo(() => {
+      let totalInvoiced = 0;
+      let outstandingPayments = 0;
+      let totalJobValue = 0;
+      let invoiceCount = 0;
+      let clientRevenue: Record<string, { total: number; count: number }> = {};
+      let dailyRevenue: Record<string, number> = {};
 
-  // Revenue & Outstanding
-  forms.forEach(form => {
-      if (form.type === FormType.Invoice) {
-          const data = form.data as InvoiceData;
-          const subtotal = data.lineItems ? data.lineItems.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.rate || 0)), 0) : 0;
-          const discount = Number(data.discount || 0);
-          const shipping = Number(data.shipping || 0);
-          const taxRate = Number(data.taxRate || 0);
-          const taxAmount = (subtotal - discount) * (taxRate / 100);
-          const total = (subtotal - discount) + taxAmount + shipping;
+      // Job Status Counts
+      const jobCounts = {
+          active: 0,
+          inactive: 0,
+          paused: 0,
+          completed: 0
+      };
+      
+      jobs.forEach(job => {
+          if (job.status === 'active') jobCounts.active++;
+          else if (job.status === 'inactive') jobCounts.inactive++;
+          else if (job.status === 'paused') jobCounts.paused++;
+          else if (job.status === 'completed') jobCounts.completed++;
+      });
+      
+      const totalJobs = jobs.length || 1; // Avoid div by zero for bar widths
 
-          totalInvoiced += total;
-          invoiceCount++;
-          
-          if (data.status !== 'Paid') {
-              outstandingPayments += total;
+      // Filter Forms by Date Range
+      const filteredForms = forms.filter(form => {
+          const formDate = new Date(form.createdAt);
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          // Set end date to end of day
+          end.setHours(23, 59, 59, 999);
+          return formDate >= start && formDate <= end;
+      });
+
+      filteredForms.forEach(form => {
+          if (form.type === FormType.Invoice) {
+              const data = form.data as InvoiceData;
+              const subtotal = data.lineItems ? data.lineItems.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.rate || 0)), 0) : 0;
+              const discount = Number(data.discount || 0);
+              const shipping = Number(data.shipping || 0);
+              const taxRate = Number(data.taxRate || 0);
+              const taxAmount = (subtotal - discount) * (taxRate / 100);
+              const total = (subtotal - discount) + taxAmount + shipping;
+
+              totalInvoiced += total;
+              invoiceCount++;
+              
+              if (data.status !== 'Paid') {
+                  outstandingPayments += total;
+              }
+              totalJobValue += total;
+
+              // Client Leaderboard Logic
+              const clientName = data.clientName || 'Unknown';
+              if (!clientRevenue[clientName]) clientRevenue[clientName] = { total: 0, count: 0 };
+              clientRevenue[clientName].total += total;
+              clientRevenue[clientName].count += 1;
+
+              // Daily Revenue for Chart
+              // Assuming invoice issue date is relevant, or use created_at
+              const dateKey = data.issueDate || form.createdAt.split('T')[0];
+              if (!dailyRevenue[dateKey]) dailyRevenue[dateKey] = 0;
+              dailyRevenue[dateKey] += total;
           }
-          totalJobValue += total;
+      });
+
+      // Estimate Win Rate
+      const estimates = filteredForms.filter(f => f.type === FormType.Estimate);
+      const acceptedEstimates = estimates.filter(f => (f.data as EstimateData).status === 'Accepted');
+      const winRate = estimates.length > 0 ? Math.round((acceptedEstimates.length / estimates.length) * 100) : 0;
+
+      const avgJobValue = invoiceCount > 0 ? totalInvoiced / invoiceCount : 0;
+
+      // Process Chart Data
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      
+      const chartData: { label: string; value: number; height: string }[] = [];
+      const isMonthly = daysDiff > 90; // Switch to monthly view if range > 90 days
+
+      if (isMonthly) {
+         // Aggregate by Month
+         const monthlyRevenue: Record<string, number> = {};
+         Object.entries(dailyRevenue).forEach(([dateStr, amount]) => {
+             const date = new Date(dateStr);
+             const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+             monthlyRevenue[monthKey] = (monthlyRevenue[monthKey] || 0) + amount;
+         });
+         
+         // Fill missing months
+         let current = new Date(start);
+         current.setDate(1); // Start of month
+         while (current <= end) {
+             const key = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
+             const amount = monthlyRevenue[key] || 0;
+             chartData.push({ 
+                 label: current.toLocaleString('default', { month: 'short' }), 
+                 value: amount, 
+                 height: '0%' 
+             });
+             current.setMonth(current.getMonth() + 1);
+         }
+      } else {
+         // Aggregate by Day
+         let current = new Date(start);
+         while (current <= end) {
+             const key = current.toISOString().split('T')[0];
+             const amount = dailyRevenue[key] || 0;
+             chartData.push({ 
+                 label: current.getDate().toString(), // Day number
+                 value: amount, 
+                 height: '0%' 
+             });
+             current.setDate(current.getDate() + 1);
+         }
       }
-  });
 
-  // Win Rate (Estimates)
-  const estimates = forms.filter(f => f.type === FormType.Estimate);
-  const acceptedEstimates = estimates.filter(f => (f.data as EstimateData).status === 'Accepted');
-  const winRate = estimates.length > 0 ? Math.round((acceptedEstimates.length / estimates.length) * 100) : 0;
+      // Normalize Heights
+      const maxVal = Math.max(...chartData.map(d => d.value), 1); // Avoid div by zero
+      chartData.forEach(d => d.height = `${Math.max((d.value / maxVal) * 100, 4)}%`); // Min height 4% for visibility
 
-  // Top Client Logic
-  const clientRevenue: Record<string, number> = {};
-  forms.forEach(form => {
-    if (form.type === FormType.Invoice) {
-        const data = form.data as InvoiceData;
-        const clientName = data.clientName || 'Unknown';
-        // Calculate total again or store it
-        const subtotal = data.lineItems ? data.lineItems.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.rate || 0)), 0) : 0;
-        const total = subtotal; // Simplified for leaderboard
-        if (clientRevenue[clientName]) clientRevenue[clientName] += total;
-        else clientRevenue[clientName] = total;
-    }
-  });
-  
-  let topClient = { name: 'N/A', amount: 0 };
-  Object.entries(clientRevenue).forEach(([name, amount]) => {
-      if (amount > topClient.amount) topClient = { name, amount };
-  });
+      // Process Leaderboard
+      const leaderboard = Object.entries(clientRevenue)
+          .map(([name, data]) => ({ name, ...data }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 5); // Top 5
 
-  // Average Job Value
-  const avgJobValue = invoiceCount > 0 ? totalInvoiced / invoiceCount : 0;
+      return {
+          totalInvoiced,
+          outstandingPayments,
+          winRate,
+          acceptedEstimatesCount: acceptedEstimates.length,
+          totalEstimatesCount: estimates.length,
+          avgJobValue,
+          chartData,
+          leaderboard,
+          jobCounts,
+          totalJobs
+      };
+  }, [forms, startDate, endDate, jobs]);
 
-  // Formatter
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 
-  // Mock Chart Data (Last 6 months) - In a real app, calculate from dates
-  const chartData = [
-    { month: 'Jun', height: '40%' },
-    { month: 'Jul', height: '65%' },
-    { month: 'Aug', height: '45%' },
-    { month: 'Sep', height: '80%' },
-    { month: 'Oct', height: '55%' },
-    { month: 'Nov', height: '90%' },
-  ];
+  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-      <header className="flex items-center mb-8 border-b border-border pb-4">
-         <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
-            <BackArrowIcon className="h-9 w-9" />
-        </Button>
-        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
-            <TrendingUpIcon className="w-8 h-8 text-primary" />
-            Business Insights
-        </h1>
+      <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
+         <div className="flex items-center">
+             <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
+                <BackArrowIcon className="h-9 w-9" />
+            </Button>
+            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
+                <TrendingUpIcon className="w-8 h-8 text-primary" />
+                Business Insights
+            </h1>
+         </div>
+         
+         {/* Styled Date Filter */}
+         <div className="flex items-center gap-2 bg-card p-1.5 rounded-lg border shadow-sm">
+             <div className="px-2 text-muted-foreground"><CalendarIcon className="w-4 h-4" /></div>
+             <div className="flex items-center gap-2">
+                 <input 
+                    type="date" 
+                    value={startDate} 
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="bg-transparent text-sm focus:outline-none font-medium text-foreground p-1 rounded hover:bg-secondary/50 cursor-pointer"
+                 />
+                 <span className="text-muted-foreground text-xs uppercase font-bold">to</span>
+                 <input 
+                    type="date" 
+                    value={endDate} 
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="bg-transparent text-sm focus:outline-none font-medium text-foreground p-1 rounded hover:bg-secondary/50 cursor-pointer"
+                 />
+             </div>
+         </div>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -98,11 +207,11 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
           <Card className="bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-800">
              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <CreditCardIcon className="w-4 h-4" /> Total Invoiced
+                    <CreditCardIcon className="w-4 h-4" /> Total Revenue
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(totalInvoiced)}</div>
+                <div className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(metrics.totalInvoiced)}</div>
              </CardContent>
           </Card>
 
@@ -113,7 +222,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(outstandingPayments)}</div>
+                <div className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(metrics.outstandingPayments)}</div>
              </CardContent>
           </Card>
 
@@ -124,8 +233,8 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold">{winRate}%</div>
-                <p className="text-xs text-muted-foreground">{acceptedEstimates.length} of {estimates.length} accepted</p>
+                <div className="text-2xl font-bold">{metrics.winRate}%</div>
+                <p className="text-xs text-muted-foreground">{metrics.acceptedEstimatesCount} of {metrics.totalEstimatesCount} accepted</p>
              </CardContent>
           </Card>
 
@@ -136,68 +245,148 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(avgJobValue)}</div>
+                <div className="text-2xl font-bold">{formatCurrency(metrics.avgJobValue)}</div>
              </CardContent>
           </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Revenue Chart */}
-          <Card className="lg:col-span-2 flex flex-col">
+          <Card className="lg:col-span-2 flex flex-col min-h-[320px] max-h-[400px]">
               <CardHeader>
-                  <CardTitle>Revenue Trend (6 Months)</CardTitle>
+                  <CardTitle>Revenue Trend</CardTitle>
               </CardHeader>
-              <CardContent className="flex-1 flex items-end justify-between gap-4 min-h-[200px]">
-                  {chartData.map((d, i) => (
-                      <div key={i} className="flex flex-col items-center flex-1 group">
-                           <div className="w-full bg-secondary rounded-t-md relative h-40 overflow-hidden">
-                               <div 
-                                    className="absolute bottom-0 left-0 right-0 bg-primary transition-all duration-500 group-hover:opacity-80" 
+              <CardContent className="flex-1 flex flex-col">
+                  <div className="flex-1 flex items-end justify-between gap-2 pt-4 pb-2">
+                    {metrics.chartData.length > 0 ? metrics.chartData.map((d, i) => (
+                        <div key={i} className="flex flex-col items-center flex-1 group h-full justify-end">
+                             <div className="relative w-full flex justify-center h-full items-end">
+                                {/* Explicit background color for visibility without hover */}
+                                <div 
+                                    className="w-full max-w-[30px] bg-blue-500 rounded-t-sm transition-all duration-300 hover:bg-blue-600 relative" 
                                     style={{ height: d.height }}
-                               ></div>
-                           </div>
-                           <span className="text-xs text-muted-foreground mt-2">{d.month}</span>
-                      </div>
-                  ))}
+                                >
+                                    {/* Tooltip on Hover */}
+                                    <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-popover text-popover-foreground text-xs font-bold px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 border border-border">
+                                        {formatCurrency(d.value)}
+                                    </div>
+                                </div>
+                             </div>
+                             <span className="text-[10px] text-muted-foreground mt-2 truncate w-full text-center">{d.label}</span>
+                        </div>
+                    )) : (
+                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                            No revenue data for this period.
+                        </div>
+                    )}
+                  </div>
               </CardContent>
           </Card>
 
-          {/* Top Client */}
+          {/* Client Leaderboard Table */}
           <div className="space-y-4">
-               <Card className="bg-gradient-to-br from-amber-50 to-yellow-100 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-200 dark:border-amber-800">
+               <Card className="bg-card h-full">
                   <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-amber-800 dark:text-amber-400">
-                          <AwardIcon className="w-6 h-6" /> Top Client
+                      <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                          <AwardIcon className="w-6 h-6" /> Top Clients
                       </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                      <div className="text-3xl font-bold mb-1">{topClient.name}</div>
-                      <div className="text-sm text-muted-foreground">Lifetime Value: <span className="font-bold text-foreground">{formatCurrency(topClient.amount)}</span></div>
+                  <CardContent className="p-0">
+                      <div className="overflow-hidden">
+                          <table className="w-full text-sm text-left">
+                              <thead className="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
+                                  <tr>
+                                      <th className="px-4 py-3 w-12 text-center">Rank</th>
+                                      <th className="px-4 py-3">Client</th>
+                                      <th className="px-4 py-3 text-right">Total</th>
+                                  </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border">
+                                  {metrics.leaderboard.length > 0 ? metrics.leaderboard.map((client, index) => (
+                                      <tr key={index} className="hover:bg-muted/30 transition-colors group">
+                                          <td className="px-4 py-3 text-center font-medium">
+                                              {index === 0 ? (
+                                                  <div className="w-8 h-8 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center font-bold shadow-sm mx-auto">1</div>
+                                              ) : index === 1 ? (
+                                                  <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold shadow-sm mx-auto">2</div>
+                                              ) : index === 2 ? (
+                                                  <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-800 flex items-center justify-center font-bold shadow-sm mx-auto">3</div>
+                                              ) : (
+                                                  <span className="text-muted-foreground font-semibold">#{index + 1}</span>
+                                              )}
+                                          </td>
+                                          <td className="px-4 py-3">
+                                              <p className="font-semibold text-foreground truncate max-w-[140px]">{client.name}</p>
+                                              <p className="text-xs text-muted-foreground">{client.count} job{client.count !== 1 ? 's' : ''}</p>
+                                          </td>
+                                          <td className="px-4 py-3 text-right font-bold font-mono">
+                                              {formatCurrency(client.total)}
+                                          </td>
+                                      </tr>
+                                  )) : (
+                                      <tr>
+                                          <td colSpan={3} className="px-4 py-12 text-center text-muted-foreground">
+                                              No clients yet.
+                                          </td>
+                                      </tr>
+                                  )}
+                              </tbody>
+                          </table>
+                      </div>
                   </CardContent>
-               </Card>
-
-               <Card>
-                   <CardHeader><CardTitle>Job Status</CardTitle></CardHeader>
-                   <CardContent className="space-y-4">
-                       <div className="flex justify-between items-center">
-                           <span className="text-sm text-muted-foreground">Active Jobs</span>
-                           <span className="font-bold">{jobs.filter(j => j.status === 'active').length}</span>
-                       </div>
-                       <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                           <div className="bg-blue-500 h-full" style={{ width: `${(jobs.filter(j => j.status === 'active').length / (jobs.length || 1)) * 100}%` }}></div>
-                       </div>
-                       
-                       <div className="flex justify-between items-center">
-                           <span className="text-sm text-muted-foreground">Completed</span>
-                           <span className="font-bold">{jobs.filter(j => j.status === 'completed').length}</span>
-                       </div>
-                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                           <div className="bg-green-500 h-full" style={{ width: `${(jobs.filter(j => j.status === 'completed').length / (jobs.length || 1)) * 100}%` }}></div>
-                       </div>
-                   </CardContent>
                </Card>
           </div>
       </div>
+
+      {/* Improved Job Status Breakdown - Now at Bottom */}
+      <Card className="mt-auto bg-secondary/30 border-border/50">
+         <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Job Overview</CardTitle>
+         </CardHeader>
+         <CardContent className="p-6">
+             <div className="mb-4">
+                {/* Progress Bar Visual */}
+                <div className="h-4 w-full bg-muted rounded-full overflow-hidden flex">
+                    <div style={{ width: `${(metrics.jobCounts.active / metrics.totalJobs) * 100}%` }} className="bg-green-500 h-full" title="Active" />
+                    <div style={{ width: `${(metrics.jobCounts.paused / metrics.totalJobs) * 100}%` }} className="bg-orange-500 h-full" title="Paused" />
+                    <div style={{ width: `${(metrics.jobCounts.completed / metrics.totalJobs) * 100}%` }} className="bg-blue-500 h-full" title="Completed" />
+                    <div style={{ width: `${(metrics.jobCounts.inactive / metrics.totalJobs) * 100}%` }} className="bg-gray-400 h-full" title="Inactive" />
+                </div>
+             </div>
+
+             <div className="flex flex-wrap justify-between gap-4">
+                 <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-full bg-green-500 shadow-sm"></span>
+                     <div>
+                        <span className="block text-sm font-medium text-foreground">Active</span>
+                        <span className="text-xs text-muted-foreground font-bold">{metrics.jobCounts.active} Jobs</span>
+                     </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-full bg-orange-500 shadow-sm"></span>
+                     <div>
+                        <span className="block text-sm font-medium text-foreground">Paused</span>
+                        <span className="text-xs text-muted-foreground font-bold">{metrics.jobCounts.paused} Jobs</span>
+                     </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-full bg-blue-500 shadow-sm"></span>
+                     <div>
+                        <span className="block text-sm font-medium text-foreground">Completed</span>
+                        <span className="text-xs text-muted-foreground font-bold">{metrics.jobCounts.completed} Jobs</span>
+                     </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-full bg-gray-400 shadow-sm"></span>
+                     <div>
+                        <span className="block text-sm font-medium text-foreground">Inactive</span>
+                        <span className="text-xs text-muted-foreground font-bold">{metrics.jobCounts.inactive} Jobs</span>
+                     </div>
+                 </div>
+             </div>
+         </CardContent>
+      </Card>
+
     </div>
   );
 };
