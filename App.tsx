@@ -141,18 +141,26 @@ CREATE TABLE IF NOT EXISTS public.forum_comments (
   user_id UUID NOT NULL, -- FK added below
   content TEXT NOT NULL,
   image_url TEXT, -- Added for comment images
+  upvotes INT DEFAULT 0, -- Added for comment voting
+  downvotes INT DEFAULT 0, -- Added for comment voting
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Fix: Add image_url to forum_comments if missing
+-- Fix: Add columns to forum_comments if missing
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_comments' AND column_name = 'image_url') THEN
         ALTER TABLE public.forum_comments ADD COLUMN image_url TEXT;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_comments' AND column_name = 'upvotes') THEN
+        ALTER TABLE public.forum_comments ADD COLUMN upvotes INT DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_comments' AND column_name = 'downvotes') THEN
+        ALTER TABLE public.forum_comments ADD COLUMN downvotes INT DEFAULT 0;
+    END IF;
 END $$;
 
--- Votes
+-- Post Votes
 CREATE TABLE IF NOT EXISTS public.forum_votes (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   post_id UUID NOT NULL REFERENCES public.forum_posts(id) ON DELETE CASCADE,
@@ -161,8 +169,17 @@ CREATE TABLE IF NOT EXISTS public.forum_votes (
   UNIQUE(post_id, user_id)
 );
 
+-- Comment Votes (NEW)
+CREATE TABLE IF NOT EXISTS public.forum_comment_votes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  comment_id UUID NOT NULL REFERENCES public.forum_comments(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL, -- FK added below
+  vote_type TEXT NOT NULL,
+  UNIQUE(comment_id, user_id)
+);
+
 -- 6. FIX FOREIGN KEYS (Critical for Joins)
--- This links forum posts to user profiles instead of auth users
+-- This links forum posts/comments to user profiles instead of auth users
 DO $$
 BEGIN
   -- Fix Posts FK
@@ -181,12 +198,17 @@ BEGIN
       ALTER TABLE public.forum_comments ADD CONSTRAINT forum_comments_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
   
-  -- Fix Votes FK
+  -- Fix Post Votes FK
   IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_votes_user_id_fkey') THEN
     ALTER TABLE public.forum_votes DROP CONSTRAINT forum_votes_user_id_fkey;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_votes_user_id_fkey_profiles') THEN
       ALTER TABLE public.forum_votes ADD CONSTRAINT forum_votes_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
+
+  -- Fix Comment Votes FK (NEW)
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_comment_votes_user_id_fkey_profiles') THEN
+      ALTER TABLE public.forum_comment_votes ADD CONSTRAINT forum_comment_votes_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
 END $$;
 
@@ -194,34 +216,44 @@ END $$;
 ALTER TABLE public.forum_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_votes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forum_comment_votes ENABLE ROW LEVEL SECURITY;
 
 -- Re-apply policies safely
+-- Posts
 DROP POLICY IF EXISTS "Authenticated read posts" ON public.forum_posts;
 CREATE POLICY "Authenticated read posts" ON public.forum_posts FOR SELECT TO authenticated USING (true);
-
 DROP POLICY IF EXISTS "Authenticated insert posts" ON public.forum_posts;
 CREATE POLICY "Authenticated insert posts" ON public.forum_posts FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
 DROP POLICY IF EXISTS "Users update own posts" ON public.forum_posts;
 CREATE POLICY "Users update own posts" ON public.forum_posts FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
+-- Comments
 DROP POLICY IF EXISTS "Authenticated read comments" ON public.forum_comments;
 CREATE POLICY "Authenticated read comments" ON public.forum_comments FOR SELECT TO authenticated USING (true);
-
 DROP POLICY IF EXISTS "Authenticated insert comments" ON public.forum_comments;
 CREATE POLICY "Authenticated insert comments" ON public.forum_comments FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users update own comments" ON public.forum_comments;
+CREATE POLICY "Users update own comments" ON public.forum_comments FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
+-- Post Votes
 DROP POLICY IF EXISTS "Authenticated read votes" ON public.forum_votes;
 CREATE POLICY "Authenticated read votes" ON public.forum_votes FOR SELECT TO authenticated USING (true);
-
 DROP POLICY IF EXISTS "Authenticated insert votes" ON public.forum_votes;
 CREATE POLICY "Authenticated insert votes" ON public.forum_votes FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
-
 DROP POLICY IF EXISTS "Authenticated update votes" ON public.forum_votes;
 CREATE POLICY "Authenticated update votes" ON public.forum_votes FOR UPDATE TO authenticated USING (auth.uid() = user_id);
-
 DROP POLICY IF EXISTS "Authenticated delete votes" ON public.forum_votes;
 CREATE POLICY "Authenticated delete votes" ON public.forum_votes FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- Comment Votes (NEW)
+DROP POLICY IF EXISTS "Authenticated read comment votes" ON public.forum_comment_votes;
+CREATE POLICY "Authenticated read comment votes" ON public.forum_comment_votes FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Authenticated insert comment votes" ON public.forum_comment_votes;
+CREATE POLICY "Authenticated insert comment votes" ON public.forum_comment_votes FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Authenticated update comment votes" ON public.forum_comment_votes;
+CREATE POLICY "Authenticated update comment votes" ON public.forum_comment_votes FOR UPDATE TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Authenticated delete comment votes" ON public.forum_comment_votes;
+CREATE POLICY "Authenticated delete comment votes" ON public.forum_comment_votes FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
 -- 8. STORAGE BUCKETS
 INSERT INTO storage.buckets (id, name, public) VALUES ('logos', 'logos', true) ON CONFLICT (id) DO NOTHING;
@@ -475,6 +507,16 @@ const App: React.FC = () => {
                  forumError.code === 'PGRST204' || 
                  /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist|Could not find the 'image_url' column/i.test(forumError.message)
              ) {
+                 setDbSetupError(SQL_SETUP_SCRIPT);
+                 setLoading(false);
+                 return;
+             }
+        }
+        
+        // Check for new Comment Voting Table
+        const { error: commentVoteError } = await supabase.from('forum_comment_votes').select('id').limit(1);
+        if (commentVoteError) {
+             if (/relation "public.forum_comment_votes" does not exist/i.test(commentVoteError.message)) {
                  setDbSetupError(SQL_SETUP_SCRIPT);
                  setLoading(false);
                  return;

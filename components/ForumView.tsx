@@ -37,6 +37,10 @@ interface Comment {
     user_id: string;
     image_url?: string;
     profiles?: { name: string; logo_url: string };
+    upvotes: number;
+    downvotes: number;
+    userVote?: 'up' | 'down' | null;
+    score?: number;
 }
 
 type Category = 'General' | 'Suggestion' | 'Project Showcase';
@@ -45,6 +49,7 @@ type SortOption = 'newest' | 'popular';
 const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage }) => {
   const [activeTab, setActiveTab] = useState<Category>('General');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+  const [commentSortBy, setCommentSortBy] = useState<SortOption>('newest');
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   const [showNewPostModal, setShowNewPostModal] = useState(false);
@@ -87,6 +92,13 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           if (newCommentImagePreview) URL.revokeObjectURL(newCommentImagePreview);
       };
   }, [newPostImagePreview, newCommentImagePreview]);
+
+  // Fetch Comments when a post is selected or sorting changes
+  useEffect(() => {
+      if (selectedPost && session) {
+          fetchComments(selectedPost.id);
+      }
+  }, [commentSortBy, selectedPost?.id]);
 
   const fetchPosts = async () => {
       setLoading(true);
@@ -145,6 +157,48 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       setLoading(false);
   };
 
+  const fetchComments = async (postId: string) => {
+      // Fetch comments and profiles
+      const { data: commentsData, error } = await supabase
+        .from('forum_comments')
+        .select('*, profiles:user_id(name, logo_url)')
+        .eq('post_id', postId);
+
+      if (error) {
+          console.error("Error fetching comments:", error);
+          return;
+      }
+
+      // Fetch user votes for these comments
+      const { data: votesData } = await supabase
+        .from('forum_comment_votes')
+        .select('comment_id, vote_type')
+        .eq('user_id', session.user.id)
+        .in('comment_id', commentsData.map((c: any) => c.id));
+
+      const votesMap = new Map();
+      if (votesData) {
+          votesData.forEach((v: any) => votesMap.set(v.comment_id, v.vote_type));
+      }
+
+      let formattedComments = commentsData.map((c: any) => ({
+          ...c,
+          upvotes: c.upvotes || 0,
+          downvotes: c.downvotes || 0,
+          userVote: votesMap.get(c.id) || null,
+          score: (c.upvotes || 0) - (c.downvotes || 0)
+      }));
+
+      // Sort Comments
+      if (commentSortBy === 'newest') {
+          formattedComments.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      } else {
+          formattedComments.sort((a: any, b: any) => b.score - a.score);
+      }
+
+      setComments(formattedComments);
+  };
+
   const handleVote = async (postId: string, type: 'up' | 'down') => {
       const postIndex = posts.findIndex(p => p.id === postId);
       if (postIndex === -1) return;
@@ -180,7 +234,52 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       }
 
       setPosts(newPosts);
+      
+      // Optimistic update locally, background update DB
+      if (selectedPost && selectedPost.id === postId) {
+          setSelectedPost(newPosts[postIndex]);
+      }
+      
       await supabase.from('forum_posts').update({ upvotes: newUpvotes, downvotes: newDownvotes }).eq('id', postId);
+  };
+
+  const handleCommentVote = async (commentId: string, type: 'up' | 'down') => {
+      const commentIndex = comments.findIndex(c => c.id === commentId);
+      if (commentIndex === -1) return;
+
+      const comment = comments[commentIndex];
+      const currentVote = comment.userVote;
+
+      const newComments = [...comments];
+      let newUpvotes = comment.upvotes;
+      let newDownvotes = comment.downvotes;
+
+      if (currentVote === type) {
+          // Remove vote
+          if (type === 'up') newUpvotes--;
+          else newDownvotes--;
+          newComments[commentIndex] = { ...comment, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null, score: newUpvotes - newDownvotes };
+          
+          await supabase.from('forum_comment_votes').delete().match({ comment_id: commentId, user_id: session.user.id });
+      } else {
+          // Change or Add vote
+          if (currentVote === 'up') newUpvotes--;
+          if (currentVote === 'down') newDownvotes--;
+          
+          if (type === 'up') newUpvotes++;
+          else newDownvotes++;
+
+          newComments[commentIndex] = { ...comment, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type, score: newUpvotes - newDownvotes };
+
+          await supabase.from('forum_comment_votes').upsert({ comment_id: commentId, user_id: session.user.id, vote_type: type }, { onConflict: 'comment_id, user_id' });
+      }
+
+      if (commentSortBy === 'popular') {
+          newComments.sort((a, b) => (b.score || 0) - (a.score || 0));
+      }
+
+      setComments(newComments);
+      await supabase.from('forum_comments').update({ upvotes: newUpvotes, downvotes: newDownvotes }).eq('id', commentId);
   };
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: 'post' | 'comment') => {
@@ -337,12 +436,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
   const openPost = async (post: Post) => {
       setSelectedPost(post);
-      const { data } = await supabase
-        .from('forum_comments')
-        .select('*, profiles:user_id(name, logo_url)')
-        .eq('post_id', post.id)
-        .order('created_at', { ascending: true });
-      setComments(data || []);
+      // Comments are fetched via useEffect
   };
 
   const handleAddComment = async () => {
@@ -369,7 +463,9 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
             .single();
 
           if (!error && data) {
-              setComments([...comments, data]);
+              // Initialize vote counts for new comment locally
+              const newCommentObj = { ...data, upvotes: 0, downvotes: 0, score: 0, userVote: null };
+              setComments([...comments, newCommentObj]);
               setNewComment('');
               setNewCommentImage(null);
               setNewCommentImagePreview('');
@@ -521,7 +617,13 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   <Card>
                       <div className="flex">
                           <div className="flex flex-col items-center p-4 bg-muted/30 border-r border-border gap-2 min-w-[60px]">
-                              <div className="text-lg font-bold">{(posts.find(p=>p.id===selectedPost.id)?.upvotes || 0) - (posts.find(p=>p.id===selectedPost.id)?.downvotes || 0)}</div>
+                              <button onClick={() => handleVote(selectedPost.id, 'up')} className={`p-1 rounded hover:bg-background ${selectedPost.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                  <ThumbsUpIcon className="w-6 h-6" />
+                              </button>
+                              <div className="text-lg font-bold">{(selectedPost.upvotes - selectedPost.downvotes)}</div>
+                              <button onClick={() => handleVote(selectedPost.id, 'down')} className={`p-1 rounded hover:bg-background ${selectedPost.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                                  <ThumbsDownIcon className="w-6 h-6" />
+                              </button>
                           </div>
                           <div className="flex-1 p-6">
                               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
@@ -541,24 +643,54 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   </Card>
 
                   <div className="space-y-4 pl-4 border-l-2 border-muted ml-4">
-                      <h3 className="font-semibold text-lg">Comments ({comments.length})</h3>
+                      <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-lg">Comments ({comments.length})</h3>
+                          <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg">
+                              <button 
+                                onClick={() => setCommentSortBy('newest')} 
+                                className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}
+                              >
+                                  <ClockIcon className="w-3 h-3" /> Newest
+                              </button>
+                              <button 
+                                onClick={() => setCommentSortBy('popular')} 
+                                className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}
+                              >
+                                  <TrendingUpIcon className="w-3 h-3" /> Popular
+                              </button>
+                          </div>
+                      </div>
+
                       {comments.map(comment => (
-                          <div key={comment.id} className="bg-card p-4 rounded-lg border border-border">
-                              <div className="flex items-center gap-2 mb-2">
-                                  {comment.profiles?.logo_url ? (
-                                      <img src={comment.profiles.logo_url} className="w-6 h-6 rounded-full object-cover" />
-                                  ) : (
-                                      <div className="w-6 h-6 bg-secondary rounded-full" />
-                                  )}
-                                  <span className="text-sm font-medium">{comment.profiles?.name || 'Unknown'}</span>
-                                  <span className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</span>
+                          <div key={comment.id} className="bg-card p-4 rounded-lg border border-border flex gap-3">
+                              {/* Comment Voting */}
+                              <div className="flex flex-col items-center gap-1 min-w-[24px] pt-1">
+                                  <button onClick={() => handleCommentVote(comment.id, 'up')} className={`hover:text-orange-500 ${comment.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                      <ThumbsUpIcon className="w-4 h-4" />
+                                  </button>
+                                  <span className="text-xs font-mono font-bold">{(comment.upvotes || 0) - (comment.downvotes || 0)}</span>
+                                  <button onClick={() => handleCommentVote(comment.id, 'down')} className={`hover:text-blue-500 ${comment.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                                      <ThumbsDownIcon className="w-4 h-4" />
+                                  </button>
                               </div>
-                              <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
-                              {comment.image_url && (
-                                  <div className="mt-3 rounded-md overflow-hidden max-w-md">
-                                      <img src={comment.image_url} alt="Comment image" className="w-full h-auto max-h-64 object-contain bg-muted" />
+
+                              <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                      {comment.profiles?.logo_url ? (
+                                          <img src={comment.profiles.logo_url} className="w-6 h-6 rounded-full object-cover" alt="Avatar" />
+                                      ) : (
+                                          <div className="w-6 h-6 bg-secondary rounded-full" />
+                                      )}
+                                      <span className="text-sm font-medium">{comment.profiles?.name || 'Unknown'}</span>
+                                      <span className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</span>
                                   </div>
-                              )}
+                                  <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+                                  {comment.image_url && (
+                                      <div className="mt-3 rounded-md overflow-hidden max-w-md">
+                                          <img src={comment.image_url} alt="Comment image" className="w-full h-auto max-h-64 object-contain bg-muted" />
+                                      </div>
+                                  )}
+                              </div>
                           </div>
                       ))}
                   </div>
