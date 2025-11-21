@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData } from './types.ts';
@@ -46,7 +45,7 @@ const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. PROFILES TABLE
+-- 1. PROFILES TABLE & POLICIES (CRITICAL FIX FOR FORUM VISIBILITY)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT,
@@ -62,6 +61,18 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- FIX: Allow ALL authenticated users to view ALL profiles (so they can see who commented)
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can view all profiles" ON public.profiles;
+CREATE POLICY "Users can view all profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
 
 -- 2. CLIENTS TABLE
 CREATE TABLE IF NOT EXISTS public.clients (
@@ -116,7 +127,12 @@ CREATE TABLE IF NOT EXISTS public.forum_posts (
 );
 
 -- CRITICAL FIX: Ensure image_url column exists (This fixes the PGRST204 error)
-ALTER TABLE public.forum_posts ADD COLUMN IF NOT EXISTS image_url TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_posts' AND column_name = 'image_url') THEN
+        ALTER TABLE public.forum_posts ADD COLUMN image_url TEXT;
+    END IF;
+END $$;
 
 -- Comments
 CREATE TABLE IF NOT EXISTS public.forum_comments (
@@ -124,8 +140,17 @@ CREATE TABLE IF NOT EXISTS public.forum_comments (
   post_id UUID NOT NULL REFERENCES public.forum_posts(id) ON DELETE CASCADE,
   user_id UUID NOT NULL, -- FK added below
   content TEXT NOT NULL,
+  image_url TEXT, -- Added for comment images
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Fix: Add image_url to forum_comments if missing
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_comments' AND column_name = 'image_url') THEN
+        ALTER TABLE public.forum_comments ADD COLUMN image_url TEXT;
+    END IF;
+END $$;
 
 -- Votes
 CREATE TABLE IF NOT EXISTS public.forum_votes (
@@ -220,7 +245,7 @@ const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => (
       <CardHeader>
         <CardTitle className="text-2xl text-destructive">Database Update Required</CardTitle>
         <CardDescription>
-          To fix the error you are seeing (missing columns or tables), please run this script.
+          To fix the error you are seeing (missing columns, tables, or permission issues), please run this script.
           <br/><br/>
           <strong>This script is safe and will NOT delete your data.</strong>
         </CardDescription>
@@ -444,10 +469,8 @@ const App: React.FC = () => {
         if (formsData) setForms(formsData.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at })));
         
         // 4. Check for Forum Tables & Columns
-        // This specific check catches the missing 'image_url' column error (PGRST204)
         const { error: forumError } = await supabase.from('forum_posts').select('id, image_url').limit(1);
         if (forumError) {
-             // Check for missing relation OR missing column code PGRST204
              if (
                  forumError.code === 'PGRST204' || 
                  /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist|Could not find the 'image_url' column/i.test(forumError.message)
@@ -637,7 +660,7 @@ const App: React.FC = () => {
         </header>
         <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
         <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
-        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (<Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200"><CardHeader><CardTitle className="truncate">{job.name}</CardTitle><CardDescription className="truncate">{job.clientName}</CardDescription></CardHeader><CardContent className="flex-grow"><p className="text-sm text-muted-foreground truncate">{job.clientAddress}</p><div className="flex items-center gap-2 mt-2"><span className={`w-2 h-2 rounded-full ${getStatusColor(job.status)}`}></span><p className="text-sm text-muted-foreground capitalize">{job.status}</p></div></CardContent><CardFooter><Button className="w-full" onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}>{t.viewProject}</Button></CardFooter></Card>))}</div>}
+        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (<Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200"><CardHeader><CardTitle className="truncate">{job.name}</CardTitle><CardDescription className="truncate">{job.clientName}</CardDescription></CardHeader><CardContent className="flex-grow"><p className="text-sm text-muted-foreground">{job.clientAddress}</p><div className="flex items-center gap-2 mt-2"><span className={`w-2 h-2 rounded-full ${getStatusColor(job.status)}`}></span><p className="text-sm text-muted-foreground capitalize">{job.status}</p></div></CardContent><CardFooter><Button className="w-full" onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}>{t.viewProject}</Button></CardFooter></Card>))}</div>}
       </div>
     );
   };
@@ -720,7 +743,7 @@ const App: React.FC = () => {
   return (
     <main className="w-full min-h-screen bg-background">
       {renderContent()}
-      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients' || view.screen === 'forum') && (
+      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
         <Dock items={getDockItems()} />
       )}
     </main>

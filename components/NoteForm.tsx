@@ -10,6 +10,7 @@ import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import TemplateSelector from './TemplateSelector.tsx';
+import { compressImage } from '../utils/imageCompression.ts';
 
 interface NoteFormProps {
   profile: UserProfile;
@@ -167,9 +168,23 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
               canvas.width = video.videoWidth;
               canvas.height = video.videoHeight;
               ctx.drawImage(video, 0, 0);
-              const dataUrl = canvas.toDataURL('image/jpeg');
-              insertImageIntoEditor(dataUrl);
-              stopCamera();
+              
+              canvas.toBlob(async (blob) => {
+                  if (blob) {
+                      const file = new File([blob], "camera.jpg", { type: "image/jpeg" });
+                      try {
+                          const compressed = await compressImage(file);
+                          const reader = new FileReader();
+                          reader.onload = (e) => {
+                              if (e.target?.result) insertImageIntoEditor(e.target.result as string);
+                          };
+                          reader.readAsDataURL(compressed);
+                          stopCamera();
+                      } catch (e) {
+                          alert("Error processing photo");
+                      }
+                  }
+              }, 'image/jpeg', 0.9);
           }
       }
   };
@@ -267,14 +282,19 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
     }
   };
 
-  const handleImageUpload = (file: File) => {
+  const handleImageUpload = async (file: File) => {
     if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const base64Image = event.target?.result as string;
-            insertImageIntoEditor(base64Image);
-        };
-        reader.readAsDataURL(file);
+        try {
+            const compressed = await compressImage(file);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64Image = event.target?.result as string;
+                insertImageIntoEditor(base64Image);
+            };
+            reader.readAsDataURL(compressed);
+        } catch (e) {
+            alert('Failed to upload image');
+        }
     }
   };
 

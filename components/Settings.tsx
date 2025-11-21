@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
+import { compressImage } from '../utils/imageCompression.ts';
 
 interface SettingsProps {
   mode: 'settings' | 'profile';
@@ -22,7 +23,6 @@ const languages = [
 ];
 
 const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout }) => {
-  // Safeguard against null/undefined initialProfile to prevent crashes
   const [profile, setProfile] = useState<UserProfile>(initialProfile || {
       id: '', email: '', name: '', companyName: '', logoUrl: '', address: '', phone: '', website: '',
       jobTitle: '', subscriptionTier: 'Basic', language: 'English'
@@ -31,11 +31,9 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>(initialProfile?.logoUrl || '');
   
-  // Split name logic for display/editing (Only needed for profile mode)
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
 
-  // Update local state when initialProfile changes (e.g., after save or load)
   useEffect(() => {
       if (initialProfile) {
           setProfile(initialProfile);
@@ -48,7 +46,6 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
       }
   }, [initialProfile]);
 
-  // Sync local name state to profile object when editing in Profile mode
   useEffect(() => {
       if (mode === 'profile') {
           setProfile(prev => ({...prev, name: `${firstName} ${lastName}`.trim() }));
@@ -60,12 +57,19 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
     setProfile(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setLogoFile(file);
-      const previewUrl = URL.createObjectURL(file);
-      setLogoPreview(previewUrl);
+      try {
+          // Compress before setting
+          const compressed = await compressImage(file);
+          setLogoFile(compressed);
+          const previewUrl = URL.createObjectURL(compressed);
+          setLogoPreview(previewUrl);
+      } catch (e) {
+          console.error("Error compressing logo", e);
+          alert("Failed to process image");
+      }
     }
   };
 
@@ -96,34 +100,15 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
         
         {mode === 'settings' && (
             <>
-                {/* Company Settings */}
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Company Information</CardTitle>
-                        <CardDescription>Update your company profile and contact details for documents.</CardDescription>
-                    </CardHeader>
+                    <CardHeader><CardTitle>Company Information</CardTitle><CardDescription>Update your company profile.</CardDescription></CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="companyName">Company Name</Label>
-                                <Input id="companyName" name="companyName" value={profile.companyName || ''} onChange={handleChange} />
-                            </div>
-                            <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="email">Company Email</Label>
-                                <Input id="email" type="email" name="email" value={profile.email || ''} onChange={handleChange} />
-                            </div>
-                            <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="phone">Phone</Label>
-                                <Input id="phone" type="tel" name="phone" value={profile.phone || ''} onChange={handleChange} />
-                            </div>
-                             <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="website">Website</Label>
-                                <Input id="website" name="website" value={profile.website || ''} onChange={handleChange} />
-                            </div>
-                            <div className="md:col-span-2 flex flex-col space-y-1.5">
-                                <Label htmlFor="address">Address</Label>
-                                <Input id="address" name="address" value={profile.address || ''} onChange={handleChange} />
-                            </div>
+                            <div className="flex flex-col space-y-1.5"><Label htmlFor="companyName">Company Name</Label><Input id="companyName" name="companyName" value={profile.companyName || ''} onChange={handleChange} /></div>
+                            <div className="flex flex-col space-y-1.5"><Label htmlFor="email">Company Email</Label><Input id="email" type="email" name="email" value={profile.email || ''} onChange={handleChange} /></div>
+                            <div className="flex flex-col space-y-1.5"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" name="phone" value={profile.phone || ''} onChange={handleChange} /></div>
+                             <div className="flex flex-col space-y-1.5"><Label htmlFor="website">Website</Label><Input id="website" name="website" value={profile.website || ''} onChange={handleChange} /></div>
+                            <div className="md:col-span-2 flex flex-col space-y-1.5"><Label htmlFor="address">Address</Label><Input id="address" name="address" value={profile.address || ''} onChange={handleChange} /></div>
                             <div className="md:col-span-2 flex flex-col space-y-1.5">
                                 <Label htmlFor="logoUrl">Company Logo</Label>
                                 <div className="flex items-start gap-4">
@@ -132,7 +117,7 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
                                             <Input id="logoUrl" type="file" accept="image/*" onChange={handleFileChange} className="pl-10 pt-2" />
                                             <UploadImageIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                         </div>
-                                        <p className="mt-2 text-xs text-muted-foreground">Upload your company logo.</p>
+                                        <p className="mt-2 text-xs text-muted-foreground">Max 200KB (Auto-compressed).</p>
                                     </div>
                                     {logoPreview && (
                                         <div className="p-2 bg-muted rounded-md border border-border">
@@ -143,130 +128,64 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
                             </div>
                         </div>
                     </CardContent>
-                    <CardFooter className="flex justify-end">
-                        <Button onClick={handleSaveChanges}>Save Changes</Button>
-                    </CardFooter>
+                    <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
                 </Card>
 
-                {/* Appearance Settings */}
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Appearance & Language</CardTitle>
-                        <CardDescription>Customize your app experience.</CardDescription>
-                    </CardHeader>
+                    <CardHeader><CardTitle>Appearance & Language</CardTitle></CardHeader>
                     <CardContent className="space-y-6">
                          <div className="flex items-center justify-between p-2 border rounded-lg">
-                            <div className="flex flex-col space-y-1">
-                                <span className="font-medium flex items-center gap-2"><SunIcon className="w-4 h-4"/> Theme</span>
-                                <span className="text-sm text-muted-foreground">Select your preferred display mode.</span>
-                            </div>
+                            <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2"><SunIcon className="w-4 h-4"/> Theme</span></div>
                             <div className="flex items-center gap-2 bg-secondary p-1 rounded-lg">
-                                <button onClick={() => setTheme('light')} className={`p-2 rounded-md transition-all ${theme === 'light' ? 'bg-card shadow-sm' : 'hover:bg-background/50'}`} title="Light Mode">
-                                    <SunIcon className={`h-5 w-5 ${theme === 'light' ? 'text-primary' : 'text-muted-foreground'}`} />
-                                </button>
-                                <button onClick={() => setTheme('dark')} className={`p-2 rounded-md transition-all ${theme === 'dark' ? 'bg-card shadow-sm' : 'hover:bg-background/50'}`} title="Dark Mode">
-                                    <MoonIcon className={`h-5 w-5 ${theme === 'dark' ? 'text-primary' : 'text-muted-foreground'}`} />
-                                </button>
+                                <button onClick={() => setTheme('light')} className={`p-2 rounded-md transition-all ${theme === 'light' ? 'bg-card shadow-sm' : 'hover:bg-background/50'}`}><SunIcon className={`h-5 w-5 ${theme === 'light' ? 'text-primary' : 'text-muted-foreground'}`} /></button>
+                                <button onClick={() => setTheme('dark')} className={`p-2 rounded-md transition-all ${theme === 'dark' ? 'bg-card shadow-sm' : 'hover:bg-background/50'}`}><MoonIcon className={`h-5 w-5 ${theme === 'dark' ? 'text-primary' : 'text-muted-foreground'}`} /></button>
                             </div>
                         </div>
                          <div className="flex items-center justify-between p-2 border rounded-lg">
-                             <div className="flex flex-col space-y-1">
-                                <span className="font-medium flex items-center gap-2"><LanguageIcon className="w-4 h-4"/> Language</span>
-                                <span className="text-sm text-muted-foreground">Select your preferred language.</span>
-                            </div>
-                            <select 
-                                name="language" 
-                                value={profile.language || 'English'} 
-                                onChange={handleChange}
-                                className="h-10 rounded-md border border-input bg-background px-3 py-1 text-sm focus:ring-2 focus:ring-ring"
-                            >
-                                {languages.map(lang => (
-                                    <option key={lang} value={lang}>{lang}</option>
-                                ))}
+                             <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2"><LanguageIcon className="w-4 h-4"/> Language</span></div>
+                            <select name="language" value={profile.language || 'English'} onChange={handleChange} className="h-10 rounded-md border border-input bg-background px-3 py-1 text-sm focus:ring-2 focus:ring-ring">
+                                {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
                             </select>
                          </div>
                     </CardContent>
-                     <CardFooter className="flex justify-end">
-                        <Button onClick={handleSaveChanges}>Save Changes</Button>
-                    </CardFooter>
+                     <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
                 </Card>
             </>
         )}
 
         {mode === 'profile' && (
             <>
-                {/* Personal Information */}
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Personal Details</CardTitle>
-                        <CardDescription>Manage your personal identity.</CardDescription>
-                    </CardHeader>
+                    <CardHeader><CardTitle>Personal Details</CardTitle></CardHeader>
                     <CardContent>
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="firstName">First Name</Label>
-                                <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-                            </div>
-                             <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="lastName">Last Name</Label>
-                                <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-                            </div>
+                            <div className="flex flex-col space-y-1.5"><Label htmlFor="firstName">First Name</Label><Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
+                             <div className="flex flex-col space-y-1.5"><Label htmlFor="lastName">Last Name</Label><Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
                              <div className="flex flex-col space-y-1.5 md:col-span-2">
                                 <Label htmlFor="jobTitle">Job Title</Label>
-                                <div className="relative">
-                                    <BriefcaseIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input id="jobTitle" name="jobTitle" value={profile.jobTitle || ''} onChange={handleChange} className="pl-9" placeholder="e.g. General Contractor" />
-                                </div>
+                                <div className="relative"><BriefcaseIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input id="jobTitle" name="jobTitle" value={profile.jobTitle || ''} onChange={handleChange} className="pl-9" placeholder="e.g. General Contractor" /></div>
                             </div>
                          </div>
                     </CardContent>
-                    <CardFooter className="flex justify-end">
-                        <Button onClick={handleSaveChanges}>Save Changes</Button>
-                    </CardFooter>
+                    <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
                 </Card>
 
-                {/* Subscription */}
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Subscription Plan</CardTitle>
-                        <CardDescription>Manage your billing and plan features.</CardDescription>
-                    </CardHeader>
+                    <CardHeader><CardTitle>Subscription Plan</CardTitle></CardHeader>
                     <CardContent>
                         <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card">
                             <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-full ${profile.subscriptionTier === 'Premium' ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-600'}`}>
-                                    <CreditCardIcon className="h-6 w-6" />
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-lg">{profile.subscriptionTier || 'Basic'} Plan</h3>
-                                    <p className="text-sm text-muted-foreground">
-                                        {profile.subscriptionTier === 'Premium' 
-                                            ? 'You have access to all premium features.' 
-                                            : 'Upgrade to Premium to unlock all features.'}
-                                    </p>
-                                </div>
+                                <div className={`p-3 rounded-full ${profile.subscriptionTier === 'Premium' ? 'bg-yellow-100 text-yellow-600' : 'bg-gray-100 text-gray-600'}`}><CreditCardIcon className="h-6 w-6" /></div>
+                                <div><h3 className="font-bold text-lg">{profile.subscriptionTier || 'Basic'} Plan</h3><p className="text-sm text-muted-foreground">{profile.subscriptionTier === 'Premium' ? 'You have access to all premium features.' : 'Upgrade to Premium to unlock all features.'}</p></div>
                             </div>
-                            {profile.subscriptionTier !== 'Premium' && (
-                                <Button variant="default">Upgrade</Button>
-                            )}
+                            {profile.subscriptionTier !== 'Premium' && <Button variant="default">Upgrade</Button>}
                         </div>
                     </CardContent>
                 </Card>
 
-                {/* Account Actions */}
                 <Card className="border-destructive/50">
-                    <CardHeader>
-                        <CardTitle className="text-destructive flex items-center gap-2">
-                            <LogoutIcon className="h-5 w-5" /> Account Actions
-                        </CardTitle>
-                        <CardDescription>Manage your session security.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex justify-between items-center">
-                            <p className="text-sm text-muted-foreground">Sign out of your account on this device.</p>
-                            <Button variant="destructive" onClick={onLogout}>Log Out</Button>
-                        </div>
-                    </CardContent>
+                    <CardHeader><CardTitle className="text-destructive flex items-center gap-2"><LogoutIcon className="h-5 w-5" /> Account Actions</CardTitle></CardHeader>
+                    <CardContent><div className="flex justify-between items-center"><p className="text-sm text-muted-foreground">Sign out of your account on this device.</p><Button variant="destructive" onClick={onLogout}>Log Out</Button></div></CardContent>
                 </Card>
             </>
         )}

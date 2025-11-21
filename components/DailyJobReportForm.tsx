@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DailyJobReportData, UserProfile } from '../types.ts';
 import { generateDailyJobReportPDF } from '../services/pdfGenerator.ts';
-import { CameraIcon, UploadImageIcon, ExportIcon, BackArrowIcon } from './Icons.tsx';
+import { CameraIcon, UploadImageIcon, BackArrowIcon } from './Icons.tsx';
 import Toolbar from './Toolbar.tsx';
 import AIVoiceInput from './AIVoiceInput.tsx';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
@@ -11,6 +11,7 @@ import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import TemplateSelector from './TemplateSelector.tsx';
 import SignaturePad from './SignaturePad.tsx';
+import { compressImage } from '../utils/imageCompression.ts';
 
 interface DailyJobReportFormProps {
   profile: UserProfile;
@@ -62,7 +63,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const [activeToolbar, setActiveToolbar] = useState<string[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
   
-  // State for modals
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [savedSelection, setSavedSelection] = useState<Range | null>(null);
@@ -74,13 +74,11 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
   const [showTableColorPicker, setShowTableColorPicker] = useState<'border' | 'header' | null>(null);
   const tableColorPickerRef = useRef<HTMLDivElement>(null);
 
-  // New state and refs for camera modal
   const [showCameraModal, setShowCameraModal] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
-  // State and refs for element resizing
   const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(null);
   const [resizerState, setResizerState] = useState<{top: number, left: number, width: number, height: number} | null>(null);
   const resizeStartRef = useRef<{x: number, y: number, width: number, height: number, aspectRatio: number} | null>(null);
@@ -121,7 +119,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Effect for element selection (images and tables)
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -149,7 +146,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [page]);
 
-  // Effect to position the element resizer UI
   useEffect(() => {
     const editor = editorRef.current;
     if (selectedElement && editor) {
@@ -213,18 +209,24 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
     }
   };
 
-  const handleImageUpload = (file: File) => {
+  const handleImageUpload = async (file: File) => {
     if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const base64Image = event.target?.result as string;
-            insertImageIntoEditor(base64Image);
-        };
-        reader.readAsDataURL(file);
+        try {
+            // Compress first!
+            const compressedFile = await compressImage(file);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64Image = event.target?.result as string;
+                insertImageIntoEditor(base64Image);
+            };
+            reader.readAsDataURL(compressedFile);
+        } catch (e) {
+            console.error("Image processing failed", e);
+            alert("Failed to process image");
+        }
     }
   };
 
-  // START CAMERA LOGIC
   const startCamera = async () => {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           alert("Camera API is not supported in this browser.");
@@ -232,7 +234,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
       }
 
       try {
-          // Check if any video devices exist first
           const devices = await navigator.mediaDevices.enumerateDevices();
           const videoDevices = devices.filter(device => device.kind === 'videoinput');
           
@@ -243,13 +244,10 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
 
           let stream;
           try {
-            // First try to get the environment (rear) camera
             stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'environment' } 
             });
           } catch (e) {
-            // Fallback to any available video device if environment facing mode is not supported (e.g. on laptops)
-            console.warn("Environment camera not found, falling back to default video device.");
             stream = await navigator.mediaDevices.getUserMedia({ 
                 video: true 
             });
@@ -259,13 +257,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
           setShowCameraModal(true);
       } catch (err: any) {
           console.error("Error accessing camera:", err);
-          if (err.name === 'NotAllowedError') {
-              alert("Camera permission denied. Please allow access in settings.");
-          } else if (err.name === 'NotFoundError') {
-              alert("No camera found.");
-          } else {
-              alert("Error accessing camera: " + (err.message || "Unknown error"));
-          }
+          alert("Error accessing camera: " + (err.message || "Unknown error"));
       }
   };
 
@@ -277,7 +269,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
       setShowCameraModal(false);
   };
 
-  // React callback ref to attach stream when modal DOM renders
   const videoCallbackRef = useCallback((node: HTMLVideoElement) => {
       videoRef.current = node;
       if (node && streamRef.current) {
@@ -295,13 +286,27 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
               canvas.width = video.videoWidth;
               canvas.height = video.videoHeight;
               ctx.drawImage(video, 0, 0);
-              const dataUrl = canvas.toDataURL('image/jpeg');
-              insertImageIntoEditor(dataUrl);
-              stopCamera();
+              
+              canvas.toBlob(async (blob) => {
+                  if (blob) {
+                      const file = new File([blob], "camera.jpg", { type: "image/jpeg" });
+                      // Compress camera photo too
+                      try {
+                          const compressed = await compressImage(file);
+                          const reader = new FileReader();
+                          reader.onload = (e) => {
+                              if (e.target?.result) insertImageIntoEditor(e.target.result as string);
+                          };
+                          reader.readAsDataURL(compressed);
+                          stopCamera();
+                      } catch (e) {
+                          alert("Error processing photo");
+                      }
+                  }
+              }, 'image/jpeg', 0.9);
           }
       }
   };
-  // END CAMERA LOGIC
 
   const handleSave = () => {
     const finalContent = editorRef.current ? editorRef.current.innerHTML : data.content;
@@ -674,7 +679,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, report
         {showCameraModal && (
             <Modal title="Take Photo" onClose={stopCamera} className="max-w-2xl">
                 <div className="space-y-4">
-                    {/* Added muted attribute */}
                     <video ref={videoCallbackRef} autoPlay playsInline muted className="w-full h-auto max-h-[60vh] rounded-md bg-black" />
                     <canvas ref={canvasRef} className="hidden" />
                     <div className="flex justify-end gap-2">
