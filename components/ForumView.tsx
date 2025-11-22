@@ -26,7 +26,7 @@ interface Post {
   image_url?: string;
   created_at: string;
   user_id: string;
-  profiles?: { name: string; logo_url: string };
+  profiles?: { name: string; profile_picture_url: string };
   userVote?: 'up' | 'down' | null;
   comment_count?: number;
   score?: number;
@@ -38,7 +38,7 @@ interface Comment {
     created_at: string;
     user_id: string;
     image_url?: string;
-    profiles?: { name: string; logo_url: string };
+    profiles?: { name: string; profile_picture_url: string };
     upvotes: number;
     downvotes: number;
     userVote?: 'up' | 'down' | null;
@@ -125,7 +125,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       setLoading(true);
       const { data: post, error } = await supabase
         .from('forum_posts')
-        .select('*, profiles:user_id(name, logo_url), forum_comments(count)')
+        .select('*, profiles:user_id(name, profile_picture_url), forum_comments(count)')
         .eq('id', postId)
         .single();
       
@@ -151,7 +151,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           .from('forum_posts')
           .select(`
             *,
-            profiles:user_id (name, logo_url),
+            profiles:user_id (name, profile_picture_url),
             forum_comments (count)
           `)
           .eq('category', activeTab);
@@ -201,7 +201,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const fetchComments = async (postId: string) => {
       const { data: commentsData, error } = await supabase
         .from('forum_comments')
-        .select('*, profiles:user_id(name, logo_url)')
+        .select('*, profiles:user_id(name, profile_picture_url)')
         .eq('post_id', postId);
 
       if (error) {
@@ -484,7 +484,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                 content: newComment,
                 image_url: imageUrl
             })
-            .select('*, profiles:user_id(name, logo_url)')
+            .select('*, profiles:user_id(name, profile_picture_url)')
             .single();
 
           if (!error && data) {
@@ -616,8 +616,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                       )}
                                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                                           <div className="flex items-center gap-2">
-                                              {post.profiles?.logo_url ? (
-                                                  <img src={post.profiles.logo_url} className="w-5 h-5 rounded-full object-cover" alt="avatar" />
+                                              {post.profiles?.profile_picture_url ? (
+                                                  <img src={post.profiles.profile_picture_url} className="w-5 h-5 rounded-full object-cover" alt="avatar" />
                                               ) : (
                                                   <div className="w-5 h-5 bg-primary/20 rounded-full" />
                                               )}
@@ -701,8 +701,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
                               <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-2">
-                                      {comment.profiles?.logo_url ? (
-                                          <img src={comment.profiles.logo_url} className="w-6 h-6 rounded-full object-cover" alt="Avatar" />
+                                      {comment.profiles?.profile_picture_url ? (
+                                          <img src={comment.profiles.profile_picture_url} className="w-6 h-6 rounded-full object-cover" alt="Avatar" />
                                       ) : (
                                           <div className="w-6 h-6 bg-secondary rounded-full" />
                                       )}

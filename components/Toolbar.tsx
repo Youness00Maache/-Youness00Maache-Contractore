@@ -129,8 +129,58 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
     ];
     
     const initialFonts = [
-      { name: 'Default', family: 'var(--font-sans)' }, { name: 'Serif', family: 'var(--font-serif)' }, { name: 'Mono', family: 'var(--font-mono)' },
-      { name: 'Inter', family: 'Inter, sans-serif' }, { name: 'Roboto', family: 'Roboto, sans-serif' }, { name: 'Courier New', family: 'Courier New, monospace' }, { name: 'Times New Roman', family: 'Times New Roman, serif' },
+      { name: 'Default', family: 'var(--font-sans)' },
+      { name: 'Serif', family: 'var(--font-serif)' },
+      { name: 'Mono', family: 'var(--font-mono)' },
+      { name: 'Inter', family: 'Inter, sans-serif' },
+      { name: 'Roboto', family: 'Roboto, sans-serif' },
+      { name: 'Open Sans', family: 'Open Sans, sans-serif' },
+      { name: 'Lato', family: 'Lato, sans-serif' },
+      { name: 'Montserrat', family: 'Montserrat, sans-serif' },
+      { name: 'Oswald', family: 'Oswald, sans-serif' },
+      { name: 'Raleway', family: 'Raleway, sans-serif' },
+      { name: 'Poppins', family: 'Poppins, sans-serif' },
+      { name: 'Merriweather', family: 'Merriweather, serif' },
+      { name: 'Nunito', family: 'Nunito, sans-serif' },
+      { name: 'Playfair Display', family: 'Playfair Display, serif' },
+      { name: 'Rubik', family: 'Rubik, sans-serif' },
+      { name: 'Work Sans', family: 'Work Sans, sans-serif' },
+      { name: 'Quicksand', family: 'Quicksand, sans-serif' },
+      { name: 'Karla', family: 'Karla, sans-serif' },
+      { name: 'Inconsolata', family: 'Inconsolata, monospace' },
+      { name: 'PT Serif', family: 'PT Serif, serif' },
+      { name: 'Droid Sans', family: 'Droid Sans, sans-serif' },
+      { name: 'Arvo', family: 'Arvo, serif' },
+      { name: 'Fira Sans', family: 'Fira Sans, sans-serif' },
+      { name: 'Cabin', family: 'Cabin, sans-serif' },
+      { name: 'Bitter', family: 'Bitter, serif' },
+      { name: 'Josefin Sans', family: 'Josefin Sans, sans-serif' },
+      { name: 'Libre Baskerville', family: 'Libre Baskerville, serif' },
+      { name: 'Anton', family: 'Anton, sans-serif' },
+      { name: 'Ubuntu', family: 'Ubuntu, sans-serif' },
+      { name: 'Crimson Text', family: 'Crimson Text, serif' },
+      { name: 'Old Standard TT', family: 'Old Standard TT, serif' },
+      { name: 'Abril Fatface', family: 'Abril Fatface, cursive' },
+      { name: 'Pacifico', family: 'Pacifico, cursive' },
+      { name: 'Lobster', family: 'Lobster, cursive' },
+      { name: 'Shadows Into Light Two', family: 'Shadows Into Light Two, cursive' },
+      { name: 'Indie Flower', family: 'Indie Flower, cursive' },
+      { name: 'Dancing Script', family: 'Dancing Script, cursive' },
+      { name: 'Bebas Neue', family: 'Bebas Neue, sans-serif' },
+      { name: 'Amatic SC', family: 'Amatic SC, cursive' },
+      { name: 'Righteous', family: 'Righteous, cursive' },
+      { name: 'Comfortaa', family: 'Comfortaa, cursive' },
+      { name: 'Bangers', family: 'Bangers, cursive' },
+      { name: 'Permanent Marker', family: 'Permanent Marker, cursive' },
+      { name: 'Alfa Slab One', family: 'Alfa Slab One, cursive' },
+      { name: 'Patrick Hand', family: 'Patrick Hand, cursive' },
+      { name: 'Cormorant Garamond', family: 'Cormorant Garamond, serif' },
+      { name: 'EB Garamond', family: 'EB Garamond, serif' },
+      { name: 'Space Mono', family: 'Space Mono, monospace' },
+      { name: 'Space Grotesk', family: 'Space Grotesk, sans-serif' },
+      { name: 'Source Code Pro', family: 'Source Code Pro, monospace' },
+      { name: 'DM Sans', family: 'DM Sans, sans-serif' },
+      { name: 'JetBrains Mono', family: 'JetBrains Mono, monospace' }
     ];
     
     const headings = [
@@ -139,21 +189,16 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
     return (
         <div className="w-full bg-card border-b border-border">
-            <div className="flex flex-wrap items-center justify-center gap-2 p-2">
-                
-                {/* Row 1 Ideal: History, Formats, Fonts */}
+             <div className="flex flex-wrap items-center justify-center gap-2 p-2">
+                {/* History */}
                 {historyButtons.map(btn => (
                     <ToolbarButton key={btn.label} {...btn} isActive={false} onClick={() => onCommand(btn.command)} showTooltip={showTooltip} hideTooltip={hideTooltip} />
                 ))}
-                
                 <div className="w-px h-6 bg-border mx-1 hidden sm:block"></div>
 
                 {/* Format Dropdown */}
                 <div className="relative shrink-0" ref={headingDropdownRef}>
-                    <button 
-                        className="h-8 px-2 flex items-center gap-1 bg-card border border-border rounded-md hover:bg-secondary text-xs font-medium w-20 justify-between" 
-                        onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}
-                    >
+                    <button className="h-8 px-2 flex items-center gap-1 bg-card border border-border rounded-md hover:bg-secondary text-xs font-medium w-20 justify-between" onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}>
                         <span className="truncate">Normal</span><ChevronDownIcon className="w-3 h-3 opacity-50" />
                     </button>
                     {showHeadingDropdown && (
@@ -167,18 +212,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
                 {/* Font Dropdown */}
                 <div className="relative shrink-0" ref={fontDropdownRef}>
-                    <button 
-                        className="h-8 w-20 flex items-center justify-between px-2 rounded-md hover:bg-secondary bg-card border border-border text-xs font-medium" 
-                        onClick={() => setShowFontDropdown(!showFontDropdown)} 
-                        title="Font Family"
-                    >
-                        <span className="truncate">Arial</span>
-                        <ChevronDownIcon className="w-3 h-3 opacity-50" />
+                    <button className="h-8 w-20 flex items-center justify-between px-2 rounded-md hover:bg-secondary bg-card border border-border text-xs font-medium" onClick={() => setShowFontDropdown(!showFontDropdown)} title="Font Family">
+                        <span className="truncate">Arial</span><ChevronDownIcon className="w-3 h-3 opacity-50" />
                     </button>
                     {showFontDropdown && (
-                        <div className="absolute top-full mt-1 left-0 w-32 bg-popover border border-border rounded-md shadow-lg z-50 py-1 max-h-48 overflow-y-auto">
+                        <div className="absolute top-full mt-1 left-0 w-48 bg-popover border border-border rounded-md shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
                             {initialFonts.map(f => (
-                                <button key={f.name} onClick={() => handleFontChange(f.family)} className="w-full text-left px-3 py-2 hover:bg-muted text-sm" style={{ fontFamily: f.family }}>{f.name}</button>
+                                <button key={f.name} onClick={() => handleFontChange(f.family)} className="w-full text-left px-3 py-2 hover:bg-muted text-sm truncate" style={{ fontFamily: f.family }}>{f.name}</button>
                             ))}
                         </div>
                     )}
@@ -186,11 +226,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
                 {/* Size Dropdown */}
                 <div className="relative shrink-0" ref={sizeDropdownRef}>
-                    <button 
-                        className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary bg-card border border-border" 
-                        onClick={() => setShowSizeDropdown(!showSizeDropdown)} 
-                        title="Font Size"
-                    >
+                    <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary bg-card border border-border" onClick={() => setShowSizeDropdown(!showSizeDropdown)} title="Font Size">
                         <TextSizeIcon className="w-4 h-4" />
                     </button>
                     {showSizeDropdown && (
@@ -210,18 +246,10 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
                 ))}
 
                 <div className="relative shrink-0 flex gap-1" ref={colorPickerRef}>
-                    <button 
-                        className={`h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary border border-border ${showColorPicker === 'text' ? 'bg-muted' : 'bg-card'}`} 
-                        onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')} 
-                        title="Text Color"
-                    >
+                    <button className={`h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary border border-border ${showColorPicker === 'text' ? 'bg-muted' : 'bg-card'}`} onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')} title="Text Color">
                         <TextColorIcon className="w-4 h-4" />
                     </button>
-                    <button 
-                        className={`h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary border border-border ${showColorPicker === 'background' ? 'bg-muted' : 'bg-card'}`} 
-                        onClick={() => setShowColorPicker(showColorPicker === 'background' ? null : 'background')} 
-                        title="Highlight Color"
-                    >
+                    <button className={`h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary border border-border ${showColorPicker === 'background' ? 'bg-muted' : 'bg-card'}`} onClick={() => setShowColorPicker(showColorPicker === 'background' ? null : 'background')} title="Highlight Color">
                         <HighlighterIcon className="w-4 h-4" />
                     </button>
                     {showColorPicker && (
@@ -239,7 +267,6 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
                     <ToolbarButton key={btn.label} {...btn} isActive={activeButtons.includes(btn.command) || (btn.value ? activeButtons.includes(btn.value) : false)} onClick={() => onCommand(btn.command, btn.value)} showTooltip={showTooltip} hideTooltip={hideTooltip} />
                 ))}
 
-                {/* Row 3 Ideal: Lists, Insert */}
                 <div className="w-px h-6 bg-border mx-1 hidden sm:block"></div>
 
                 {alignmentButtons.map(btn => (

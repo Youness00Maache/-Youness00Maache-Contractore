@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Label } from './ui/Label.tsx';
 import { Button } from './ui/Button.tsx';
@@ -13,16 +12,16 @@ interface TemplateSelectorProps {
 }
 
 const layouts = [
-  { id: 'standard', name: 'Standard' },
-  { id: 'modern_blue', name: 'Modern' },
-  { id: 'professional', name: 'Professional' },
-  { id: 'warm', name: 'Warm' },
-  { id: 'elegant', name: 'Elegant' },
-  { id: 'tech', name: 'Tech' },
-  { id: 'industrial', name: 'Industrial' },
-  { id: 'minimal', name: 'Minimal' },
-  { id: 'bold', name: 'Bold' },
-  { id: 'retro', name: 'Retro' },
+  { id: 'standard', name: 'Standard', type: 'Classic' },
+  { id: 'modern_blue', name: 'Modern', type: 'Modern' },
+  { id: 'professional', name: 'Professional', type: 'Classic' },
+  { id: 'tech', name: 'Tech', type: 'Modern' },
+  { id: 'elegant', name: 'Elegant', type: 'Classic' },
+  { id: 'industrial', name: 'Industrial', type: 'Modern' },
+  { id: 'warm', name: 'Warm', type: 'Classic' },
+  { id: 'bold', name: 'Bold', type: 'Modern' },
+  { id: 'minimal', name: 'Minimal', type: 'Modern' },
+  { id: 'retro', name: 'Retro', type: 'Classic' },
 ];
 
 const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedTemplateId, onSelectTemplate, themeColors, onColorsChange }) => {
@@ -39,37 +38,38 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedTemplateId,
 
   return (
     <>
-        <Button variant="outline" onClick={() => setIsOpen(true)} className="flex items-center gap-2">
+        <Button variant="outline" onClick={() => setIsOpen(true)} className="flex items-center gap-2 w-full sm:w-auto justify-center">
             <PaletteIcon className="w-4 h-4" />
             Customize Look
         </Button>
 
         {isOpen && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <Card className="w-full max-w-md animate-fade-in-down max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                <Card className="w-full max-w-md animate-fade-in-down max-h-[90vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                    <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-border">
                         <CardTitle className="text-xl">Customize Document</CardTitle>
-                        <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-foreground">
+                        <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-destructive transition-colors">
                             <XCircleIcon className="w-6 h-6" />
                         </button>
                     </CardHeader>
-                    <CardContent className="overflow-y-auto flex-1 space-y-6">
+                    <CardContent className="overflow-y-auto flex-1 space-y-6 pt-6">
                         
                         {/* Layout Selection */}
                         <div className="space-y-3">
-                            <Label className="text-base">1. Choose Layout</Label>
+                            <Label className="text-base font-semibold">1. Choose Layout</Label>
                             <div className="grid grid-cols-2 gap-3">
                                 {layouts.map((l) => (
                                     <button
                                         key={l.id}
                                         onClick={() => setTempLayout(l.id)}
-                                        className={`p-3 rounded-md border text-left transition-all ${
+                                        className={`p-3 rounded-lg border text-left transition-all relative overflow-hidden ${
                                             tempLayout === l.id 
-                                            ? 'border-primary bg-primary/10 ring-1 ring-primary' 
-                                            : 'border-border hover:bg-secondary'
+                                            ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm' 
+                                            : 'border-border hover:bg-secondary hover:border-primary/50'
                                         }`}
                                     >
-                                        <span className="font-medium text-sm">{l.name}</span>
+                                        <span className="font-semibold text-sm block">{l.name}</span>
+                                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{l.type}</span>
                                     </button>
                                 ))}
                             </div>
@@ -79,58 +79,62 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedTemplateId,
 
                         {/* Color Selection */}
                         <div className="space-y-4">
-                            <Label className="text-base">2. Choose Colors</Label>
+                            <Label className="text-base font-semibold">2. Choose Colors</Label>
                             
                             <div className="grid grid-cols-1 gap-4">
                                 <div>
-                                    <Label htmlFor="primaryColor" className="text-xs mb-1 block">Primary Color</Label>
-                                    <div className="flex gap-3">
-                                        <div className="relative w-10 h-10 rounded-full overflow-hidden border border-border shadow-sm shrink-0">
+                                    <Label htmlFor="primaryColor" className="text-xs mb-1.5 block text-muted-foreground font-medium uppercase tracking-wider">Primary Color</Label>
+                                    <div className="flex gap-3 items-center">
+                                        <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border shadow-sm shrink-0 transition-transform hover:scale-105">
                                             <input 
                                                 type="color" 
                                                 id="primaryColor"
                                                 value={primaryColor}
                                                 onChange={(e) => setPrimaryColor(e.target.value)}
-                                                className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
+                                                className="absolute -top-4 -left-4 w-24 h-24 cursor-pointer"
                                             />
                                         </div>
-                                        <input 
-                                            type="text" 
-                                            value={primaryColor} 
-                                            onChange={(e) => setPrimaryColor(e.target.value)}
-                                            className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm font-mono uppercase"
-                                            placeholder="#000000"
-                                        />
+                                        <div className="flex-1">
+                                            <input 
+                                                type="text" 
+                                                value={primaryColor} 
+                                                onChange={(e) => setPrimaryColor(e.target.value)}
+                                                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm font-mono uppercase focus:ring-2 focus:ring-primary"
+                                                placeholder="#000000"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
                                 <div>
-                                    <Label htmlFor="secondaryColor" className="text-xs mb-1 block">Secondary Color</Label>
-                                    <div className="flex gap-3">
-                                        <div className="relative w-10 h-10 rounded-full overflow-hidden border border-border shadow-sm shrink-0">
+                                    <Label htmlFor="secondaryColor" className="text-xs mb-1.5 block text-muted-foreground font-medium uppercase tracking-wider">Secondary Color</Label>
+                                    <div className="flex gap-3 items-center">
+                                        <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border shadow-sm shrink-0 transition-transform hover:scale-105">
                                             <input 
                                                 type="color" 
                                                 id="secondaryColor"
                                                 value={secondaryColor}
                                                 onChange={(e) => setSecondaryColor(e.target.value)}
-                                                className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
+                                                className="absolute -top-4 -left-4 w-24 h-24 cursor-pointer"
                                             />
                                         </div>
-                                         <input 
-                                            type="text" 
-                                            value={secondaryColor} 
-                                            onChange={(e) => setSecondaryColor(e.target.value)}
-                                            className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm font-mono uppercase"
-                                            placeholder="#000000"
-                                        />
+                                         <div className="flex-1">
+                                            <input 
+                                                type="text" 
+                                                value={secondaryColor} 
+                                                onChange={(e) => setSecondaryColor(e.target.value)}
+                                                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm font-mono uppercase focus:ring-2 focus:ring-primary"
+                                                placeholder="#000000"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                     </CardContent>
-                    <CardFooter className="flex justify-end gap-2 pt-2 border-t border-border">
-                        <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                    <CardFooter className="flex justify-end gap-3 pt-4 border-t border-border bg-muted/20 rounded-b-lg">
+                        <Button variant="ghost" onClick={() => setIsOpen(false)}>Cancel</Button>
                         <Button onClick={handleApply}>Apply Changes</Button>
                     </CardFooter>
                 </Card>

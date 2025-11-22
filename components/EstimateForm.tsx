@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { EstimateData, LineItem } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
@@ -32,6 +32,13 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) =
     themeColors: { primary: '#000000', secondary: '#666666' }
   });
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Auto-sync logo from profile if it changes and estimate is Draft
+  useEffect(() => {
+      if (formData.status === 'Draft' && profile.logoUrl && profile.logoUrl !== formData.logoUrl) {
+          setFormData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
+      }
+  }, [profile.logoUrl, formData.status]);
 
   const updateItem = (id: string, field: keyof LineItem, value: any) => {
     setFormData(prev => ({

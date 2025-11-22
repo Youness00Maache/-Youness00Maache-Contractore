@@ -20,6 +20,7 @@ interface DailyJobReportFormProps {
   report: DailyJobReportData | null;
   onSave: (data: DailyJobReportData) => void;
   onBack: () => void;
+  onUpdateLogo?: (file: File) => Promise<string>;
 }
 
 const defaultReport: Omit<DailyJobReportData, 'companyName' | 'companyAddress' | 'companyPhone' | 'companyWebsite' | 'clientName' | 'projectAddress' | 'projectName' | 'logoUrl'> = {
@@ -47,7 +48,7 @@ const Modal: React.FC<{onClose: () => void, title: string, children: React.React
     </div>
 );
 
-const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, clients, report, onSave, onBack }) => {
+const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, clients, report, onSave, onBack, onUpdateLogo }) => {
   const [data, setData] = useState<DailyJobReportData>(report || {
     ...defaultReport,
     companyName: profile.companyName,
@@ -85,6 +86,14 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
   const [resizerState, setResizerState] = useState<{top: number, left: number, width: number, height: number} | null>(null);
   const resizeStartRef = useRef<{x: number, y: number, width: number, height: number, aspectRatio: number} | null>(null);
   
+  // Auto-sync logo from profile if it changes and report is not signed (considered work-in-progress)
+  useEffect(() => {
+      const isUnsigned = !data.signatureUrl;
+      if (isUnsigned && profile.logoUrl && profile.logoUrl !== data.logoUrl) {
+          setData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
+      }
+  }, [profile.logoUrl, data.signatureUrl]);
+
   useEffect(() => {
     if (page === 2 && editorRef.current) {
         editorRef.current.innerHTML = data.content;
@@ -113,8 +122,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
             const target = e.target as HTMLElement;
             const link = target.closest('a');
             if (link && editor.contains(link)) {
-                // Prevent navigation inside the editable div (which usually fails or does weird things)
-                // and force open in new tab.
                 e.preventDefault();
                 e.stopPropagation();
                 const href = (link as HTMLAnchorElement).href;
@@ -235,13 +242,21 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
       }
   };
   
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'signatureUrl') => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'signatureUrl') => {
     if (e.target.files && e.target.files[0]) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setData(prev => ({ ...prev, [field]: event.target?.result as string }));
-      };
-      reader.readAsDataURL(e.target.files[0]);
+      const file = e.target.files[0];
+      if (field === 'logoUrl' && onUpdateLogo) {
+         try {
+            const newUrl = await onUpdateLogo(file);
+            if(newUrl) setData(prev => ({ ...prev, [field]: newUrl }));
+         } catch(e) { console.error(e); }
+      } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setData(prev => ({ ...prev, [field]: event.target?.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -415,14 +430,10 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
             if (!/^https?:\/\//i.test(finalUrl) && !/^mailto:/i.test(finalUrl)) {
                 finalUrl = 'https://' + finalUrl;
             }
-            
-            // Create basic link using standard command
             document.execCommand('createLink', false, finalUrl);
             
-            // Find the created link and apply attributes strictly
-            const anchorNode = selection.focusNode; // Cursor often ends inside the link
+            const anchorNode = selection.focusNode;
             let targetEl: HTMLAnchorElement | null = null;
-            
             if (anchorNode) {
                if (anchorNode.nodeType === Node.ELEMENT_NODE && (anchorNode as HTMLElement).tagName === 'A') {
                    targetEl = anchorNode as HTMLAnchorElement;
@@ -430,7 +441,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
                    targetEl = anchorNode.parentElement?.closest('a') || null;
                }
             }
-
             if (targetEl) {
                 targetEl.setAttribute('target', '_blank');
                 targetEl.setAttribute('rel', 'noopener noreferrer');
@@ -539,12 +549,10 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
           navigator.geolocation.getCurrentPosition(async (position) => {
               const { latitude, longitude } = position.coords;
               try {
-                  // Use Open-Meteo API (free, no key)
                   const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=fahrenheit`);
                   const data = await response.json();
                   if (data.current_weather) {
                       const temp = `${data.current_weather.temperature}°F`;
-                      // Simple WMO code mapping
                       const wmo = data.current_weather.weathercode;
                       let desc = "Clear";
                       if (wmo > 0 && wmo <= 3) desc = "Partly Cloudy";

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, Client } from './types.ts';
@@ -31,6 +30,7 @@ import { Label } from './components/ui/Label.tsx';
 import { Input } from './components/ui/Input.tsx';
 import { translations } from './utils/translations.ts';
 import { dbApi } from './utils/db.ts';
+import { compressImage } from './utils/imageCompression.ts';
 
 // --- IMPORTANT: CONFIGURE YOUR SUPABASE CREDENTIALS ---
 // You can get these from your Supabase project dashboard at https://app.supabase.com
@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   name TEXT,
   company_name TEXT,
   logo_url TEXT,
+  profile_picture_url TEXT,
   address TEXT,
   phone TEXT,
   website TEXT,
@@ -62,6 +63,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   language TEXT DEFAULT 'English',
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure profile_picture_url column exists (migration for existing dbs)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'profile_picture_url') THEN
+        ALTER TABLE public.profiles ADD COLUMN profile_picture_url TEXT;
+    END IF;
+END $$;
+
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
@@ -87,6 +97,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage their own clients" ON public.clients;
 CREATE POLICY "Users can manage their own clients" ON public.clients FOR ALL USING (auth.uid() = user_id);
 
 -- 3. JOBS TABLE
@@ -102,6 +113,7 @@ CREATE TABLE IF NOT EXISTS public.jobs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage their own jobs" ON public.jobs;
 CREATE POLICY "Users can manage their own jobs" ON public.jobs FOR ALL USING (auth.uid() = user_id);
 
 -- 4. DOCUMENTS TABLE
@@ -114,6 +126,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage their own documents" ON public.documents;
 CREATE POLICY "Users can manage their own documents" ON public.documents FOR ALL USING (auth.uid() = user_id);
 
 -- 5. FORUM TABLES
@@ -246,15 +259,25 @@ CREATE POLICY "Authenticated delete comment votes" ON public.forum_comment_votes
 INSERT INTO storage.buckets (id, name, public) VALUES ('logos', 'logos', true) ON CONFLICT (id) DO NOTHING;
 INSERT INTO storage.buckets (id, name, public) VALUES ('forum', 'forum', true) ON CONFLICT (id) DO NOTHING;
 
+-- IMPORTANT: Ensure LOGOS are public so PDF generator can read them
+UPDATE storage.buckets SET public = true WHERE id = 'logos';
+
 DROP POLICY IF EXISTS "Allow authenticated view access to logos" ON storage.objects;
-CREATE POLICY "Allow authenticated view access to logos" ON storage.objects FOR SELECT USING (bucket_id = 'logos' AND auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Allow public view access to logos" ON storage.objects;
+
+-- Create a truly public read policy for logos
+CREATE POLICY "Allow public view access to logos" ON storage.objects FOR SELECT USING (bucket_id = 'logos');
+
 DROP POLICY IF EXISTS "Allow users to upload their own logo" ON storage.objects;
-CREATE POLICY "Allow users to upload their own logo" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'logos' AND auth.uid()::text = (storage.foldername(name))[1]);
+CREATE POLICY "Allow users to upload their own logo" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'logos' AND auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Allow authenticated view access to forum" ON storage.objects;
 CREATE POLICY "Allow authenticated view access to forum" ON storage.objects FOR SELECT USING (bucket_id = 'forum' AND auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Allow users to upload forum images" ON storage.objects;
 CREATE POLICY "Allow users to upload forum images" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'forum' AND auth.role() = 'authenticated');
+
+-- Force PostgREST to refresh schema cache to pick up new columns
+NOTIFY pgrst, 'reload config';
 `;
 
 const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => (
@@ -309,6 +332,8 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
         throw new Error("Cannot upload file while offline");
     }
     const fileExt = file.name.split('.').pop();
+    // Use a consistent name for logos if possible, or timestamp. 
+    // For the logo, using a timestamp ensures browser cache busting.
     const fileName = `${userId}/${Date.now()}.${fileExt}`;
     
     const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
@@ -474,6 +499,7 @@ const App: React.FC = () => {
                 name: profileData.name,
                 companyName: profileData.company_name,
                 logoUrl: profileData.logo_url,
+                profilePictureUrl: profileData.profile_picture_url,
                 address: profileData.address,
                 phone: profileData.phone,
                 website: profileData.website,
@@ -498,7 +524,8 @@ const App: React.FC = () => {
                     email: user.email,
                     name: nameToSet,
                     company_name: `${nameToSet}'s Company`,
-                    logo_url: metaAvatar,
+                    logo_url: '', // Start empty for company logo
+                    profile_picture_url: metaAvatar, // Use Google Avatar for profile picture
                 })
                 .select()
                 .single();
@@ -510,6 +537,7 @@ const App: React.FC = () => {
                     name: newProfileData.name,
                     companyName: newProfileData.company_name,
                     logoUrl: newProfileData.logo_url,
+                    profilePictureUrl: newProfileData.profile_picture_url,
                     address: newProfileData.address,
                     phone: newProfileData.phone,
                     website: newProfileData.website,
@@ -630,14 +658,53 @@ const App: React.FC = () => {
   const navigateToAnalytics = () => setView({ screen: 'analytics' });
   const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
 
-  const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null) => {
+  // Global function to update logo in profile from ANY form
+  const handleUpdateAppLogo = async (file: File): Promise<string> => {
+     if (!session || !profile) return '';
+     try {
+         const compressed = await compressImage(file);
+         const url = await uploadFile('logos', compressed, session.user.id, true);
+         
+         // Update in DB
+         await supabase.from('profiles').update({ logo_url: url }).eq('id', session.user.id);
+         
+         // Update local state
+         const updatedProfile = { ...profile, logoUrl: url };
+         setProfile(updatedProfile);
+         await dbApi.put('profile', updatedProfile);
+         
+         return url;
+     } catch(e) {
+         console.error("Failed to sync logo globally", e);
+         alert("Failed to update logo globally.");
+         return '';
+     }
+  };
+
+  const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
       if (!session) return;
       if (!navigator.onLine) { alert("You must be online to update your profile."); return; }
       setLoading(true);
+      
       let newLogoUrl = updatedProfile.logoUrl;
-      if (logoFile) {
-          try { newLogoUrl = await uploadFile('logos', logoFile, session.user.id) || newLogoUrl; } catch (error) { setLoading(false); return; }
+      let newProfilePicUrl = updatedProfile.profilePictureUrl;
+      
+      try {
+          if (logoFile) {
+              const uploadedUrl = await uploadFile('logos', logoFile, session.user.id, true);
+              if (uploadedUrl) newLogoUrl = uploadedUrl;
+          }
+          
+          if (profilePicFile) {
+              const uploadedUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
+              if (uploadedUrl) newProfilePicUrl = uploadedUrl;
+          }
+      } catch (error) { 
+          console.error("Failed to upload image", error);
+          setLoading(false); 
+          return; 
       }
+      
       const profileForDb = {
           id: session.user.id,
           name: updatedProfile.name,
@@ -647,20 +714,40 @@ const App: React.FC = () => {
           address: updatedProfile.address,
           website: updatedProfile.website,
           logo_url: newLogoUrl,
+          profile_picture_url: newProfilePicUrl,
           job_title: updatedProfile.jobTitle,
           language: updatedProfile.language,
           updated_at: new Date().toISOString(),
       };
+      
       const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
+      
       if (!error && data) {
           const updated = {
-              id: data.id, email: data.email, name: data.name, companyName: data.company_name, logoUrl: data.logo_url,
-              address: data.address, phone: data.phone, website: data.website, jobTitle: data.job_title,
-              subscriptionTier: data.subscription_tier as 'Basic' | 'Premium', language: data.language
+              id: data.id, 
+              email: data.email, 
+              name: data.name, 
+              companyName: data.company_name, 
+              logoUrl: data.logo_url,
+              profilePictureUrl: data.profile_picture_url,
+              address: data.address, 
+              phone: data.phone, 
+              website: data.website, 
+              jobTitle: data.job_title,
+              subscriptionTier: data.subscription_tier as 'Basic' | 'Premium', 
+              language: data.language
           };
+          
           setProfile(updated);
           await dbApi.put('profile', updated);
           setView({ screen: 'dashboard' });
+      } else {
+          console.error("Error updating profile:", JSON.stringify(error, null, 2));
+          if (error.code === 'PGRST204' || error.message.includes('profile_picture_url') || error.message.includes('schema cache')) {
+              setDbSetupError(SQL_SETUP_SCRIPT);
+          } else {
+              alert(`Failed to save profile: ${error.message}`);
+          }
       }
       setLoading(false);
   };
@@ -858,7 +945,7 @@ const App: React.FC = () => {
               <Button onClick={navigateToCreateJob}>+ {t.newJob}</Button>
               <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2"><MessageSquareIcon className="w-4 h-4" /> Community</Button>
               <Button variant="outline" onClick={navigateToAnalytics} className="flex items-center gap-2"><BarChartIcon className="w-4 h-4" /> Insights</Button>
-              <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">{profile.logoUrl ? <img src={profile.logoUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}</Button>
+              <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">{profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}</Button>
             </div>
         </header>
         <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
@@ -898,17 +985,21 @@ const App: React.FC = () => {
     if (!job) return <div>Job not found!</div>;
     const handleCloseForm = () => setView({ screen: 'jobDetails', jobId: jobId });
 
+    // Using a unique key ensures components remount when switching between documents or from "new" to "edit".
+    // This forces initialization with the current `profile` state, fixing the stale logo issue.
+    const componentKey = formId || `new-${formType}`;
+
     switch (formType) {
-      case FormType.Invoice: return <InvoiceForm job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} />;
-      case FormType.DailyJobReport: return <DailyJobReportForm profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.Note: return <NoteForm profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.WorkOrder: return <WorkOrderForm job={job} profile={profile} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.TimeSheet: return <TimeSheetForm job={job} profile={profile} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.MaterialLog: return <MaterialLogForm job={job} profile={profile} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.Estimate: return <EstimateForm job={job} profile={profile} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.ExpenseLog: return <ExpenseLogForm job={job} profile={profile} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.Warranty: return <WarrantyForm job={job} profile={profile} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.Receipt: return <ReceiptForm job={job} profile={profile} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
     }
   };

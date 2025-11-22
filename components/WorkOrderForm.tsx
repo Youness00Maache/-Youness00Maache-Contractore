@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { WorkOrderData } from '../types';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
@@ -31,6 +31,14 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
     themeColors: { primary: '#000000', secondary: '#666666' }
   });
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Auto-sync logo if unsigned
+  useEffect(() => {
+      const isUnsigned = !formData.signatureUrl;
+      if (isUnsigned && profile.logoUrl && profile.logoUrl !== formData.logoUrl) {
+          setFormData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
+      }
+  }, [profile.logoUrl, formData.signatureUrl]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;

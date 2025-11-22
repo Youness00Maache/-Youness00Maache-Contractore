@@ -18,7 +18,8 @@ export interface UserProfile {
   email: string;
   name: string;
   companyName: string;
-  logoUrl: string;
+  logoUrl: string; // Company Logo
+  profilePictureUrl?: string; // User Profile Picture
   address: string;
   phone: string;
   website: string;
@@ -94,6 +95,7 @@ export interface WorkOrderData extends DocumentStyle {
   hours: number;
   cost: number;
   signatureUrl?: string;
+  logoUrl?: string;
 }
 
 export interface DailyJobReportData extends DocumentStyle {
@@ -144,6 +146,7 @@ export interface EstimateData extends DocumentStyle {
   notes: string;
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
   signatureUrl?: string;
+  logoUrl?: string;
 }
 
 export interface ExpenseLogData extends DocumentStyle {
@@ -155,11 +158,15 @@ export interface ExpenseLogData extends DocumentStyle {
 }
 
 export interface WarrantyData extends DocumentStyle {
+  warrantyNumber: string;
+  clientName: string;
+  projectAddress: string;
   completedDate: string;
   duration: string;
   coverage: string;
   conditions: string;
   signatureUrl?: string;
+  logoUrl?: string;
 }
 
 export interface NoteData extends DocumentStyle {
