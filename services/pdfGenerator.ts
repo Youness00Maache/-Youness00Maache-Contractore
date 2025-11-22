@@ -1,4 +1,5 @@
 
+
 import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData } from '../types.ts';
 
 declare const jspdf: any;
@@ -96,6 +97,107 @@ const hexToRgb = (hex: string) => {
     return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : null;
 };
 
+// Common layout drawer for Modern/Classic switch
+const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, template: TemplateStyle, primaryRgb: number[], title: string, dateLabel: string, dateValue: string, idLabel: string, idValue: string) => {
+    const isModern = template.layoutType === 'modern';
+    let yPos = 0;
+
+    if (isModern) {
+        doc.setFillColor(...primaryRgb);
+        doc.rect(0, 0, 210, 45, 'F');
+        
+        if (data.logoUrl) {
+            const imgData = await loadImage(data.logoUrl);
+            if (imgData) {
+                const logoW = 25;
+                const logoH = logoW * (imgData.height / imgData.width);
+                doc.addImage(imgData.data, imgData.format, 20, 10, logoW, logoH);
+            }
+        }
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFont(template.headerFont, 'bold');
+        doc.setFontSize(28);
+        doc.text(title, 190, 25, { align: 'right' });
+        
+        doc.setFontSize(10);
+        doc.setFont(template.font, 'normal');
+        safeText(doc, `${idLabel}: ${idValue}`, 190, 32, { align: 'right' });
+        safeText(doc, `${dateLabel}: ${dateValue}`, 190, 37, { align: 'right' });
+        
+        yPos = 60;
+    } else {
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.5);
+        doc.rect(10, 10, 190, 277);
+        doc.rect(12, 12, 186, 273);
+
+        yPos = 25; 
+        if (data.logoUrl) {
+            const imgData = await loadImage(data.logoUrl);
+            if (imgData) {
+                const logoW = 35;
+                const logoH = logoW * (imgData.height / imgData.width);
+                doc.addImage(imgData.data, imgData.format, 105 - (logoW/2), yPos, logoW, logoH);
+                yPos += logoH + 5;
+            }
+        } else {
+            yPos += 10;
+        }
+        
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(template.headerFont, 'bold');
+        doc.setFontSize(26);
+        doc.text(title, 105, yPos + 10, { align: 'center' });
+        doc.setFontSize(10);
+        doc.setFont(template.headerFont, 'normal');
+        doc.setTextColor(80, 80, 80);
+        safeText(doc, `${idLabel}: ${idValue} | ${dateLabel}: ${dateValue}`, 105, yPos + 18, { align: 'center' });
+        
+        yPos += 35; 
+    }
+    return yPos;
+};
+
+// Common grid for Company/Client info
+const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number, template: TemplateStyle) => {
+    const labelFont = template.layoutType === 'modern' ? 'helvetica' : 'times';
+    const bodyFont = template.layoutType === 'modern' ? 'helvetica' : 'times';
+    const isModern = template.layoutType === 'modern';
+
+    doc.setFontSize(10);
+    doc.setFont(labelFont, 'bold');
+    doc.setTextColor(0, 0, 0);
+    
+    // Headers
+    doc.text(isModern ? 'FROM' : 'FROM:', 20, yPos);
+    doc.text(isModern ? 'TO' : 'TO:', 110, yPos);
+    
+    doc.setFont(bodyFont, 'normal');
+    doc.setTextColor(60, 60, 60);
+    
+    let leftY = yPos + 6;
+    safeText(doc, data.companyName || profile.companyName, 20, leftY);
+    const compAddr = doc.splitTextToSize(data.companyAddress || profile.address || '', 80);
+    doc.text(compAddr, 20, leftY + 5);
+    const compPhone = data.companyPhone || profile.phone || '';
+    const compWeb = data.companyWebsite || profile.website || '';
+    const compContact = [compPhone, compWeb].filter(Boolean).join(' | ');
+    doc.text(compContact, 20, leftY + 5 + (compAddr.length * 5));
+
+    let rightY = yPos + 6;
+    safeText(doc, data.clientName || '', 110, rightY);
+    const clientAddr = doc.splitTextToSize(data.clientAddress || '', 80);
+    doc.text(clientAddr, 110, rightY + 5);
+
+    const maxH = Math.max(
+        leftY + 10 + (compAddr.length * 5),
+        rightY + 5 + (clientAddr.length * 5)
+    );
+    return maxH + 10;
+};
+
+
 // --- Generators ---
 
 export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice: InvoiceData, templateId: string) => {
@@ -103,55 +205,9 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
     const doc = new jsPDF();
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(invoice.themeColors?.primary || template.primaryColor) || [0, 0, 0];
-    const secondaryRgb = hexToRgb(invoice.themeColors?.secondary || template.secondaryColor) || [100, 100, 100];
-
-    // Header Background
-    doc.setFillColor(...primaryRgb);
-    doc.rect(0, 0, 210, 40, 'F');
-
-    // Company Info
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
-    doc.setFont(template.headerFont, 'bold');
-    safeText(doc, invoice.companyName || profile.companyName, 20, 20);
     
-    doc.setFontSize(10);
-    doc.setFont(template.font, 'normal');
-    safeText(doc, invoice.companyAddress || profile.address, 20, 28);
-    safeText(doc, `${invoice.companyPhone || profile.phone} | ${invoice.companyWebsite || profile.website}`, 20, 33);
-
-    // Logo
-    if (invoice.logoUrl) {
-        const imgData = await loadImage(invoice.logoUrl);
-        if (imgData) {
-            doc.addImage(imgData.data, imgData.format, 160, 5, 30, 30 * (imgData.height / imgData.width));
-        }
-    }
-
-    // Invoice Title & Meta
-    doc.setTextColor(...primaryRgb);
-    doc.setFontSize(30);
-    doc.setFont(template.headerFont, 'bold');
-    safeText(doc, 'INVOICE', 150, 60, { align: 'right' });
-
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(10);
-    doc.setFont(template.font, 'normal');
-    safeText(doc, `Invoice #: ${invoice.invoiceNumber}`, 150, 70, { align: 'right' });
-    safeText(doc, `Date: ${invoice.issueDate}`, 150, 75, { align: 'right' });
-    safeText(doc, `Due Date: ${invoice.dueDate}`, 150, 80, { align: 'right' });
-
-    // Client Info
-    doc.setFontSize(12);
-    doc.setFont(template.font, 'bold');
-    doc.setTextColor(...secondaryRgb);
-    safeText(doc, 'BILL TO:', 20, 65);
-    
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(11);
-    doc.setFont(template.font, 'normal');
-    safeText(doc, invoice.clientName || job.clientName, 20, 72);
-    safeText(doc, invoice.clientAddress || job.clientAddress, 20, 78);
+    const yPos = await drawDocumentHeader(doc, invoice, profile, template, primaryRgb, 'INVOICE', 'Date', invoice.issueDate, 'Invoice #', invoice.invoiceNumber);
+    const gridEnd = drawContactGrid(doc, invoice, profile, yPos, template);
 
     // Line Items Table
     const tableColumn = ["Description", "Quantity", "Rate", "Amount"];
@@ -163,7 +219,7 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
     ]);
 
     (doc as any).autoTable({
-        startY: 90,
+        startY: gridEnd + 5,
         head: [tableColumn],
         body: tableRows,
         theme: 'striped',
@@ -185,6 +241,7 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
     const total = taxable + tax + shipping;
 
     doc.setFontSize(10);
+    doc.setTextColor(0,0,0);
     doc.text(`Subtotal: $${subtotal.toFixed(2)}`, 190, finalY, { align: 'right' });
     if (discount > 0) doc.text(`Discount: -$${discount.toFixed(2)}`, 190, finalY + 5, { align: 'right' });
     if (tax > 0) doc.text(`Tax (${taxRate}%): $${tax.toFixed(2)}`, 190, finalY + 10, { align: 'right' });
@@ -222,12 +279,203 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
         const sigData = await loadImage(invoice.signatureUrl);
         if (sigData) {
             doc.addImage(sigData.data, sigData.format, 20, currentY, 40, 20);
+            doc.setDrawColor(0,0,0);
             doc.line(20, currentY + 20, 80, currentY + 20);
             doc.text('Authorized Signature', 20, currentY + 25);
         }
     }
 
-    doc.save(`${invoice.invoiceNumber}.pdf`);
+    doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
+};
+
+export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    const yPos = await drawDocumentHeader(doc, data, profile, template, primaryRgb, 'ESTIMATE', 'Valid Until', data.expiryDate, 'Estimate #', data.estimateNumber);
+    const gridEnd = drawContactGrid(doc, data, profile, yPos, template);
+
+    const tableColumn = ["Description", "Quantity", "Rate", "Total"];
+    const tableRows = data.lineItems.map(i => [i.description, i.quantity, `$${Number(i.rate).toFixed(2)}`, `$${(i.quantity * i.rate).toFixed(2)}`]);
+    
+    (doc as any).autoTable({
+        startY: gridEnd + 10,
+        head: [tableColumn],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: primaryRgb, textColor: [255, 255, 255] },
+        styles: { font: template.font, fontSize: 10 },
+    });
+    
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    const total = data.lineItems.reduce((a, b) => a + (b.quantity * b.rate), 0);
+    
+    doc.setFontSize(14);
+    doc.setFont(template.font, 'bold');
+    doc.setTextColor(...primaryRgb);
+    doc.text(`Total Estimate: $${total.toFixed(2)}`, 190, finalY, { align: 'right' });
+    
+    let currentY = finalY + 20;
+    if (data.terms) {
+        doc.setTextColor(0,0,0);
+        doc.setFontSize(10);
+        doc.setFont(template.font, 'bold');
+        doc.text('Terms & Conditions', 20, currentY);
+        doc.setFont(template.font, 'normal');
+        doc.setFontSize(9);
+        const terms = doc.splitTextToSize(data.terms, 170);
+        doc.text(terms, 20, currentY + 5);
+        currentY += (terms.length * 5) + 15;
+    }
+
+    if(data.signatureUrl) {
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, currentY, 40, 15);
+        doc.line(20, currentY + 15, 80, currentY + 15);
+        doc.text('Accepted By (Client)', 20, currentY + 20);
+    }
+
+    doc.save(`Estimate-${data.estimateNumber}.pdf`);
+};
+
+export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    const yPos = await drawDocumentHeader(doc, data, profile, template, primaryRgb, 'MATERIAL LOG', 'Date', data.date, 'Project', data.projectName);
+    const gridEnd = drawContactGrid(doc, data, profile, yPos, template);
+
+    const rows = data.items.map(i => [i.name, i.supplier, i.quantity, `$${Number(i.unitCost).toFixed(2)}`, `$${(i.quantity * i.unitCost).toFixed(2)}`]);
+    
+    (doc as any).autoTable({
+        startY: gridEnd + 10,
+        head: [['Item Name', 'Supplier', 'Qty', 'Unit Cost', 'Total']],
+        body: rows,
+        theme: 'grid',
+        headStyles: { fillColor: primaryRgb },
+    });
+    
+    // Total Cost
+    const totalCost = data.items.reduce((acc, item) => acc + (item.quantity * item.unitCost), 0);
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    
+    doc.setFontSize(12);
+    doc.setFont(template.font, 'bold');
+    doc.text(`Total Material Cost: $${totalCost.toFixed(2)}`, 190, finalY, { align: 'right' });
+
+    if (data.signatureUrl) {
+        const sigY = finalY + 20;
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, sigY, 40, 15);
+        doc.line(20, sigY + 15, 80, sigY + 15);
+        doc.setFontSize(10);
+        doc.text('Signed', 20, sigY + 20);
+    }
+
+    doc.save('Materials.pdf');
+};
+
+export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data: ExpenseLogData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    const yPos = await drawDocumentHeader(doc, data, profile, template, primaryRgb, 'EXPENSE LOG', 'Date', data.date, 'Category', data.category);
+    const gridEnd = drawContactGrid(doc, data, profile, yPos, template);
+
+    // Expense Details Box
+    let currentY = gridEnd + 20;
+    doc.setDrawColor(200, 200, 200);
+    doc.setFillColor(250, 250, 250);
+    doc.rect(20, currentY, 170, 60, 'FD');
+    
+    doc.setFontSize(12);
+    doc.setTextColor(0,0,0);
+    doc.setFont(template.font, 'bold');
+    doc.text('Expense Details', 25, currentY + 10);
+    
+    doc.setFontSize(10);
+    doc.text('Item / Description:', 25, currentY + 25);
+    doc.setFont(template.font, 'normal');
+    doc.text(data.item, 70, currentY + 25);
+    
+    doc.setFont(template.font, 'bold');
+    doc.text('Vendor / Store:', 25, currentY + 35);
+    doc.setFont(template.font, 'normal');
+    doc.text(data.vendor, 70, currentY + 35);
+    
+    doc.setFont(template.font, 'bold');
+    doc.text('Amount Paid:', 25, currentY + 45);
+    doc.setFontSize(14);
+    doc.setTextColor(...primaryRgb);
+    doc.text(`$${Number(data.amount).toFixed(2)}`, 70, currentY + 45);
+
+    if (data.notes) {
+        currentY += 70;
+        doc.setFontSize(10);
+        doc.setTextColor(0,0,0);
+        doc.setFont(template.font, 'bold');
+        doc.text('Notes:', 20, currentY);
+        doc.setFont(template.font, 'normal');
+        doc.text(data.notes, 20, currentY + 5, { maxWidth: 170 });
+    }
+
+    if (data.signatureUrl) {
+        currentY += 40;
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, currentY, 40, 15);
+        doc.line(20, currentY + 15, 80, currentY + 15);
+        doc.text('Approved By', 20, currentY + 20);
+    }
+
+    doc.save('Expense.pdf');
+};
+
+export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    const yPos = await drawDocumentHeader(doc, data, profile, template, primaryRgb, 'RECEIPT', 'Date', data.date, 'Receipt #', data.receiptNumber);
+    const gridEnd = drawContactGrid(doc, data, profile, yPos, template);
+
+    // Receipt Box
+    const boxY = gridEnd + 15;
+    doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
+    doc.setLineWidth(1);
+    doc.rect(20, boxY, 170, 80);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(0,0,0);
+    doc.text(`Amount Received: $${Number(data.amount).toFixed(2)}`, 105, boxY + 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.text(`Payment Method: ${data.paymentMethod}`, 105, boxY + 35, { align: 'center' });
+    doc.text(`For: ${data.description}`, 105, boxY + 50, { align: 'center' });
+    
+    doc.setFontSize(8);
+    doc.setTextColor(100,100,100);
+    doc.text('Thank you for your payment!', 105, boxY + 70, { align: 'center' });
+
+    if (data.signatureUrl) {
+        const sigY = boxY + 90;
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, sigY, 40, 15);
+        doc.setDrawColor(0,0,0);
+        doc.setLineWidth(0.1);
+        doc.line(20, sigY + 15, 80, sigY + 15);
+        doc.setFontSize(10);
+        doc.setTextColor(0,0,0);
+        doc.text('Received By', 20, sigY + 20);
+    }
+    
+    doc.save(`Receipt-${data.receiptNumber}.pdf`);
 };
 
 export const generateWarrantyPDF = async (profile: UserProfile, job: Job, warranty: WarrantyData, templateId: string) => {
@@ -291,7 +539,9 @@ export const generateWarrantyPDF = async (profile: UserProfile, job: Job, warran
         doc.setLineWidth(0.5);
         
         // Duration Box
-        doc.rect(20, 100, 80, 25);
+        doc.setFillColor(255, 255, 255); // Ensure white bg for box 1
+        doc.rect(20, 100, 80, 25, 'F');
+        doc.rect(20, 100, 80, 25); // Border
         doc.setTextColor(...primaryRgb);
         doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
@@ -497,33 +747,37 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, wo: W
 
     // --- Modern Header ---
     doc.setFillColor(...primaryRgb);
-    doc.rect(0, 0, 210, 40, 'F');
+    // Slightly taller header
+    doc.rect(0, 0, 210, 45, 'F');
     
-    // Title
+    // Title (Left Side)
     doc.setTextColor(255, 255, 255);
     doc.setFont(template.headerFont, 'bold');
-    doc.setFontSize(28);
-    safeText(doc, 'WORK ORDER', 20, 25);
+    doc.setFontSize(24);
+    safeText(doc, 'WORK ORDER', 20, 15);
     
-    // WO Number & Status
+    // WO Number (Below Title)
     doc.setFontSize(12);
-    safeText(doc, `#${wo.workOrderNumber || ''}`, 20, 32);
+    doc.setFont(template.font, 'normal');
+    safeText(doc, `#${wo.workOrderNumber || ''}`, 20, 22);
     
-    doc.setFontSize(14);
-    safeText(doc, (wo.status || 'Scheduled').toUpperCase(), 190, 25, { align: 'right' });
+    // Status (Below Number - Left Aligned)
+    doc.setFont(template.font, 'bold');
+    safeText(doc, (wo.status || 'Scheduled').toUpperCase(), 20, 29);
 
-    // Logo
+    // Logo (Right Aligned - No White Box)
     if (wo.logoUrl) {
         const imgData = await loadImage(wo.logoUrl);
         if (imgData) {
-            // White box for logo visibility
-            doc.setFillColor(255, 255, 255);
-            doc.roundedRect(150, 5, 35, 35, 2, 2, 'F');
-            doc.addImage(imgData.data, imgData.format, 152.5, 7.5, 30, 30 * (imgData.height / imgData.width));
+            // Calculate dimensions to fit nicely
+            const logoW = 30;
+            const logoH = logoW * (imgData.height / imgData.width);
+            // Draw directly without rect background
+            doc.addImage(imgData.data, imgData.format, 170, 7.5, logoW, logoH);
         }
     }
 
-    let yPos = 50;
+    let yPos = 55;
 
     // Info Grid
     doc.setTextColor(0, 0, 0);
@@ -697,97 +951,243 @@ export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data:
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
     const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
     
-    doc.setFontSize(20);
-    doc.text('TIME SHEET', 105, 20, { align: 'center' });
+    // Distinct Modern Layout logic
+    const isModern = template.layoutType === 'modern';
+    let yPos = 0;
+
+    // --- Header ---
+    if (isModern) {
+        doc.setFillColor(...primaryRgb);
+        doc.rect(0, 0, 210, 40, 'F');
+        
+        // Logo (Modern - White/Transparent friendly on colored bg)
+        if (data.logoUrl) {
+            const imgData = await loadImage(data.logoUrl);
+            if (imgData) {
+                const logoW = 25;
+                const logoH = logoW * (imgData.height / imgData.width);
+                doc.addImage(imgData.data, imgData.format, 20, 8, logoW, logoH);
+            }
+        }
+
+        // Title
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(28);
+        doc.text('TIME SHEET', 190, 25, { align: 'right' });
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        safeText(doc, data.date, 190, 32, { align: 'right' });
+        
+        // Initialize grid start for Modern
+        yPos = 60;
+
+    } else {
+        // --- Classic Layout Header (Double Border + Centered) ---
+        
+        // Add Double Border for classic look
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.5);
+        doc.rect(10, 10, 190, 277); // Outer
+        doc.rect(12, 12, 186, 273); // Inner
+
+        // Dynamic header height calculation
+        yPos = 25; 
+        if (data.logoUrl) {
+            const imgData = await loadImage(data.logoUrl);
+            if (imgData) {
+                const logoW = 35;
+                const logoH = logoW * (imgData.height / imgData.width);
+                doc.addImage(imgData.data, imgData.format, 105 - (logoW/2), yPos, logoW, logoH);
+                yPos += logoH + 5;
+            }
+        }
+        
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('times', 'bold'); // Enforce Serif for classic
+        doc.setFontSize(26);
+        doc.text('TIME SHEET', 105, yPos + 10, { align: 'center' });
+        doc.setFontSize(12);
+        doc.setFont('times', 'normal');
+        doc.setTextColor(80, 80, 80);
+        // Position date strictly below title
+        safeText(doc, `Date: ${data.date}`, 105, yPos + 18, { align: 'center' });
+        
+        // Move grid start position down to avoid overlap
+        yPos += 35; 
+    }
+
+    // --- Info Grid (Dynamic Height Calculation to Avoid Overlap) ---
+    const labelFont = isModern ? 'helvetica' : 'times';
+    const labelStyle = 'bold';
+    const bodyFont = isModern ? 'helvetica' : 'times';
     
-    doc.setFontSize(12);
-    safeText(doc, `Worker: ${data.workerName}`, 20, 40);
-    safeText(doc, `Date: ${data.date}`, 20, 50);
-    safeText(doc, `Job: ${job.name}`, 20, 60);
+    doc.setFontSize(10);
     
-    doc.setLineWidth(0.5);
-    doc.rect(20, 70, 170, 30);
-    doc.text('Hours Worked:', 30, 90);
-    doc.text(String(data.hoursWorked), 80, 90);
-    doc.text('Overtime:', 110, 90);
-    doc.text(String(data.overtimeHours), 150, 90);
+    // Left Column: Employer
+    doc.setFont(labelFont, labelStyle);
+    doc.text('EMPLOYER / COMPANY', 20, yPos);
+    doc.setFont(bodyFont, 'normal');
+    doc.setTextColor(0, 0, 0); // Enforce Black
     
+    // Store initial Y for column alignment
+    const startGridY = yPos;
+    let leftY = startGridY + 6;
+    
+    safeText(doc, data.companyName || profile.companyName, 20, leftY);
+    
+    // Handle multi-line address for company
+    const companyAddr = data.companyAddress || profile.address || '';
+    const companyAddrLines = doc.splitTextToSize(companyAddr, 80);
+    doc.text(companyAddrLines, 20, leftY + 5);
+    
+    // Calculate height of address block to position Worker Name correctly
+    const companyBlockHeight = Math.max(15, companyAddrLines.length * 5 + 10);
+    let workerY = startGridY + companyBlockHeight;
+    
+    doc.setFont(labelFont, labelStyle);
+    doc.text('WORKER NAME', 20, workerY);
+    doc.setFont(bodyFont, 'normal');
+    doc.setTextColor(0, 0, 0);
+    safeText(doc, data.workerName, 20, workerY + 6);
+
+    // Right Column: Client (Top aligned with Employer)
+    const rightColX = 110;
+    let rightColY = startGridY;
+    
+    doc.setFont(labelFont, labelStyle);
+    doc.text('CLIENT / JOB SITE', rightColX, rightColY);
+    doc.setFont(bodyFont, 'normal');
+    doc.setTextColor(0, 0, 0);
+    
+    rightColY += 6;
+    safeText(doc, data.clientName || job.clientName, rightColX, rightColY);
+    
+    // Handle multi-line address for client
+    const clientAddr = data.clientAddress || job.clientAddress || '';
+    const clientAddrLines = doc.splitTextToSize(clientAddr, 80);
+    doc.text(clientAddrLines, rightColX, rightColY + 5);
+
+    // Determine where table should start (below lowest element)
+    const clientBlockHeight = rightColY + 5 + (clientAddrLines.length * 5);
+    const workerBlockHeight = workerY + 15;
+    yPos = Math.max(clientBlockHeight, workerBlockHeight) + 15;
+
+    // --- Hours Table (Using autoTable with explicit borders) ---
+    const tableBody = [
+        ['Regular Hours', String(data.hoursWorked || 0)],
+        ['Overtime Hours', String(data.overtimeHours || 0)],
+        [{ content: 'Total Hours', styles: { fontStyle: 'bold' } }, { content: String((data.hoursWorked || 0) + (data.overtimeHours || 0)), styles: { fontStyle: 'bold' } }]
+    ];
+
+    (doc as any).autoTable({
+        startY: yPos,
+        head: [['TYPE', 'HOURS']],
+        body: tableBody,
+        theme: 'grid', // FORCE GRID for solid borders
+        styles: { 
+            font: template.font,
+            fontSize: 10,
+            cellPadding: 5,
+            textColor: [0, 0, 0], // Black text
+            lineColor: [0, 0, 0], // Black borders
+            lineWidth: 0.1, // Visible width
+        },
+        headStyles: {
+            fillColor: isModern ? primaryRgb : [230, 230, 230],
+            textColor: isModern ? [255, 255, 255] : [0, 0, 0],
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1,
+            fontStyle: 'bold'
+        },
+        columnStyles: {
+            0: { cellWidth: 'auto' },
+            1: { cellWidth: 40, halign: 'right' }
+        },
+        margin: { left: 20, right: 20 },
+        tableLineColor: [0, 0, 0], // Backup global setting
+        tableLineWidth: 0.1,
+    });
+
+    // Get Y position after table
+    let finalY = (doc as any).lastAutoTable.finalY + 15;
+
+    // --- Notes (Dynamic Height & Page Break Safety) ---
     if (data.notes) {
-        doc.text('Notes:', 20, 120);
-        doc.text(data.notes, 20, 130);
+        const notesLines = doc.splitTextToSize(data.notes, 160);
+        const lineHeight = 5; // mm
+        const textHeight = notesLines.length * lineHeight;
+        const boxHeight = Math.max(30, textHeight + 15); // Minimum 30mm
+        
+        // Check if notes will fit on current page (taking 40mm signature area into account)
+        if (finalY + boxHeight > 240) {
+            doc.addPage();
+            // If classic, redraw border
+            if (!isModern) {
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.5);
+                doc.rect(10, 10, 190, 277);
+                doc.rect(12, 12, 186, 273);
+            }
+            finalY = 40; // Reset yPos for new page
+        }
+
+        doc.setFillColor(250, 250, 250);
+        doc.rect(20, finalY, 170, boxHeight, 'F');
+        
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(labelFont, 'bold');
+        doc.text('NOTES', 25, finalY + 8);
+        
+        doc.setFont(bodyFont, 'normal');
+        doc.setFontSize(9);
+        doc.text(notesLines, 25, finalY + 15);
+        
+        finalY += boxHeight + 15; 
+    } else {
+        finalY += 10;
+    }
+
+    // --- Signature (Page Break Check) ---
+    // 297mm page height. Footer needs ~40mm. Safe zone limit ~250mm.
+    if (finalY > 240) {
+        doc.addPage();
+        // Classic border
+        if (!isModern) {
+            doc.setDrawColor(0, 0, 0);
+            doc.setLineWidth(0.5);
+            doc.rect(10, 10, 190, 277);
+            doc.rect(12, 12, 186, 273);
+        }
+        finalY = 40;
+    } else {
+        // Push signature to bottom if there's space, but not too far
+        // Only push to bottom if layout is classic certificate style
+        if (!isModern) finalY = Math.max(finalY, 230); 
+    }
+
+    if (data.signatureUrl) {
+        const sigData = await loadImage(data.signatureUrl);
+        if (sigData) {
+            doc.addImage(sigData.data, sigData.format, 20, finalY - 15, 40, 15);
+        }
     }
     
+    doc.setDrawColor(0, 0, 0);
+    doc.line(20, finalY, 80, finalY);
+    doc.setFontSize(9);
+    doc.setFont(bodyFont, 'normal');
+    doc.text('Worker Signature', 20, finalY + 5);
+    
+    // Fix: Move Date value ABOVE the line so it doesn't overlap with "Date" label
+    const dateValue = data.date || new Date().toLocaleDateString();
+    doc.text(dateValue, 150, finalY - 3); 
+    doc.line(150, finalY, 190, finalY);
+    doc.text('Date', 150, finalY + 5);
+
     doc.save(`TimeSheet-${data.date}.pdf`);
-};
-
-export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string) => {
-    const { jsPDF } = jspdf;
-    const doc = new jsPDF();
-    
-    doc.setFontSize(22);
-    doc.text('MATERIAL LOG', 105, 20, { align: 'center' });
-    doc.setFontSize(12);
-    doc.text(`Job: ${job.name}`, 20, 35);
-    doc.text(`Date: ${data.date}`, 20, 42);
-
-    const rows = data.items.map(i => [i.name, i.supplier, i.quantity, `$${i.unitCost}`]);
-    (doc as any).autoTable({
-        startY: 50,
-        head: [['Item', 'Supplier', 'Qty', 'Cost']],
-        body: rows,
-    });
-    doc.save('Materials.pdf');
-};
-
-export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string) => {
-    // Re-use invoice logic mostly but title changed
-    const { jsPDF } = jspdf;
-    const doc = new jsPDF();
-    doc.setFontSize(24);
-    doc.text('ESTIMATE', 150, 20, { align: 'right' });
-    
-    doc.setFontSize(10);
-    doc.text(`Estimate #: ${data.estimateNumber}`, 150, 30, { align: 'right' });
-    doc.text(`Valid Until: ${data.expiryDate}`, 150, 35, { align: 'right' });
-
-    doc.setFontSize(12);
-    doc.text(profile.companyName, 20, 20);
-    doc.setFontSize(10);
-    doc.text(profile.address, 20, 25);
-    
-    doc.text('PREPARED FOR:', 20, 45);
-    doc.text(job.clientName || '', 20, 50);
-
-    const rows = data.lineItems.map(i => [i.description, i.quantity, `$${i.rate}`, `$${(i.quantity * i.rate).toFixed(2)}`]);
-    (doc as any).autoTable({
-        startY: 60,
-        head: [['Description', 'Qty', 'Rate', 'Total']],
-        body: rows,
-    });
-    
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    const total = data.lineItems.reduce((a, b) => a + (b.quantity * b.rate), 0);
-    doc.setFontSize(14);
-    doc.text(`Total Estimate: $${total.toFixed(2)}`, 190, finalY, { align: 'right' });
-    
-    if(data.signatureUrl) {
-        const sig = await loadImage(data.signatureUrl);
-        if(sig) doc.addImage(sig.data, sig.format, 20, finalY + 20, 40, 15);
-        doc.text('Accepted By', 20, finalY + 40);
-    }
-
-    doc.save(`Estimate-${data.estimateNumber}.pdf`);
-};
-
-export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data: ExpenseLogData, templateId: string) => {
-    const { jsPDF } = jspdf;
-    const doc = new jsPDF();
-    doc.text('EXPENSE RECEIPT', 105, 20, { align: 'center' });
-    doc.text(`Item: ${data.item}`, 20, 40);
-    doc.text(`Amount: $${data.amount}`, 20, 50);
-    doc.text(`Vendor: ${data.vendor}`, 20, 60);
-    doc.save('Expense.pdf');
 };
 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string) => {
@@ -803,20 +1203,4 @@ export const generateNotePDF = async (profile: UserProfile, job: Job, data: Note
     doc.setFontSize(12);
     doc.text(doc.splitTextToSize(text, 180), 20, 40);
     doc.save('Note.pdf');
-};
-
-export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string) => {
-    const { jsPDF } = jspdf;
-    const doc = new jsPDF();
-    doc.setFontSize(24);
-    doc.text('PAYMENT RECEIPT', 105, 30, { align: 'center' });
-    
-    doc.rect(20, 50, 170, 80);
-    doc.setFontSize(14);
-    doc.text(`Date: ${data.date}`, 30, 70);
-    doc.text(`Received From: ${data.from}`, 30, 85);
-    doc.text(`Amount: $${data.amount.toFixed(2)}`, 30, 100);
-    doc.text(`For: ${data.description}`, 30, 115);
-    
-    doc.save('Receipt.pdf');
 };

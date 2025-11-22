@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import type { WorkOrderData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
@@ -23,6 +24,7 @@ interface Props {
 const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUpdateLogo }) => {
   const [page, setPage] = useState(1);
   const [formData, setFormData] = useState<WorkOrderData>(data || {
+    title: '',
     workOrderNumber: `WO-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(Math.random() * 1000)}`,
     date: new Date().toISOString().split('T')[0],
     status: 'Scheduled',
@@ -44,12 +46,30 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
   });
   const [isDownloading, setIsDownloading] = useState(false);
 
+  // Sync company details and logo from profile
   useEffect(() => {
-      const isUnsigned = !formData.signatureUrl;
-      if (isUnsigned && profile.logoUrl && !data?.logoUrl) {
-          setFormData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
+      if (!data) {
+          // New Document: aggressively sync with profile
+          setFormData(prev => ({
+              ...prev,
+              companyName: profile.companyName || prev.companyName,
+              companyAddress: profile.address || prev.companyAddress,
+              companyPhone: profile.phone || prev.companyPhone,
+              companyWebsite: profile.website || prev.companyWebsite,
+              logoUrl: profile.logoUrl || prev.logoUrl
+          }));
+      } else {
+          // Existing Document: Only fill if empty to preserve history
+          setFormData(prev => ({
+              ...prev,
+              companyName: prev.companyName || profile.companyName,
+              companyAddress: prev.companyAddress || profile.address,
+              companyPhone: prev.companyPhone || profile.phone,
+              companyWebsite: prev.companyWebsite || profile.website,
+              logoUrl: prev.logoUrl || profile.logoUrl
+          }));
       }
-  }, [profile.logoUrl, formData.signatureUrl]);
+  }, [profile, data]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -100,6 +120,19 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
               <CardDescription>Details, branding, and client info.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+              {/* Title for Dashboard */}
+              <div className="space-y-1.5">
+                  <Label htmlFor="title">Document Title (For Dashboard)</Label>
+                  <Input 
+                    id="title" 
+                    name="title" 
+                    value={formData.title || ''} 
+                    onChange={handleChange} 
+                    placeholder="e.g. Master Bath Repair" 
+                    className="font-medium"
+                  />
+              </div>
+
               {/* Meta Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1.5">

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, Client } from './types.ts';
@@ -974,7 +975,7 @@ const App: React.FC = () => {
     const job = jobs.find(j => j.id === view.jobId);
     if (!job) return <div>Job not found!</div>;
     const t = getTranslation();
-    const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.invoiceNumber || d.estimateNumber || d.title || d.reportNumber || form.type; };
+    const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || form.type; };
     const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
     const getDocIcon = (type: FormType) => { switch(type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; default: return InvoiceIcon; }}; 
     const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">{status}</span> : null; };
@@ -1007,13 +1008,13 @@ const App: React.FC = () => {
       case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
       case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
       case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
+      case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
       case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
       default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
     }
   };

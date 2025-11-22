@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import type { WarrantyData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -21,6 +22,7 @@ interface Props {
 
 const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUpdateLogo }) => {
   const [formData, setFormData] = useState<WarrantyData>(data || {
+    title: '',
     warrantyNumber: `WAR-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(Math.random() * 1000)}`,
     clientName: job.clientName || '',
     projectAddress: job.clientAddress || '',
@@ -110,6 +112,19 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
                 <CardDescription>Create a formal guarantee for your work.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Title for Dashboard */}
+              <div className="space-y-1.5">
+                  <Label htmlFor="title">Document Title (For Dashboard)</Label>
+                  <Input 
+                    id="title" 
+                    name="title" 
+                    value={formData.title || ''} 
+                    onChange={handleChange} 
+                    placeholder="e.g. Roof Warranty - Smith" 
+                    className="font-medium"
+                  />
+              </div>
+
               {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1.5">

@@ -85,9 +85,11 @@ export interface InvoiceData extends DocumentStyle {
   clientAddress?: string;
   logoUrl?: string;
   signatureUrl?: string;
+  title?: string;
 }
 
 export interface WorkOrderData extends DocumentStyle {
+  title?: string;
   workOrderNumber: string;
   date: string;
   status: 'Scheduled' | 'In Progress' | 'On Hold' | 'Completed';
@@ -107,6 +109,7 @@ export interface WorkOrderData extends DocumentStyle {
 }
 
 export interface DailyJobReportData extends DocumentStyle {
+  title?: string;
   reportNumber: string;
   date: string;
   weather: string;
@@ -125,11 +128,21 @@ export interface DailyJobReportData extends DocumentStyle {
 }
 
 export interface TimeSheetData extends DocumentStyle {
+  title?: string;
   workerName: string;
   date: string;
   hoursWorked: number;
   overtimeHours: number;
   notes: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  clientAddress?: string;
+  logoUrl?: string;
+  signatureUrl?: string;
+  status?: string;
 }
 
 export interface MaterialLogItem {
@@ -141,11 +154,22 @@ export interface MaterialLogItem {
 }
 
 export interface MaterialLogData extends DocumentStyle {
+  title?: string;
   date: string;
   items: MaterialLogItem[];
+  projectName: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  clientAddress?: string;
+  logoUrl?: string;
+  signatureUrl?: string;
 }
 
 export interface EstimateData extends DocumentStyle {
+  title?: string;
   estimateNumber: string;
   issueDate: string;
   expiryDate: string;
@@ -153,19 +177,35 @@ export interface EstimateData extends DocumentStyle {
   terms: string;
   notes: string;
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
-  signatureUrl?: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  clientAddress?: string;
   logoUrl?: string;
+  signatureUrl?: string;
 }
 
 export interface ExpenseLogData extends DocumentStyle {
+  title?: string;
   date: string;
   item: string;
   vendor: string;
   category: 'Fuel' | 'Food' | 'Material' | 'Other';
   amount: number;
+  notes?: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  logoUrl?: string;
+  signatureUrl?: string;
 }
 
 export interface WarrantyData extends DocumentStyle {
+  title?: string;
   warrantyNumber: string;
   clientName: string;
   projectAddress: string;
@@ -184,11 +224,20 @@ export interface NoteData extends DocumentStyle {
 }
 
 export interface ReceiptData extends DocumentStyle {
+    title?: string;
+    receiptNumber: string;
     date: string;
-    from: string;
+    from: string; // client name
     amount: number;
     description: string;
     paymentMethod: string;
+    companyName?: string;
+    companyAddress?: string;
+    companyPhone?: string;
+    companyWebsite?: string;
+    clientAddress?: string;
+    logoUrl?: string;
+    signatureUrl?: string;
 }
 
 export interface FormData {
