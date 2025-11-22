@@ -1,9 +1,10 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, Client } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
+import { Routes, Route, useNavigate, useLocation, Navigate, useParams, Outlet } from 'react-router-dom';
+
 import Login from './components/Login.tsx';
 import Signup from './components/Signup.tsx';
 import SelectDocType from './components/SelectDocType.tsx';
@@ -338,12 +339,9 @@ const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => (
 // Helper to upload a file to Supabase Storage
 const uploadFile = async (bucket: string, file: File, userId: string, isPublicUpload: boolean = false): Promise<string> => {
     if (!navigator.onLine) {
-        // Offline logic handled in upper layers, this is just a direct uploader
         throw new Error("Cannot upload file while offline");
     }
     const fileExt = file.name.split('.').pop();
-    // Use a consistent name for logos if possible, or timestamp. 
-    // For the logo, using a timestamp ensures browser cache busting.
     const fileName = `${userId}/${Date.now()}.${fileExt}`;
     
     const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
@@ -355,25 +353,140 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
     return data.publicUrl;
 };
 
+// --- View Components ---
+
+const DashboardScreen = ({ profile, jobs, isOnline, navigate }: any) => {
+    const t = translations[profile.language || 'English'] || translations['English'];
+    const [searchQuery, setSearchQuery] = useState('');
+    
+    const filteredJobs = jobs.filter((j: Job) => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
+    const getStatusColor = (status: string) => {
+        switch(status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
+    }
+
+    return (
+      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
+        <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
+            <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome}, {profile.name.split(' ')[0]}!</h1></div>
+            {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
+            <div className="flex items-center gap-4 flex-wrap">
+              <Button onClick={() => navigate('/jobs/new')}>+ {t.newJob}</Button>
+              <Button variant="outline" onClick={() => navigate('/forum')} className="flex items-center gap-2"><MessageSquareIcon className="w-4 h-4" /> Community</Button>
+              <Button variant="outline" onClick={() => navigate('/analytics')} className="flex items-center gap-2"><BarChartIcon className="w-4 h-4" /> Insights</Button>
+              <Button variant="ghost" size="icon" onClick={() => navigate('/profile')} className="rounded-full h-10 w-10 overflow-hidden border border-border">{profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}</Button>
+            </div>
+        </header>
+        <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
+        <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
+        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map((job: Job) => (<Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200"><CardHeader><CardTitle className="truncate">{job.name}</CardTitle><CardDescription className="truncate">{job.clientName}</CardDescription></CardHeader><CardContent className="flex-grow"><p className="text-sm text-muted-foreground">{job.clientAddress}</p><div className="flex items-center gap-2 mt-2"><span className={`w-2 h-2 rounded-full ${getStatusColor(job.status)}`}></span><p className="text-sm text-muted-foreground capitalize">{job.status}</p></div></CardContent><CardFooter><Button className="w-full" onClick={() => navigate(`/jobs/${job.id}`)}>{t.viewProject}</Button></CardFooter></Card>))}</div>}
+        <Dock items={[
+            { icon: HomeIcon, label: 'Dashboard', onClick: () => navigate('/dashboard') },
+            { icon: UsersIcon, label: 'Clients', onClick: () => navigate('/clients') },
+            { icon: SettingsIcon, label: 'Settings', onClick: () => navigate('/settings') }
+        ]} />
+      </div>
+    );
+};
+
+const JobDetailsScreen = ({ profile, jobs, forms, isOnline, navigate, onUpdateJobStatus }: any) => {
+    const { jobId } = useParams();
+    const job = jobs.find((j: any) => j.id === jobId);
+    const [docSearchQuery, setDocSearchQuery] = useState('');
+    
+    if (!job) return <div className="p-8">Job not found</div>;
+
+    const t = translations[profile.language || 'English'] || translations['English'];
+    const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || form.type; };
+    const jobForms = forms.filter((f: any) => f.jobId === job.id).filter((f: any) => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
+    const getDocIcon = (type: FormType) => { switch(type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; default: return InvoiceIcon; }}; 
+    const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">{status}</span> : null; };
+
+    // Helper to convert FormType to URL slug
+    const getFormSlug = (type: FormType) => {
+        return type.toLowerCase().replace(/\s+/g, '-');
+    };
+
+    return (
+      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
+        <header className="flex items-center justify-between mb-8">
+          <div className="flex items-center overflow-hidden"><Button variant="ghost" size="icon" onClick={() => navigate('/dashboard')} className="mr-4 h-10 w-10 shrink-0"><BackArrowIcon className="h-6 w-6" /></Button><div className="overflow-hidden"><h1 className="text-2xl md:text-3xl font-bold truncate">{job.name}</h1><p className="text-muted-foreground truncate">{job.clientName}</p></div></div>
+          <div className="flex items-center gap-2"><select value={job.status} onChange={(e) => onUpdateJobStatus(job.id, e.target.value as any)} className="h-9 rounded-md border px-3 text-sm"><option value="active">Active</option><option value="inactive">Inactive</option><option value="paused">Paused</option><option value="completed">Completed</option></select></div>
+        </header>
+        {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold">You are OFFLINE. Documents created will sync later.</div>}
+        <Card><CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"><CardTitle>{t.projectDocs}</CardTitle><div className="relative w-full max-w-xs"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3 w-3" /><Input placeholder="Search by title..." className="pl-8 h-9 text-sm" value={docSearchQuery} onChange={(e) => setDocSearchQuery(e.target.value)} /></div></CardHeader><CardContent><div className="space-y-2">{jobForms.length === 0 && <p className="text-muted-foreground py-8 text-center">{t.noDocsYet}</p>}{jobForms.map((form: any) => { const Icon = getDocIcon(form.type); return (<div key={form.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors gap-3"><div className="flex items-center gap-3 overflow-hidden"><div className="p-2 bg-background rounded-full text-primary shrink-0"><Icon className="w-5 h-5" /></div><div className="min-w-0"><p className="font-medium truncate">{getDocTitle(form)}</p><p className="text-xs text-muted-foreground">{form.type} • {new Date(form.createdAt).toLocaleDateString()}</p></div></div><div className="flex items-center gap-2 justify-end">{getStatusBadge(form)}<Button variant="ghost" size="sm" onClick={() => navigate(`/jobs/${job.id}/${getFormSlug(form.type)}/${form.id}`)}>{t.edit}</Button></div></div>); })}</div></CardContent></Card>
+        
+        <Dock items={[
+            { icon: HomeIcon, label: 'Dashboard', onClick: () => navigate('/dashboard') },
+            { icon: PlusIcon, label: 'New Doc', onClick: () => navigate(`/jobs/${job.id}/new`) },
+            { icon: SettingsIcon, label: 'Settings', onClick: () => navigate('/settings') }
+        ]} />
+      </div>
+    );
+};
+
+const SelectDocTypeScreen = ({ jobs, navigate }: any) => {
+    const { jobId } = useParams();
+    const job = jobs.find((j: any) => j.id === jobId);
+    if (!job) return <div>Job not found</div>;
+
+    // Helper to convert FormType to URL slug
+    const getFormSlug = (type: FormType) => {
+        return type.toLowerCase().replace(/\s+/g, '-');
+    };
+
+    return <SelectDocType onSelect={(type) => navigate(`/jobs/${jobId}/${getFormSlug(type)}`)} onBack={() => navigate(`/jobs/${jobId}`)} />;
+};
+
+const FormScreen = ({ profile, jobs, forms, clients, onSave, onUpdateLogo, navigate }: any) => {
+    const { jobId, formTypeSlug, formId } = useParams();
+    const job = jobs.find((j: any) => j.id === jobId);
+    const form = forms.find((f: any) => f.id === formId);
+    
+    if (!job) return <div>Job not found</div>;
+
+    // Map slug back to FormType enum
+    const slugToType: Record<string, FormType> = {
+        'invoice': FormType.Invoice,
+        'daily-job-report': FormType.DailyJobReport,
+        'note': FormType.Note,
+        'work-order': FormType.WorkOrder,
+        'time-sheet': FormType.TimeSheet,
+        'material-log': FormType.MaterialLog,
+        'estimate': FormType.Estimate,
+        'expense-log': FormType.ExpenseLog,
+        'warranty': FormType.Warranty,
+        'receipt': FormType.Receipt
+    };
+    
+    const formType = slugToType[formTypeSlug || ''] || FormType.Invoice;
+
+    const handleCloseForm = () => navigate(`/jobs/${jobId}`);
+    const componentKey = formId || `new-${formType}`;
+
+    switch (formType) {
+      case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onClose={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} />;
+      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as MaterialLogData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={(data) => onSave(data, formType, jobId, formId)} onBack={handleCloseForm} onUpdateLogo={onUpdateLogo} />;
+      default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={handleCloseForm}>Back</Button></div>;
+    }
+};
+
+// --- Main App Component ---
+
 const App: React.FC = () => {
-  type AppView = 
-    | { screen: 'welcome' }
-    | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
-    | { screen: 'dashboard' }
-    | { screen: 'jobDetails'; jobId: string }
-    | { screen: 'createJob' }
-    | { screen: 'selectDocType'; jobId: string }
-    | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
-    | { screen: 'settings' }
-    | { screen: 'profile' }
-    | { screen: 'clients' }
-    | { screen: 'analytics' }
-    | { screen: 'forum'; postId?: string };
+  const navigate = useNavigate();
+  const location = useLocation();
   
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-  const [view, setView] = useState<AppView>({ screen: 'welcome' });
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -387,9 +500,6 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem('theme');
     return (savedTheme === 'light' || savedTheme === 'dark') ? savedTheme : 'dark';
   });
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [docSearchQuery, setDocSearchQuery] = useState('');
 
   // Network Status Listener & Sync
   useEffect(() => {
@@ -449,12 +559,6 @@ const App: React.FC = () => {
   }, [theme]);
 
   useEffect(() => {
-    if (view.screen !== 'welcome' && view.screen !== 'auth' && !loading) {
-      localStorage.setItem('app_view_state', JSON.stringify(view));
-    }
-  }, [view, loading]);
-
-  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (!session) {
@@ -469,7 +573,6 @@ const App: React.FC = () => {
         setJobs([]);
         setForms([]);
         setClients([]);
-        setView({ screen: 'welcome' });
         setLoading(false);
       }
     });
@@ -481,7 +584,6 @@ const App: React.FC = () => {
     if (!session) return;
     
     // Avoid triggering the full-screen loader if we already have data (background refresh)
-    // This happens when switching tabs (token refresh) or regaining focus
     if (!profile) {
         setLoading(true);
         setLoadingMessage('Loading profile...');
@@ -508,13 +610,12 @@ const App: React.FC = () => {
         }
 
         if (profileData) {
-            // Sync Google Profile Picture if database one is empty
+            // Sync Google Profile Picture
             const googleAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
             let profilePicUrl = profileData.profile_picture_url;
 
             if (!profilePicUrl && googleAvatar) {
                 profilePicUrl = googleAvatar;
-                // Update database asynchronously
                 supabase.from('profiles').update({ profile_picture_url: googleAvatar }).eq('id', user.id).then();
             }
 
@@ -549,8 +650,8 @@ const App: React.FC = () => {
                     email: user.email,
                     name: nameToSet,
                     company_name: `${nameToSet}'s Company`,
-                    logo_url: '', // Start empty for company logo
-                    profile_picture_url: metaAvatar || '', // Use Google Avatar for profile picture
+                    logo_url: '',
+                    profile_picture_url: metaAvatar || '',
                 })
                 .select()
                 .single();
@@ -586,7 +687,6 @@ const App: React.FC = () => {
         if (jobsData) {
             const mappedJobs = jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
             setJobs(mappedJobs);
-            // Clear and update offline cache
             await dbApi.clear('jobs');
             for (const j of mappedJobs) await dbApi.put('jobs', j);
         }
@@ -623,15 +723,10 @@ const App: React.FC = () => {
     }
     
     // Check for Forum Config (Only if online)
-    // Force check for youtube_url specifically to trigger update if missing
     if (navigator.onLine) {
-        // Try to select specific columns to detect schema mismatch
         const { error: forumError } = await supabase.from('forum_posts').select('id, image_url, youtube_url').limit(1);
         if (forumError) {
-             // Enhanced regex to catch missing column errors and trigger DB update
-             if (forumError.code === 'PGRST204' || 
-                 forumError.code === '42703' || // Undefined column
-                 /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist|column "youtube_url" does not exist|Could not find the 'youtube_url' column/i.test(forumError.message)) {
+             if (forumError.code === 'PGRST204' || forumError.code === '42703' || /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist|column "youtube_url" does not exist|Could not find the 'youtube_url' column/i.test(forumError.message)) {
                  setDbSetupError(SQL_SETUP_SCRIPT);
                  setLoading(false);
                  return;
@@ -639,18 +734,6 @@ const App: React.FC = () => {
         }
     }
 
-    // Restore View
-    const savedViewStr = localStorage.getItem('app_view_state');
-    if (savedViewStr) {
-        try {
-            const savedView = JSON.parse(savedViewStr);
-            if (savedView.screen !== 'welcome' && savedView.screen !== 'auth') {
-                setView(savedView);
-            }
-        } catch (e) {}
-    } else {
-        setView({ screen: 'dashboard' });
-    }
     setLoading(false);
   };
 
@@ -668,25 +751,16 @@ const App: React.FC = () => {
   const handleSignup = async (email: string, pass: string) => {
     const { error } = await supabase.auth.signUp({ email: email, password: pass });
     if (error) throw error;
-    setView({ screen: 'auth', authScreen: 'checkEmail' });
+    navigate('/auth/check-email');
   };
   const handleLoginWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
   };
   const handleLogout = async () => {
     if (navigator.onLine) await supabase.auth.signOut();
-    localStorage.removeItem('app_view_state'); 
     setSession(null);
-    setView({ screen: 'welcome' });
+    navigate('/');
   };
-
-  const navigateToDashboard = () => setView({ screen: 'dashboard' });
-  const navigateToSettings = () => setView({ screen: 'settings' });
-  const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
-  const navigateToCreateJob = () => setView({ screen: 'createJob' });
-  const navigateToClients = () => setView({ screen: 'clients' });
-  const navigateToAnalytics = () => setView({ screen: 'analytics' });
-  const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
 
   // Global function to update logo in profile from ANY form
   const handleUpdateAppLogo = async (file: File): Promise<string> => {
@@ -694,15 +768,10 @@ const App: React.FC = () => {
      try {
          const compressed = await compressImage(file);
          const url = await uploadFile('logos', compressed, session.user.id, true);
-         
-         // Update in DB
          await supabase.from('profiles').update({ logo_url: url }).eq('id', session.user.id);
-         
-         // Update local state
          const updatedProfile = { ...profile, logoUrl: url };
          setProfile(updatedProfile);
          await dbApi.put('profile', updatedProfile);
-         
          return url;
      } catch(e) {
          console.error("Failed to sync logo globally", e);
@@ -724,7 +793,6 @@ const App: React.FC = () => {
               const uploadedUrl = await uploadFile('logos', logoFile, session.user.id, true);
               if (uploadedUrl) newLogoUrl = uploadedUrl;
           }
-          
           if (profilePicFile) {
               const uploadedUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
               if (uploadedUrl) newProfilePicUrl = uploadedUrl;
@@ -767,10 +835,9 @@ const App: React.FC = () => {
               subscriptionTier: data.subscription_tier as 'Basic' | 'Premium', 
               language: data.language
           };
-          
           setProfile(updated);
           await dbApi.put('profile', updated);
-          setView({ screen: 'dashboard' });
+          navigate('/dashboard');
       } else {
           console.error("Error updating profile:", JSON.stringify(error, null, 2));
           if (error.code === 'PGRST204' || error.message.includes('profile_picture_url') || error.message.includes('schema cache')) {
@@ -805,7 +872,6 @@ const App: React.FC = () => {
     if (navigator.onLine) {
         const { error } = await supabase.from('jobs').insert(newJob);
         if (!error) {
-          // Refresh jobs from server to be safe
           const { data } = await supabase.from('jobs').select('*').eq('user_id', session.user.id);
           if(data) {
               const mapped = data.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
@@ -815,7 +881,6 @@ const App: React.FC = () => {
           }
         }
     } else {
-        // Offline Save
         await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'create_job', payload: newJob, timestamp: Date.now() });
         const optimisticJob = {
             ...newJob,
@@ -830,7 +895,7 @@ const App: React.FC = () => {
         alert("You are offline. Job saved locally.");
     }
     
-    setView({ screen: 'dashboard' });
+    navigate('/dashboard');
     setLoading(false);
   };
 
@@ -838,28 +903,26 @@ const App: React.FC = () => {
       if (!session) return;
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
       
-      // Update local DB
       const job = jobs.find(j => j.id === jobId);
       if (job) await dbApi.put('jobs', { ...job, status: newStatus });
 
       if (navigator.onLine) {
           await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
       } else {
-          // We could add an update queue action, but simple visual update is fine for MVP
           alert("Status updated locally.");
       }
   };
 
-  const handleSaveForm = async (formData: any) => {
-    if (view.screen !== 'form' || !session) return;
+  const handleSaveForm = async (formData: any, formType: FormType, jobId: string, formId?: string) => {
+    if (!session) return;
     setLoading(true);
-    const formId = view.formId || crypto.randomUUID();
+    const finalFormId = formId || crypto.randomUUID();
     
     const formRecord: any = { 
-        id: formId,
+        id: finalFormId,
         user_id: session.user.id, 
-        job_id: view.jobId, 
-        type: view.formType, 
+        job_id: jobId, 
+        type: formType, 
         data: formData 
     };
 
@@ -875,7 +938,7 @@ const App: React.FC = () => {
           }
         }
     } else {
-        if (!view.formId) {
+        if (!formId) {
             await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'create_form', payload: formRecord, timestamp: Date.now() });
         } else {
             alert("Offline editing existing docs is risky. Saved locally only.");
@@ -883,12 +946,12 @@ const App: React.FC = () => {
         
         const newForm = { 
             ...formRecord, 
-            jobId: view.jobId, 
+            jobId: jobId, 
             createdAt: new Date().toISOString() 
         };
         
-        const updatedForms = view.formId 
-            ? forms.map(f => f.id === view.formId ? newForm : f)
+        const updatedForms = formId 
+            ? forms.map(f => f.id === formId ? newForm : f)
             : [...forms, newForm];
             
         setForms(updatedForms);
@@ -896,7 +959,7 @@ const App: React.FC = () => {
         alert("You are offline. Document saved locally.");
     }
 
-    setView({ screen: 'jobDetails', jobId: view.jobId });
+    navigate(`/jobs/${jobId}`);
     setLoading(false);
   };
 
@@ -944,154 +1007,50 @@ const App: React.FC = () => {
       }
       setLoading(false);
   };
-  
-  const getTranslation = () => {
-      const lang = profile?.language || 'English';
-      return translations[lang] || translations['English'];
-  }
 
-  const renderAuth = () => {
-    if (view.screen !== 'auth') return null;
-    switch(view.authScreen) {
-      case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} />;
-      case 'signup': return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
-      case 'checkEmail': return <div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>;
-    }
-  };
-
-  const renderDashboard = () => {
-    if (!profile) return null;
-    const t = getTranslation();
-    const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
-    const getStatusColor = (status: string) => {
-        switch(status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
-    }
-    return (
-      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-        <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
-            <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome}, {profile.name.split(' ')[0]}!</h1></div>
-            {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
-            <div className="flex items-center gap-4 flex-wrap">
-              <Button onClick={navigateToCreateJob}>+ {t.newJob}</Button>
-              <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2"><MessageSquareIcon className="w-4 h-4" /> Community</Button>
-              <Button variant="outline" onClick={navigateToAnalytics} className="flex items-center gap-2"><BarChartIcon className="w-4 h-4" /> Insights</Button>
-              <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">{profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}</Button>
-            </div>
-        </header>
-        <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
-        <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
-        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (<Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200"><CardHeader><CardTitle className="truncate">{job.name}</CardTitle><CardDescription className="truncate">{job.clientName}</CardDescription></CardHeader><CardContent className="flex-grow"><p className="text-sm text-muted-foreground">{job.clientAddress}</p><div className="flex items-center gap-2 mt-2"><span className={`w-2 h-2 rounded-full ${getStatusColor(job.status)}`}></span><p className="text-sm text-muted-foreground capitalize">{job.status}</p></div></CardContent><CardFooter><Button className="w-full" onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}>{t.viewProject}</Button></CardFooter></Card>))}</div>}
-      </div>
-    );
-  };
-  
-  const renderJobDetails = () => {
-    if (view.screen !== 'jobDetails' || !profile) return null;
-    const job = jobs.find(j => j.id === view.jobId);
-    if (!job) return <div>Job not found!</div>;
-    const t = getTranslation();
-    const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || form.type; };
-    const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
-    const getDocIcon = (type: FormType) => { switch(type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; default: return InvoiceIcon; }}; 
-    const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">{status}</span> : null; };
-
-    return (
-      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-        <header className="flex items-center justify-between mb-8">
-          <div className="flex items-center overflow-hidden"><Button variant="ghost" size="icon" onClick={navigateToDashboard} className="mr-4 h-10 w-10 shrink-0"><BackArrowIcon className="h-6 w-6" /></Button><div className="overflow-hidden"><h1 className="text-2xl md:text-3xl font-bold truncate">{job.name}</h1><p className="text-muted-foreground truncate">{job.clientName}</p></div></div>
-          <div className="flex items-center gap-2"><select value={job.status} onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)} className="h-9 rounded-md border px-3 text-sm"><option value="active">Active</option><option value="inactive">Inactive</option><option value="paused">Paused</option><option value="completed">Completed</option></select></div>
-        </header>
-        {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold">You are OFFLINE. Documents created will sync later.</div>}
-        <Card><CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"><CardTitle>{t.projectDocs}</CardTitle><div className="relative w-full max-w-xs"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3 w-3" /><Input placeholder="Search by title..." className="pl-8 h-9 text-sm" value={docSearchQuery} onChange={(e) => setDocSearchQuery(e.target.value)} /></div></CardHeader><CardContent><div className="space-y-2">{jobForms.length === 0 && <p className="text-muted-foreground py-8 text-center">{t.noDocsYet}</p>}{jobForms.map(form => { const Icon = getDocIcon(form.type); return (<div key={form.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors gap-3"><div className="flex items-center gap-3 overflow-hidden"><div className="p-2 bg-background rounded-full text-primary shrink-0"><Icon className="w-5 h-5" /></div><div className="min-w-0"><p className="font-medium truncate">{getDocTitle(form)}</p><p className="text-xs text-muted-foreground">{form.type} • {new Date(form.createdAt).toLocaleDateString()}</p></div></div><div className="flex items-center gap-2 justify-end">{getStatusBadge(form)}<Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>{t.edit}</Button></div></div>); })}</div></CardContent></Card>
-      </div>
-    );
-  };
-  
-  const renderForm = () => {
-    if (view.screen !== 'form' || !profile) return null;
-    const { formType, jobId, formId } = view;
-    const job = jobs.find(j => j.id === jobId);
-    const form = forms.find(f => f.id === formId);
-    if (!job) return <div>Job not found!</div>;
-    const handleCloseForm = () => setView({ screen: 'jobDetails', jobId: jobId });
-
-    // Using a unique key ensures components remount when switching between documents or from "new" to "edit".
-    // This forces initialization with the current `profile` state, fixing the stale logo issue.
-    const componentKey = formId || `new-${formType}`;
-
-    switch (formType) {
-      case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
-      default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
-    }
-  };
-
-  const getDockItems = () => {
-    const t = getTranslation();
-    const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
-    if (view.screen === 'jobDetails') items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc(view.jobId) });
-    else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
-    items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
-    return items;
-  };
-  
-  const renderContent = () => {
-    if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
-    if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
-    if (!session) {
-        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
-        return renderAuth();
-    }
-    switch (view.screen) {
-      case 'dashboard': return renderDashboard();
-      case 'jobDetails': return renderJobDetails();
-      case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} />;
-      case 'selectDocType': { const activeJob = jobs.find(j => j.id === view.jobId); if (!activeJob) return <div>Error</div>; return <SelectDocType onSelect={(type) => setView({ screen: 'form', formType: type, jobId: activeJob.id, formId: null })} onBack={() => setView({ screen: 'jobDetails', jobId: view.jobId })} />; }
-      case 'form': return renderForm();
-      case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
-      case 'profile': if (!profile) return null; return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
-      case 'clients': 
-        return <ClientsView 
-                  onBack={navigateToDashboard} 
-                  supabase={supabase} 
-                  session={session}
-                  clients={clients}
-                  onAddClient={handleAddClient}
-                  onDeleteClient={handleDeleteClient}
-                  isOnline={isOnline}
-               />;
-      case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
-      case 'forum': 
-        return (
-            <ForumView 
-                onBack={navigateToDashboard} 
-                supabase={supabase} 
-                session={session} 
-                onUploadImage={handleUploadForumImage} 
-                initialPostId={view.postId}
-                onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
-            />
-        );
-      default: return renderDashboard();
-    }
-  };
+  if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
+  if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
 
   return (
-    <main className="w-full min-h-screen bg-background">
-      {renderContent()}
-      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
-        <Dock items={getDockItems()} />
-      )}
-    </main>
+    <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={
+            session ? <Navigate to="/dashboard" /> : 
+            <Welcome onGetStarted={() => navigate('/signup')} onLogin={() => navigate('/login')} />
+        } />
+        <Route path="/login" element={<Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => navigate('/signup')} />} />
+        <Route path="/signup" element={<Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => navigate('/login')} />} />
+        <Route path="/auth/check-email" element={<div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>} />
+
+        {/* Protected Routes */}
+        {session ? (
+            <>
+                <Route path="/dashboard" element={<DashboardScreen profile={profile} jobs={jobs} isOnline={isOnline} navigate={navigate} />} />
+                <Route path="/jobs/new" element={<JobForm onSave={handleSaveJob} onCancel={() => navigate('/dashboard')} supabase={supabase} session={session} />} />
+                <Route path="/jobs/:jobId" element={<JobDetailsScreen profile={profile} jobs={jobs} forms={forms} isOnline={isOnline} navigate={navigate} onUpdateJobStatus={handleUpdateJobStatus} />} />
+                <Route path="/jobs/:jobId/new" element={<SelectDocTypeScreen jobs={jobs} navigate={navigate} />} />
+                <Route path="/jobs/:jobId/:formTypeSlug/:formId?" element={<FormScreen profile={profile} jobs={jobs} forms={forms} clients={clients} onSave={handleSaveForm} onUpdateLogo={handleUpdateAppLogo} navigate={navigate} />} />
+                
+                <Route path="/settings" element={<Settings mode="settings" profile={profile!} onSave={handleSaveProfile} onBack={() => navigate('/dashboard')} theme={theme} setTheme={setTheme} onLogout={handleLogout} />} />
+                <Route path="/profile" element={<Settings mode="profile" profile={profile!} onSave={handleSaveProfile} onBack={() => navigate('/dashboard')} theme={theme} setTheme={setTheme} onLogout={handleLogout} />} />
+                <Route path="/clients" element={<ClientsView onBack={() => navigate('/dashboard')} supabase={supabase} session={session} clients={clients} onAddClient={handleAddClient} onDeleteClient={handleDeleteClient} isOnline={isOnline} />} />
+                <Route path="/analytics" element={<AnalyticsView jobs={jobs} forms={forms} onBack={() => navigate('/dashboard')} />} />
+                
+                {/* Forum with nested parameter support via query params or state lifting */}
+                <Route path="/forum" element={<ForumView onBack={() => navigate('/dashboard')} supabase={supabase} session={session} onUploadImage={handleUploadForumImage} onNavigate={(id) => id ? navigate(`/forum/${id}`) : navigate('/forum')} />} />
+                <Route path="/forum/:postId" element={<ForumViewWrapper supabase={supabase} session={session} handleUploadForumImage={handleUploadForumImage} navigate={navigate} />} />
+            </>
+        ) : (
+            <Route path="*" element={<Navigate to="/" />} />
+        )}
+    </Routes>
   );
 };
+
+// Small wrapper to extract params for Forum
+const ForumViewWrapper = ({ supabase, session, handleUploadForumImage, navigate }: any) => {
+    const { postId } = useParams();
+    return <ForumView onBack={() => navigate('/dashboard')} supabase={supabase} session={session} onUploadImage={handleUploadForumImage} initialPostId={postId} onNavigate={(id) => id ? navigate(`/forum/${id}`) : navigate('/forum')} />;
+}
 
 export default App;
