@@ -68,6 +68,10 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const [originalImageSize, setOriginalImageSize] = useState<string>(''); 
   const [isPosting, setIsPosting] = useState(false);
   
+  // Delete Confirmation State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [postToDelete, setPostToDelete] = useState<string | null>(null);
+
   // Comment/Detail View State
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -489,21 +493,30 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       setShowPostModal(true);
   };
 
-  const handleDeletePost = async (postId: string) => {
-      if (!confirm("Are you sure you want to delete this post? This action cannot be undone.")) return;
+  // Initiates delete process (opens modal)
+  const initiateDeletePost = (postId: string) => {
+      setPostToDelete(postId);
+      setShowDeleteModal(true);
+  };
+
+  // Performs actual delete after confirmation
+  const confirmDeletePost = async () => {
+      if (!postToDelete) return;
       
       setLoading(true);
-      const { error } = await supabase.from('forum_posts').delete().eq('id', postId);
+      const { error } = await supabase.from('forum_posts').delete().eq('id', postToDelete);
       
       if (error) {
           alert("Failed to delete post: " + error.message);
       } else {
-          setPosts(prev => prev.filter(p => p.id !== postId));
-          if (selectedPost?.id === postId) {
+          setPosts(prev => prev.filter(p => p.id !== postToDelete));
+          if (selectedPost?.id === postToDelete) {
               onNavigate(null);
           }
       }
       setLoading(false);
+      setShowDeleteModal(false);
+      setPostToDelete(null);
   };
 
   const handleSavePost = async () => {
@@ -621,10 +634,10 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                 <iframe
                     key={videoId} // IMPORTANT: Force re-mount if video ID changes
                     className="absolute top-0 left-0 w-full h-full"
-                    src={`https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`}
+                    src={`https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&controls=1`}
                     title="YouTube video player"
                     frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowFullScreen
                     referrerPolicy="strict-origin-when-cross-origin"
                 ></iframe>
@@ -674,6 +687,22 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                     </CardFooter>
                 </Card>
             </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowDeleteModal(false)}>
+              <Card className="w-full max-w-sm animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                  <CardHeader>
+                      <CardTitle>Delete Post</CardTitle>
+                      <CardDescription>Are you sure you want to delete this post?</CardDescription>
+                  </CardHeader>
+                  <CardFooter className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setShowDeleteModal(false)}>No</Button>
+                      <Button variant="destructive" onClick={confirmDeletePost}>Yes, Delete</Button>
+                  </CardFooter>
+              </Card>
+          </div>
       )}
 
       {!selectedPost ? (
@@ -732,7 +761,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                           {session.user.id === post.user_id && (
                                               <div className="flex gap-2 ml-2" onClick={e => e.stopPropagation()}>
                                                   <button onClick={() => openEditModal(post)} className="text-muted-foreground hover:text-primary p-1 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
-                                                  <button onClick={() => handleDeletePost(post.id)} className="text-muted-foreground hover:text-destructive p-1 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
+                                                  <button onClick={() => initiateDeletePost(post.id)} className="text-muted-foreground hover:text-destructive p-1 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
                                               </div>
                                           )}
                                       </div>
@@ -792,7 +821,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                   {session.user.id === selectedPost.user_id && (
                                       <div className="flex gap-2">
                                           <Button variant="ghost" size="sm" onClick={() => openEditModal(selectedPost)} className="h-8"><PenIcon className="w-4 h-4 mr-2" /> Edit</Button>
-                                          <Button variant="ghost" size="sm" onClick={() => handleDeletePost(selectedPost.id)} className="h-8 text-destructive hover:text-destructive"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
+                                          <Button variant="ghost" size="sm" onClick={() => initiateDeletePost(selectedPost.id)} className="h-8 text-destructive hover:text-destructive"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
                                       </div>
                                   )}
                               </div>
