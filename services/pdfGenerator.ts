@@ -1,6 +1,9 @@
 
 
-import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData } from '../types.ts';
+
+
+
+import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData } from '../types.ts';
 
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -1188,6 +1191,236 @@ export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data:
     doc.text('Date', 150, finalY + 5);
 
     doc.save(`TimeSheet-${data.date}.pdf`);
+};
+
+export const generateChangeOrderPDF = async (profile: UserProfile, job: Job, data: ChangeOrderData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    const yPos = await drawDocumentHeader(doc, data, profile, template, primaryRgb, 'CHANGE ORDER', 'Date', data.date, 'C.O. #', data.changeOrderNumber);
+    const gridEnd = drawContactGrid(doc, data, profile, yPos, template);
+
+    // Reason for Change
+    let currentY = gridEnd + 10;
+    doc.setFillColor(245, 245, 245);
+    doc.rect(20, currentY, 170, 25, 'F');
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont(template.font, 'bold');
+    doc.text('REASON FOR CHANGE', 25, currentY + 6);
+    doc.setFont(template.font, 'normal');
+    const descLines = doc.splitTextToSize(data.description || '', 160);
+    doc.text(descLines, 25, currentY + 12);
+    currentY += 35;
+
+    // Line Items
+    const tableColumn = ["Description", "Quantity", "Rate", "Total"];
+    const tableRows = data.lineItems.map(i => [i.description, i.quantity, `$${Number(i.rate).toFixed(2)}`, `$${(i.quantity * i.rate).toFixed(2)}`]);
+    
+    (doc as any).autoTable({
+        startY: currentY,
+        head: [tableColumn],
+        body: tableRows,
+        theme: 'grid', // CHANGED: Use 'grid' to ensure borders
+        styles: { 
+            font: template.font, 
+            fontSize: 10,
+            textColor: [0, 0, 0], // Force black text
+            lineColor: [0, 0, 0], // Force black borders
+            lineWidth: 0.1 
+        },
+        headStyles: { 
+            fillColor: primaryRgb,
+            textColor: [255, 255, 255], // White text on colored header
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1
+        },
+        tableLineColor: [0, 0, 0],
+        tableLineWidth: 0.1,
+    });
+    
+    const changeTotal = data.lineItems.reduce((acc, item) => acc + (item.quantity * item.rate), 0);
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+    // Financial Summary Box
+    const summaryY = finalY + 5;
+    doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
+    doc.setLineWidth(0.5);
+    doc.rect(100, summaryY, 90, 35); // Box on right side
+
+    doc.setFontSize(10);
+    doc.setFont(template.font, 'normal');
+    
+    // Row 1: Original
+    doc.text('Current Contract Sum:', 105, summaryY + 8);
+    doc.text(`$${Number(data.currentContractSum).toFixed(2)}`, 185, summaryY + 8, { align: 'right' });
+    
+    // Row 2: Change
+    doc.text('Net Change by this Order:', 105, summaryY + 18);
+    doc.setFont(template.font, 'bold');
+    doc.text(`${changeTotal >= 0 ? '+' : ''}$${changeTotal.toFixed(2)}`, 185, summaryY + 18, { align: 'right' });
+    
+    // Divider
+    doc.line(105, summaryY + 22, 185, summaryY + 22);
+    
+    // Row 3: New Total
+    doc.setFontSize(11);
+    doc.text('New Contract Sum:', 105, summaryY + 30);
+    doc.setTextColor(...primaryRgb);
+    const newTotal = Number(data.currentContractSum) + changeTotal;
+    doc.text(`$${newTotal.toFixed(2)}`, 185, summaryY + 30, { align: 'right' });
+
+    // Legal Terms
+    let termsY = summaryY + 45;
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setFont(template.font, 'normal');
+    const termsText = data.terms || "All other terms and conditions of the original contract remain in full force and effect.";
+    const termsLines = doc.splitTextToSize(termsText, 170);
+    doc.text(termsLines, 20, termsY);
+
+    // Signature
+    const sigY = termsY + 30;
+    if (data.signatureUrl) {
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, sigY - 15, 40, 15);
+    }
+    doc.setDrawColor(0,0,0);
+    doc.line(20, sigY, 80, sigY);
+    doc.text('Accepted By (Client)', 20, sigY + 5);
+    
+    doc.line(120, sigY, 180, sigY);
+    doc.text('Authorized By (Contractor)', 120, sigY + 5);
+
+    doc.save(`ChangeOrder-${data.changeOrderNumber}.pdf`);
+};
+
+export const generatePurchaseOrderPDF = async (profile: UserProfile, job: Job, data: PurchaseOrderData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    // -- Header --
+    const yPos = await drawDocumentHeader(doc, data, profile, template, primaryRgb, 'PURCHASE ORDER', 'Date', data.date, 'P.O. #', data.poNumber);
+    
+    // -- 3-Column Logistics Grid --
+    doc.setFontSize(9);
+    doc.setFont(template.font, 'bold');
+    
+    const colY = yPos + 5;
+    const colW = 55;
+    const gap = 5;
+    
+    // 1. Vendor (Left)
+    doc.text('VENDOR', 20, colY);
+    doc.setFont(template.font, 'normal');
+    doc.text(data.vendorName, 20, colY + 5);
+    const vendorAddr = doc.splitTextToSize(data.vendorAddress || '', colW);
+    doc.text(vendorAddr, 20, colY + 10);
+    doc.text(data.vendorPhone || '', 20, colY + 10 + (vendorAddr.length * 4) + 4);
+
+    // 2. Ship To (Center)
+    doc.setFont(template.font, 'bold');
+    doc.text('SHIP TO', 20 + colW + gap, colY);
+    doc.setFont(template.font, 'normal');
+    doc.text(data.shipToName, 20 + colW + gap, colY + 5);
+    const shipAddr = doc.splitTextToSize(data.shipToAddress || '', colW);
+    doc.text(shipAddr, 20 + colW + gap, colY + 10);
+    doc.text(data.shipToPhone || '', 20 + colW + gap, colY + 10 + (shipAddr.length * 4) + 4);
+
+    // 3. Bill To (Right)
+    doc.setFont(template.font, 'bold');
+    doc.text('BILL TO', 20 + (colW * 2) + (gap * 2), colY);
+    doc.setFont(template.font, 'normal');
+    doc.text(data.companyName || profile.companyName, 20 + (colW * 2) + (gap * 2), colY + 5);
+    const billAddr = doc.splitTextToSize(data.companyAddress || profile.address || '', colW);
+    doc.text(billAddr, 20 + (colW * 2) + (gap * 2), colY + 10);
+    
+    let currentY = Math.max(
+        colY + 25, 
+        colY + 15 + (vendorAddr.length * 4), 
+        colY + 15 + (shipAddr.length * 4),
+        colY + 15 + (billAddr.length * 4)
+    );
+
+    // -- Logistics Instructions Box --
+    doc.setDrawColor(200, 200, 200);
+    doc.setFillColor(245, 245, 245); // Light grey bg for visibility
+    doc.rect(20, currentY, 170, 20, 'FD');
+    
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    
+    // Required Date
+    doc.setFont(template.font, 'bold');
+    doc.text('REQUIRED DATE:', 25, currentY + 8);
+    doc.setFont(template.font, 'normal');
+    doc.text(data.deliveryDate, 60, currentY + 8);
+    
+    // Instructions
+    doc.setFont(template.font, 'bold');
+    doc.text('DELIVERY INSTRUCTIONS:', 25, currentY + 16);
+    doc.setFont(template.font, 'normal');
+    // Truncate or split instructions
+    const instructions = doc.splitTextToSize(data.deliveryInstructions || 'None', 110);
+    doc.text(instructions, 75, currentY + 16);
+    
+    currentY += 30;
+
+    // -- Line Items --
+    const tableColumn = ["Item / Description", "Qty", "Rate", "Amount"];
+    const tableRows = data.lineItems.map(i => [
+        i.description, 
+        i.quantity, 
+        `$${Number(i.rate).toFixed(2)}`, 
+        `$${(i.quantity * i.rate).toFixed(2)}`
+    ]);
+    
+    (doc as any).autoTable({
+        startY: currentY,
+        head: [tableColumn],
+        body: tableRows,
+        theme: 'grid',
+        headStyles: { fillColor: primaryRgb, textColor: [255, 255, 255] },
+        styles: { 
+            font: template.font, 
+            fontSize: 10, 
+            lineColor: [0, 0, 0], 
+            lineWidth: 0.1,
+            textColor: [0, 0, 0]
+        },
+    });
+    
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    const total = data.lineItems.reduce((acc, item) => acc + (item.quantity * item.rate), 0);
+
+    // Total
+    doc.setFontSize(12);
+    doc.setFont(template.font, 'bold');
+    doc.text(`Total: $${total.toFixed(2)}`, 190, finalY, { align: 'right' });
+
+    // Notes
+    if (data.notes) {
+        doc.setFontSize(9);
+        doc.setFont(template.font, 'normal');
+        doc.text(`Notes: ${data.notes}`, 20, finalY + 10);
+    }
+
+    // Signature
+    const sigY = finalY + 30;
+    if (data.signatureUrl) {
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, sigY - 15, 40, 15);
+    }
+    doc.setDrawColor(0, 0, 0);
+    doc.line(20, sigY, 80, sigY);
+    doc.setFontSize(9);
+    doc.text('Authorized Signature', 20, sigY + 5);
+
+    doc.save(`PO-${data.poNumber}.pdf`);
 };
 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string) => {

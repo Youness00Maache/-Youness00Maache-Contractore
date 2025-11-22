@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 // Base Icon Component for consistency (Filled/Solid style)
@@ -60,6 +61,8 @@ export const ChevronDownIcon = (props: any) => <StrokeIcon {...props}><path d="m
 export const EyeIcon = (props: any) => <StrokeIcon {...props}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></StrokeIcon>;
 export const EyeOffIcon = (props: any) => <StrokeIcon {...props}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></StrokeIcon>;
 export const CloudSunIcon = (props: any) => <StrokeIcon {...props}><path d="M12 2v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="M20 12h2"/><path d="m19.07 4.93-1.41 1.41"/><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"/><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"/></StrokeIcon>;
+export const CalendarIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></StrokeIcon>;
+export const TruckIcon = (props: any) => <StrokeIcon {...props}><rect width="16" height="13" x="2" y="5" rx="2" /><path d="M18 12h2.33a2 2 0 0 0 1.66-3.23l-1.5-2.33a2 2 0 0 0-1.66-.9h-2.83" /><path d="M5 18v2" /><path d="M19 18v2" /></StrokeIcon>;
 
 // --- Actions ---
 export const CameraIcon = (props: any) => <StrokeIcon {...props}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></StrokeIcon>;
@@ -114,6 +117,7 @@ export const WarrantyIcon = (props: any) => <StrokeIcon {...props}><path d="M12 
 export const NoteIcon = (props: any) => <StrokeIcon {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></StrokeIcon>;
 export const ReceiptIcon = (props: any) => <StrokeIcon {...props}><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1Z"/><line x1="16" x2="8" y="8" y2="8"/><line x1="16" x2="8" y1="12" y2="12"/><line x1="10" x2="8" y1="16" y2="16"/></StrokeIcon>;
 export const WorkOrderIcon = (props: any) => <StrokeIcon {...props}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></StrokeIcon>;
+export const ChangeOrderIcon = (props: any) => <StrokeIcon {...props}><polyline points="16 3 21 3 21 8"/><line x1="4" x2="21" y1="20" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" x2="21" y1="15" y2="21"/><line x1="4" x2="9" y1="4" y2="9"/></StrokeIcon>;
 export const BarChartIcon = (props: any) => <StrokeIcon {...props}><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></StrokeIcon>;
 export const MessageSquareIcon = (props: any) => <StrokeIcon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></StrokeIcon>;
 export const TrendingUpIcon = (props: any) => <StrokeIcon {...props}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></StrokeIcon>;
@@ -131,7 +135,6 @@ export const FileTextIcon = (props: any) => <StrokeIcon {...props}><path d="M14.
 export const RobotIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="12" x="3" y="6" rx="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><line x1="12" x2="12" y1="2" y2="6"/><line x1="12" x2="12" y1="18" y2="22"/></StrokeIcon>;
 export const AwardIcon = (props: any) => <StrokeIcon {...props}><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></StrokeIcon>;
 export const PieChartIcon = (props: any) => <StrokeIcon {...props}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></StrokeIcon>;
-export const CalendarIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></StrokeIcon>;
 export const ThumbsUpIcon = (props: any) => <StrokeIcon {...props}><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></StrokeIcon>;
 export const ThumbsDownIcon = (props: any) => <StrokeIcon {...props}><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/></StrokeIcon>;
 export const MessageCircleIcon = (props: any) => <StrokeIcon {...props}><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></StrokeIcon>;

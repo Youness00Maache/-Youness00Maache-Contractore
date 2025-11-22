@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import type { WorkOrderData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
@@ -18,10 +19,10 @@ interface Props {
   clients?: Client[];
   onSave: (data: WorkOrderData) => void;
   onBack: () => void;
-  onUpdateLogo?: (file: File) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<string>;
 }
 
-const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUpdateLogo }) => {
+const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
   const [page, setPage] = useState(1);
   const [formData, setFormData] = useState<WorkOrderData>(data || {
     title: '',
@@ -93,11 +94,18 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
-      };
-      reader.readAsDataURL(file);
+      if (onUploadImage) {
+          try {
+              const newUrl = await onUploadImage(file);
+              if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
+          } catch (e) { console.error(e); }
+      } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
     }
   };
 

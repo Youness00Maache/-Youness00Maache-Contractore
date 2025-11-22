@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DailyJobReportData, UserProfile, Job, Client } from '../types.ts';
 import { generateDailyJobReportPDF } from '../services/pdfGenerator.ts';
@@ -20,7 +22,7 @@ interface DailyJobReportFormProps {
   report: DailyJobReportData | null;
   onSave: (data: DailyJobReportData) => void;
   onBack: () => void;
-  onUpdateLogo?: (file: File) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<string>;
 }
 
 const defaultReport: Omit<DailyJobReportData, 'companyName' | 'companyAddress' | 'companyPhone' | 'companyWebsite' | 'clientName' | 'projectAddress' | 'projectName' | 'logoUrl'> = {
@@ -48,7 +50,7 @@ const Modal: React.FC<{onClose: () => void, title: string, children: React.React
     </div>
 );
 
-const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, clients, report, onSave, onBack, onUpdateLogo }) => {
+const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, clients, report, onSave, onBack, onUploadImage }) => {
   const [data, setData] = useState<DailyJobReportData>(report || {
     ...defaultReport,
     companyName: profile.companyName,
@@ -87,12 +89,13 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
   const resizeStartRef = useRef<{x: number, y: number, width: number, height: number, aspectRatio: number} | null>(null);
   
   // Auto-sync logo from profile if it changes and report is not signed (considered work-in-progress)
+  // Only if there is no explicit data override yet.
   useEffect(() => {
       const isUnsigned = !data.signatureUrl;
-      if (isUnsigned && profile.logoUrl && profile.logoUrl !== data.logoUrl) {
+      if (isUnsigned && profile.logoUrl && !report) {
           setData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
       }
-  }, [profile.logoUrl, data.signatureUrl]);
+  }, [profile.logoUrl]);
 
   useEffect(() => {
     if (page === 2 && editorRef.current) {
@@ -245,9 +248,9 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'signatureUrl') => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (field === 'logoUrl' && onUpdateLogo) {
+      if (field === 'logoUrl' && onUploadImage) {
          try {
-            const newUrl = await onUpdateLogo(file);
+            const newUrl = await onUploadImage(file);
             if(newUrl) setData(prev => ({ ...prev, [field]: newUrl }));
          } catch(e) { console.error(e); }
       } else {

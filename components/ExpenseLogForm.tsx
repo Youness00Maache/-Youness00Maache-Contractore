@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import type { ExpenseLogData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -18,10 +19,10 @@ interface Props {
   clients?: Client[];
   onSave: (data: ExpenseLogData) => void;
   onBack: () => void;
-  onUpdateLogo?: (file: File) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<string>;
 }
 
-const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUpdateLogo }) => {
+const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
   const [formData, setFormData] = useState<ExpenseLogData>(data || {
     title: '',
     date: new Date().toISOString().split('T')[0],
@@ -61,9 +62,9 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (onUpdateLogo) {
+      if (onUploadImage) {
           try {
-              const newUrl = await onUpdateLogo(file);
+              const newUrl = await onUploadImage(file);
               if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
           } catch (e) { console.error(e); }
       } else {

@@ -11,6 +11,8 @@ export enum FormType {
   Warranty = "Warranty",
   Note = "Note",
   Receipt = "Receipt",
+  ChangeOrder = "Change Order",
+  PurchaseOrder = "Purchase Order",
 }
 
 export interface UserProfile {
@@ -217,6 +219,57 @@ export interface WarrantyData extends DocumentStyle {
   logoUrl?: string;
 }
 
+export interface ChangeOrderData extends DocumentStyle {
+  title?: string;
+  changeOrderNumber: string;
+  date: string;
+  description: string;
+  reason: string; // e.g. "Client Request", "Unforeseen Condition"
+  currentContractSum: number;
+  lineItems: LineItem[];
+  terms: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  clientAddress?: string;
+  logoUrl?: string;
+  signatureUrl?: string;
+}
+
+export interface PurchaseOrderData extends DocumentStyle {
+  title?: string;
+  poNumber: string;
+  date: string;
+  deliveryDate: string;
+  status: 'Draft' | 'Sent' | 'Received' | 'Cancelled';
+  
+  // Vendor
+  vendorName: string;
+  vendorAddress: string;
+  vendorPhone: string;
+  vendorEmail: string;
+
+  // Ship To Logic
+  shipToType: 'Job Site' | 'Company Office' | 'Custom';
+  shipToName: string;
+  shipToAddress: string;
+  shipToPhone: string;
+  deliveryInstructions: string; // Gate codes, etc.
+
+  lineItems: LineItem[];
+  notes: string;
+
+  // Standard branding
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  logoUrl?: string;
+  signatureUrl?: string;
+}
+
 export interface NoteData extends DocumentStyle {
   title: string;
   content: string;
@@ -245,5 +298,5 @@ export interface FormData {
   jobId: string;
   type: FormType;
   createdAt: string;
-  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData;
+  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData;
 }

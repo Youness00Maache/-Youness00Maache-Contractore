@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import type { InvoiceData, LineItem, Job, UserProfile } from '../types';
 import { generateInvoicePDF } from '../services/pdfGenerator';
@@ -16,7 +18,7 @@ interface InvoiceFormProps {
   invoice: InvoiceData | null;
   onSave: (invoiceData: InvoiceData) => void;
   onClose: () => void;
-  onUpdateLogo?: (file: File) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<string>;
 }
 
 const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'companyName' | 'companyAddress' | 'companyPhone' | 'companyWebsite' | 'logoUrl'> = {
@@ -33,7 +35,7 @@ const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'compan
   signatureUrl: '',
 };
 
-const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose, onUpdateLogo }) => {
+const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose, onUploadImage }) => {
   const [page, setPage] = useState(1);
   const [invoiceData, setInvoiceData] = useState<InvoiceData>(
     invoice || {
@@ -54,10 +56,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
 
   // Auto-sync logo from profile if it changes and the invoice is editable (Draft)
   useEffect(() => {
-    if (invoiceData.status === 'Draft' && userProfile.logoUrl && userProfile.logoUrl !== invoiceData.logoUrl) {
+    if (invoiceData.status === 'Draft' && userProfile.logoUrl && !invoice) {
         setInvoiceData(prev => ({ ...prev, logoUrl: userProfile.logoUrl }));
     }
-  }, [userProfile.logoUrl, invoiceData.status]);
+  }, [userProfile.logoUrl]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -67,16 +69,14 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (onUpdateLogo) {
-          // Sync global
+      if (onUploadImage) {
           try {
-              const newUrl = await onUpdateLogo(file);
+              const newUrl = await onUploadImage(file);
               if (newUrl) setInvoiceData(prev => ({ ...prev, logoUrl: newUrl }));
           } catch (err) {
               console.error("Logo upload error", err);
           }
       } else {
-          // Fallback local preview
           const reader = new FileReader();
           reader.onload = (event) => {
             setInvoiceData(prev => ({ ...prev, logoUrl: event.target?.result as string }));

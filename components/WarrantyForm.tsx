@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import type { WarrantyData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -17,10 +19,10 @@ interface Props {
   clients?: Client[];
   onSave: (data: WarrantyData) => void;
   onBack: () => void;
-  onUpdateLogo?: (file: File) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<string>;
 }
 
-const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUpdateLogo }) => {
+const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
   const [formData, setFormData] = useState<WarrantyData>(data || {
     title: '',
     warrantyNumber: `WAR-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(Math.random() * 1000)}`,
@@ -67,15 +69,21 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      // If onUpdateLogo is provided (global update), we use it.
-      // But the user might just want to change THIS document's logo. 
-      // Given the prompt "if the user wants to change it, they can", we'll do local preview first.
-      
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
-      };
-      reader.readAsDataURL(file);
+      // Use provided upload function if available, otherwise local read
+      if (onUploadImage) {
+          try {
+              const newUrl = await onUploadImage(file);
+              if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
+          } catch (e) {
+              console.error(e);
+          }
+      } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
     }
   };
 

@@ -17,6 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Alfa+Slab+One&family=Anton&family=Arvo&family=Bangers&family=Bebas+Neue&family=Bitter&family=Cabin&family=Caveat&family=Comfortaa&family=Cormorant+Garamond&family=Crimson+Text&family=Dancing+Script:wght@400;700&family=DM+Sans&family=EB+Garamond&family=Indie+Flower&family=Inconsolata&family=Inter&family=JetBrains+Mono&family=Josefin+Sans&family=Lato:ital,wght@0,400;0,700;1,400&family=Lobster&family=Lora&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Montserrat:ital,wght@0,400;0,700;1,400&family=Nunito&family=Open+Sans:ital,wght@0,400;0,700;1,400&family=Oswald:wght@400;700&family=Pacifico&family=Patrick+Hand&family=Permanent+Marker&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Poppins&family=PT+Serif&family=Raleway:ital,wght@0,400;0,700;1,400&family=Righteous&family=Roboto:ital,wght@0,400;0,700;1,400&family=Rubik&family=Shadows+Into+Light+Two&family=Source+Code+Pro&family=Space+Grotesk&family=Space+Mono&family=Ubuntu&family=Work+Sans&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/react-big-calendar@1.8.5/lib/css/react-big-calendar.css" rel="stylesheet">
   <style>
     :root {
       --card: #ffffff; 
@@ -80,6 +81,19 @@
       -ms-overflow-style: none;  /* IE and Edge */
       scrollbar-width: none;  /* Firefox */
     }
+    /* Calendar Overrides for Dark Mode */
+    .dark .rbc-calendar { color: #e2e8f0; }
+    .dark .rbc-off-range-bg { bg-color: #1a1a1a; }
+    .dark .rbc-off-range { color: #525252; }
+    .dark .rbc-header { border-bottom-color: #404040; }
+    .dark .rbc-month-view, .dark .rbc-time-view, .dark .rbc-agenda-view { border-color: #404040; }
+    .dark .rbc-day-bg + .rbc-day-bg { border-left-color: #404040; }
+    .dark .rbc-month-row + .rbc-month-row { border-top-color: #404040; }
+    .dark .rbc-today { background-color: rgba(0, 0, 187, 0.1); }
+    .dark .rbc-btn-group button { color: #e2e8f0; }
+    .dark .rbc-btn-group button:hover { background-color: #2b2b2b; }
+    .dark .rbc-btn-group .rbc-active { background-color: #0000bb; color: white; }
+    .rbc-event { border-radius: 4px; }
   </style>
   <script>
     tailwind.config = {
@@ -113,12 +127,14 @@
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "react": "https://esm.sh/react@19.2.0",
+    "react-dom": "https://esm.sh/react-dom@19.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.2.0/client",
     "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?external=react,react-dom",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "react-big-calendar": "https://esm.sh/react-big-calendar@1.8.5?external=react,react-dom",
+    "date-fns": "https://esm.sh/date-fns@2.30.0",
+    "date-fns/": "https://esm.sh/date-fns@2.30.0/",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/"
   }
@@ -133,8 +149,7 @@
             console.log('SW registered:', registration);
           })
           .catch(error => {
-            // SW errors in preview environments are common and non-fatal
-            console.warn('SW registration failed (expected in some preview environments):', error);
+            console.log('SW registration failed:', error);
           });
       });
     }

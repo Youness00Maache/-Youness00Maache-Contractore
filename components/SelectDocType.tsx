@@ -1,8 +1,9 @@
 
+
 import React from 'react';
 import { FormType } from '../types';
 // FIX: Added .tsx extension to the import path to resolve the module error.
-import { InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BackArrowIcon } from './Icons.tsx';
+import { InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BackArrowIcon, ChangeOrderIcon, TruckIcon } from './Icons.tsx';
 import { Button } from './ui/Button.tsx';
 
 interface SelectDocTypeProps {
@@ -12,12 +13,14 @@ interface SelectDocTypeProps {
 
 const docTypes = [
   { type: FormType.Invoice, description: 'Bill clients for work', icon: InvoiceIcon },
+  { type: FormType.Estimate, description: 'Project quotes', icon: EstimateIcon },
+  { type: FormType.PurchaseOrder, description: 'Order materials/supplies', icon: TruckIcon },
+  { type: FormType.ChangeOrder, description: 'Manage scope changes', icon: ChangeOrderIcon },
   { type: FormType.Receipt, description: 'Record payments', icon: ReceiptIcon },
   { type: FormType.WorkOrder, description: 'Track service requests', icon: WorkOrderIcon },
   { type: FormType.TimeSheet, description: 'Log hours worked', icon: TimeSheetIcon },
   { type: FormType.MaterialLog, description: 'Track materials', icon: MaterialLogIcon },
   { type: FormType.DailyJobReport, description: 'Daily progress', icon: DailyReportIcon },
-  { type: FormType.Estimate, description: 'Project quotes', icon: EstimateIcon },
   { type: FormType.ExpenseLog, description: 'Track expenses', icon: ExpenseLogIcon },
   { type: FormType.Warranty, description: 'Issue warranties', icon: WarrantyIcon },
   { type: FormType.Note, description: 'Quick notes', icon: NoteIcon },

@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import type { TimeSheetData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -18,10 +19,10 @@ interface Props {
   clients?: Client[];
   onSave: (data: TimeSheetData) => void;
   onBack: () => void;
-  onUpdateLogo?: (file: File) => Promise<string>;
+  onUploadImage?: (file: File) => Promise<string>;
 }
 
-const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUpdateLogo }) => {
+const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
   const [page, setPage] = useState(1);
   const [formData, setFormData] = useState<TimeSheetData>(data || {
     title: '',
@@ -60,7 +61,7 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
           // Existing draft - update logo if changed, and fill company info if empty in the form
           setFormData(prev => ({
               ...prev,
-              logoUrl: (profile.logoUrl && profile.logoUrl !== prev.logoUrl) ? profile.logoUrl : prev.logoUrl,
+              logoUrl: (profile.logoUrl && profile.logoUrl !== prev.logoUrl && !data.logoUrl) ? profile.logoUrl : prev.logoUrl,
               companyName: prev.companyName ? prev.companyName : profile.companyName,
               companyAddress: prev.companyAddress ? prev.companyAddress : profile.address,
               companyPhone: prev.companyPhone ? prev.companyPhone : profile.phone,
@@ -91,10 +92,9 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      // Use global updater if available, otherwise local read
-      if (onUpdateLogo) {
+      if (onUploadImage) {
           try {
-              const newUrl = await onUpdateLogo(file);
+              const newUrl = await onUploadImage(file);
               if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
           } catch (e) {
               console.error(e);
