@@ -96,14 +96,16 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, onSave, onBack }) 
                  />
               </div>
             </CardContent>
-            <CardFooter className="flex justify-end gap-2 flex-wrap">
-                <Button variant="outline" onClick={() => onSave(formData)}>Save Only</Button>
-                <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
-                    <ExportIcon className="h-4 w-4 mr-2"/> Download PDF
-                </Button>
-                <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading}>
-                    Save & Download
-                </Button>
+            <CardFooter className="flex flex-col sm:flex-row gap-2 w-full">
+                <Button variant="outline" onClick={() => onSave(formData)} className="w-full sm:w-auto order-2 sm:order-1">Save Only</Button>
+                <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:order-2 sm:ml-auto sm:justify-end">
+                    <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full sm:w-auto">
+                        <ExportIcon className="h-4 w-4 mr-2"/> Download PDF
+                    </Button>
+                    <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading} className="col-span-2 sm:col-span-1 w-full sm:w-auto">
+                        Save & Download
+                    </Button>
+                </div>
             </CardFooter>
           </Card>
       </div>

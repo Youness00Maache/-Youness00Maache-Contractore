@@ -77,25 +77,50 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
     }
   }, []);
 
+  // Active State Checker
+  const checkActiveState = useCallback(() => {
+      if (!document.activeElement || !editorRef.current?.contains(document.activeElement)) return;
+      
+      const commands = ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList', 'justifyLeft', 'justifyCenter', 'justifyRight'];
+      const active = commands.filter(cmd => document.queryCommandState(cmd));
+      
+      const formatBlock = document.queryCommandValue('formatBlock');
+      if (formatBlock) active.push(formatBlock);
+
+      setActiveToolbar(active);
+  }, []);
+
   useEffect(() => {
     const editor = editorRef.current;
     if (editor) {
-        const handleClick = (e: MouseEvent) => {
-            const targetElement = e.target as HTMLElement;
-            if (targetElement.tagName === 'A' && editor.contains(targetElement)) {
+        const handleInteraction = () => checkActiveState();
+        
+        const handleClickLink = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const link = target.closest('a');
+            if (link && editor.contains(link)) {
                 e.preventDefault();
-                const href = (targetElement as HTMLAnchorElement).href;
+                e.stopPropagation();
+                const href = (link as HTMLAnchorElement).href;
                 if (href) {
                     window.open(href, '_blank', 'noopener,noreferrer');
                 }
             }
         };
-        editor.addEventListener('click', handleClick);
+
+        editor.addEventListener('keyup', handleInteraction);
+        editor.addEventListener('mouseup', handleInteraction);
+        editor.addEventListener('click', handleInteraction);
+        editor.addEventListener('click', handleClickLink);
+
         return () => {
-            editor.removeEventListener('click', handleClick);
+            editor.removeEventListener('keyup', handleInteraction);
+            editor.removeEventListener('mouseup', handleInteraction);
+            editor.removeEventListener('click', handleInteraction);
+            editor.removeEventListener('click', handleClickLink);
         };
     }
-  }, []);
+  }, [checkActiveState]);
 
   // START CAMERA LOGIC
   const startCamera = async () => {
@@ -222,6 +247,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
         }
 
         setSelectedElement(elementToSelect);
+        checkActiveState(); // Update tool state on click
     };
     
     document.addEventListener('mousedown', handleMouseDown);
@@ -317,6 +343,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
   };
   
   const handleEditorCommand = (command: string, value?: any) => {
+    editorRef.current?.focus();
     if (command === 'createLink') {
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
@@ -326,10 +353,8 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             alert("Please select text to create a link.");
         }
     } else if (command === 'insertTable') {
-        editorRef.current?.focus();
         setShowTableModal(true);
     } else if (command === 'insertColumns') {
-        editorRef.current?.focus();
         const columnHTML = `
           <div style="display: flex; gap: 1rem; margin: 1rem 0;">
             <div style="flex: 1; min-width: 0; border: 1px dashed var(--border); padding: 0.5rem; border-radius: var(--radius);">
@@ -343,7 +368,6 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
         `;
         document.execCommand('insertHTML', false, columnHTML);
     } else if (command === 'formatBlock' && value === 'blockquote') {
-        editorRef.current?.focus();
         const selection = window.getSelection();
         if (selection) {
             const selectedText = selection.toString();
@@ -355,9 +379,9 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             }
         }
     } else {
-        editorRef.current?.focus();
         document.execCommand(command, false, value);
     }
+    checkActiveState();
   };
 
   const applyLink = () => {
@@ -372,7 +396,28 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
                 finalUrl = 'https://' + finalUrl;
             }
 
+            // Create basic link using standard command
             document.execCommand('createLink', false, finalUrl);
+            
+            // Find the created link and apply attributes strictly
+            const anchorNode = selection.focusNode; // Cursor often ends inside the link
+            let targetEl: HTMLAnchorElement | null = null;
+            
+            if (anchorNode) {
+               if (anchorNode.nodeType === Node.ELEMENT_NODE && (anchorNode as HTMLElement).tagName === 'A') {
+                   targetEl = anchorNode as HTMLAnchorElement;
+               } else {
+                   targetEl = anchorNode.parentElement?.closest('a') || null;
+               }
+            }
+
+            if (targetEl) {
+                targetEl.setAttribute('target', '_blank');
+                targetEl.setAttribute('rel', 'noopener noreferrer');
+                targetEl.style.color = 'blue';
+                targetEl.style.textDecoration = 'underline';
+                targetEl.style.cursor = 'pointer';
+            }
         }
     }
     setShowLinkModal(false);
@@ -432,6 +477,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
       editorRef.current.focus();
       setTimeout(() => {
         document.execCommand('insertText', false, transcript + ' ');
+        checkActiveState();
       }, 50);
     }
   }, []);
@@ -620,8 +666,9 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
                                 ref={editorRef}
                                 contentEditable
                                 suppressContentEditableWarning
-                                className="w-full mt-4 p-4 rounded-md bg-input border border-border focus:ring-2 focus:ring-ring focus:outline-none overflow-y-auto"
-                                style={{minHeight: '300px'}}
+                                className="w-full mt-4 p-4 rounded-md bg-input border border-border focus:ring-2 focus:ring-ring focus:outline-none min-h-[300px]"
+                                onKeyUp={checkActiveState}
+                                onMouseUp={checkActiveState}
                             >
                             </div>
                             {resizerState && (
@@ -681,14 +728,16 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
                              />
                         </div>
                     </CardContent>
-                     <CardFooter className="flex justify-end gap-2 flex-wrap">
-                        <Button variant="outline" onClick={handleSave}>Save Only</Button>
-                        <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
-                            <ExportIcon className="h-4 w-4 mr-2"/> Download PDF
-                        </Button>
-                        <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading}>
-                            Save & Download
-                        </Button>
+                     <CardFooter className="flex flex-col sm:flex-row gap-2 w-full">
+                        <Button variant="outline" onClick={handleSave} className="w-full sm:w-auto order-2 sm:order-1">Save Only</Button>
+                        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:order-2 sm:ml-auto sm:justify-end">
+                            <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full sm:w-auto">
+                                {isDownloading ? '...' : 'Download PDF'}
+                            </Button>
+                            <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading} className="col-span-2 sm:col-span-1 w-full sm:w-auto">
+                                Save & Download
+                            </Button>
+                        </div>
                     </CardFooter>
                 </Card>
             </div>

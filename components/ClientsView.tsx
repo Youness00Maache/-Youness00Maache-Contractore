@@ -11,10 +11,16 @@ interface ClientsViewProps {
   onBack: () => void;
   supabase: any;
   session: any;
+  // New props for offline handling
+  clients?: Client[];
+  onAddClient?: (client: any) => Promise<void>;
+  onDeleteClient?: (id: string) => Promise<void>;
+  isOnline?: boolean;
 }
 
-const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session }) => {
-  const [clients, setClients] = useState<Client[]>([]);
+const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, clients: propClients, onAddClient, onDeleteClient, isOnline }) => {
+  // Fallback to local state if props aren't provided (backwards compatibility)
+  const [localClients, setLocalClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -26,9 +32,12 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session }) 
       notes: ''
   });
 
+  // Use props if available, otherwise local state (legacy mode)
+  const activeClients = propClients || localClients;
+
   useEffect(() => {
-      if(session) fetchClients();
-  }, [session]);
+      if(session && !propClients) fetchClients();
+  }, [session, propClients]);
 
   const fetchClients = async () => {
       setLoading(true);
@@ -40,64 +49,74 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session }) 
       
       if (error) {
           console.error('Error fetching clients:', error);
-          // Prevent alert spam on initial load if table is missing, App.tsx should handle critical setup errors.
-          // But for other errors, show them.
           if (!error.message.includes('relation "public.clients" does not exist')) {
-             alert(`Error fetching clients: ${error.message}`);
+             // alert(`Error fetching clients: ${error.message}`);
           }
       }
-      else setClients(data || []);
+      else setLocalClients(data || []);
       setLoading(false);
   };
 
-  const handleAddClient = async () => {
+  const handleAdd = async () => {
       if (!newClient.name) return alert('Client Name is required');
       
       setLoading(true);
-      const { error } = await supabase
-          .from('clients')
-          .insert([{ ...newClient, user_id: session.user.id }]);
-      
-      if (error) {
-          console.error('Error adding client:', error);
-          alert(`Failed to add client: ${error.message}`);
-      } else {
+      if (onAddClient) {
+          await onAddClient(newClient);
           setShowAddModal(false);
           setNewClient({ name: '', email: '', phone: '', address: '', notes: '' });
-          fetchClients();
+      } else {
+          // Legacy direct call
+          const { error } = await supabase
+              .from('clients')
+              .insert([{ ...newClient, user_id: session.user.id }]);
+          
+          if (error) {
+              console.error('Error adding client:', error);
+              alert(`Failed to add client: ${error.message}`);
+          } else {
+              setShowAddModal(false);
+              setNewClient({ name: '', email: '', phone: '', address: '', notes: '' });
+              fetchClients();
+          }
       }
       setLoading(false);
   };
 
-  const handleDeleteClient = async (id: string) => {
+  const handleDelete = async (id: string) => {
       if (!confirm('Are you sure you want to delete this client?')) return;
       
-      const { error } = await supabase
-          .from('clients')
-          .delete()
-          .eq('id', id);
-      
-      if (error) {
-          console.error('Error deleting client:', error);
-          alert(`Failed to delete client: ${error.message}`);
+      if (onDeleteClient) {
+          await onDeleteClient(id);
+      } else {
+          const { error } = await supabase
+              .from('clients')
+              .delete()
+              .eq('id', id);
+          
+          if (error) {
+              console.error('Error deleting client:', error);
+              alert(`Failed to delete client: ${error.message}`);
+          }
+          else fetchClients();
       }
-      else fetchClients();
   };
 
-  const filteredClients = clients.filter(c => 
+  const filteredClients = activeClients.filter(c => 
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-        <header className="flex justify-between items-center mb-8 border-b border-border pb-4">
+        <header className="flex justify-between items-center mb-8 border-b border-border pb-4 gap-4">
              <div className="flex items-center gap-4">
                  <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
                     <BackArrowIcon className="h-9 w-9" />
                 </Button>
                 <h1 className="text-2xl md:text-3xl font-bold">Clients</h1>
             </div>
+            {isOnline === false && <div className="bg-orange-100 text-orange-800 px-2 py-1 rounded text-xs font-bold">Offline</div>}
             <Button onClick={() => setShowAddModal(true)}><PlusIcon className="w-4 h-4 mr-2"/> Add Client</Button>
         </header>
 
@@ -113,7 +132,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session }) 
         </div>
 
         {/* Client List */}
-        {loading && clients.length === 0 ? (
+        {loading && activeClients.length === 0 ? (
             <div className="text-center p-10">Loading...</div>
         ) : filteredClients.length === 0 ? (
             <div className="text-center p-10 text-muted-foreground">No clients found.</div>
@@ -130,7 +149,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session }) 
                             {client.address && <p className="text-muted-foreground truncate">{client.address}</p>}
                         </CardContent>
                         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="sm" onClick={() => handleDeleteClient(client.id)} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0">
+                            <Button variant="ghost" size="sm" onClick={() => handleDelete(client.id)} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0">
                                 <TrashIcon className="w-4 h-4" />
                             </Button>
                         </div>
@@ -155,7 +174,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session }) 
                     </CardContent>
                     <CardFooter className="flex justify-end gap-2">
                         <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
-                        <Button onClick={handleAddClient} disabled={loading}>{loading ? 'Saving...' : 'Add Client'}</Button>
+                        <Button onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Add Client'}</Button>
                     </CardFooter>
                 </Card>
             </div>

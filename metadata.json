@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Copy of Copy of Copy of Contractor AI",
+  "name": "Contractor AI App",
   "description": "A web application for contractors to manage job-related documents like invoices, timesheets, and reports. It allows for manual data entry and professional PDF generation for all essential paperwork.",
   "requestFramePermissions": [
     "camera",

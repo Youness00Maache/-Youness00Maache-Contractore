@@ -12,6 +12,8 @@ interface ForumViewProps {
   supabase: any;
   session: any;
   onUploadImage: (file: File) => Promise<string>;
+  initialPostId?: string;
+  onNavigate: (postId: string | null) => void;
 }
 
 interface Post {
@@ -46,7 +48,7 @@ interface Comment {
 type Category = 'General' | 'Suggestion' | 'Project Showcase';
 type SortOption = 'newest' | 'popular';
 
-const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage }) => {
+const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage, initialPostId, onNavigate }) => {
   const [activeTab, setActiveTab] = useState<Category>('General');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [commentSortBy, setCommentSortBy] = useState<SortOption>('newest');
@@ -56,7 +58,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const [newPost, setNewPost] = useState({ title: '', content: '' });
   const [newPostImage, setNewPostImage] = useState<File | null>(null);
   const [newPostImagePreview, setNewPostImagePreview] = useState<string>('');
-  const [newPostImageSize, setNewPostImageSize] = useState<string>(''); // For display
+  const [newPostImageSize, setNewPostImageSize] = useState<string>(''); 
   const [originalImageSize, setOriginalImageSize] = useState<string>(''); 
   const [isPosting, setIsPosting] = useState(false);
   
@@ -85,6 +87,25 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
     if (session) fetchPosts();
   }, [session, activeTab, sortBy]);
 
+  // Handle Deep Linking / Persistence
+  useEffect(() => {
+      if (initialPostId) {
+          // If we already have it selected, do nothing
+          if (selectedPost?.id === initialPostId) return;
+          
+          // Check if it's in the current posts list
+          const existing = posts.find(p => p.id === initialPostId);
+          if (existing) {
+              setSelectedPost(existing);
+          } else {
+              // If not in the list (e.g. direct refresh), fetch it individually
+              fetchPostDetails(initialPostId);
+          }
+      } else {
+          setSelectedPost(null);
+      }
+  }, [initialPostId, posts]);
+
   // Clean up object URLs
   useEffect(() => {
       return () => {
@@ -93,12 +114,35 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       };
   }, [newPostImagePreview, newCommentImagePreview]);
 
-  // Fetch Comments when a post is selected or sorting changes
+  // Fetch Comments when a post is selected
   useEffect(() => {
       if (selectedPost && session) {
           fetchComments(selectedPost.id);
       }
   }, [commentSortBy, selectedPost?.id]);
+
+  const fetchPostDetails = async (postId: string) => {
+      setLoading(true);
+      const { data: post, error } = await supabase
+        .from('forum_posts')
+        .select('*, profiles:user_id(name, logo_url), forum_comments(count)')
+        .eq('id', postId)
+        .single();
+      
+      if (post && !error) {
+          // Fetch vote
+          const { data: vote } = await supabase.from('forum_votes').select('vote_type').eq('post_id', postId).eq('user_id', session.user.id).single();
+          
+          const formatted = {
+              ...post,
+              userVote: vote?.vote_type || null,
+              score: (post.upvotes || 0) - (post.downvotes || 0),
+              comment_count: post.forum_comments ? post.forum_comments[0]?.count : 0
+          };
+          setSelectedPost(formatted);
+      }
+      setLoading(false);
+  };
 
   const fetchPosts = async () => {
       setLoading(true);
@@ -116,7 +160,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       if (sortBy === 'newest') {
           query = query.order('created_at', { ascending: false });
       } else {
-          // For popular, assume upvotes is a good initial sort, but we refine by calculated score later
           query = query.order('upvotes', { ascending: false });
       }
 
@@ -128,7 +171,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           return;
       }
 
-      // 2. Fetch User Votes for these posts to highlight arrows
       const { data: votesData } = await supabase
         .from('forum_votes')
         .select('post_id, vote_type')
@@ -146,7 +188,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           comment_count: p.forum_comments ? p.forum_comments[0]?.count : 0
       }));
 
-      // Final Client-side Sort to ensure correctness of "Score" or "Date"
       if (sortBy === 'popular') {
           formattedPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
       } else {
@@ -158,7 +199,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   };
 
   const fetchComments = async (postId: string) => {
-      // Fetch comments and profiles
       const { data: commentsData, error } = await supabase
         .from('forum_comments')
         .select('*, profiles:user_id(name, logo_url)')
@@ -169,7 +209,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           return;
       }
 
-      // Fetch user votes for these comments
       const { data: votesData } = await supabase
         .from('forum_comment_votes')
         .select('comment_id, vote_type')
@@ -189,7 +228,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           score: (c.upvotes || 0) - (c.downvotes || 0)
       }));
 
-      // Sort Comments
       if (commentSortBy === 'newest') {
           formattedComments.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       } else {
@@ -201,21 +239,29 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
   const handleVote = async (postId: string, type: 'up' | 'down') => {
       const postIndex = posts.findIndex(p => p.id === postId);
-      if (postIndex === -1) return;
+      if (postIndex === -1 && selectedPost?.id !== postId) return;
       
-      const post = posts[postIndex];
+      // Find post (either in list or selected)
+      const post = selectedPost && selectedPost.id === postId ? selectedPost : posts[postIndex];
       const currentVote = post.userVote;
       
-      const newPosts = [...posts];
       let newUpvotes = post.upvotes;
       let newDownvotes = post.downvotes;
 
       if (currentVote === type) {
           if (type === 'up') newUpvotes--;
           else newDownvotes--;
-          newPosts[postIndex] = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null, score: newUpvotes - newDownvotes };
           
           await supabase.from('forum_votes').delete().match({ post_id: postId, user_id: session.user.id });
+          const updatedPost = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null, score: newUpvotes - newDownvotes };
+          
+          if (selectedPost?.id === postId) setSelectedPost(updatedPost);
+          if (postIndex !== -1) {
+              const newPosts = [...posts];
+              newPosts[postIndex] = updatedPost;
+              if (sortBy === 'popular') newPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+              setPosts(newPosts);
+          }
       } else {
           if (currentVote === 'up') newUpvotes--;
           if (currentVote === 'down') newDownvotes--;
@@ -223,21 +269,16 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           if (type === 'up') newUpvotes++;
           else newDownvotes++;
 
-          newPosts[postIndex] = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type, score: newUpvotes - newDownvotes };
-
           await supabase.from('forum_votes').upsert({ post_id: postId, user_id: session.user.id, vote_type: type }, { onConflict: 'post_id, user_id' });
-      }
-      
-      // Re-sort if in popular mode to reflect live vote changes
-      if (sortBy === 'popular') {
-          newPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
-      }
+          const updatedPost = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type, score: newUpvotes - newDownvotes };
 
-      setPosts(newPosts);
-      
-      // Optimistic update locally, background update DB
-      if (selectedPost && selectedPost.id === postId) {
-          setSelectedPost(newPosts[postIndex]);
+          if (selectedPost?.id === postId) setSelectedPost(updatedPost);
+          if (postIndex !== -1) {
+              const newPosts = [...posts];
+              newPosts[postIndex] = updatedPost;
+              if (sortBy === 'popular') newPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+              setPosts(newPosts);
+          }
       }
       
       await supabase.from('forum_posts').update({ upvotes: newUpvotes, downvotes: newDownvotes }).eq('id', postId);
@@ -255,14 +296,11 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       let newDownvotes = comment.downvotes;
 
       if (currentVote === type) {
-          // Remove vote
           if (type === 'up') newUpvotes--;
           else newDownvotes--;
           newComments[commentIndex] = { ...comment, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null, score: newUpvotes - newDownvotes };
-          
           await supabase.from('forum_comment_votes').delete().match({ comment_id: commentId, user_id: session.user.id });
       } else {
-          // Change or Add vote
           if (currentVote === 'up') newUpvotes--;
           if (currentVote === 'down') newDownvotes--;
           
@@ -270,7 +308,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           else newDownvotes++;
 
           newComments[commentIndex] = { ...comment, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type, score: newUpvotes - newDownvotes };
-
           await supabase.from('forum_comment_votes').upsert({ comment_id: commentId, user_id: session.user.id, vote_type: type }, { onConflict: 'comment_id, user_id' });
       }
 
@@ -300,7 +337,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   setNewCommentImagePreview(preview);
               }
           } catch (err) {
-              console.error("Compression error", err);
               alert("Could not process image.");
           }
       }
@@ -332,7 +368,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           streamRef.current = stream;
           setShowCameraModal(true);
       } catch (err: any) {
-          console.error("Error accessing camera:", err);
           alert("Error accessing camera: " + (err.message || "Unknown error"));
       }
   };
@@ -382,7 +417,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                           }
                           stopCamera();
                       } catch (err) {
-                          console.error("Compression error", err);
                           alert("Could not process photo.");
                       }
                   }
@@ -393,7 +427,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
   const handleCreatePost = async () => {
       if (!newPost.title || !newPost.content) return;
-      
       setIsPosting(true);
       let imageUrl = null;
 
@@ -405,7 +438,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   if (uploadError.message && (uploadError.message.includes('Bucket not found') || uploadError.message.includes('row not found'))) {
                       throw new Error("Forum image bucket not found. Please run the Database Setup script.");
                   }
-                  throw new Error(`Image upload failed: ${uploadError.message || 'Unknown error'}`);
+                  throw new Error(`Image upload failed: ${uploadError.message}`);
               }
           }
 
@@ -423,26 +456,18 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           setNewPost({ title: '', content: '' });
           setNewPostImage(null);
           setNewPostImagePreview('');
-          setNewPostImageSize('');
           await fetchPosts();
 
       } catch (error: any) {
-          console.error("Error creating post:", error);
           alert(`Failed to post: ${error.message || JSON.stringify(error)}`);
       } finally {
           setIsPosting(false);
       }
   };
 
-  const openPost = async (post: Post) => {
-      setSelectedPost(post);
-      // Comments are fetched via useEffect
-  };
-
   const handleAddComment = async () => {
       if (!newComment.trim() && !newCommentImage) return;
       if (!selectedPost) return;
-      
       setIsCommenting(true);
       let imageUrl = null;
 
@@ -463,20 +488,14 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
             .single();
 
           if (!error && data) {
-              // Initialize vote counts for new comment locally
               const newCommentObj = { ...data, upvotes: 0, downvotes: 0, score: 0, userVote: null };
               setComments([...comments, newCommentObj]);
               setNewComment('');
               setNewCommentImage(null);
               setNewCommentImagePreview('');
-              // Update post comment count locally
               setPosts(prev => prev.map(p => p.id === selectedPost.id ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p));
           } else if (error) {
-              if (error.message.includes('image_url') && error.message.includes('column')) {
-                  alert("Database mismatch. Please run the SQL update script to add image support for comments.");
-              } else {
-                  alert(`Failed to comment: ${error.message}`);
-              }
+              alert(`Failed to comment: ${error.message}`);
           }
       } catch (e: any) {
           alert('Error posting comment: ' + e.message);
@@ -485,11 +504,19 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       }
   };
 
+  const handlePostClick = (postId: string) => {
+      onNavigate(postId);
+  };
+
+  const handleClosePost = () => {
+      onNavigate(null);
+  };
+
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
       <header className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
         <div className="flex items-center">
-             <Button variant="ghost" size="sm" onClick={selectedPost ? () => setSelectedPost(null) : onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
+             <Button variant="ghost" size="sm" onClick={selectedPost ? handleClosePost : onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
                 <BackArrowIcon className="h-9 w-9" />
             </Button>
             <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
@@ -568,7 +595,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                       </div>
                   ) : (
                       posts.map(post => (
-                          <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => openPost(post)}>
+                          <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => handlePostClick(post.id)}>
                               <div className="flex">
                                   <div className="flex flex-col items-center p-3 bg-muted/30 border-r border-border gap-1 min-w-[50px]" onClick={e => e.stopPropagation()}>
                                       <button onClick={() => handleVote(post.id, 'up')} className={`p-1 rounded hover:bg-background ${post.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
@@ -584,7 +611,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                       <p className="text-sm text-muted-foreground line-clamp-3 mb-3 whitespace-pre-wrap">{post.content}</p>
                                       {post.image_url && (
                                           <div className="mb-3 rounded-md overflow-hidden w-full bg-muted">
-                                              {/* Full width image, no cropping, max height reasonable but large */}
                                               <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[600px] object-contain bg-black/5" />
                                           </div>
                                       )}
@@ -612,7 +638,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
               </div>
           </div>
       ) : (
-          <div className="max-w-4xl mx-auto w-full h-full flex flex-col overflow-hidden">
+          <div className="max-w-4xl mx-auto w-full h-full flex flex-col overflow-hidden animate-in fade-in">
               <div className="flex-1 overflow-y-auto space-y-6 pb-4">
                   <Card>
                       <div className="flex">
@@ -663,7 +689,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
                       {comments.map(comment => (
                           <div key={comment.id} className="bg-card p-4 rounded-lg border border-border flex gap-3">
-                              {/* Comment Voting */}
                               <div className="flex flex-col items-center gap-1 min-w-[24px] pt-1">
                                   <button onClick={() => handleCommentVote(comment.id, 'up')} className={`hover:text-orange-500 ${comment.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
                                       <ThumbsUpIcon className="w-4 h-4" />
@@ -741,7 +766,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           </div>
       )}
 
-      {/* New Post Modal */}
       {showNewPostModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewPostModal(false)}>
               <Card className="w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>

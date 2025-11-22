@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
-import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData } from './types.ts';
+import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, Client } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import Signup from './components/Signup.tsx';
@@ -29,6 +30,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from './components/ui/Label.tsx';
 import { Input } from './components/ui/Input.tsx';
 import { translations } from './utils/translations.ts';
+import { dbApi } from './utils/db.ts';
 
 // --- IMPORTANT: CONFIGURE YOUR SUPABASE CREDENTIALS ---
 // You can get these from your Supabase project dashboard at https://app.supabase.com
@@ -45,7 +47,7 @@ const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. PROFILES TABLE & POLICIES (CRITICAL FIX FOR FORUM VISIBILITY)
+-- 1. PROFILES TABLE & POLICIES
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT,
@@ -62,7 +64,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 );
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- FIX: Allow ALL authenticated users to view ALL profiles (so they can see who commented)
 DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can view all profiles" ON public.profiles;
 CREATE POLICY "Users can view all profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
@@ -86,6 +87,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage their own clients" ON public.clients FOR ALL USING (auth.uid() = user_id);
 
 -- 3. JOBS TABLE
 CREATE TABLE IF NOT EXISTS public.jobs (
@@ -100,6 +102,7 @@ CREATE TABLE IF NOT EXISTS public.jobs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage their own jobs" ON public.jobs FOR ALL USING (auth.uid() = user_id);
 
 -- 4. DOCUMENTS TABLE
 CREATE TABLE IF NOT EXISTS public.documents (
@@ -111,12 +114,12 @@ CREATE TABLE IF NOT EXISTS public.documents (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage their own documents" ON public.documents FOR ALL USING (auth.uid() = user_id);
 
 -- 5. FORUM TABLES
--- Posts
 CREATE TABLE IF NOT EXISTS public.forum_posts (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL, -- FK added below
+  user_id UUID NOT NULL, 
   title TEXT NOT NULL,
   content TEXT NOT NULL,
   category TEXT NOT NULL, 
@@ -126,7 +129,6 @@ CREATE TABLE IF NOT EXISTS public.forum_posts (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- CRITICAL FIX: Ensure image_url column exists (This fixes the PGRST204 error)
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_posts' AND column_name = 'image_url') THEN
@@ -134,19 +136,17 @@ BEGIN
     END IF;
 END $$;
 
--- Comments
 CREATE TABLE IF NOT EXISTS public.forum_comments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   post_id UUID NOT NULL REFERENCES public.forum_posts(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL, -- FK added below
+  user_id UUID NOT NULL,
   content TEXT NOT NULL,
-  image_url TEXT, -- Added for comment images
-  upvotes INT DEFAULT 0, -- Added for comment voting
-  downvotes INT DEFAULT 0, -- Added for comment voting
+  image_url TEXT,
+  upvotes INT DEFAULT 0,
+  downvotes INT DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Fix: Add columns to forum_comments if missing
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_comments' AND column_name = 'image_url') THEN
@@ -160,29 +160,24 @@ BEGIN
     END IF;
 END $$;
 
--- Post Votes
 CREATE TABLE IF NOT EXISTS public.forum_votes (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   post_id UUID NOT NULL REFERENCES public.forum_posts(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL, -- FK added below
+  user_id UUID NOT NULL,
   vote_type TEXT NOT NULL,
   UNIQUE(post_id, user_id)
 );
 
--- Comment Votes (NEW)
 CREATE TABLE IF NOT EXISTS public.forum_comment_votes (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   comment_id UUID NOT NULL REFERENCES public.forum_comments(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL, -- FK added below
+  user_id UUID NOT NULL,
   vote_type TEXT NOT NULL,
   UNIQUE(comment_id, user_id)
 );
 
--- 6. FIX FOREIGN KEYS (Critical for Joins)
--- This links forum posts/comments to user profiles instead of auth users
 DO $$
 BEGIN
-  -- Fix Posts FK
   IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_posts_user_id_fkey') THEN
     ALTER TABLE public.forum_posts DROP CONSTRAINT forum_posts_user_id_fkey;
   END IF;
@@ -190,7 +185,6 @@ BEGIN
       ALTER TABLE public.forum_posts ADD CONSTRAINT forum_posts_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
 
-  -- Fix Comments FK
   IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_comments_user_id_fkey') THEN
     ALTER TABLE public.forum_comments DROP CONSTRAINT forum_comments_user_id_fkey;
   END IF;
@@ -198,7 +192,6 @@ BEGIN
       ALTER TABLE public.forum_comments ADD CONSTRAINT forum_comments_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
   
-  -- Fix Post Votes FK
   IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_votes_user_id_fkey') THEN
     ALTER TABLE public.forum_votes DROP CONSTRAINT forum_votes_user_id_fkey;
   END IF;
@@ -206,7 +199,6 @@ BEGIN
       ALTER TABLE public.forum_votes ADD CONSTRAINT forum_votes_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
 
-  -- Fix Comment Votes FK (NEW)
   IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_comment_votes_user_id_fkey_profiles') THEN
       ALTER TABLE public.forum_comment_votes ADD CONSTRAINT forum_comment_votes_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
@@ -218,8 +210,6 @@ ALTER TABLE public.forum_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_comment_votes ENABLE ROW LEVEL SECURITY;
 
--- Re-apply policies safely
--- Posts
 DROP POLICY IF EXISTS "Authenticated read posts" ON public.forum_posts;
 CREATE POLICY "Authenticated read posts" ON public.forum_posts FOR SELECT TO authenticated USING (true);
 DROP POLICY IF EXISTS "Authenticated insert posts" ON public.forum_posts;
@@ -227,7 +217,6 @@ CREATE POLICY "Authenticated insert posts" ON public.forum_posts FOR INSERT TO a
 DROP POLICY IF EXISTS "Users update own posts" ON public.forum_posts;
 CREATE POLICY "Users update own posts" ON public.forum_posts FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
--- Comments
 DROP POLICY IF EXISTS "Authenticated read comments" ON public.forum_comments;
 CREATE POLICY "Authenticated read comments" ON public.forum_comments FOR SELECT TO authenticated USING (true);
 DROP POLICY IF EXISTS "Authenticated insert comments" ON public.forum_comments;
@@ -235,7 +224,6 @@ CREATE POLICY "Authenticated insert comments" ON public.forum_comments FOR INSER
 DROP POLICY IF EXISTS "Users update own comments" ON public.forum_comments;
 CREATE POLICY "Users update own comments" ON public.forum_comments FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
--- Post Votes
 DROP POLICY IF EXISTS "Authenticated read votes" ON public.forum_votes;
 CREATE POLICY "Authenticated read votes" ON public.forum_votes FOR SELECT TO authenticated USING (true);
 DROP POLICY IF EXISTS "Authenticated insert votes" ON public.forum_votes;
@@ -245,7 +233,6 @@ CREATE POLICY "Authenticated update votes" ON public.forum_votes FOR UPDATE TO a
 DROP POLICY IF EXISTS "Authenticated delete votes" ON public.forum_votes;
 CREATE POLICY "Authenticated delete votes" ON public.forum_votes FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
--- Comment Votes (NEW)
 DROP POLICY IF EXISTS "Authenticated read comment votes" ON public.forum_comment_votes;
 CREATE POLICY "Authenticated read comment votes" ON public.forum_comment_votes FOR SELECT TO authenticated USING (true);
 DROP POLICY IF EXISTS "Authenticated insert comment votes" ON public.forum_comment_votes;
@@ -259,7 +246,6 @@ CREATE POLICY "Authenticated delete comment votes" ON public.forum_comment_votes
 INSERT INTO storage.buckets (id, name, public) VALUES ('logos', 'logos', true) ON CONFLICT (id) DO NOTHING;
 INSERT INTO storage.buckets (id, name, public) VALUES ('forum', 'forum', true) ON CONFLICT (id) DO NOTHING;
 
--- Storage Policies
 DROP POLICY IF EXISTS "Allow authenticated view access to logos" ON storage.objects;
 CREATE POLICY "Allow authenticated view access to logos" ON storage.objects FOR SELECT USING (bucket_id = 'logos' AND auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Allow users to upload their own logo" ON storage.objects;
@@ -318,6 +304,10 @@ const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => (
 
 // Helper to upload a file to Supabase Storage
 const uploadFile = async (bucket: string, file: File, userId: string, isPublicUpload: boolean = false): Promise<string> => {
+    if (!navigator.onLine) {
+        // Offline logic handled in upper layers, this is just a direct uploader
+        throw new Error("Cannot upload file while offline");
+    }
     const fileExt = file.name.split('.').pop();
     const fileName = `${userId}/${Date.now()}.${fileExt}`;
     
@@ -343,7 +333,7 @@ const App: React.FC = () => {
     | { screen: 'profile' }
     | { screen: 'clients' }
     | { screen: 'analytics' }
-    | { screen: 'forum' };
+    | { screen: 'forum'; postId?: string };
   
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -353,6 +343,8 @@ const App: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [forms, setForms] = useState<FormDataType[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const [dbSetupError, setDbSetupError] = useState<string | null>(null);
   
@@ -363,6 +355,56 @@ const App: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [docSearchQuery, setDocSearchQuery] = useState('');
+
+  // Network Status Listener & Sync
+  useEffect(() => {
+      const handleOnline = () => {
+          setIsOnline(true);
+          syncOfflineData();
+      };
+      const handleOffline = () => setIsOnline(false);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+          window.removeEventListener('online', handleOnline);
+          window.removeEventListener('offline', handleOffline);
+      };
+  }, [session]);
+
+  const syncOfflineData = async () => {
+      const queue = await dbApi.getAll('offline_queue');
+      if (queue.length === 0) return;
+      
+      if (!session) return;
+
+      console.log("Syncing offline data...", queue.length, "items");
+      
+      for (const action of queue) {
+          try {
+              if (action.type === 'create_job') {
+                  const { error } = await supabase.from('jobs').insert(action.payload);
+                  if (error) throw error;
+              } else if (action.type === 'create_form') {
+                  const { error } = await supabase.from('documents').upsert(action.payload);
+                  if (error) throw error;
+              } else if (action.type === 'create_client') {
+                  const { error } = await supabase.from('clients').insert(action.payload);
+                  if (error) throw error;
+              } else if (action.type === 'delete_client') {
+                  const { error } = await supabase.from('clients').delete().eq('id', action.payload.id);
+                  if (error) throw error;
+              }
+              // Success - remove from queue
+              await dbApi.delete('offline_queue', action.id);
+          } catch (e) {
+              console.error("Failed to sync item:", action, e);
+              // Keep in queue to retry later
+          }
+      }
+      
+      // Refresh data after sync to get server state
+      fetchData();
+  };
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -391,6 +433,7 @@ const App: React.FC = () => {
         setProfile(null);
         setJobs([]);
         setForms([]);
+        setClients([]);
         setView({ screen: 'welcome' });
         setLoading(false);
       }
@@ -399,15 +442,17 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
   
-  useEffect(() => {
-    const fetchData = async () => {
-        if (!session) return;
-        setLoading(true);
+  const fetchData = async () => {
+    if (!session) return;
+    setLoading(true);
 
-        const user = session.user;
-        
-        // 1. Fetch or create profile
-        setLoadingMessage('Loading profile...');
+    const user = session.user;
+    
+    // 1. Fetch or create profile
+    setLoadingMessage('Loading profile...');
+    let currentProfile: UserProfile | null = null;
+
+    if (navigator.onLine) {
         const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('*')
@@ -415,7 +460,6 @@ const App: React.FC = () => {
             .single();
 
         if (profileError && profileError.code !== 'PGRST116') { 
-            console.error('Error fetching profile:', profileError.message);
             if (/relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(profileError.message)) {
                 setDbSetupError(SQL_SETUP_SCRIPT);
                 setLoading(false);
@@ -423,7 +467,6 @@ const App: React.FC = () => {
             }
         }
 
-        let currentProfile: UserProfile | null = null;
         if (profileData) {
             currentProfile = {
                 id: profileData.id,
@@ -438,8 +481,9 @@ const App: React.FC = () => {
                 subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
                 language: profileData.language
             };
+            await dbApi.put('profile', currentProfile);
         } else if (!profileError || profileError.code === 'PGRST116') {
-            setLoadingMessage('Creating your account...');
+            // Create profile if missing
             const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
             const metaAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
             let nameToSet = metaName;
@@ -447,8 +491,7 @@ const App: React.FC = () => {
                 const namePart = user.email!.split('@')[0];
                 nameToSet = namePart.replace(/[._-]/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
             }
-            
-            const { data: newProfileData, error: createError } = await supabase
+            const { data: newProfileData } = await supabase
                 .from('profiles')
                 .insert({
                     id: user.id,
@@ -460,13 +503,7 @@ const App: React.FC = () => {
                 .select()
                 .single();
 
-            if (createError) {
-                 if (/relation "public.profiles" does not exist/i.test(createError.message)) {
-                     setDbSetupError(SQL_SETUP_SCRIPT);
-                     setLoading(false);
-                     return;
-                 }
-            } else if (newProfileData) {
+            if (newProfileData) {
                 currentProfile = {
                     id: newProfileData.id,
                     email: newProfileData.email,
@@ -480,79 +517,93 @@ const App: React.FC = () => {
                     subscriptionTier: newProfileData.subscription_tier as 'Basic' | 'Premium',
                     language: newProfileData.language
                 };
+                await dbApi.put('profile', currentProfile);
             }
         }
-        setProfile(currentProfile);
+    } else {
+        // Offline: Load from IndexedDB
+        const cachedProfiles = await dbApi.getAll('profile');
+        if (cachedProfiles.length > 0) currentProfile = cachedProfiles[0];
+    }
+    setProfile(currentProfile);
 
-        // 2. Fetch jobs
-        const { data: jobsData, error: jobsError } = await supabase.from('jobs').select('*').eq('user_id', user.id);
-        if (jobsError) {
-             if (/relation "public.jobs" does not exist/i.test(jobsError.message)) {
-                setDbSetupError(SQL_SETUP_SCRIPT);
-                setLoading(false);
-                return;
-            }
-        } else if (jobsData) {
-            setJobs(jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id})));
+    // 2. Fetch jobs
+    if (navigator.onLine) {
+        const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
+        if (jobsData) {
+            const mappedJobs = jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
+            setJobs(mappedJobs);
+            // Clear and update offline cache
+            await dbApi.clear('jobs');
+            for (const j of mappedJobs) await dbApi.put('jobs', j);
         }
+    } else {
+        const cachedJobs = await dbApi.getAll('jobs');
+        setJobs(cachedJobs);
+    }
 
-        // 3. Fetch docs
+    // 3. Fetch docs
+    if (navigator.onLine) {
         const { data: formsData } = await supabase.from('documents').select('*').eq('user_id', user.id);
-        if (formsData) setForms(formsData.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at })));
-        
-        // 4. Check for Forum Tables & Columns
+        if (formsData) {
+            const mappedForms = formsData.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at }));
+            setForms(mappedForms);
+            await dbApi.clear('documents');
+            for (const f of mappedForms) await dbApi.put('documents', f);
+        }
+    } else {
+        const cachedForms = await dbApi.getAll('documents');
+        setForms(cachedForms);
+    }
+
+    // 4. Fetch Clients
+    if (navigator.onLine) {
+        const { data: clientsData } = await supabase.from('clients').select('*').eq('user_id', user.id);
+        if (clientsData) {
+            setClients(clientsData);
+            await dbApi.clear('clients');
+            for (const c of clientsData) await dbApi.put('clients', c);
+        }
+    } else {
+        const cachedClients = await dbApi.getAll('clients');
+        setClients(cachedClients);
+    }
+    
+    // Check for Forum Config (Only if online)
+    if (navigator.onLine) {
         const { error: forumError } = await supabase.from('forum_posts').select('id, image_url').limit(1);
         if (forumError) {
-             if (
-                 forumError.code === 'PGRST204' || 
-                 /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist|Could not find the 'image_url' column/i.test(forumError.message)
-             ) {
+             if (forumError.code === 'PGRST204' || /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist/i.test(forumError.message)) {
                  setDbSetupError(SQL_SETUP_SCRIPT);
                  setLoading(false);
                  return;
              }
         }
-        
-        // Check for new Comment Voting Table
-        const { error: commentVoteError } = await supabase.from('forum_comment_votes').select('id').limit(1);
-        if (commentVoteError) {
-             if (/relation "public.forum_comment_votes" does not exist/i.test(commentVoteError.message)) {
-                 setDbSetupError(SQL_SETUP_SCRIPT);
-                 setLoading(false);
-                 return;
-             }
-        }
-        
-        // Check Relationship (Joins)
-        const { error: joinError } = await supabase.from('forum_posts').select('id, profiles:user_id(name)').limit(1);
-        if (joinError) {
-             if (/PGRST200|foreign key relationship/i.test(joinError.message || joinError.code || '')) {
-                 setDbSetupError(SQL_SETUP_SCRIPT);
-                 setLoading(false);
-                 return;
-             }
-        }
+    }
 
-        // 5. Restore View
-        const savedViewStr = localStorage.getItem('app_view_state');
-        if (savedViewStr) {
-            try {
-                const savedView = JSON.parse(savedViewStr);
-                if (savedView.screen !== 'welcome' && savedView.screen !== 'auth') {
-                    setView(savedView);
-                }
-            } catch (e) {}
-        } else {
-            setView({ screen: 'dashboard' });
-        }
-        setLoading(false);
-    };
-    fetchData();
+    // Restore View
+    const savedViewStr = localStorage.getItem('app_view_state');
+    if (savedViewStr) {
+        try {
+            const savedView = JSON.parse(savedViewStr);
+            if (savedView.screen !== 'welcome' && savedView.screen !== 'auth') {
+                setView(savedView);
+            }
+        } catch (e) {}
+    } else {
+        setView({ screen: 'dashboard' });
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (session) fetchData();
   }, [session]);
 
 
-  // ... (Handlers for auth, profile, jobs, forms - mostly unchanged)
+  // Handlers
   const handleLogin = async (email: string, pass: string) => {
+    if (!navigator.onLine) { alert("You must be online to log in."); return; }
     const { error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
     if (error) throw error;
   };
@@ -565,8 +616,9 @@ const App: React.FC = () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
   };
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (navigator.onLine) await supabase.auth.signOut();
     localStorage.removeItem('app_view_state'); 
+    setSession(null);
     setView({ screen: 'welcome' });
   };
 
@@ -576,16 +628,15 @@ const App: React.FC = () => {
   const navigateToCreateJob = () => setView({ screen: 'createJob' });
   const navigateToClients = () => setView({ screen: 'clients' });
   const navigateToAnalytics = () => setView({ screen: 'analytics' });
-  const navigateToForum = () => setView({ screen: 'forum' });
+  const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
 
   const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null) => {
       if (!session) return;
+      if (!navigator.onLine) { alert("You must be online to update your profile."); return; }
       setLoading(true);
       let newLogoUrl = updatedProfile.logoUrl;
       if (logoFile) {
-          try {
-              newLogoUrl = await uploadFile('logos', logoFile, session.user.id) || newLogoUrl;
-          } catch (error) { setLoading(false); return; }
+          try { newLogoUrl = await uploadFile('logos', logoFile, session.user.id) || newLogoUrl; } catch (error) { setLoading(false); return; }
       }
       const profileForDb = {
           id: session.user.id,
@@ -601,23 +652,14 @@ const App: React.FC = () => {
           updated_at: new Date().toISOString(),
       };
       const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
-      if (error) {
-           if (/relation "public.profiles" does not exist/i.test(error.message)) setDbSetupError(SQL_SETUP_SCRIPT);
-           else alert(`Error saving profile: ${error.message}`);
-      } else if (data) {
-          setProfile({
-              id: data.id,
-              email: data.email,
-              name: data.name,
-              companyName: data.company_name,
-              logoUrl: data.logo_url,
-              address: data.address,
-              phone: data.phone,
-              website: data.website,
-              jobTitle: data.job_title,
-              subscriptionTier: data.subscription_tier as 'Basic' | 'Premium',
-              language: data.language
-          });
+      if (!error && data) {
+          const updated = {
+              id: data.id, email: data.email, name: data.name, companyName: data.company_name, logoUrl: data.logo_url,
+              address: data.address, phone: data.phone, website: data.website, jobTitle: data.job_title,
+              subscriptionTier: data.subscription_tier as 'Basic' | 'Premium', language: data.language
+          };
+          setProfile(updated);
+          await dbApi.put('profile', updated);
           setView({ screen: 'dashboard' });
       }
       setLoading(false);
@@ -631,18 +673,46 @@ const App: React.FC = () => {
   const handleSaveJob = async (jobData: any) => {
     if (!session) return;
     setLoading(true);
-    const { error } = await supabase.from('jobs').insert({
+    
+    const jobId = crypto.randomUUID(); 
+    const newJob = {
+      id: jobId,
       user_id: session.user.id,
       name: jobData.name,
       client_name: jobData.clientName,
       client_address: jobData.clientAddress,
       start_date: jobData.startDate,
       status: 'active',
-    });
-    if (!error) {
-      const { data } = await supabase.from('jobs').select('*').eq('user_id', session.user.id);
-      if(data) setJobs(data.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id})));
+    };
+
+    if (navigator.onLine) {
+        const { error } = await supabase.from('jobs').insert(newJob);
+        if (!error) {
+          // Refresh jobs from server to be safe
+          const { data } = await supabase.from('jobs').select('*').eq('user_id', session.user.id);
+          if(data) {
+              const mapped = data.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
+              setJobs(mapped);
+              await dbApi.clear('jobs');
+              for(const j of mapped) await dbApi.put('jobs', j);
+          }
+        }
+    } else {
+        // Offline Save
+        await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'create_job', payload: newJob, timestamp: Date.now() });
+        const optimisticJob = {
+            ...newJob,
+            startDate: newJob.start_date,
+            clientName: newJob.client_name,
+            clientAddress: newJob.client_address,
+            userId: session.user.id
+        };
+        const updatedJobs = [...jobs, optimisticJob as unknown as Job];
+        setJobs(updatedJobs);
+        await dbApi.put('jobs', optimisticJob);
+        alert("You are offline. Job saved locally.");
     }
+    
     setView({ screen: 'dashboard' });
     setLoading(false);
   };
@@ -650,21 +720,112 @@ const App: React.FC = () => {
   const handleUpdateJobStatus = async (jobId: string, newStatus: any) => {
       if (!session) return;
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
-      await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
+      
+      // Update local DB
+      const job = jobs.find(j => j.id === jobId);
+      if (job) await dbApi.put('jobs', { ...job, status: newStatus });
+
+      if (navigator.onLine) {
+          await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
+      } else {
+          // We could add an update queue action, but simple visual update is fine for MVP
+          alert("Status updated locally.");
+      }
   };
 
   const handleSaveForm = async (formData: any) => {
     if (view.screen !== 'form' || !session) return;
     setLoading(true);
-    const formRecord: any = { user_id: session.user.id, job_id: view.jobId, type: view.formType, data: formData };
-    if (view.formId) formRecord.id = view.formId;
-    const { error } = await supabase.from('documents').upsert(formRecord);
-    if (!error) {
-      const { data } = await supabase.from('documents').select('*').eq('user_id', session.user.id);
-      if (data) setForms(data.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at })));
+    const formId = view.formId || crypto.randomUUID();
+    
+    const formRecord: any = { 
+        id: formId,
+        user_id: session.user.id, 
+        job_id: view.jobId, 
+        type: view.formType, 
+        data: formData 
+    };
+
+    if (navigator.onLine) {
+        const { error } = await supabase.from('documents').upsert(formRecord);
+        if (!error) {
+          const { data } = await supabase.from('documents').select('*').eq('user_id', session.user.id);
+          if (data) {
+              const mapped = data.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at }));
+              setForms(mapped);
+              await dbApi.clear('documents');
+              for(const f of mapped) await dbApi.put('documents', f);
+          }
+        }
+    } else {
+        if (!view.formId) {
+            await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'create_form', payload: formRecord, timestamp: Date.now() });
+        } else {
+            alert("Offline editing existing docs is risky. Saved locally only.");
+        }
+        
+        const newForm = { 
+            ...formRecord, 
+            jobId: view.jobId, 
+            createdAt: new Date().toISOString() 
+        };
+        
+        const updatedForms = view.formId 
+            ? forms.map(f => f.id === view.formId ? newForm : f)
+            : [...forms, newForm];
+            
+        setForms(updatedForms);
+        await dbApi.put('documents', newForm);
+        alert("You are offline. Document saved locally.");
     }
+
     setView({ screen: 'jobDetails', jobId: view.jobId });
     setLoading(false);
+  };
+
+  const handleAddClient = async (clientData: any) => {
+      if (!session) return;
+      setLoading(true);
+      const newClient = { id: crypto.randomUUID(), user_id: session.user.id, ...clientData };
+      
+      if (navigator.onLine) {
+          await supabase.from('clients').insert(newClient);
+          const { data } = await supabase.from('clients').select('*').eq('user_id', session.user.id).order('name');
+          if(data) {
+              setClients(data);
+              await dbApi.clear('clients');
+              for(const c of data) await dbApi.put('clients', c);
+          }
+      } else {
+          await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'create_client', payload: newClient, timestamp: Date.now() });
+          const updatedClients = [...clients, newClient];
+          setClients(updatedClients);
+          await dbApi.put('clients', newClient);
+          alert("Client saved offline.");
+      }
+      setLoading(false);
+  };
+
+  const handleDeleteClient = async (id: string) => {
+      if (!session) return;
+      setLoading(true);
+      
+      if (navigator.onLine) {
+          await supabase.from('clients').delete().eq('id', id);
+          const { data } = await supabase.from('clients').select('*').eq('user_id', session.user.id).order('name');
+          if(data) {
+              setClients(data);
+              await dbApi.clear('clients');
+              for(const c of data) await dbApi.put('clients', c);
+          }
+      } else {
+          await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'delete_client', payload: { id }, timestamp: Date.now() });
+          const updatedClients = clients.filter(c => c.id !== id);
+          setClients(updatedClients);
+          await dbApi.delete('clients', id);
+          alert("Client deleted locally.");
+      }
+      setLoading(false);
   };
   
   const getTranslation = () => {
@@ -672,7 +833,6 @@ const App: React.FC = () => {
       return translations[lang] || translations['English'];
   }
 
-  // --- Render Logic (Same as before) ---
   const renderAuth = () => {
     if (view.screen !== 'auth') return null;
     switch(view.authScreen) {
@@ -693,9 +853,10 @@ const App: React.FC = () => {
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
         <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
             <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome}, {profile.name.split(' ')[0]}!</h1></div>
+            {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
             <div className="flex items-center gap-4 flex-wrap">
               <Button onClick={navigateToCreateJob}>+ {t.newJob}</Button>
-              <Button variant="outline" onClick={navigateToForum} className="flex items-center gap-2"><MessageSquareIcon className="w-4 h-4" /> Community</Button>
+              <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2"><MessageSquareIcon className="w-4 h-4" /> Community</Button>
               <Button variant="outline" onClick={navigateToAnalytics} className="flex items-center gap-2"><BarChartIcon className="w-4 h-4" /> Insights</Button>
               <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">{profile.logoUrl ? <img src={profile.logoUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}</Button>
             </div>
@@ -723,6 +884,7 @@ const App: React.FC = () => {
           <div className="flex items-center overflow-hidden"><Button variant="ghost" size="icon" onClick={navigateToDashboard} className="mr-4 h-10 w-10 shrink-0"><BackArrowIcon className="h-6 w-6" /></Button><div className="overflow-hidden"><h1 className="text-2xl md:text-3xl font-bold truncate">{job.name}</h1><p className="text-muted-foreground truncate">{job.clientName}</p></div></div>
           <div className="flex items-center gap-2"><select value={job.status} onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)} className="h-9 rounded-md border px-3 text-sm"><option value="active">Active</option><option value="inactive">Inactive</option><option value="paused">Paused</option><option value="completed">Completed</option></select></div>
         </header>
+        {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold">You are OFFLINE. Documents created will sync later.</div>}
         <Card><CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"><CardTitle>{t.projectDocs}</CardTitle><div className="relative w-full max-w-xs"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3 w-3" /><Input placeholder="Search by title..." className="pl-8 h-9 text-sm" value={docSearchQuery} onChange={(e) => setDocSearchQuery(e.target.value)} /></div></CardHeader><CardContent><div className="space-y-2">{jobForms.length === 0 && <p className="text-muted-foreground py-8 text-center">{t.noDocsYet}</p>}{jobForms.map(form => { const Icon = getDocIcon(form.type); return (<div key={form.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors gap-3"><div className="flex items-center gap-3 overflow-hidden"><div className="p-2 bg-background rounded-full text-primary shrink-0"><Icon className="w-5 h-5" /></div><div className="min-w-0"><p className="font-medium truncate">{getDocTitle(form)}</p><p className="text-xs text-muted-foreground">{form.type} • {new Date(form.createdAt).toLocaleDateString()}</p></div></div><div className="flex items-center gap-2 justify-end">{getStatusBadge(form)}<Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>{t.edit}</Button></div></div>); })}</div></CardContent></Card>
       </div>
     );
@@ -738,7 +900,7 @@ const App: React.FC = () => {
 
     switch (formType) {
       case FormType.Invoice: return <InvoiceForm job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} />;
-      case FormType.DailyJobReport: return <DailyJobReportForm profile={profile} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.DailyJobReport: return <DailyJobReportForm profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.Note: return <NoteForm profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.WorkOrder: return <WorkOrderForm job={job} profile={profile} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.TimeSheet: return <TimeSheetForm job={job} profile={profile} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
@@ -775,9 +937,28 @@ const App: React.FC = () => {
       case 'form': return renderForm();
       case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
       case 'profile': if (!profile) return null; return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
-      case 'clients': return <ClientsView onBack={navigateToDashboard} supabase={supabase} session={session} />;
+      case 'clients': 
+        return <ClientsView 
+                  onBack={navigateToDashboard} 
+                  supabase={supabase} 
+                  session={session}
+                  clients={clients}
+                  onAddClient={handleAddClient}
+                  onDeleteClient={handleDeleteClient}
+                  isOnline={isOnline}
+               />;
       case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
-      case 'forum': return <ForumView onBack={navigateToDashboard} supabase={supabase} session={session} onUploadImage={handleUploadForumImage} />;
+      case 'forum': 
+        return (
+            <ForumView 
+                onBack={navigateToDashboard} 
+                supabase={supabase} 
+                session={session} 
+                onUploadImage={handleUploadForumImage} 
+                initialPostId={view.postId}
+                onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
+            />
+        );
       default: return renderDashboard();
     }
   };
