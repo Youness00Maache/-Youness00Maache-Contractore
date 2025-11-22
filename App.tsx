@@ -508,13 +508,23 @@ const App: React.FC = () => {
         }
 
         if (profileData) {
+            // Sync Google Profile Picture if database one is empty
+            const googleAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+            let profilePicUrl = profileData.profile_picture_url;
+
+            if (!profilePicUrl && googleAvatar) {
+                profilePicUrl = googleAvatar;
+                // Update database asynchronously
+                supabase.from('profiles').update({ profile_picture_url: googleAvatar }).eq('id', user.id).then();
+            }
+
             currentProfile = {
                 id: profileData.id,
                 email: profileData.email,
                 name: profileData.name,
                 companyName: profileData.company_name,
                 logoUrl: profileData.logo_url,
-                profilePictureUrl: profileData.profile_picture_url,
+                profilePictureUrl: profilePicUrl,
                 address: profileData.address,
                 phone: profileData.phone,
                 website: profileData.website,
@@ -540,7 +550,7 @@ const App: React.FC = () => {
                     name: nameToSet,
                     company_name: `${nameToSet}'s Company`,
                     logo_url: '', // Start empty for company logo
-                    profile_picture_url: metaAvatar, // Use Google Avatar for profile picture
+                    profile_picture_url: metaAvatar || '', // Use Google Avatar for profile picture
                 })
                 .select()
                 .single();
