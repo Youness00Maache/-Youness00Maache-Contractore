@@ -56,6 +56,9 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   
+  // Expanded state for Show More/Less - Keys are now `${postId}-title` or `${postId}-content`
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  
   // Post Creation / Editing State
   const [showPostModal, setShowPostModal] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -483,7 +486,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       setShowPostModal(true);
   };
 
-  const openEditModal = (post: Post) => {
+  const openEditModal = (post: Post, e?: React.MouseEvent) => {
+      e?.stopPropagation();
       setEditingPostId(post.id);
       setPostForm({ title: post.title, content: post.content });
       setPostVideoLink(post.youtube_url || '');
@@ -494,7 +498,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   };
 
   // Initiates delete process (opens modal)
-  const initiateDeletePost = (postId: string) => {
+  const initiateDeletePost = (postId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
       setPostToDelete(postId);
       setShowDeleteModal(true);
   };
@@ -504,10 +509,16 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       if (!postToDelete) return;
       
       setLoading(true);
-      const { error } = await supabase.from('forum_posts').delete().eq('id', postToDelete);
+      // Use count: 'exact' to check if row was actually deleted
+      const { error, count } = await supabase.from('forum_posts').delete({ count: 'exact' }).eq('id', postToDelete);
       
       if (error) {
           alert("Failed to delete post: " + error.message);
+      } else if (count === 0) {
+          // If no rows deleted, it usually means RLS blocked it or row doesn't exist.
+          // Since we just clicked delete on a visible row, it's likely RLS (missing DELETE policy).
+          alert("Could not delete post. Database update required. Please refresh the page to apply updates.");
+          window.location.reload();
       } else {
           setPosts(prev => prev.filter(p => p.id !== postToDelete));
           if (selectedPost?.id === postToDelete) {
@@ -634,7 +645,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                 <iframe
                     key={videoId} // IMPORTANT: Force re-mount if video ID changes
                     className="absolute top-0 left-0 w-full h-full"
-                    src={`https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&controls=1`}
+                    // playsinline=1 is key for mobile. modestbranding reduces clutter.
+                    src={`https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1`}
                     title="YouTube video player"
                     frameBorder="0"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -649,6 +661,11 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
               </div>
           </div>
       );
+  };
+
+  const toggleExpansion = (postId: string, type: 'title' | 'content', e: React.MouseEvent) => {
+      e.stopPropagation();
+      setExpandedItems(prev => ({ ...prev, [`${postId}-${type}`]: !prev[`${postId}-${type}`] }));
   };
 
   return (
@@ -692,7 +709,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowDeleteModal(false)}>
-              <Card className="w-full max-w-sm animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
+              <Card className="w-full max-w-sm animate-in fade-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>
                   <CardHeader>
                       <CardTitle>Delete Post</CardTitle>
                       <CardDescription>Are you sure you want to delete this post?</CardDescription>
@@ -743,57 +760,94 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                           <p className="text-muted-foreground">No posts in this category yet. Be the first!</p>
                       </div>
                   ) : (
-                      posts.map(post => (
-                          <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => onNavigate(post.id)}>
-                              <div className="flex">
-                                  <div className="flex flex-col items-center p-3 bg-muted/30 border-r border-border gap-1 min-w-[50px]" onClick={e => e.stopPropagation()}>
-                                      <button onClick={() => handleVote(post.id, 'up')} className={`p-1 rounded hover:bg-background ${post.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
-                                          <ThumbsUpIcon className="w-5 h-5" />
-                                      </button>
-                                      <span className="text-sm font-bold font-mono">{(post.upvotes - post.downvotes)}</span>
-                                      <button onClick={() => handleVote(post.id, 'down')} className={`p-1 rounded hover:bg-background ${post.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
-                                          <ThumbsDownIcon className="w-5 h-5" />
-                                      </button>
-                                  </div>
-                                  <div className="flex-1 p-4">
-                                      <div className="flex justify-between items-start mb-1">
-                                          <h3 className="text-lg font-semibold">{post.title}</h3>
-                                          {session.user.id === post.user_id && (
-                                              <div className="flex gap-2 ml-2" onClick={e => e.stopPropagation()}>
-                                                  <button onClick={() => openEditModal(post)} className="text-muted-foreground hover:text-primary p-1 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
-                                                  <button onClick={() => initiateDeletePost(post.id)} className="text-muted-foreground hover:text-destructive p-1 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
-                                              </div>
-                                          )}
-                                      </div>
-                                      <p className="text-sm text-muted-foreground line-clamp-3 mb-3 whitespace-pre-wrap">{post.content}</p>
-                                      
-                                      {renderVideoEmbed(post.youtube_url)}
+                      posts.map(post => {
+                          const isContentExpanded = expandedItems[`${post.id}-content`];
+                          const isTitleExpanded = expandedItems[`${post.id}-title`];
+                          
+                          // Content truncation logic
+                          const isLongContent = post.content.length > 200 || (post.content.match(/\n/g) || []).length > 2;
+                          
+                          // Title truncation logic (heuristic: > 100 chars implies likely multi-line on mobile)
+                          const isLongTitle = post.title.length > 100;
 
-                                      {post.image_url && !post.youtube_url && (
-                                          <div className="mb-3 rounded-md overflow-hidden w-full bg-muted">
-                                              <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[400px] object-contain bg-black/5" />
-                                          </div>
-                                      )}
-                                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                          <div className="flex items-center gap-2">
-                                              {post.profiles?.profile_picture_url ? (
-                                                  <img src={post.profiles.profile_picture_url} className="w-5 h-5 rounded-full object-cover" alt="avatar" />
-                                              ) : (
-                                                  <div className="w-5 h-5 bg-primary/20 rounded-full" />
-                                              )}
-                                              <span>{post.profiles?.name || 'Unknown'}</span>
-                                              <span>•</span>
-                                              <span>{new Date(post.created_at).toLocaleDateString()}</span>
-                                          </div>
-                                          <div className="flex items-center gap-1">
-                                              <MessageCircleIcon className="w-4 h-4" />
-                                              <span>{post.comment_count || 0} Comments</span>
-                                          </div>
-                                      </div>
-                                  </div>
-                              </div>
-                          </Card>
-                      ))
+                          return (
+                            <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => onNavigate(post.id)}>
+                                <div className="flex">
+                                    <div className="flex flex-col items-center p-3 bg-muted/30 border-r border-border gap-1 min-w-[50px]" onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => handleVote(post.id, 'up')} className={`p-1 rounded hover:bg-background ${post.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                            <ThumbsUpIcon className="w-5 h-5" />
+                                        </button>
+                                        <span className="text-sm font-bold font-mono">{(post.upvotes - post.downvotes)}</span>
+                                        <button onClick={() => handleVote(post.id, 'down')} className={`p-1 rounded hover:bg-background ${post.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                                            <ThumbsDownIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 p-4 min-w-0"> {/* min-w-0 is critical for flex child wrapping */}
+                                        <div className="flex justify-between items-start mb-1">
+                                            <div className="flex-1 pr-2 min-w-0"> {/* Nested min-w-0 for safety */}
+                                                <h3 
+                                                    className={`text-lg font-semibold break-words whitespace-normal mb-1 ${!isTitleExpanded && isLongTitle ? 'line-clamp-3' : ''}`}
+                                                    style={!isTitleExpanded && isLongTitle ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}}
+                                                >
+                                                    {post.title}
+                                                </h3>
+                                                {isLongTitle && (
+                                                    <button 
+                                                        onClick={(e) => toggleExpansion(post.id, 'title', e)} 
+                                                        className="text-xs text-primary hover:underline font-medium focus:outline-none mb-2 block"
+                                                    >
+                                                        {isTitleExpanded ? 'Show Less' : 'Show More'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {session.user.id === post.user_id && (
+                                                <div className="flex gap-2 ml-2 shrink-0" onClick={e => e.stopPropagation()}>
+                                                    <button onClick={(e) => openEditModal(post, e)} className="text-muted-foreground hover:text-primary p-1 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
+                                                    <button onClick={(e) => initiateDeletePost(post.id, e)} className="text-muted-foreground hover:text-destructive p-1 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        <p className={`text-sm text-muted-foreground mb-2 whitespace-pre-wrap break-words ${!isContentExpanded && isLongContent ? 'line-clamp-3' : ''}`}>
+                                            {post.content}
+                                        </p>
+                                        {isLongContent && (
+                                            <button 
+                                                onClick={(e) => toggleExpansion(post.id, 'content', e)} 
+                                                className="text-xs text-primary hover:underline mb-3 font-medium focus:outline-none"
+                                            >
+                                                {isContentExpanded ? 'Show Less' : 'Show More'}
+                                            </button>
+                                        )}
+                                        
+                                        {renderVideoEmbed(post.youtube_url)}
+
+                                        {post.image_url && !post.youtube_url && (
+                                            <div className="mb-3 rounded-md overflow-hidden w-full bg-muted">
+                                                <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[400px] object-contain bg-black/5" />
+                                            </div>
+                                        )}
+                                        <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
+                                            <div className="flex items-center gap-2">
+                                                {post.profiles?.profile_picture_url ? (
+                                                    <img src={post.profiles.profile_picture_url} className="w-5 h-5 rounded-full object-cover" alt="avatar" />
+                                                ) : (
+                                                    <div className="w-5 h-5 bg-primary/20 rounded-full" />
+                                                )}
+                                                <span className="truncate max-w-[100px]">{post.profiles?.name || 'Unknown'}</span>
+                                                <span>•</span>
+                                                <span>{new Date(post.created_at).toLocaleDateString()}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <MessageCircleIcon className="w-4 h-4" />
+                                                <span>{post.comment_count || 0} Comments</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+                          );
+                      })
                   )}
               </div>
           </div>
@@ -811,7 +865,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                   <ThumbsDownIcon className="w-6 h-6" />
                               </button>
                           </div>
-                          <div className="flex-1 p-6">
+                          <div className="flex-1 p-6 min-w-0">
                               <div className="flex justify-between items-start mb-4">
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                       <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">{selectedPost.category}</span>
@@ -819,14 +873,14 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                       <span>• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
                                   </div>
                                   {session.user.id === selectedPost.user_id && (
-                                      <div className="flex gap-2">
-                                          <Button variant="ghost" size="sm" onClick={() => openEditModal(selectedPost)} className="h-8"><PenIcon className="w-4 h-4 mr-2" /> Edit</Button>
-                                          <Button variant="ghost" size="sm" onClick={() => initiateDeletePost(selectedPost.id)} className="h-8 text-destructive hover:text-destructive"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
+                                      <div className="flex gap-2 shrink-0">
+                                          <Button variant="ghost" size="sm" onClick={(e) => openEditModal(selectedPost, e)} className="h-8"><PenIcon className="w-4 h-4 mr-2" /> Edit</Button>
+                                          <Button variant="ghost" size="sm" onClick={(e) => initiateDeletePost(selectedPost.id, e)} className="h-8 text-destructive hover:text-destructive"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
                                       </div>
                                   )}
                               </div>
-                              <h2 className="text-2xl font-bold mb-4">{selectedPost.title}</h2>
-                              <p className="text-foreground whitespace-pre-wrap leading-relaxed mb-6">{selectedPost.content}</p>
+                              <h2 className="text-2xl font-bold mb-4 break-words">{selectedPost.title}</h2>
+                              <p className="text-foreground whitespace-pre-wrap leading-relaxed mb-6 break-words">{selectedPost.content}</p>
                               
                               {renderVideoEmbed(selectedPost.youtube_url)}
 
@@ -864,17 +918,17 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                   </button>
                               </div>
 
-                              <div className="flex-1">
+                              <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-2">
                                       {comment.profiles?.profile_picture_url ? (
                                           <img src={comment.profiles.profile_picture_url} className="w-6 h-6 rounded-full object-cover" alt="Avatar" />
                                       ) : (
                                           <div className="w-6 h-6 bg-secondary rounded-full" />
                                       )}
-                                      <span className="text-sm font-medium">{comment.profiles?.name || 'Unknown'}</span>
+                                      <span className="text-sm font-medium truncate max-w-[150px]">{comment.profiles?.name || 'Unknown'}</span>
                                       <span className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</span>
                                   </div>
-                                  <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+                                  <p className="text-sm whitespace-pre-wrap break-words">{comment.content}</p>
                                   {comment.image_url && (
                                       <div className="mt-3 rounded-md overflow-hidden max-w-md">
                                           <img src={comment.image_url} alt="Comment image" className="w-full h-auto max-h-64 object-contain bg-muted" />

@@ -234,6 +234,8 @@ DROP POLICY IF EXISTS "Authenticated insert posts" ON public.forum_posts;
 CREATE POLICY "Authenticated insert posts" ON public.forum_posts FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Users update own posts" ON public.forum_posts;
 CREATE POLICY "Users update own posts" ON public.forum_posts FOR UPDATE TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users delete own posts" ON public.forum_posts;
+CREATE POLICY "Users delete own posts" ON public.forum_posts FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Authenticated read comments" ON public.forum_comments;
 CREATE POLICY "Authenticated read comments" ON public.forum_comments FOR SELECT TO authenticated USING (true);
@@ -241,6 +243,8 @@ DROP POLICY IF EXISTS "Authenticated insert comments" ON public.forum_comments;
 CREATE POLICY "Authenticated insert comments" ON public.forum_comments FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Users update own comments" ON public.forum_comments;
 CREATE POLICY "Users update own comments" ON public.forum_comments FOR UPDATE TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users delete own comments" ON public.forum_comments;
+CREATE POLICY "Users delete own comments" ON public.forum_comments FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Authenticated read votes" ON public.forum_votes;
 CREATE POLICY "Authenticated read votes" ON public.forum_votes FOR SELECT TO authenticated USING (true);
