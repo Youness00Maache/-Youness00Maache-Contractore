@@ -479,12 +479,17 @@ const App: React.FC = () => {
   
   const fetchData = async () => {
     if (!session) return;
-    setLoading(true);
+    
+    // Avoid triggering the full-screen loader if we already have data (background refresh)
+    // This happens when switching tabs (token refresh) or regaining focus
+    if (!profile) {
+        setLoading(true);
+        setLoadingMessage('Loading profile...');
+    }
 
     const user = session.user;
     
     // 1. Fetch or create profile
-    setLoadingMessage('Loading profile...');
     let currentProfile: UserProfile | null = null;
 
     if (navigator.onLine) {
