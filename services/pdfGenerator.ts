@@ -1,3 +1,4 @@
+
 import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData } from '../types.ts';
 
 declare const jspdf: any;
@@ -9,7 +10,6 @@ const loadImage = async (url: string): Promise<{ data: string; format: string; w
     try {
         let dataUrl = url;
         if (!url.startsWith('data:image/')) {
-            // Add cache-busting param to avoid stale cached images or CORS issues with cached items
             const fetchUrl = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
             const response = await fetch(fetchUrl, { cache: 'no-store' });
             const blob = await response.blob();
@@ -48,36 +48,17 @@ const loadImage = async (url: string): Promise<{ data: string; format: string; w
     }
 };
 
-// Extract link coordinates relative to the container
-function extractLinks(element: HTMLElement) {
-  const links: Array<{
-    text: string;
-    url: string;
-    rect: { x: number, y: number, width: number, height: number };
-  }> = [];
-  
-  const anchors = element.querySelectorAll('a[href]');
-  const containerRect = element.getBoundingClientRect();
-  
-  anchors.forEach((anchor) => {
-    const rect = anchor.getBoundingClientRect();
-    // Skip items with no dimension or hidden
-    if (rect.width === 0 || rect.height === 0) return;
-
-    links.push({
-      text: anchor.textContent || '',
-      url: (anchor as HTMLAnchorElement).href,
-      rect: {
-        x: rect.left - containerRect.left,
-        y: rect.top - containerRect.top,
-        width: rect.width,
-        height: rect.height,
-      }
-    });
-  });
-  
-  return links;
-}
+// Helper to safely draw text handling undefined/null values
+const safeText = (doc: any, text: any, x: number, y: number, options?: any) => {
+    if (text === null || text === undefined) {
+        return;
+    }
+    let safeVal = text;
+    if (typeof text === 'number') safeVal = String(text);
+    if (typeof text === 'boolean') safeVal = String(text);
+    
+    doc.text(safeVal, x, y, options);
+};
 
 // --- Template Engine ---
 interface TemplateStyle {
@@ -112,502 +93,730 @@ const templates: Record<string, TemplateStyle> = {
 
 const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : [0, 0, 0];
+    return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : null;
 };
 
-const getContrastColor = (hex: string) => {
-    const rgb = hexToRgb(hex);
-    const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-    return brightness > 128 ? '#000000' : '#ffffff';
-}
+// --- Generators ---
 
-const getTemplate = (id: string | undefined, customColors?: { primary: string, secondary: string }): TemplateStyle => {
-    const baseTemplate = templates[id || 'standard'] || templates.standard;
-    if (customColors) {
-        const primary = customColors.primary || baseTemplate.primaryColor;
-        const secondary = customColors.secondary || baseTemplate.secondaryColor;
-        const newHeaderColor = baseTemplate.headerColor === '#ffffff' ? '#ffffff' : primary;
-        const newHeaderTextColor = newHeaderColor === '#ffffff' ? primary : getContrastColor(primary);
-        return { ...baseTemplate, primaryColor: primary, secondaryColor: secondary, headerColor: newHeaderColor, headerTextColor: newHeaderTextColor, borderColor: secondary };
-    }
-    return baseTemplate;
-};
+export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice: InvoiceData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(invoice.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+    const secondaryRgb = hexToRgb(invoice.themeColors?.secondary || template.secondaryColor) || [100, 100, 100];
 
-const drawSmartLabelValue = (doc: any, label: string, value: string, y: number, maxX: number, font: string) => {
-    doc.setFont(font, 'normal'); 
-    const valueWidth = doc.getTextWidth(value);
-    doc.text(value, maxX, y, { align: 'right' });
-    const padding = 12; 
-    const labelX = maxX - valueWidth - padding;
-    doc.setFont(font, 'bold');
-    doc.text(label, labelX, y, { align: 'right' });
-};
+    // Header Background
+    doc.setFillColor(...primaryRgb);
+    doc.rect(0, 0, 210, 40, 'F');
 
-const addHeader = async (doc: any, profile: UserProfile, title: string, dateLabel: string, dateValue: string, style: TemplateStyle) => {
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 40;
-    const headerHeight = 100;
-    if (style.headerColor !== '#ffffff') {
-        doc.setFillColor(...hexToRgb(style.headerColor));
-        doc.rect(0, 0, pageWidth, headerHeight, 'F');
-    }
-    const logoMaxHeight = 60;
-    if (profile.logoUrl) {
-        try {
-            const imgData = await loadImage(profile.logoUrl);
-            if (imgData) {
-                const aspectRatio = imgData.width / imgData.height;
-                let imgWidth = logoMaxHeight * aspectRatio;
-                let imgHeight = logoMaxHeight;
-                if (imgWidth > 120) { imgWidth = 120; imgHeight = imgWidth / aspectRatio; }
-                const logoY = (headerHeight - imgHeight) / 2;
-                doc.addImage(imgData.data, imgData.format, margin, logoY, imgWidth, imgHeight);
-            }
-        } catch (e) {}
-    }
+    // Company Info
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(24);
-    doc.setFont(style.headerFont, 'bold');
-    doc.setTextColor(...hexToRgb(style.headerTextColor));
-    const titleY = headerHeight / 2 + 5; 
-    doc.text(title, pageWidth - margin, titleY - 10, { align: 'right' });
+    doc.setFont(template.headerFont, 'bold');
+    safeText(doc, invoice.companyName || profile.companyName, 20, 20);
+    
     doc.setFontSize(10);
-    doc.setFont(style.font, 'normal');
-    drawSmartLabelValue(doc, `${dateLabel}:`, dateValue, titleY + 10, pageWidth - margin, style.font);
-    return headerHeight + 40; 
+    doc.setFont(template.font, 'normal');
+    safeText(doc, invoice.companyAddress || profile.address, 20, 28);
+    safeText(doc, `${invoice.companyPhone || profile.phone} | ${invoice.companyWebsite || profile.website}`, 20, 33);
+
+    // Logo
+    if (invoice.logoUrl) {
+        const imgData = await loadImage(invoice.logoUrl);
+        if (imgData) {
+            doc.addImage(imgData.data, imgData.format, 160, 5, 30, 30 * (imgData.height / imgData.width));
+        }
+    }
+
+    // Invoice Title & Meta
+    doc.setTextColor(...primaryRgb);
+    doc.setFontSize(30);
+    doc.setFont(template.headerFont, 'bold');
+    safeText(doc, 'INVOICE', 150, 60, { align: 'right' });
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont(template.font, 'normal');
+    safeText(doc, `Invoice #: ${invoice.invoiceNumber}`, 150, 70, { align: 'right' });
+    safeText(doc, `Date: ${invoice.issueDate}`, 150, 75, { align: 'right' });
+    safeText(doc, `Due Date: ${invoice.dueDate}`, 150, 80, { align: 'right' });
+
+    // Client Info
+    doc.setFontSize(12);
+    doc.setFont(template.font, 'bold');
+    doc.setTextColor(...secondaryRgb);
+    safeText(doc, 'BILL TO:', 20, 65);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(11);
+    doc.setFont(template.font, 'normal');
+    safeText(doc, invoice.clientName || job.clientName, 20, 72);
+    safeText(doc, invoice.clientAddress || job.clientAddress, 20, 78);
+
+    // Line Items Table
+    const tableColumn = ["Description", "Quantity", "Rate", "Amount"];
+    const tableRows = invoice.lineItems.map(item => [
+        item.description,
+        item.quantity,
+        `$${Number(item.rate).toFixed(2)}`,
+        `$${(item.quantity * item.rate).toFixed(2)}`
+    ]);
+
+    (doc as any).autoTable({
+        startY: 90,
+        head: [tableColumn],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: primaryRgb, textColor: [255, 255, 255] },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        styles: { font: template.font, fontSize: 10 },
+        margin: { left: 20, right: 20 }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+    // Totals
+    const subtotal = invoice.lineItems.reduce((acc, item) => acc + (item.quantity * item.rate), 0);
+    const discount = invoice.discount || 0;
+    const shipping = invoice.shipping || 0;
+    const taxRate = invoice.taxRate || 0;
+    const taxable = subtotal - discount;
+    const tax = taxable * (taxRate / 100);
+    const total = taxable + tax + shipping;
+
+    doc.setFontSize(10);
+    doc.text(`Subtotal: $${subtotal.toFixed(2)}`, 190, finalY, { align: 'right' });
+    if (discount > 0) doc.text(`Discount: -$${discount.toFixed(2)}`, 190, finalY + 5, { align: 'right' });
+    if (tax > 0) doc.text(`Tax (${taxRate}%): $${tax.toFixed(2)}`, 190, finalY + 10, { align: 'right' });
+    if (shipping > 0) doc.text(`Shipping: $${shipping.toFixed(2)}`, 190, finalY + 15, { align: 'right' });
+    
+    doc.setFontSize(14);
+    doc.setFont(template.font, 'bold');
+    doc.setTextColor(...primaryRgb);
+    doc.text(`Total: $${total.toFixed(2)}`, 190, finalY + 25, { align: 'right' });
+
+    // Payment Link Button (Visual Only)
+    let currentY = finalY + 40;
+    if (invoice.paypalLink) {
+        doc.setFillColor(...primaryRgb);
+        doc.roundedRect(20, currentY, 40, 10, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.text('PAY NOW', 40, currentY + 6.5, { align: 'center' });
+        doc.link(20, currentY, 40, 10, { url: invoice.paypalLink });
+        currentY += 20;
+    }
+
+    // Notes & Signature
+    if (invoice.notes) {
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(10);
+        doc.setFont(template.font, 'bold');
+        doc.text('Notes:', 20, currentY);
+        doc.setFont(template.font, 'normal');
+        doc.text(invoice.notes, 20, currentY + 5, { maxWidth: 170 });
+        currentY += 20;
+    }
+
+    if (invoice.signatureUrl) {
+        const sigData = await loadImage(invoice.signatureUrl);
+        if (sigData) {
+            doc.addImage(sigData.data, sigData.format, 20, currentY, 40, 20);
+            doc.line(20, currentY + 20, 80, currentY + 20);
+            doc.text('Authorized Signature', 20, currentY + 25);
+        }
+    }
+
+    doc.save(`${invoice.invoiceNumber}.pdf`);
 };
 
-export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoiceData: InvoiceData, templateId: string) => {
-     return new Promise<void>(async (resolve, reject) => {
-        try {
-            const { jsPDF } = jspdf;
-            const doc = new jsPDF('p', 'pt', 'a4');
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 40;
-            const style = getTemplate(templateId, invoiceData.themeColors);
-            
-            const headerHeight = 110;
-            if (style.headerColor !== '#ffffff') {
-                doc.setFillColor(...hexToRgb(style.headerColor));
-                doc.rect(0, 0, pageWidth, headerHeight, 'F');
-            }
+export const generateWarrantyPDF = async (profile: UserProfile, job: Job, warranty: WarrantyData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4'); // Portrait
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(warranty.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+    
+    const isModern = template.layoutType === 'modern';
 
-            const logoSource = invoiceData.logoUrl || profile.logoUrl;
-            if (logoSource) {
-                try {
-                    const imgData = await loadImage(logoSource);
-                    if (imgData) {
-                        const aspectRatio = imgData.width / imgData.height;
-                        let imgWidth = 80 * aspectRatio;
-                        let imgHeight = 80;
-                        if (imgWidth > 150) { imgWidth = 150; imgHeight = imgWidth / aspectRatio; }
-                        const logoY = (headerHeight - imgHeight) / 2;
-                        doc.addImage(imgData.data, imgData.format, margin, logoY, imgWidth, imgHeight);
-                    }
-                } catch (e) {}
+    if (isModern) {
+        // --- Modern Layout ---
+        
+        // Header Bar
+        doc.setFillColor(...primaryRgb);
+        doc.rect(0, 0, 210, 45, 'F');
+        
+        // Logo (No White Box)
+        if (warranty.logoUrl) {
+            const imgData = await loadImage(warranty.logoUrl);
+            if (imgData) {
+                // Draw Logo directly
+                doc.addImage(imgData.data, imgData.format, 20, 10, 25, 25 * (imgData.height / imgData.width));
             }
+        }
 
-            doc.setFontSize(24);
-            doc.setFont(style.headerFont, 'bold');
-            doc.setTextColor(...hexToRgb(style.headerTextColor));
-            doc.text('INVOICE', pageWidth - margin, 45, { align: 'right' });
-            
-            doc.setFontSize(10);
-            let metaY = 65;
-            const rightColX = pageWidth - margin;
-            
-            drawSmartLabelValue(doc, 'Invoice #:', invoiceData.invoiceNumber, metaY, rightColX, style.font);
-            metaY += 18;
-            drawSmartLabelValue(doc, 'Date:', invoiceData.issueDate, metaY, rightColX, style.font);
-            metaY += 18;
-            drawSmartLabelValue(doc, 'Due Date:', invoiceData.dueDate, metaY, rightColX, style.font);
-            
-            doc.save(`Invoice-${invoiceData.invoiceNumber}.pdf`);
-            resolve();
-        } catch (e) { reject(e); }
+        // Title
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(32);
+        doc.text('WARRANTY', 200, 25, { align: 'right' });
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        safeText(doc, `ID: ${warranty.warrantyNumber}`, 200, 32, { align: 'right' });
+
+        // Issued To / Project Grid
+        doc.setTextColor(100, 100, 100);
+        doc.setFontSize(9);
+        doc.text('ISSUED TO', 20, 60);
+        doc.text('PROJECT LOCATION', 110, 60);
+
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        safeText(doc, warranty.clientName, 20, 66);
+        safeText(doc, warranty.projectAddress, 110, 66);
+
+        // Divider
+        doc.setDrawColor(230, 230, 230);
+        doc.line(20, 75, 190, 75);
+
+        // Body Text
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(60, 60, 60);
+        const introText = `This document certifies that the work performed by ${profile.companyName} has been completed in accordance with industry standards and is warranted as follows.`;
+        doc.text(introText, 20, 85, { maxWidth: 170 });
+
+        // Boxes for Duration / Date
+        doc.setDrawColor(...primaryRgb);
+        doc.setLineWidth(0.5);
+        
+        // Duration Box
+        doc.rect(20, 100, 80, 25);
+        doc.setTextColor(...primaryRgb);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text('DURATION', 25, 106);
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(14);
+        safeText(doc, warranty.duration, 25, 116);
+
+        // Completion Date Box - Fix Black Box Issue by resetting fill color
+        doc.setFillColor(0, 0, 0); // Fill for the black rectangle
+        doc.rect(110, 100, 80, 25, 'F');
+        doc.setTextColor(255, 255, 255); // Fill override
+        doc.setTextColor(200, 50, 50); // Red text for label
+        doc.setFontSize(8);
+        doc.text('COMPLETION DATE', 115, 106);
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        safeText(doc, warranty.completedDate, 115, 116);
+
+        // Content Sections
+        let yPos = 140;
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('SCOPE OF COVERAGE', 20, yPos);
+        yPos += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(60, 60, 60);
+        const coverageLines = doc.splitTextToSize(warranty.coverage || 'N/A', 170);
+        doc.text(coverageLines, 20, yPos);
+        yPos += (coverageLines.length * 5) + 10;
+
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'bold');
+        doc.text('TERMS & CONDITIONS', 20, yPos);
+        yPos += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(60, 60, 60);
+        const condLines = doc.splitTextToSize(warranty.conditions || 'N/A', 170);
+        doc.text(condLines, 20, yPos);
+
+        // Signature
+        const sigY = 250;
+        if (warranty.signatureUrl) {
+            const sigData = await loadImage(warranty.signatureUrl);
+            if (sigData) {
+                doc.addImage(sigData.data, sigData.format, 20, sigY - 15, 40, 15);
+            }
+        }
+        doc.setDrawColor(200, 200, 200);
+        doc.line(20, sigY, 80, sigY);
+        doc.setFontSize(8);
+        doc.text('AUTHORIZED SIGNATURE', 20, sigY + 5);
+
+        doc.line(130, sigY, 190, sigY);
+        doc.text('DATE ISSUED', 185, sigY + 5, { align: 'right' });
+        doc.text(new Date().toLocaleDateString(), 185, sigY - 2, { align: 'right' });
+
+    } else {
+        // --- Classic Certificate Layout ---
+        
+        // Border
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(1);
+        doc.rect(10, 10, 190, 277);
+        doc.setLineWidth(0.5);
+        doc.rect(12, 12, 186, 273);
+
+        let yPos = 40;
+
+        // Logo
+        if (warranty.logoUrl) {
+            const imgData = await loadImage(warranty.logoUrl);
+            if (imgData) {
+                const width = 40;
+                const height = width * (imgData.height / imgData.width);
+                doc.addImage(imgData.data, imgData.format, 105 - (width/2), yPos, width, height);
+                yPos += height + 10;
+            }
+        } else {
+            yPos += 30;
+        }
+
+        // Header
+        doc.setFont('times', 'bold');
+        doc.setFontSize(36);
+        doc.text('CERTIFICATE OF WARRANTY', 105, yPos, { align: 'center' });
+        yPos += 10;
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 100, 100);
+        safeText(doc, `Warranty ID: ${warranty.warrantyNumber}`, 105, yPos, { align: 'center' });
+        yPos += 20;
+
+        // Presented To
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('times', 'normal');
+        doc.setFontSize(14);
+        doc.text('This warranty is presented to:', 105, yPos, { align: 'center' });
+        yPos += 10;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        safeText(doc, warranty.clientName, 105, yPos, { align: 'center' });
+        yPos += 15;
+
+        doc.setFont('times', 'normal');
+        doc.setFontSize(14);
+        doc.text('For the project located at:', 105, yPos, { align: 'center' });
+        yPos += 10;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        safeText(doc, warranty.projectAddress, 105, yPos, { align: 'center' });
+        yPos += 20;
+
+        // Body
+        doc.setFont('times', 'normal');
+        doc.setFontSize(12);
+        const bodyText = `This document certifies that the work performed by ${profile.companyName} has been completed in accordance with industry standards and is warranted as follows.`;
+        const splitBody = doc.splitTextToSize(bodyText, 160);
+        doc.text(splitBody, 105, yPos, { align: 'center' });
+        yPos += 25;
+
+        // Boxes
+        doc.setFillColor(245, 245, 245);
+        doc.setDrawColor(0, 0, 0); // Reset draw color
+        doc.setTextColor(0, 0, 0); // Reset text color
+        
+        // Box 1
+        doc.rect(25, yPos, 75, 20, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('WARRANTY DURATION', 30, yPos + 6);
+        doc.setFont('times', 'normal');
+        doc.setFontSize(12);
+        safeText(doc, warranty.duration, 30, yPos + 14);
+
+        // Box 2 - Reset fill color to avoid black box
+        doc.setFillColor(0, 0, 0); // Black box
+        doc.rect(110, yPos, 75, 20, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('COMPLETION DATE', 115, yPos + 6);
+        doc.setFont('times', 'normal');
+        doc.setFontSize(12);
+        safeText(doc, warranty.completedDate, 115, yPos + 14);
+        yPos += 35;
+
+        // Details
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text('SCOPE OF COVERAGE', 25, yPos);
+        yPos += 6;
+        doc.setFont('times', 'normal');
+        doc.setFontSize(11);
+        const covLines = doc.splitTextToSize(warranty.coverage || '', 160);
+        doc.text(covLines, 25, yPos);
+        yPos += (covLines.length * 5) + 10;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text('TERMS, CONDITIONS & EXCLUSIONS', 25, yPos);
+        yPos += 6;
+        doc.setFont('times', 'normal');
+        doc.setFontSize(11);
+        const termsLines = doc.splitTextToSize(warranty.conditions || '', 160);
+        doc.text(termsLines, 25, yPos);
+
+        // Footer Signatures
+        const footerY = 250;
+        if (warranty.signatureUrl) {
+            const sigData = await loadImage(warranty.signatureUrl);
+            if (sigData) doc.addImage(sigData.data, sigData.format, 25, footerY - 15, 40, 15);
+        }
+        doc.setDrawColor(150, 150, 150);
+        doc.line(25, footerY, 90, footerY);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text('Authorized Signature', 25, footerY + 5);
+        doc.text(profile.companyName, 25, footerY + 10);
+
+        doc.line(120, footerY, 185, footerY);
+        doc.text('Date', 120, footerY + 5);
+        doc.text(new Date().toLocaleDateString(), 120, footerY + 10);
+
+        // Bottom center info
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        const footerText = `${profile.companyName} | ${profile.email} | ${profile.phone} | ${profile.website}`;
+        doc.text(footerText, 105, 280, { align: 'center' });
+    }
+
+    doc.save(`Warranty-${warranty.warrantyNumber}.pdf`);
+};
+
+export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, wo: WorkOrderData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(wo.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    // --- Modern Header ---
+    doc.setFillColor(...primaryRgb);
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    // Title
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(template.headerFont, 'bold');
+    doc.setFontSize(28);
+    safeText(doc, 'WORK ORDER', 20, 25);
+    
+    // WO Number & Status
+    doc.setFontSize(12);
+    safeText(doc, `#${wo.workOrderNumber || ''}`, 20, 32);
+    
+    doc.setFontSize(14);
+    safeText(doc, (wo.status || 'Scheduled').toUpperCase(), 190, 25, { align: 'right' });
+
+    // Logo
+    if (wo.logoUrl) {
+        const imgData = await loadImage(wo.logoUrl);
+        if (imgData) {
+            // White box for logo visibility
+            doc.setFillColor(255, 255, 255);
+            doc.roundedRect(150, 5, 35, 35, 2, 2, 'F');
+            doc.addImage(imgData.data, imgData.format, 152.5, 7.5, 30, 30 * (imgData.height / imgData.width));
+        }
+    }
+
+    let yPos = 50;
+
+    // Info Grid
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont(template.font, 'bold');
+    doc.text('SERVICE PROVIDER', 20, yPos);
+    doc.text('CLIENT / JOB LOCATION', 110, yPos);
+    yPos += 5;
+
+    doc.setFont(template.font, 'normal');
+    doc.setTextColor(60, 60, 60);
+    // Provider
+    safeText(doc, wo.companyName || profile.companyName, 20, yPos);
+    safeText(doc, wo.companyAddress || profile.address, 20, yPos + 5);
+    safeText(doc, wo.companyPhone || profile.phone, 20, yPos + 10);
+    
+    // Client
+    safeText(doc, wo.clientName || job.clientName, 110, yPos);
+    safeText(doc, wo.clientAddress || job.clientAddress, 110, yPos + 5);
+    
+    yPos += 25;
+
+    // Sections
+    const sections = [
+        { title: 'DESCRIPTION OF WORK', content: wo.description, height: 40 },
+        { title: 'MATERIALS / PARTS', content: wo.materialsUsed, height: 30 }
+    ];
+
+    sections.forEach(section => {
+        doc.setFillColor(240, 240, 240);
+        doc.rect(20, yPos, 170, 8, 'F');
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(template.font, 'bold');
+        doc.text(section.title, 22, yPos + 6);
+        yPos += 12;
+        
+        doc.setFont(template.font, 'normal');
+        doc.setTextColor(40, 40, 40);
+        const lines = doc.splitTextToSize(section.content || 'N/A', 170);
+        doc.text(lines, 20, yPos);
+        yPos += Math.max(section.height, lines.length * 5) + 5;
     });
-}; 
 
-export const generateDailyJobReportPDF = async (profile: UserProfile, data: DailyJobReportData, templateId: string) => {
-   return new Promise<void>(async (resolve, reject) => {
-    try {
-      const { jsPDF } = jspdf;
-      const doc = new jsPDF('p', 'pt', 'a4');
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 40;
-      const style = getTemplate(templateId, data.themeColors);
+    // Summary Table
+    const costY = yPos;
+    doc.setDrawColor(200, 200, 200);
+    doc.line(20, costY, 190, costY);
+    
+    yPos += 10;
+    doc.setFont(template.font, 'bold');
+    doc.text('Hours Worked:', 130, yPos);
+    doc.setFont(template.font, 'normal');
+    safeText(doc, String(wo.hours || 0), 180, yPos, { align: 'right' });
+    
+    yPos += 8;
+    doc.setFont(template.font, 'bold');
+    doc.text('Total Cost:', 130, yPos);
+    doc.setFontSize(12);
+    doc.setTextColor(...primaryRgb);
+    safeText(doc, `$${Number(wo.cost || 0).toFixed(2)}`, 180, yPos, { align: 'right' });
 
-      let yPos = await addHeader(doc, profile, 'DAILY JOB REPORT', 'Date', data.date, style);
-      
-      doc.setFontSize(10);
-      doc.setFont(style.font, 'bold');
-      doc.setTextColor(...hexToRgb(style.primaryColor));
-      doc.text("PROJECT DETAILS", margin, yPos);
-      yPos += 15;
-      doc.setDrawColor(...hexToRgb(style.borderColor));
-      doc.line(margin, yPos, pageWidth - margin, yPos);
-      yPos += 15;
-      doc.setTextColor(...hexToRgb(style.textColor));
-      doc.setFont(style.font, 'normal');
-      doc.text(`Project: ${data.projectName}`, margin, yPos);
-      doc.text(`Report #: ${data.reportNumber}`, pageWidth/2, yPos);
-      yPos += 15;
-      if (data.clientName) { doc.text(`Client: ${data.clientName}`, margin, yPos); yPos += 15; }
-      if (data.weather) { doc.text(`Weather: ${data.weather} ${data.temperature ? `(${data.temperature})` : ''}`, margin, yPos); yPos += 25; }
+    // Terms
+    yPos += 20;
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(template.font, 'bold');
+    doc.text('TERMS', 20, yPos);
+    doc.setFont(template.font, 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    const termsLines = doc.splitTextToSize(wo.terms || '', 170);
+    doc.text(termsLines, 20, yPos + 5);
 
-      const contentElement = document.getElementById('pdf-render-content');
-      if (contentElement) {
-          // Content capture logic (omitted for brevity in this update, assuming existing logic is fine)
-          // Re-implementing minimal version to ensure it works if file is fully replaced
-          contentElement.style.left = '0px';
-          contentElement.style.top = '0px'; 
-          contentElement.style.zIndex = '-1000'; 
-          contentElement.style.opacity = '1';
-          contentElement.style.visibility = 'visible';
-          contentElement.style.width = '750px';
-          contentElement.style.backgroundColor = 'white';
+    // Signature
+    const sigY = 260;
+    if (wo.signatureUrl) {
+        const sigData = await loadImage(wo.signatureUrl);
+        if (sigData) doc.addImage(sigData.data, sigData.format, 20, sigY - 15, 40, 15);
+    }
+    doc.setDrawColor(0, 0, 0);
+    doc.line(20, sigY, 80, sigY);
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Authorized Signature', 20, sigY + 5);
+    
+    doc.line(130, sigY, 190, sigY);
+    doc.text('Date', 130, sigY + 5);
+    doc.text(new Date().toLocaleDateString(), 185, sigY - 2, { align: 'right' });
 
-          contentElement.innerHTML = `<div class="pdf-content" style="font-family: Helvetica; font-size: 12pt; color: ${style.textColor}">${data.content}</div>`;
-          
-          await new Promise(r => setTimeout(r, 200));
-          const canvas = await html2canvas(contentElement, { scale: 2, useCORS: true });
-          const imgData = canvas.toDataURL('image/png');
-          const imgProps = doc.getImageProperties(imgData);
-          const pdfWidth = pageWidth - (margin * 2);
-          const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-          doc.addImage(imgData, 'PNG', margin, yPos, pdfWidth, pdfHeight);
-          contentElement.style.left = '-9999px';
-          contentElement.innerHTML = '';
-      }
+    doc.save(`WorkOrder-${wo.workOrderNumber}.pdf`);
+};
 
-      doc.save(`${data.reportNumber}.pdf`);
-      resolve();
-    } catch (err) { reject(err); }
-   });
+export const generateDailyJobReportPDF = async (profile: UserProfile, report: DailyJobReportData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    const primaryRgb = hexToRgb(report.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    doc.setFillColor(...primaryRgb);
+    doc.rect(0, 0, 210, 20, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont(template.headerFont, 'bold');
+    safeText(doc, 'DAILY JOB REPORT', 105, 13, { align: 'center' });
+
+    let yPos = 30;
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    
+    // Meta Grid
+    const meta = [
+        ['Date:', report.date, 'Project:', report.projectName],
+        ['Report #:', report.reportNumber, 'Client:', report.clientName],
+        ['Weather:', report.weather, 'Location:', report.projectAddress],
+        ['Temp:', report.temperature, 'By:', profile.name]
+    ];
+
+    meta.forEach(row => {
+        doc.setFont(template.font, 'bold');
+        safeText(doc, row[0], 20, yPos);
+        doc.setFont(template.font, 'normal');
+        safeText(doc, row[1], 45, yPos);
+        
+        doc.setFont(template.font, 'bold');
+        safeText(doc, row[2], 110, yPos);
+        doc.setFont(template.font, 'normal');
+        safeText(doc, row[3], 140, yPos);
+        yPos += 6;
+    });
+
+    yPos += 10;
+    doc.line(20, yPos, 190, yPos);
+    yPos += 10;
+
+    // HTML Content
+    if (report.content) {
+        const contentDiv = document.createElement('div');
+        contentDiv.innerHTML = report.content;
+        contentDiv.style.width = '595px'; // A4 width px at 72dpi approx
+        contentDiv.style.padding = '20px';
+        contentDiv.style.fontFamily = template.font;
+        document.body.appendChild(contentDiv);
+
+        await doc.html(contentDiv, {
+            callback: (doc: any) => {
+               // Signature after content
+               const finalY = doc.internal.pageSize.getHeight() - 40;
+               if (report.signatureUrl) {
+                   loadImage(report.signatureUrl).then(sig => {
+                       if(sig) doc.addImage(sig.data, sig.format, 20, finalY, 40, 15);
+                       doc.line(20, finalY + 15, 80, finalY + 15);
+                       doc.text('Signed', 20, finalY + 20);
+                       doc.save(`Report-${report.date}.pdf`);
+                   });
+               } else {
+                   doc.save(`Report-${report.date}.pdf`);
+               }
+            },
+            x: 10,
+            y: yPos,
+            width: 170,
+            windowWidth: 650
+        });
+        document.body.removeChild(contentDiv);
+    } else {
+        doc.save(`Report-${report.date}.pdf`);
+    }
+};
+
+export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data: TimeSheetData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    const template = templates[templateId] || templates.standard;
+    
+    doc.setFontSize(20);
+    doc.text('TIME SHEET', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(12);
+    safeText(doc, `Worker: ${data.workerName}`, 20, 40);
+    safeText(doc, `Date: ${data.date}`, 20, 50);
+    safeText(doc, `Job: ${job.name}`, 20, 60);
+    
+    doc.setLineWidth(0.5);
+    doc.rect(20, 70, 170, 30);
+    doc.text('Hours Worked:', 30, 90);
+    doc.text(String(data.hoursWorked), 80, 90);
+    doc.text('Overtime:', 110, 90);
+    doc.text(String(data.overtimeHours), 150, 90);
+    
+    if (data.notes) {
+        doc.text('Notes:', 20, 120);
+        doc.text(data.notes, 20, 130);
+    }
+    
+    doc.save(`TimeSheet-${data.date}.pdf`);
+};
+
+export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    
+    doc.setFontSize(22);
+    doc.text('MATERIAL LOG', 105, 20, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Job: ${job.name}`, 20, 35);
+    doc.text(`Date: ${data.date}`, 20, 42);
+
+    const rows = data.items.map(i => [i.name, i.supplier, i.quantity, `$${i.unitCost}`]);
+    (doc as any).autoTable({
+        startY: 50,
+        head: [['Item', 'Supplier', 'Qty', 'Cost']],
+        body: rows,
+    });
+    doc.save('Materials.pdf');
+};
+
+export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string) => {
+    // Re-use invoice logic mostly but title changed
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(24);
+    doc.text('ESTIMATE', 150, 20, { align: 'right' });
+    
+    doc.setFontSize(10);
+    doc.text(`Estimate #: ${data.estimateNumber}`, 150, 30, { align: 'right' });
+    doc.text(`Valid Until: ${data.expiryDate}`, 150, 35, { align: 'right' });
+
+    doc.setFontSize(12);
+    doc.text(profile.companyName, 20, 20);
+    doc.setFontSize(10);
+    doc.text(profile.address, 20, 25);
+    
+    doc.text('PREPARED FOR:', 20, 45);
+    doc.text(job.clientName || '', 20, 50);
+
+    const rows = data.lineItems.map(i => [i.description, i.quantity, `$${i.rate}`, `$${(i.quantity * i.rate).toFixed(2)}`]);
+    (doc as any).autoTable({
+        startY: 60,
+        head: [['Description', 'Qty', 'Rate', 'Total']],
+        body: rows,
+    });
+    
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    const total = data.lineItems.reduce((a, b) => a + (b.quantity * b.rate), 0);
+    doc.setFontSize(14);
+    doc.text(`Total Estimate: $${total.toFixed(2)}`, 190, finalY, { align: 'right' });
+    
+    if(data.signatureUrl) {
+        const sig = await loadImage(data.signatureUrl);
+        if(sig) doc.addImage(sig.data, sig.format, 20, finalY + 20, 40, 15);
+        doc.text('Accepted By', 20, finalY + 40);
+    }
+
+    doc.save(`Estimate-${data.estimateNumber}.pdf`);
+};
+
+export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data: ExpenseLogData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    doc.text('EXPENSE RECEIPT', 105, 20, { align: 'center' });
+    doc.text(`Item: ${data.item}`, 20, 40);
+    doc.text(`Amount: $${data.amount}`, 20, 50);
+    doc.text(`Vendor: ${data.vendor}`, 20, 60);
+    doc.save('Expense.pdf');
 };
 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string) => {
-    return new Promise<void>(async (resolve, reject) => {
-        try {
-            const style = getTemplate(templateId, data.themeColors);
-            const { jsPDF } = jspdf;
-            const doc = new jsPDF('p', 'pt', 'a4');
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const margin = 40;
-            
-            await addHeader(doc, profile, 'NOTE', 'Date', new Date().toLocaleDateString(), style);
-            
-            // Simplified Note Logic for this update
-            doc.save(`Note.pdf`);
-            resolve();
-        } catch (err) { reject(err); }
-    });
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text(data.title || 'Note', 20, 20);
+    
+    // Handle HTML content simply
+    const div = document.createElement('div');
+    div.innerHTML = data.content;
+    const text = div.innerText || div.textContent || '';
+    doc.setFontSize(12);
+    doc.text(doc.splitTextToSize(text, 180), 20, 40);
+    doc.save('Note.pdf');
 };
 
-// ==========================================
-// Warranty PDF Generator (LAYOUT AWARE)
-// ==========================================
-export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: WarrantyData, templateId: string) => {
-     return new Promise<void>(async (resolve, reject) => {
-        try {
-            const { jsPDF } = jspdf;
-            const doc = new jsPDF('p', 'pt', 'a4');
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            
-            const style = getTemplate(templateId, data.themeColors);
-            const primaryRgb = hexToRgb(style.primaryColor);
-            const secondaryRgb = hexToRgb(style.secondaryColor);
-            
-            const isModernLayout = style.layoutType === 'modern';
-
-            if (isModernLayout) {
-                // --- MODERN LAYOUT ---
-                const margin = 40;
-                let yPos = 40;
-
-                // 1. Modern Header Bar
-                doc.setFillColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.rect(0, 0, pageWidth, 120, 'F');
-                
-                // Logo in white box or just overlay
-                const logoSource = data.logoUrl || profile.logoUrl;
-                if (logoSource) {
-                    try {
-                        const imgData = await loadImage(logoSource);
-                        if (imgData) {
-                            const logoWidth = 60;
-                            const aspectRatio = imgData.width / imgData.height;
-                            const logoHeight = logoWidth / aspectRatio;
-                            // White circle or box bg for logo
-                            doc.setFillColor(255, 255, 255);
-                            doc.roundedRect(margin, 30, logoWidth + 20, logoHeight + 20, 4, 4, 'F');
-                            doc.addImage(imgData.data, imgData.format, margin + 10, 40, logoWidth, logoHeight);
-                        }
-                    } catch (e) {}
-                }
-
-                // Header Text
-                doc.setFont(style.headerFont, 'bold');
-                doc.setFontSize(30);
-                doc.setTextColor(255, 255, 255);
-                doc.text("WARRANTY", pageWidth - margin, 60, { align: 'right' });
-                
-                doc.setFontSize(12);
-                doc.setFont(style.font, 'normal');
-                doc.setTextColor(240, 240, 240);
-                doc.text(`ID: ${data.warrantyNumber}`, pageWidth - margin, 80, { align: 'right' });
-
-                yPos = 160;
-
-                // 2. Client & Project Grid
-                doc.setFontSize(10);
-                doc.setTextColor(100, 100, 100);
-                doc.text("ISSUED TO", margin, yPos);
-                doc.text("PROJECT LOCATION", pageWidth / 2, yPos);
-                
-                yPos += 15;
-                doc.setFontSize(14);
-                doc.setTextColor(0, 0, 0);
-                doc.setFont(style.font, 'bold');
-                doc.text(data.clientName || job.clientName || "Client Name", margin, yPos);
-                doc.text(data.projectAddress || job.clientAddress || "Address", pageWidth / 2, yPos);
-                
-                yPos += 40;
-                
-                // 3. Main Statement (Modern Style)
-                doc.setDrawColor(230, 230, 230);
-                doc.setLineWidth(1);
-                doc.line(margin, yPos, pageWidth - margin, yPos);
-                yPos += 30;
-
-                doc.setFontSize(12);
-                doc.setFont(style.font, 'normal');
-                doc.setTextColor(50, 50, 50);
-                const certText = `This document certifies that the work performed by ${profile.companyName} has been completed in accordance with industry standards and is warranted as follows.`;
-                const splitCert = doc.splitTextToSize(certText, pageWidth - (margin * 2));
-                doc.text(splitCert, margin, yPos);
-                yPos += (splitCert.length * 16) + 30;
-
-                // 4. Coverage Details (Colored Boxes)
-                const boxWidth = (pageWidth - (margin * 2) - 20) / 2;
-                // Use secondary color for visual logic but here we want light tint backgrounds
-                // doc.setFillColor(secondaryRgb[0], secondaryRgb[1], secondaryRgb[2]); 
-                
-                doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.setFillColor(250, 250, 255);
-                
-                // Box 1
-                doc.setFillColor(250, 250, 255); // Explicitly set white/light blue fill
-                doc.roundedRect(margin, yPos, boxWidth, 60, 2, 2, 'FD');
-                doc.setFontSize(10);
-                doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.setFont(style.font, 'bold');
-                doc.text("DURATION", margin + 15, yPos + 20);
-                doc.setFontSize(14);
-                doc.setTextColor(0, 0, 0);
-                doc.text(data.duration, margin + 15, yPos + 45);
-
-                // Box 2
-                // CRITICAL FIX: Reset fill color. The previous setTextColor(0,0,0) for duration text 
-                // essentially sets the "fill" color for drawing operations in some contexts/versions of jsPDF
-                // if not explicitly reset before drawing the next shape.
-                doc.setFillColor(250, 250, 255); 
-                doc.roundedRect(margin + boxWidth + 20, yPos, boxWidth, 60, 2, 2, 'FD');
-                doc.setFontSize(10);
-                doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.text("COMPLETION DATE", margin + boxWidth + 35, yPos + 20);
-                doc.setFontSize(14);
-                doc.setTextColor(0, 0, 0);
-                doc.text(data.completedDate, margin + boxWidth + 35, yPos + 45);
-
-                yPos += 90;
-
-                // 5. Terms (Left Aligned)
-                const printSection = (title: string, content: string) => {
-                    if (!content) return;
-                    doc.setFont(style.font, 'bold');
-                    doc.setFontSize(11);
-                    doc.setTextColor(0, 0, 0);
-                    doc.text(title.toUpperCase(), margin, yPos);
-                    yPos += 15;
-                    
-                    doc.setFont(style.font, 'normal');
-                    doc.setFontSize(10);
-                    doc.setTextColor(80, 80, 80);
-                    const lines = doc.splitTextToSize(content, pageWidth - (margin * 2));
-                    doc.text(lines, margin, yPos);
-                    yPos += (lines.length * 14) + 20;
-                };
-
-                printSection("Scope of Coverage", data.coverage);
-                if (yPos > pageHeight - 200) { doc.addPage(); yPos = margin + 20; }
-                printSection("Terms & Conditions", data.conditions);
-
-                // 6. Modern Footer
-                const footerY = Math.max(yPos + 20, pageHeight - 120);
-                if (data.signatureUrl) {
-                    try {
-                        const sigImg = await loadImage(data.signatureUrl);
-                        if (sigImg) doc.addImage(sigImg.data, sigImg.format, margin, footerY, 100, 35);
-                    } catch(e) {}
-                }
-                doc.line(margin, footerY + 40, margin + 150, footerY + 40);
-                doc.setFontSize(9);
-                doc.text("AUTHORIZED SIGNATURE", margin, footerY + 55);
-                doc.text(new Date().toLocaleDateString(), pageWidth - margin, footerY + 55, { align: 'right' });
-                doc.text("DATE ISSUED", pageWidth - margin, footerY + 40, { align: 'right' });
-
-            } else {
-                // --- CLASSIC CERTIFICATE LAYOUT ---
-                const margin = 50;
-                
-                // 1. Decorative Border
-                doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.setLineWidth(3);
-                doc.rect(20, 20, pageWidth - 40, pageHeight - 40);
-                doc.setLineWidth(1);
-                doc.rect(25, 25, pageWidth - 50, pageHeight - 50);
-
-                let yPos = 80;
-
-                // 2. Logo
-                const logoSource = data.logoUrl || profile.logoUrl;
-                if (logoSource) {
-                    try {
-                        const imgData = await loadImage(logoSource);
-                        if (imgData) {
-                            const logoWidth = 80;
-                            const aspectRatio = imgData.width / imgData.height;
-                            const logoHeight = logoWidth / aspectRatio;
-                            const logoX = (pageWidth - logoWidth) / 2;
-                            doc.addImage(imgData.data, imgData.format, logoX, yPos, logoWidth, logoHeight);
-                            yPos += logoHeight + 30;
-                        }
-                    } catch (e) {}
-                }
-
-                // 3. Header
-                doc.setFont(style.headerFont, 'bold');
-                doc.setFontSize(28);
-                doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.text("CERTIFICATE OF WARRANTY", pageWidth / 2, yPos, { align: 'center' });
-                yPos += 30;
-
-                doc.setFont(style.font, 'normal');
-                doc.setFontSize(10);
-                doc.setTextColor(100, 100, 100);
-                doc.text(`Warranty ID: ${data.warrantyNumber}`, pageWidth / 2, yPos, { align: 'center' });
-                yPos += 40;
-
-                // 4. Presented To
-                doc.setFontSize(12);
-                doc.setTextColor(0, 0, 0);
-                doc.text("This warranty is presented to:", pageWidth / 2, yPos, { align: 'center' });
-                yPos += 20;
-                
-                doc.setFont(style.headerFont, 'bold'); 
-                doc.setFontSize(18);
-                doc.text(data.clientName || job.clientName || "Valued Client", pageWidth / 2, yPos, { align: 'center' });
-                yPos += 30;
-
-                // 5. Project Details
-                doc.setFont(style.font, 'normal');
-                doc.setFontSize(12);
-                doc.text("For the project located at:", pageWidth / 2, yPos, { align: 'center' });
-                yPos += 20;
-                
-                doc.setFont(style.font, 'bold');
-                doc.text(data.projectAddress || job.clientAddress || "Project Address", pageWidth / 2, yPos, { align: 'center' });
-                yPos += 40;
-
-                // 6. Main Statement
-                doc.setFont(style.font, 'normal');
-                doc.text(`This certifies that the work performed by ${profile.companyName} has been completed in accordance with industry standards.`, pageWidth / 2, yPos, { maxWidth: pageWidth - (margin * 2), align: 'center' });
-                yPos += 40;
-
-                // 7. Details Grid
-                const boxWidth = (pageWidth - (margin * 2) - 20) / 2;
-                doc.setFillColor(245, 245, 245);
-                
-                doc.rect(margin, yPos, boxWidth, 50, 'F');
-                doc.setFontSize(10);
-                doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.text("WARRANTY DURATION", margin + 15, yPos + 20);
-                doc.setFontSize(12);
-                doc.setTextColor(0, 0, 0);
-                doc.text(data.duration, margin + 15, yPos + 38);
-
-                doc.rect(margin + boxWidth + 20, yPos, boxWidth, 50, 'F');
-                doc.setFontSize(10);
-                doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                doc.text("COMPLETION DATE", margin + boxWidth + 35, yPos + 20);
-                doc.setFontSize(12);
-                doc.setTextColor(0, 0, 0);
-                doc.text(data.completedDate, margin + boxWidth + 35, yPos + 38);
-                
-                yPos += 80;
-
-                // 8. Coverage & Conditions
-                const printSection = (title: string, content: string) => {
-                    if (!content) return;
-                    doc.setFont(style.font, 'bold');
-                    doc.setFontSize(11);
-                    doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
-                    doc.text(title.toUpperCase(), margin, yPos);
-                    yPos += 15;
-                    
-                    doc.setFont(style.font, 'normal');
-                    doc.setFontSize(10);
-                    doc.setTextColor(60, 60, 60);
-                    const lines = doc.splitTextToSize(content, pageWidth - (margin * 2));
-                    doc.text(lines, margin, yPos);
-                    yPos += (lines.length * 14) + 20;
-                };
-
-                printSection("Scope of Coverage", data.coverage);
-                if (yPos > pageHeight - 200) { doc.addPage(); yPos = margin + 20; }
-                printSection("Terms, Conditions & Exclusions", data.conditions);
-
-                // 9. Footer
-                const footerY = Math.max(yPos + 40, pageHeight - 150);
-                doc.setDrawColor(200, 200, 200);
-                doc.line(margin, footerY + 40, margin + 200, footerY + 40);
-                doc.setFontSize(10);
-                doc.text("Authorized Signature", margin, footerY + 55);
-                doc.setFontSize(8);
-                doc.text(profile.companyName, margin, footerY + 65);
-
-                if (data.signatureUrl) {
-                    try {
-                        const sigImg = await loadImage(data.signatureUrl);
-                        if (sigImg) doc.addImage(sigImg.data, sigImg.format, margin + 20, footerY, 120, 40);
-                    } catch(e) {}
-                }
-
-                doc.line(pageWidth - margin - 150, footerY + 40, pageWidth - margin, footerY + 40);
-                doc.setFontSize(10);
-                doc.text("Date", pageWidth - margin - 150, footerY + 55);
-                doc.text(new Date().toLocaleDateString(), pageWidth - margin - 130, footerY + 35);
-
-                doc.setFontSize(8);
-                doc.setTextColor(150, 150, 150);
-                const contactLine = [profile.companyName, profile.email, profile.phone, profile.website].filter(Boolean).join("  |  ");
-                doc.text(contactLine, pageWidth / 2, pageHeight - 30, { align: 'center' });
-            }
-
-            doc.save(`Warranty-${data.warrantyNumber}.pdf`);
-            resolve();
-        } catch (err) { reject(err); }
-    });
+export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(24);
+    doc.text('PAYMENT RECEIPT', 105, 30, { align: 'center' });
+    
+    doc.rect(20, 50, 170, 80);
+    doc.setFontSize(14);
+    doc.text(`Date: ${data.date}`, 30, 70);
+    doc.text(`Received From: ${data.from}`, 30, 85);
+    doc.text(`Amount: $${data.amount.toFixed(2)}`, 30, 100);
+    doc.text(`For: ${data.description}`, 30, 115);
+    
+    doc.save('Receipt.pdf');
 };
-
-
-// Other Functions (Unchanged placeholders)
-export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data: WorkOrderData, templateId: string) => { return new Promise<void>(async (resolve) => { const { jsPDF } = jspdf; const doc = new jsPDF(); doc.text("Work Order", 10, 10); doc.save('WorkOrder.pdf'); resolve(); }); };
-export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data: TimeSheetData, templateId: string) => { return new Promise<void>(async (resolve) => { const { jsPDF } = jspdf; const doc = new jsPDF(); doc.text("Time Sheet", 10, 10); doc.save('TimeSheet.pdf'); resolve(); }); };
-export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string) => { return new Promise<void>(async (resolve) => { const { jsPDF } = jspdf; const doc = new jsPDF(); doc.text("Material Log", 10, 10); doc.save('MaterialLog.pdf'); resolve(); }); };
-export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string) => { return new Promise<void>(async (resolve) => { const { jsPDF } = jspdf; const doc = new jsPDF(); doc.text("Estimate", 10, 10); doc.save('Estimate.pdf'); resolve(); }); };
-export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data: ExpenseLogData, templateId: string) => { return new Promise<void>(async (resolve) => { const { jsPDF } = jspdf; const doc = new jsPDF(); doc.text("Expense Log", 10, 10); doc.save('ExpenseLog.pdf'); resolve(); }); };
-export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string) => { return new Promise<void>(async (resolve) => { const { jsPDF } = jspdf; const doc = new jsPDF(); doc.text("Receipt", 10, 10); doc.save('Receipt.pdf'); resolve(); }); };

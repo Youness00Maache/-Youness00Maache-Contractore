@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from './ui/Button.tsx';
 import { Input } from './ui/Input.tsx';
 import { Label } from './ui/Label.tsx';
-import { BackArrowIcon, MessageSquareIcon, ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, SendIcon, UploadImageIcon, XCircleIcon, CameraIcon, ClockIcon, TrendingUpIcon } from './Icons.tsx';
+import { BackArrowIcon, MessageSquareIcon, ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, SendIcon, UploadImageIcon, XCircleIcon, CameraIcon, ClockIcon, TrendingUpIcon, PlayIcon, PenIcon, TrashIcon } from './Icons.tsx';
 import { compressImage } from '../utils/imageCompression.ts';
 
 interface ForumViewProps {
@@ -24,6 +24,7 @@ interface Post {
   upvotes: number;
   downvotes: number;
   image_url?: string;
+  youtube_url?: string;
   created_at: string;
   user_id: string;
   profiles?: { name: string; profile_picture_url: string };
@@ -54,11 +55,16 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const [commentSortBy, setCommentSortBy] = useState<SortOption>('newest');
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showNewPostModal, setShowNewPostModal] = useState(false);
-  const [newPost, setNewPost] = useState({ title: '', content: '' });
-  const [newPostImage, setNewPostImage] = useState<File | null>(null);
-  const [newPostImagePreview, setNewPostImagePreview] = useState<string>('');
-  const [newPostImageSize, setNewPostImageSize] = useState<string>(''); 
+  
+  // Post Creation / Editing State
+  const [showPostModal, setShowPostModal] = useState(false);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [postForm, setPostForm] = useState({ title: '', content: '' });
+  const [postVideoLink, setPostVideoLink] = useState('');
+  const [showVideoInput, setShowVideoInput] = useState(false);
+  const [postImage, setPostImage] = useState<File | null>(null);
+  const [postImagePreview, setPostImagePreview] = useState<string>('');
+  const [postImageSize, setPostImageSize] = useState<string>(''); 
   const [originalImageSize, setOriginalImageSize] = useState<string>(''); 
   const [isPosting, setIsPosting] = useState(false);
   
@@ -83,6 +89,49 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       'Project Showcase': 'Share photos of your latest work and get feedback from the community.'
   };
 
+  // Helper to extract YouTube Video ID strictly
+  const getYouTubeId = (url: string) => {
+    if (!url) return null;
+    try {
+        // Handle incomplete URLs without protocol
+        if (!url.match(/^https?:\/\//)) {
+            url = 'https://' + url;
+        }
+        
+        const parsedUrl = new URL(url);
+        let videoId = null;
+
+        // Case 1: youtu.be/ID
+        if (parsedUrl.hostname === 'youtu.be') {
+            videoId = parsedUrl.pathname.slice(1);
+        } 
+        // Case 2: youtube.com/watch?v=ID
+        else if (parsedUrl.hostname.includes('youtube.com')) {
+            if (parsedUrl.pathname === '/watch') {
+                videoId = parsedUrl.searchParams.get('v');
+            } 
+            // Case 3: youtube.com/embed/ID or youtube.com/shorts/ID
+            else if (parsedUrl.pathname.startsWith('/embed/') || parsedUrl.pathname.startsWith('/shorts/') || parsedUrl.pathname.startsWith('/v/')) {
+                const parts = parsedUrl.pathname.split('/');
+                videoId = parts[parts.length - 1];
+            }
+        }
+
+        // Final validation: YouTube IDs are strictly 11 chars, alphanumeric + underscores/dashes
+        if (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+            return videoId;
+        }
+    } catch (e) {
+        // If URL parsing fails, try regex fallback
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?\/]*).*/;
+        const match = url.match(regExp);
+        if (match && match[2].length === 11) {
+            return match[2];
+        }
+    }
+    return null;
+  };
+
   useEffect(() => {
     if (session) fetchPosts();
   }, [session, activeTab, sortBy]);
@@ -90,15 +139,11 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   // Handle Deep Linking / Persistence
   useEffect(() => {
       if (initialPostId) {
-          // If we already have it selected, do nothing
           if (selectedPost?.id === initialPostId) return;
-          
-          // Check if it's in the current posts list
           const existing = posts.find(p => p.id === initialPostId);
           if (existing) {
               setSelectedPost(existing);
           } else {
-              // If not in the list (e.g. direct refresh), fetch it individually
               fetchPostDetails(initialPostId);
           }
       } else {
@@ -109,10 +154,10 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   // Clean up object URLs
   useEffect(() => {
       return () => {
-          if (newPostImagePreview) URL.revokeObjectURL(newPostImagePreview);
+          if (postImagePreview) URL.revokeObjectURL(postImagePreview);
           if (newCommentImagePreview) URL.revokeObjectURL(newCommentImagePreview);
       };
-  }, [newPostImagePreview, newCommentImagePreview]);
+  }, [postImagePreview, newCommentImagePreview]);
 
   // Fetch Comments when a post is selected
   useEffect(() => {
@@ -130,7 +175,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
         .single();
       
       if (post && !error) {
-          // Fetch vote
           const { data: vote } = await supabase.from('forum_votes').select('vote_type').eq('post_id', postId).eq('user_id', session.user.id).single();
           
           const formatted = {
@@ -156,7 +200,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           `)
           .eq('category', activeTab);
 
-      // Apply sort to query
       if (sortBy === 'newest') {
           query = query.order('created_at', { ascending: false });
       } else {
@@ -204,10 +247,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
         .select('*, profiles:user_id(name, profile_picture_url)')
         .eq('post_id', postId);
 
-      if (error) {
-          console.error("Error fetching comments:", error);
-          return;
-      }
+      if (error) return;
 
       const { data: votesData } = await supabase
         .from('forum_comment_votes')
@@ -241,7 +281,6 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       const postIndex = posts.findIndex(p => p.id === postId);
       if (postIndex === -1 && selectedPost?.id !== postId) return;
       
-      // Find post (either in list or selected)
       const post = selectedPost && selectedPost.id === postId ? selectedPost : posts[postIndex];
       const currentVote = post.userVote;
       
@@ -329,9 +368,9 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
               const preview = URL.createObjectURL(compressedFile);
               
               if (type === 'post') {
-                  setNewPostImage(compressedFile);
-                  setNewPostImagePreview(preview);
-                  setNewPostImageSize(`${(compressedFile.size / 1024).toFixed(1)} KB`);
+                  setPostImage(compressedFile);
+                  setPostImagePreview(preview);
+                  setPostImageSize(`${(compressedFile.size / 1024).toFixed(1)} KB`);
               } else {
                   setNewCommentImage(compressedFile);
                   setNewCommentImagePreview(preview);
@@ -407,10 +446,10 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                           const preview = URL.createObjectURL(compressedFile);
                           
                           if (cameraMode === 'post') {
-                              setNewPostImage(compressedFile);
-                              setNewPostImagePreview(preview);
+                              setPostImage(compressedFile);
+                              setPostImagePreview(preview);
                               setOriginalImageSize(`${(file.size / 1024).toFixed(1)} KB`);
-                              setNewPostImageSize(`${(compressedFile.size / 1024).toFixed(1)} KB`);
+                              setPostImageSize(`${(compressedFile.size / 1024).toFixed(1)} KB`);
                           } else if (cameraMode === 'comment') {
                               setNewCommentImage(compressedFile);
                               setNewCommentImagePreview(preview);
@@ -425,41 +464,108 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       }
   };
 
-  const handleCreatePost = async () => {
-      if (!newPost.title || !newPost.content) return;
+  const resetPostForm = () => {
+      setShowPostModal(false);
+      setEditingPostId(null);
+      setPostForm({ title: '', content: '' });
+      setPostVideoLink('');
+      setShowVideoInput(false);
+      setPostImage(null);
+      setPostImagePreview('');
+  };
+
+  const openNewPostModal = () => {
+      resetPostForm();
+      setShowPostModal(true);
+  };
+
+  const openEditModal = (post: Post) => {
+      setEditingPostId(post.id);
+      setPostForm({ title: post.title, content: post.content });
+      setPostVideoLink(post.youtube_url || '');
+      if (post.youtube_url) setShowVideoInput(true);
+      setPostImage(null);
+      setPostImagePreview('');
+      setShowPostModal(true);
+  };
+
+  const handleDeletePost = async (postId: string) => {
+      if (!confirm("Are you sure you want to delete this post? This action cannot be undone.")) return;
+      
+      setLoading(true);
+      const { error } = await supabase.from('forum_posts').delete().eq('id', postId);
+      
+      if (error) {
+          alert("Failed to delete post: " + error.message);
+      } else {
+          setPosts(prev => prev.filter(p => p.id !== postId));
+          if (selectedPost?.id === postId) {
+              onNavigate(null);
+          }
+      }
+      setLoading(false);
+  };
+
+  const handleSavePost = async () => {
+      if (!postForm.title || !postForm.content) return;
+      
+      // Clean video link input
+      const cleanVideoLink = postVideoLink.trim();
+      
+      // Validate video link if present
+      if (cleanVideoLink && !getYouTubeId(cleanVideoLink)) {
+          alert("Invalid YouTube URL. Please use a valid format (e.g., youtube.com/watch?v=..., youtu.be/..., or youtube.com/shorts/...)");
+          return;
+      }
+
       setIsPosting(true);
-      let imageUrl = null;
 
       try {
-          if (newPostImage) {
-              try {
-                imageUrl = await onUploadImage(newPostImage);
-              } catch (uploadError: any) {
-                  if (uploadError.message && (uploadError.message.includes('Bucket not found') || uploadError.message.includes('row not found'))) {
-                      throw new Error("Forum image bucket not found. Please run the Database Setup script.");
-                  }
-                  throw new Error(`Image upload failed: ${uploadError.message}`);
+          if (editingPostId) {
+              // Update existing post
+              const { error } = await supabase.from('forum_posts').update({
+                  title: postForm.title,
+                  content: postForm.content,
+                  youtube_url: cleanVideoLink
+              }).eq('id', editingPostId);
+
+              if (error) throw error;
+
+              // Update local state
+              setPosts(prev => prev.map(p => p.id === editingPostId ? { ...p, title: postForm.title, content: postForm.content, youtube_url: cleanVideoLink } : p));
+              if (selectedPost?.id === editingPostId) {
+                  setSelectedPost(prev => prev ? { ...prev, title: postForm.title, content: postForm.content, youtube_url: cleanVideoLink } : null);
               }
+
+          } else {
+              // Create new post
+              let imageUrl = null;
+              if (postImage) {
+                  imageUrl = await onUploadImage(postImage);
+              }
+
+              const { error } = await supabase.from('forum_posts').insert({
+                  user_id: session.user.id,
+                  title: postForm.title,
+                  content: postForm.content,
+                  category: activeTab,
+                  image_url: imageUrl,
+                  youtube_url: cleanVideoLink
+              });
+
+              if (error) throw error;
+              await fetchPosts();
           }
 
-          const { error } = await supabase.from('forum_posts').insert({
-              user_id: session.user.id,
-              title: newPost.title,
-              content: newPost.content,
-              category: activeTab,
-              image_url: imageUrl
-          });
-
-          if (error) throw error;
-
-          setShowNewPostModal(false);
-          setNewPost({ title: '', content: '' });
-          setNewPostImage(null);
-          setNewPostImagePreview('');
-          await fetchPosts();
+          resetPostForm();
 
       } catch (error: any) {
-          alert(`Failed to post: ${error.message || JSON.stringify(error)}`);
+          if (error.message.includes('Could not find the \'youtube_url\' column')) {
+              alert("Database update required. Please refresh.");
+              window.location.reload();
+          } else {
+              alert(`Failed to save post: ${error.message}`);
+          }
       } finally {
           setIsPosting(false);
       }
@@ -504,19 +610,39 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       }
   };
 
-  const handlePostClick = (postId: string) => {
-      onNavigate(postId);
-  };
+  const renderVideoEmbed = (videoUrl?: string) => {
+      if (!videoUrl) return null;
+      const videoId = getYouTubeId(videoUrl);
+      if (!videoId) return null;
 
-  const handleClosePost = () => {
-      onNavigate(null);
+      return (
+          <div className="mb-3 rounded-md overflow-hidden w-full bg-black relative shadow-sm border border-border">
+              <div className="aspect-video relative">
+                <iframe
+                    key={videoId} // IMPORTANT: Force re-mount if video ID changes
+                    className="absolute top-0 left-0 w-full h-full"
+                    src={`https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`}
+                    title="YouTube video player"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    referrerPolicy="strict-origin-when-cross-origin"
+                ></iframe>
+              </div>
+              <div className="bg-card p-2 text-xs text-center border-t border-border">
+                  <a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center justify-center gap-2">
+                      <PlayIcon className="w-3 h-3" /> Watch directly on YouTube (if playback disabled)
+                  </a>
+              </div>
+          </div>
+      );
   };
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
       <header className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
         <div className="flex items-center">
-             <Button variant="ghost" size="sm" onClick={selectedPost ? handleClosePost : onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
+             <Button variant="ghost" size="sm" onClick={selectedPost ? () => onNavigate(null) : onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
                 <BackArrowIcon className="h-9 w-9" />
             </Button>
             <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
@@ -525,7 +651,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
             </h1>
          </div>
          {!selectedPost && (
-             <Button onClick={() => setShowNewPostModal(true)}>+ New Post</Button>
+             <Button onClick={openNewPostModal}>+ New Post</Button>
          )}
       </header>
 
@@ -566,22 +692,16 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   </div>
                   
                   <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg self-start sm:self-auto">
-                      <button 
-                        onClick={() => setSortBy('newest')} 
-                        className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all ${sortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}
-                      >
+                      <button onClick={() => setSortBy('newest')} className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all ${sortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
                           <ClockIcon className="w-3.5 h-3.5" /> Newest
                       </button>
-                      <button 
-                        onClick={() => setSortBy('popular')} 
-                        className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all ${sortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}
-                      >
+                      <button onClick={() => setSortBy('popular')} className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all ${sortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
                           <TrendingUpIcon className="w-3.5 h-3.5" /> Popular
                       </button>
                   </div>
               </div>
 
-              <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 px-4 py-3 rounded-lg border border-blue-200 dark:border-blue-800 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
+              <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 px-4 py-3 rounded-lg border border-blue-200 dark:border-blue-800 flex items-start gap-2">
                   <MessageCircleIcon className="w-5 h-5 shrink-0 mt-0.5" />
                   <p className="text-sm font-medium">{categoryDescriptions[activeTab]}</p>
               </div>
@@ -595,7 +715,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                       </div>
                   ) : (
                       posts.map(post => (
-                          <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => handlePostClick(post.id)}>
+                          <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => onNavigate(post.id)}>
                               <div className="flex">
                                   <div className="flex flex-col items-center p-3 bg-muted/30 border-r border-border gap-1 min-w-[50px]" onClick={e => e.stopPropagation()}>
                                       <button onClick={() => handleVote(post.id, 'up')} className={`p-1 rounded hover:bg-background ${post.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
@@ -607,11 +727,22 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                       </button>
                                   </div>
                                   <div className="flex-1 p-4">
-                                      <h3 className="text-lg font-semibold mb-1">{post.title}</h3>
+                                      <div className="flex justify-between items-start mb-1">
+                                          <h3 className="text-lg font-semibold">{post.title}</h3>
+                                          {session.user.id === post.user_id && (
+                                              <div className="flex gap-2 ml-2" onClick={e => e.stopPropagation()}>
+                                                  <button onClick={() => openEditModal(post)} className="text-muted-foreground hover:text-primary p-1 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
+                                                  <button onClick={() => handleDeletePost(post.id)} className="text-muted-foreground hover:text-destructive p-1 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
+                                              </div>
+                                          )}
+                                      </div>
                                       <p className="text-sm text-muted-foreground line-clamp-3 mb-3 whitespace-pre-wrap">{post.content}</p>
-                                      {post.image_url && (
+                                      
+                                      {renderVideoEmbed(post.youtube_url)}
+
+                                      {post.image_url && !post.youtube_url && (
                                           <div className="mb-3 rounded-md overflow-hidden w-full bg-muted">
-                                              <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[600px] object-contain bg-black/5" />
+                                              <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[400px] object-contain bg-black/5" />
                                           </div>
                                       )}
                                       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -652,13 +783,24 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                               </button>
                           </div>
                           <div className="flex-1 p-6">
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                                  <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">{selectedPost.category}</span>
-                                  <span>Posted by {selectedPost.profiles?.name || 'User'}</span>
-                                  <span>• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
+                              <div className="flex justify-between items-start mb-4">
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">{selectedPost.category}</span>
+                                      <span>Posted by {selectedPost.profiles?.name || 'User'}</span>
+                                      <span>• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
+                                  </div>
+                                  {session.user.id === selectedPost.user_id && (
+                                      <div className="flex gap-2">
+                                          <Button variant="ghost" size="sm" onClick={() => openEditModal(selectedPost)} className="h-8"><PenIcon className="w-4 h-4 mr-2" /> Edit</Button>
+                                          <Button variant="ghost" size="sm" onClick={() => handleDeletePost(selectedPost.id)} className="h-8 text-destructive hover:text-destructive"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
+                                      </div>
+                                  )}
                               </div>
                               <h2 className="text-2xl font-bold mb-4">{selectedPost.title}</h2>
                               <p className="text-foreground whitespace-pre-wrap leading-relaxed mb-6">{selectedPost.content}</p>
+                              
+                              {renderVideoEmbed(selectedPost.youtube_url)}
+
                               {selectedPost.image_url && (
                                   <div className="rounded-lg overflow-hidden border border-border mb-4">
                                       <img src={selectedPost.image_url} alt="Post content" className="w-full h-auto" />
@@ -672,16 +814,10 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                       <div className="flex items-center justify-between">
                           <h3 className="font-semibold text-lg">Comments ({comments.length})</h3>
                           <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg">
-                              <button 
-                                onClick={() => setCommentSortBy('newest')} 
-                                className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}
-                              >
+                              <button onClick={() => setCommentSortBy('newest')} className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
                                   <ClockIcon className="w-3 h-3" /> Newest
                               </button>
-                              <button 
-                                onClick={() => setCommentSortBy('popular')} 
-                                className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}
-                              >
+                              <button onClick={() => setCommentSortBy('popular')} className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
                                   <TrendingUpIcon className="w-3 h-3" /> Popular
                               </button>
                           </div>
@@ -725,35 +861,16 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   {newCommentImagePreview && (
                       <div className="mb-2 relative w-24 h-24">
                           <img src={newCommentImagePreview} alt="Preview" className="w-full h-full object-cover rounded border border-border" />
-                          <button 
-                            onClick={() => { setNewCommentImage(null); setNewCommentImagePreview(''); }} 
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"
-                          >
-                              <XCircleIcon className="w-4 h-4" />
-                          </button>
+                          <button onClick={() => { setNewCommentImage(null); setNewCommentImagePreview(''); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"><XCircleIcon className="w-4 h-4" /></button>
                       </div>
                   )}
                   <div className="flex gap-2 items-end">
                       <div className="flex gap-2">
-                          <button 
-                            className="p-2 rounded-md hover:bg-secondary border border-transparent hover:border-border text-muted-foreground" 
-                            title="Upload Image"
-                            onClick={() => document.getElementById('comment-upload')?.click()}
-                          >
+                          <button className="p-2 rounded-md hover:bg-secondary border border-transparent hover:border-border text-muted-foreground" title="Upload Image" onClick={() => document.getElementById('comment-upload')?.click()}>
                               <UploadImageIcon className="w-5 h-5" />
-                              <input 
-                                id="comment-upload" 
-                                type="file" 
-                                accept="image/*" 
-                                className="hidden" 
-                                onChange={(e) => handleImageSelect(e, 'comment')} 
-                              />
+                              <input id="comment-upload" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'comment')} />
                           </button>
-                          <button 
-                            className="p-2 rounded-md hover:bg-secondary border border-transparent hover:border-border text-muted-foreground" 
-                            title="Take Picture"
-                            onClick={() => startCamera('comment')}
-                          >
+                          <button className="p-2 rounded-md hover:bg-secondary border border-transparent hover:border-border text-muted-foreground" title="Take Picture" onClick={() => startCamera('comment')}>
                               <CameraIcon className="w-5 h-5" />
                           </button>
                       </div>
@@ -766,36 +883,66 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           </div>
       )}
 
-      {showNewPostModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewPostModal(false)}>
+      {/* Create/Edit Post Modal */}
+      {showPostModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={resetPostForm}>
               <Card className="w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                  <CardHeader><CardTitle>Create New Post</CardTitle><CardDescription>Share with the community in {activeTab}</CardDescription></CardHeader>
+                  <CardHeader>
+                      <CardTitle>{editingPostId ? 'Edit Post' : 'Create New Post'}</CardTitle>
+                      <CardDescription>{editingPostId ? 'Update your content' : `Share with the community in ${activeTab}`}</CardDescription>
+                  </CardHeader>
                   <CardContent className="space-y-4 overflow-y-auto">
-                      <div className="space-y-1.5"><Label>Title</Label><Input value={newPost.title} onChange={e => setNewPost({...newPost, title: e.target.value})} placeholder="What's on your mind?" /></div>
-                      <div className="space-y-1.5"><Label>Content</Label><textarea className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={newPost.content} onChange={e => setNewPost({...newPost, content: e.target.value})} placeholder="Elaborate on your topic..." /></div>
+                      <div className="space-y-1.5"><Label>Title</Label><Input value={postForm.title} onChange={e => setPostForm({...postForm, title: e.target.value})} placeholder="What's on your mind?" /></div>
+                      <div className="space-y-1.5"><Label>Content</Label><textarea className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={postForm.content} onChange={e => setPostForm({...postForm, content: e.target.value})} placeholder="Elaborate on your topic..." /></div>
+                      
                       <div className="space-y-1.5">
-                          <Label>Image (Optional)</Label>
+                          <Label>Media</Label>
                           <div className="flex flex-wrap items-center gap-3">
-                              <Button type="button" variant="outline" className="relative overflow-hidden flex-1">
-                                  <UploadImageIcon className="w-4 h-4 mr-2" /> Upload Photo
-                                  <input type="file" accept="image/*" onChange={(e) => handleImageSelect(e, 'post')} className="absolute inset-0 opacity-0 cursor-pointer" />
+                              {!editingPostId && (
+                                  <>
+                                    <Button type="button" variant="outline" className="relative overflow-hidden flex-1 h-10">
+                                        <UploadImageIcon className="w-4 h-4 mr-2" /> Upload Photo
+                                        <input type="file" accept="image/*" onChange={(e) => handleImageSelect(e, 'post')} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                    </Button>
+                                    <Button variant="outline" onClick={() => startCamera('post')} className="flex-1 h-10"><CameraIcon className="w-4 h-4 mr-2" /> Take Photo</Button>
+                                  </>
+                              )}
+                              <Button 
+                                variant="outline" 
+                                onClick={() => setShowVideoInput(!showVideoInput)} 
+                                className={`flex-1 h-10 ${showVideoInput || postVideoLink ? 'bg-secondary' : ''}`}
+                              >
+                                <PlayIcon className="w-4 h-4 mr-2" /> {postVideoLink ? 'Edit Video Link' : 'Add Video'}
                               </Button>
-                              <Button variant="outline" onClick={() => startCamera('post')} className="flex-1"><CameraIcon className="w-4 h-4 mr-2" /> Take Picture</Button>
                           </div>
-                          {newPostImagePreview && (
+                          
+                          {(showVideoInput || postVideoLink) && (
+                              <div className="relative mt-2 animate-in fade-in slide-in-from-top-1">
+                                  <PlayIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                  <Input 
+                                    value={postVideoLink} 
+                                    onChange={e => setPostVideoLink(e.target.value)} 
+                                    placeholder="Paste YouTube URL here... (e.g. https://youtu.be/xxx)" 
+                                    className="pl-9"
+                                    autoFocus={!postVideoLink}
+                                  />
+                              </div>
+                          )}
+
+                          {postImagePreview && (
                               <div className="relative w-full h-32 mt-2 rounded-md overflow-hidden border border-border bg-muted">
-                                  <img src={newPostImagePreview} alt="Preview" className="w-full h-full object-contain" />
+                                  <img src={postImagePreview} alt="Preview" className="w-full h-full object-contain" />
                                   <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 rounded">
-                                      {originalImageSize} &rarr; {newPostImageSize}
+                                      {originalImageSize} &rarr; {postImageSize}
                                   </div>
-                                  <button onClick={() => { setNewPostImage(null); setNewPostImagePreview(''); setNewPostImageSize(''); }} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-red-500 transition-colors"><XCircleIcon className="w-5 h-5" /></button>
+                                  <button onClick={() => { setPostImage(null); setPostImagePreview(''); setPostImageSize(''); }} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-red-500 transition-colors"><XCircleIcon className="w-5 h-5" /></button>
                               </div>
                           )}
                       </div>
                   </CardContent>
                   <CardFooter className="flex justify-end gap-2 border-t pt-4">
-                      <Button variant="outline" onClick={() => setShowNewPostModal(false)}>Cancel</Button>
-                      <Button onClick={handleCreatePost} disabled={isPosting}>{isPosting ? 'Posting...' : 'Post'}</Button>
+                      <Button variant="outline" onClick={resetPostForm}>Cancel</Button>
+                      <Button onClick={handleSavePost} disabled={isPosting}>{isPosting ? 'Saving...' : (editingPostId ? 'Update' : 'Post')}</Button>
                   </CardFooter>
               </Card>
           </div>

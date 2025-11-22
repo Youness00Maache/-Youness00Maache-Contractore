@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, Client } from './types.ts';
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Ensure profile_picture_url column exists (migration for existing dbs)
+-- Ensure columns exist
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'profile_picture_url') THEN
@@ -139,6 +140,7 @@ CREATE TABLE IF NOT EXISTS public.forum_posts (
   upvotes INT DEFAULT 0,
   downvotes INT DEFAULT 0,
   image_url TEXT,
+  youtube_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -146,6 +148,9 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_posts' AND column_name = 'image_url') THEN
         ALTER TABLE public.forum_posts ADD COLUMN image_url TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_posts' AND column_name = 'youtube_url') THEN
+        ALTER TABLE public.forum_posts ADD COLUMN youtube_url TEXT;
     END IF;
 END $$;
 
@@ -598,10 +603,15 @@ const App: React.FC = () => {
     }
     
     // Check for Forum Config (Only if online)
+    // Force check for youtube_url specifically to trigger update if missing
     if (navigator.onLine) {
-        const { error: forumError } = await supabase.from('forum_posts').select('id, image_url').limit(1);
+        // Try to select specific columns to detect schema mismatch
+        const { error: forumError } = await supabase.from('forum_posts').select('id, image_url, youtube_url').limit(1);
         if (forumError) {
-             if (forumError.code === 'PGRST204' || /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist/i.test(forumError.message)) {
+             // Enhanced regex to catch missing column errors and trigger DB update
+             if (forumError.code === 'PGRST204' || 
+                 forumError.code === '42703' || // Undefined column
+                 /relation "public.forum_posts" does not exist|schema cache|column "image_url" does not exist|column "youtube_url" does not exist|Could not find the 'youtube_url' column/i.test(forumError.message)) {
                  setDbSetupError(SQL_SETUP_SCRIPT);
                  setLoading(false);
                  return;
@@ -993,7 +1003,7 @@ const App: React.FC = () => {
       case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
       case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUpdateLogo={handleUpdateAppLogo} />;
       case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;

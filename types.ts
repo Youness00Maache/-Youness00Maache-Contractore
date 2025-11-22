@@ -88,12 +88,20 @@ export interface InvoiceData extends DocumentStyle {
 }
 
 export interface WorkOrderData extends DocumentStyle {
-  title: string;
+  workOrderNumber: string;
   date: string;
+  status: 'Scheduled' | 'In Progress' | 'On Hold' | 'Completed';
   description: string;
   materialsUsed: string;
   hours: number;
   cost: number;
+  terms: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  clientName?: string;
+  clientAddress?: string;
   signatureUrl?: string;
   logoUrl?: string;
 }
