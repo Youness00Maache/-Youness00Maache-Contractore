@@ -718,12 +718,11 @@ const App: React.FC = () => {
     setView({ screen: 'auth', authScreen: 'checkEmail' });
   };
   const handleLoginWithGoogle = async () => {
-    // Request gmail.send scope for email sending feature
+    // REMOVED gmail.send scope from initial login to allow access
     await supabase.auth.signInWithOAuth({ 
         provider: 'google', 
         options: { 
             redirectTo: window.location.origin,
-            scopes: 'https://www.googleapis.com/auth/gmail.send',
             queryParams: {
                 access_type: 'offline',
                 prompt: 'consent',
@@ -731,6 +730,21 @@ const App: React.FC = () => {
         } 
     });
   };
+
+  const handleConnectGmail = async () => {
+      await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+              redirectTo: window.location.origin,
+              scopes: 'https://www.googleapis.com/auth/gmail.send', // Request scope HERE
+              queryParams: {
+                  access_type: 'offline',
+                  prompt: 'consent',
+              }
+          }
+      });
+  };
+
   const handleLogout = async () => {
     if (navigator.onLine) await supabase.auth.signOut();
     localStorage.removeItem('app_view_state');
@@ -1256,7 +1270,7 @@ const App: React.FC = () => {
                />;
       case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
       case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-      case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} />;
+      case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} />;
       case 'forum': 
         return (
             <ForumView 

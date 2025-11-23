@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon } from './Icons.tsx';
+import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon, GoogleIcon } from './Icons.tsx';
 import { Session } from '@supabase/supabase-js';
 import { sendGmail } from '../services/gmailService.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
@@ -17,9 +17,10 @@ interface CommunicationViewProps {
     profile: UserProfile;
     onBack: () => void;
     session: Session;
+    onConnectGmail?: () => void;
 }
 
-const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session }) => {
+const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session, onConnectGmail }) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedDocId, setSelectedDocId] = useState<string>('');
     
@@ -29,6 +30,13 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [body, setBody] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [sendSuccess, setSendSuccess] = useState(false);
+    const [hasGoogleToken, setHasGoogleToken] = useState(!!localStorage.getItem('google_provider_token'));
+
+    // Check token on mount
+    useEffect(() => {
+        const token = localStorage.getItem('google_provider_token');
+        setHasGoogleToken(!!token);
+    }, []);
 
     // Filtering Logic
     const clientDocs = useMemo(() => {
@@ -194,16 +202,50 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
             await sendGmail(session, recipientEmail, subject, body, attachment);
             
             setSendSuccess(true);
-            // Clear selection after delay or keep for reference? Let's keep but show success state.
             setTimeout(() => setSendSuccess(false), 3000);
             
         } catch (error: any) {
             console.error("Email send failed", error);
-            alert(`Failed to send email: ${error.message}. \n\nMake sure you signed in with Google and granted email permissions.`);
+            if (error.message.includes("provider token found")) {
+                setHasGoogleToken(false); // Trigger connect button
+            } else {
+                alert(`Failed to send email: ${error.message}`);
+            }
         } finally {
             setIsSending(false);
         }
     };
+
+    if (!hasGoogleToken) {
+        return (
+            <div className="w-full min-h-screen bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
+                <header className="flex items-center mb-8 gap-4">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-2 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                        <BackArrowIcon className="h-9 w-9" />
+                    </Button>
+                    <div>
+                        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight">
+                            <MailIcon className="w-8 h-8 text-primary" /> Communication
+                        </h1>
+                    </div>
+                </header>
+                <div className="flex-1 flex items-center justify-center">
+                    <Card className="w-full max-w-md text-center p-6">
+                        <CardHeader>
+                            <CardTitle>Connect Gmail</CardTitle>
+                            <CardDescription>To send emails directly from the app, we need permission to access your Gmail account.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Button onClick={onConnectGmail} className="w-full flex items-center justify-center gap-2" size="lg">
+                                <GoogleIcon className="w-5 h-5" /> Authorize Gmail Sending
+                            </Button>
+                            <p className="text-xs text-muted-foreground mt-4">You will be asked to grant permission to "Send email on your behalf".</p>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="w-full min-h-screen bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
