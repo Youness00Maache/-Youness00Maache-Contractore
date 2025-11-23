@@ -159,8 +159,14 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], 
                           <Input type="date" name="date" value={formData.date} onChange={handleChange} />
                       </div>
                       <div className="space-y-1.5">
-                          <Label className="text-red-600 font-medium">Required By Date</Label>
-                          <Input type="date" name="deliveryDate" value={formData.deliveryDate} onChange={handleChange} className="border-red-200 bg-red-50" />
+                          <Label className="text-red-600 font-medium dark:text-red-400">Required By Date</Label>
+                          <Input 
+                            type="date" 
+                            name="deliveryDate" 
+                            value={formData.deliveryDate} 
+                            onChange={handleChange} 
+                            className="border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 dark:text-red-100" 
+                          />
                       </div>
                   </div>
 

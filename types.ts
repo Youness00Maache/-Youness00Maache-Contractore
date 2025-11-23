@@ -300,3 +300,13 @@ export interface FormData {
   createdAt: string;
   data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData;
 }
+
+export interface Notification {
+    id: string;
+    user_id: string; // The recipient
+    source_user_id: string; // Who triggered it
+    type: 'like' | 'comment';
+    post_id: string;
+    created_at: string;
+    is_read: boolean;
+}

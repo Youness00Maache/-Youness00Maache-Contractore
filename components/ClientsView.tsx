@@ -1,11 +1,13 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import type { Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, SearchIcon, PlusIcon, TrashIcon } from './Icons.tsx';
+import { BackArrowIcon, SearchIcon, PlusIcon, TrashIcon, UsersIcon, UserIcon, MessageSquareIcon } from './Icons.tsx';
 
 interface ClientsViewProps {
   onBack: () => void;
@@ -109,23 +111,29 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-        <header className="flex justify-between items-center mb-8 border-b border-border pb-4 gap-4">
-             <div className="flex items-center gap-4">
-                 <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+             <div className="flex items-center">
+                 <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                    <BackArrowIcon className="h-6 w-6" />
                 </Button>
-                <h1 className="text-2xl md:text-3xl font-bold">Clients</h1>
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                        Client Directory
+                    </h1>
+                </div>
             </div>
-            {isOnline === false && <div className="bg-orange-100 text-orange-800 px-2 py-1 rounded text-xs font-bold">Offline</div>}
-            <Button onClick={() => setShowAddModal(true)}><PlusIcon className="w-4 h-4 mr-2"/> Add Client</Button>
+            <div className="flex items-center gap-3">
+                {isOnline === false && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold animate-pulse">Offline</div>}
+                <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20"><PlusIcon className="w-4 h-4 mr-2"/> Add Client</Button>
+            </div>
         </header>
 
         {/* Search Bar */}
-        <div className="relative mb-6 max-w-md">
+        <div className="relative mb-8 max-w-md">
             <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input 
-                placeholder="Search clients..." 
-                className="pl-10" 
+                placeholder="Search clients by name or email..." 
+                className="pl-10 h-11 rounded-full bg-card border-border shadow-sm focus:ring-2 focus:ring-primary/20" 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -133,23 +141,62 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
 
         {/* Client List */}
         {loading && activeClients.length === 0 ? (
-            <div className="text-center p-10">Loading...</div>
+            <div className="flex items-center justify-center h-64 text-muted-foreground">Loading clients...</div>
         ) : filteredClients.length === 0 ? (
-            <div className="text-center p-10 text-muted-foreground">No clients found.</div>
+            <div className="flex flex-col items-center justify-center h-64 bg-muted/10 rounded-2xl border border-dashed border-border">
+                <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
+                    <UsersIcon className="w-6 h-6" />
+                </div>
+                <p className="text-lg font-medium text-foreground">No clients found</p>
+                <p className="text-sm text-muted-foreground mt-1">Try adjusting your search or add a new client.</p>
+            </div>
         ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredClients.map(client => (
-                    <Card key={client.id} className="relative group">
-                        <CardHeader className="pb-2">
-                            <CardTitle className="text-lg">{client.name}</CardTitle>
+                    <Card key={client.id} className="relative group hover:shadow-lg transition-all duration-200 border-border hover:border-primary/30 overflow-hidden">
+                        <CardHeader className="pb-3 flex flex-row gap-4 items-center bg-secondary/10 border-b border-border/50">
+                            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary text-lg font-bold shrink-0">
+                                {client.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="overflow-hidden">
+                                <CardTitle className="text-lg truncate">{client.name}</CardTitle>
+                                <p className="text-xs text-muted-foreground truncate mt-0.5">Added {client.created_at ? new Date(client.created_at).toLocaleDateString() : 'Recently'}</p>
+                            </div>
                         </CardHeader>
-                        <CardContent className="text-sm space-y-1">
-                            {client.email && <p className="text-muted-foreground">{client.email}</p>}
-                            {client.phone && <p className="text-muted-foreground">{client.phone}</p>}
-                            {client.address && <p className="text-muted-foreground truncate">{client.address}</p>}
+                        <CardContent className="pt-4 pb-4 space-y-3 text-sm">
+                            {client.email ? (
+                                <div className="flex items-center gap-3 text-muted-foreground group-hover:text-foreground transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                                        <span className="text-xs">@</span>
+                                    </div>
+                                    <span className="truncate">{client.email}</span>
+                                </div>
+                            ) : (
+                                <div className="h-8 flex items-center text-muted-foreground/40 italic pl-11">No email</div>
+                            )}
+                            
+                            {client.phone ? (
+                                <div className="flex items-center gap-3 text-muted-foreground group-hover:text-foreground transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                                        <span className="text-xs">#</span>
+                                    </div>
+                                    <span>{client.phone}</span>
+                                </div>
+                            ) : (
+                                <div className="h-8 flex items-center text-muted-foreground/40 italic pl-11">No phone</div>
+                            )}
+
+                            {client.address ? (
+                                <div className="flex items-start gap-3 text-muted-foreground group-hover:text-foreground transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-0.5">
+                                        <span className="text-xs">📍</span>
+                                    </div>
+                                    <span className="line-clamp-2 leading-relaxed">{client.address}</span>
+                                </div>
+                            ) : null}
                         </CardContent>
                         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="sm" onClick={() => handleDelete(client.id)} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0">
+                            <Button variant="ghost" size="sm" onClick={() => handleDelete(client.id)} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0 rounded-full">
                                 <TrashIcon className="w-4 h-4" />
                             </Button>
                         </div>
@@ -160,19 +207,19 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
 
         {/* Add Client Modal */}
         {showAddModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
-                <Card className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowAddModal(false)}>
+                <Card className="w-full max-w-md animate-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>
                     <CardHeader>
                         <CardTitle>Add New Client</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div><Label>Name</Label><Input value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} /></div>
-                        <div><Label>Email</Label><Input value={newClient.email} onChange={e => setNewClient({...newClient, email: e.target.value})} /></div>
-                        <div><Label>Phone</Label><Input value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} /></div>
-                        <div><Label>Address</Label><Input value={newClient.address} onChange={e => setNewClient({...newClient, address: e.target.value})} /></div>
-                        <div><Label>Notes</Label><Input value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} /></div>
+                        <div><Label>Name</Label><Input value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} placeholder="Full Name or Company" /></div>
+                        <div><Label>Email</Label><Input value={newClient.email} onChange={e => setNewClient({...newClient, email: e.target.value})} placeholder="client@example.com" /></div>
+                        <div><Label>Phone</Label><Input value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} placeholder="(555) 123-4567" /></div>
+                        <div><Label>Address</Label><Input value={newClient.address} onChange={e => setNewClient({...newClient, address: e.target.value})} placeholder="Street Address" /></div>
+                        <div><Label>Notes</Label><Input value={newClient.notes} onChange={e => setNewClient({...newClient, notes: e.target.value})} placeholder="Additional details..." /></div>
                     </CardContent>
-                    <CardFooter className="flex justify-end gap-2">
+                    <CardFooter className="flex justify-end gap-2 bg-muted/20 rounded-b-lg">
                         <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
                         <Button onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Add Client'}</Button>
                     </CardFooter>

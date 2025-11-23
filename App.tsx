@@ -5,9 +5,11 @@
 
 
 
+
+
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
-import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client } from './types.ts';
+import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import Signup from './components/Signup.tsx';
@@ -33,7 +35,7 @@ import CalendarView from './components/CalendarView.tsx';
 import Dock from './components/Dock.tsx';
 import JobForm from './components/JobForm.tsx';
 import Welcome from './components/Welcome.tsx';
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
@@ -203,6 +205,17 @@ CREATE TABLE IF NOT EXISTS public.forum_comment_votes (
   UNIQUE(comment_id, user_id)
 );
 
+-- 6. NOTIFICATIONS TABLE
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, -- Recipient
+  source_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE, -- Who triggered it
+  type TEXT NOT NULL, -- 'like', 'comment'
+  post_id UUID REFERENCES public.forum_posts(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  is_read BOOLEAN DEFAULT FALSE
+);
+
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_posts_user_id_fkey') THEN
@@ -236,6 +249,7 @@ ALTER TABLE public.forum_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.forum_comment_votes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Authenticated read posts" ON public.forum_posts;
 CREATE POLICY "Authenticated read posts" ON public.forum_posts FOR SELECT TO authenticated USING (true);
@@ -272,6 +286,16 @@ DROP POLICY IF EXISTS "Authenticated update comment votes" ON public.forum_comme
 CREATE POLICY "Authenticated update comment votes" ON public.forum_comment_votes FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Authenticated delete comment votes" ON public.forum_comment_votes;
 CREATE POLICY "Authenticated delete comment votes" ON public.forum_comment_votes FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- Notifications Policies
+DROP POLICY IF EXISTS "Users can view their own notifications" ON public.notifications;
+CREATE POLICY "Users can view their own notifications" ON public.notifications FOR SELECT TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own notifications" ON public.notifications;
+CREATE POLICY "Users can update their own notifications" ON public.notifications FOR UPDATE TO authenticated USING (auth.uid() = user_id);
+-- Allow inserting notifications for others (e.g. when liking a post)
+DROP POLICY IF EXISTS "Authenticated insert notifications" ON public.notifications;
+CREATE POLICY "Authenticated insert notifications" ON public.notifications FOR INSERT TO authenticated WITH CHECK (true);
+
 
 -- 8. STORAGE BUCKETS
 INSERT INTO storage.buckets (id, name, public) VALUES ('logos', 'logos', true) ON CONFLICT (id) DO NOTHING;
@@ -389,6 +413,8 @@ const App: React.FC = () => {
   const [forms, setForms] = useState<FormDataType[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  const [notificationCount, setNotificationCount] = useState(0);
 
   const [dbSetupError, setDbSetupError] = useState<string | null>(null);
   
@@ -631,6 +657,21 @@ const App: React.FC = () => {
         setClients(cachedClients);
     }
     
+    // 5. Fetch Notifications (Only online)
+    if (navigator.onLine) {
+        const { count, error: notifError } = await supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('is_read', false);
+        
+        if (!notifError) {
+            setNotificationCount(count || 0);
+        } else if (notifError.code === '42P01' || /relation "public.notifications" does not exist/i.test(notifError.message)) {
+             setDbSetupError(SQL_SETUP_SCRIPT); // Fix missing table
+        }
+    }
+    
     // Check for Forum Config (Only if online)
     if (navigator.onLine) {
         const { error: forumError } = await supabase.from('forum_posts').select('id, image_url, youtube_url').limit(1);
@@ -686,6 +727,12 @@ const App: React.FC = () => {
     setView({ screen: 'welcome' });
   };
 
+  const markNotificationsAsRead = async () => {
+      if (!session || !navigator.onLine) return;
+      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('user_id', session.user.id);
+      if (!error) setNotificationCount(0);
+  };
+
   const navigateToDashboard = () => setView({ screen: 'dashboard' });
   const navigateToSettings = () => setView({ screen: 'settings' });
   const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
@@ -693,7 +740,10 @@ const App: React.FC = () => {
   const navigateToClients = () => setView({ screen: 'clients' });
   const navigateToAnalytics = () => setView({ screen: 'analytics' });
   const navigateToCalendar = () => setView({ screen: 'calendar' });
-  const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
+  const navigateToForum = (postId?: string) => {
+      markNotificationsAsRead();
+      setView({ screen: 'forum', postId });
+  };
 
   // Global function to update logo in profile from ANY form
   const handleUpdateAppLogo = async (file: File): Promise<string> => {
@@ -999,7 +1049,17 @@ const App: React.FC = () => {
             <div className="flex items-center gap-4 flex-wrap">
               <Button onClick={() => navigateToCreateJob('dashboard')}>+ {t.newJob}</Button>
               <Button variant="outline" onClick={navigateToCalendar} className="flex items-center gap-2"><CalendarIcon className="w-4 h-4" /> Schedule</Button>
-              <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2"><MessageSquareIcon className="w-4 h-4" /> Community</Button>
+              
+              {/* Community Button with Badge */}
+              <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 relative">
+                  <MessageSquareIcon className="w-4 h-4" /> Community
+                  {notificationCount > 0 && (
+                      <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">
+                          {notificationCount > 9 ? '9+' : notificationCount}
+                      </span>
+                  )}
+              </Button>
+              
               <Button variant="outline" onClick={navigateToAnalytics} className="flex items-center gap-2"><BarChartIcon className="w-4 h-4" /> Insights</Button>
               <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border">{profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}</Button>
             </div>
@@ -1019,16 +1079,105 @@ const App: React.FC = () => {
     const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type; };
     const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
     const getDocIcon = (type: FormType) => { switch(type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; }}; 
-    const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">{status}</span> : null; };
+    const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground border border-border">{status}</span> : null; };
 
     return (
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-        <header className="flex items-center justify-between mb-8">
-          <div className="flex items-center overflow-hidden"><Button variant="ghost" size="icon" onClick={navigateToDashboard} className="mr-4 h-10 w-10 shrink-0"><BackArrowIcon className="h-6 w-6" /></Button><div className="overflow-hidden"><h1 className="text-2xl md:text-3xl font-bold truncate">{job.name}</h1><p className="text-muted-foreground truncate">{job.clientName}</p></div></div>
-          <div className="flex items-center gap-2"><select value={job.status} onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)} className="h-9 rounded-md border px-3 text-sm"><option value="active">Active</option><option value="inactive">Inactive</option><option value="paused">Paused</option><option value="completed">Completed</option></select></div>
+        <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
+          <div className="flex items-center">
+              <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                <BackArrowIcon className="h-6 w-6" />
+              </Button>
+              <div>
+                  <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight truncate max-w-xs md:max-w-md">
+                      {job.name}
+                  </h1>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                      <UsersIcon className="w-4 h-4" />
+                      {job.clientName}
+                  </div>
+              </div>
+          </div>
+          <div className="flex items-center gap-3">
+              <select 
+                value={job.status} 
+                onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)} 
+                className="h-9 rounded-full border bg-card px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer"
+              >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
+              </select>
+              <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
+                  <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
+              </Button>
+          </div>
         </header>
-        {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold">You are OFFLINE. Documents created will sync later.</div>}
-        <Card><CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"><CardTitle>{t.projectDocs}</CardTitle><div className="relative w-full max-w-xs"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3 w-3" /><Input placeholder="Search by title..." className="pl-8 h-9 text-sm" value={docSearchQuery} onChange={(e) => setDocSearchQuery(e.target.value)} /></div></CardHeader><CardContent><div className="space-y-2">{jobForms.length === 0 && <p className="text-muted-foreground py-8 text-center">{t.noDocsYet}</p>}{jobForms.map(form => { const Icon = getDocIcon(form.type); return (<div key={form.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-md bg-muted hover:bg-secondary/50 transition-colors gap-3"><div className="flex items-center gap-3 overflow-hidden"><div className="p-2 bg-background rounded-full text-primary shrink-0"><Icon className="w-5 h-5" /></div><div className="min-w-0"><p className="font-medium truncate">{getDocTitle(form)}</p><p className="text-xs text-muted-foreground">{form.type} • {new Date(form.createdAt).toLocaleDateString()}</p></div></div><div className="flex items-center gap-2 justify-end">{getStatusBadge(form)}<Button variant="ghost" size="sm" onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}>{t.edit}</Button></div></div>); })}</div></CardContent></Card>
+
+        {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold animate-pulse">You are OFFLINE. Documents created will sync later.</div>}
+        
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
+                <div className="relative w-full max-w-xs">
+                    <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
+                    <Input 
+                        placeholder="Search docs..." 
+                        className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all" 
+                        value={docSearchQuery} 
+                        onChange={(e) => setDocSearchQuery(e.target.value)} 
+                    />
+                </div>
+            </div>
+
+            {jobForms.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border">
+                    <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
+                        <BriefcaseIcon className="w-6 h-6" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
+                    <p className="text-muted-foreground max-w-sm mt-1 mb-6">{t.noDocsYet}</p>
+                    <Button variant="outline" onClick={() => navigateToNewDoc(job.id)} className="rounded-full">
+                        Create First Document
+                    </Button>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {jobForms.map(form => { 
+                        const Icon = getDocIcon(form.type); 
+                        return (
+                            <Card 
+                                key={form.id} 
+                                className="group hover:shadow-lg transition-all duration-200 border-border hover:border-primary/30 cursor-pointer bg-card overflow-hidden"
+                                onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
+                            >
+                                <div className="p-4 flex items-start justify-between gap-3">
+                                    <div className="flex items-start gap-3 overflow-hidden">
+                                        <div className="p-2.5 bg-primary/10 text-primary rounded-xl shrink-0 group-hover:scale-110 transition-transform duration-300">
+                                            <Icon className="w-5 h-5" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h4 className="font-semibold truncate pr-2 text-foreground group-hover:text-primary transition-colors">{getDocTitle(form)}</h4>
+                                            <p className="text-xs text-muted-foreground mt-0.5 font-medium">{form.type}</p>
+                                            <p className="text-[10px] text-muted-foreground/70 mt-1">Created {new Date(form.createdAt).toLocaleDateString()}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-2">
+                                        {getStatusBadge(form)}
+                                    </div>
+                                </div>
+                                <div className="px-4 pb-3 pt-0 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity -translate-y-2 group-hover:translate-y-0 duration-200">
+                                    <span className="text-xs font-bold text-primary flex items-center">
+                                        Edit Document <BackArrowIcon className="w-3 h-3 ml-1 rotate-180" />
+                                    </span>
+                                </div>
+                            </Card>
+                        ); 
+                    })}
+                </div>
+            )}
+        </div>
       </div>
     );
   };

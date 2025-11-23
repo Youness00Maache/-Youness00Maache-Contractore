@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
 import { Button } from './ui/Button.tsx';
@@ -46,7 +48,7 @@ interface Comment {
     score?: number;
 }
 
-type Category = 'General' | 'Suggestion' | 'Project Showcase';
+type Category = 'General' | 'Suggestion' | 'Project Showcase' | 'My Posts';
 type SortOption = 'newest' | 'popular';
 
 const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage, initialPostId, onNavigate }) => {
@@ -93,7 +95,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const categoryDescriptions: Record<Category, string> = {
       'General': 'General discussion about the trade. Ask questions, share news, or chat with peers.',
       'Suggestion': 'This is a suggestions forum. Users suggest features to add to the app that they think will be really cool.',
-      'Project Showcase': 'Share photos of your latest work and get feedback from the community.'
+      'Project Showcase': 'Share photos of your latest work and get feedback from the community.',
+      'My Posts': 'All posts you have created across different categories.'
   };
 
   // Helper to extract YouTube Video ID strictly
@@ -204,8 +207,14 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
             *,
             profiles:user_id (name, profile_picture_url),
             forum_comments (count)
-          `)
-          .eq('category', activeTab);
+          `);
+
+      // 'My Posts' Logic
+      if (activeTab === 'My Posts') {
+          query = query.eq('user_id', session.user.id);
+      } else {
+          query = query.eq('category', activeTab);
+      }
 
       if (sortBy === 'newest') {
           query = query.order('created_at', { ascending: false });
@@ -284,6 +293,23 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       setComments(formattedComments);
   };
 
+  const createNotification = async (recipientId: string, type: 'like' | 'comment', postId: string) => {
+      // Don't notify if acting on own post
+      if (recipientId === session.user.id) return;
+      
+      try {
+          await supabase.from('notifications').insert({
+              user_id: recipientId,
+              source_user_id: session.user.id,
+              type,
+              post_id: postId,
+              is_read: false
+          });
+      } catch (e) {
+          console.error("Failed to send notification", e);
+      }
+  };
+
   const handleVote = async (postId: string, type: 'up' | 'down') => {
       const postIndex = posts.findIndex(p => p.id === postId);
       if (postIndex === -1 && selectedPost?.id !== postId) return;
@@ -312,7 +338,11 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           if (currentVote === 'up') newUpvotes--;
           if (currentVote === 'down') newDownvotes--;
           
-          if (type === 'up') newUpvotes++;
+          if (type === 'up') {
+              newUpvotes++;
+              // Notify Owner on Like
+              createNotification(post.user_id, 'like', post.id);
+          }
           else newDownvotes++;
 
           await supabase.from('forum_votes').upsert({ post_id: postId, user_id: session.user.id, vote_type: type }, { onConflict: 'post_id, user_id' });
@@ -568,11 +598,15 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   imageUrl = await onUploadImage(postImage);
               }
 
+              // IMPORTANT: if activeTab is 'My Posts', we can't use that as category in DB. Default to General or let user pick.
+              // For simplicity, default to 'General' if on 'My Posts'.
+              const categoryToSave = activeTab === 'My Posts' ? 'General' : activeTab;
+
               const { error } = await supabase.from('forum_posts').insert({
                   user_id: session.user.id,
                   title: postForm.title,
                   content: postForm.content,
-                  category: activeTab,
+                  category: categoryToSave,
                   image_url: imageUrl,
                   youtube_url: cleanVideoLink
               });
@@ -624,6 +658,10 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
               setNewCommentImage(null);
               setNewCommentImagePreview('');
               setPosts(prev => prev.map(p => p.id === selectedPost.id ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p));
+              
+              // Notify Post Owner
+              createNotification(selectedPost.user_id, 'comment', selectedPost.id);
+
           } else if (error) {
               alert(`Failed to comment: ${error.message}`);
           }
@@ -670,18 +708,22 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-      <header className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
-        <div className="flex items-center">
-             <Button variant="ghost" size="sm" onClick={selectedPost ? () => onNavigate(null) : onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
-                <BackArrowIcon className="h-9 w-9" />
+      {/* New Modern Header Style */}
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+         <div className="flex items-center">
+             <Button variant="ghost" size="sm" onClick={selectedPost ? () => onNavigate(null) : onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                <BackArrowIcon className="h-6 w-6" />
             </Button>
-            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
-                <MessageSquareIcon className="w-8 h-8 text-primary" />
-                Community Forum
-            </h1>
+            <div>
+                <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                    Community Forum
+                </h1>
+            </div>
          </div>
          {!selectedPost && (
-             <Button onClick={openNewPostModal}>+ New Post</Button>
+             <Button onClick={openNewPostModal} className="shadow-md shadow-primary/20 rounded-full px-6">
+                 + New Post
+             </Button>
          )}
       </header>
 
@@ -725,68 +767,66 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       {!selectedPost ? (
           <div className="max-w-4xl mx-auto w-full space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex gap-2 overflow-x-auto pb-2">
-                      {(['General', 'Suggestion', 'Project Showcase'] as Category[]).map((tab) => (
+                  <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                      {(['General', 'Suggestion', 'Project Showcase', 'My Posts'] as Category[]).map((tab) => (
                           <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
-                            className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors ${activeTab === tab ? 'bg-primary text-primary-foreground shadow-md' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+                            className={`px-5 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all ${activeTab === tab ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20 transform scale-105' : 'bg-card border border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
                           >
                               {tab}
                           </button>
                       ))}
                   </div>
                   
-                  <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg self-start sm:self-auto">
-                      <button onClick={() => setSortBy('newest')} className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all ${sortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
+                  <div className="flex items-center gap-2 bg-card border border-border p-1 rounded-full self-start sm:self-auto shadow-sm">
+                      <button onClick={() => setSortBy('newest')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all ${sortBy === 'newest' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:bg-muted'}`}>
                           <ClockIcon className="w-3.5 h-3.5" /> Newest
                       </button>
-                      <button onClick={() => setSortBy('popular')} className={`px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-all ${sortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
+                      <button onClick={() => setSortBy('popular')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all ${sortBy === 'popular' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:bg-muted'}`}>
                           <TrendingUpIcon className="w-3.5 h-3.5" /> Popular
                       </button>
                   </div>
               </div>
 
-              <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 px-4 py-3 rounded-lg border border-blue-200 dark:border-blue-800 flex items-start gap-2">
-                  <MessageCircleIcon className="w-5 h-5 shrink-0 mt-0.5" />
-                  <p className="text-sm font-medium">{categoryDescriptions[activeTab]}</p>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-800 dark:text-blue-200 px-6 py-4 rounded-2xl border border-blue-100 dark:border-blue-800 flex items-center gap-4 shadow-sm">
+                  <div className="p-2 bg-white dark:bg-blue-950 rounded-full shadow-sm">
+                    <MessageCircleIcon className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <p className="text-sm font-medium leading-relaxed">{categoryDescriptions[activeTab]}</p>
               </div>
 
               <div className="space-y-4">
                   {loading ? (
                       <div className="text-center py-10 text-muted-foreground">Loading community...</div>
                   ) : posts.length === 0 ? (
-                      <div className="text-center py-10 bg-muted/30 rounded-lg">
-                          <p className="text-muted-foreground">No posts in this category yet. Be the first!</p>
+                      <div className="text-center py-10 bg-card rounded-lg border border-border">
+                          <p className="text-muted-foreground">No posts here yet.</p>
                       </div>
                   ) : (
                       posts.map(post => {
                           const isContentExpanded = expandedItems[`${post.id}-content`];
                           const isTitleExpanded = expandedItems[`${post.id}-title`];
-                          
-                          // Content truncation logic
                           const isLongContent = post.content.length > 200 || (post.content.match(/\n/g) || []).length > 2;
-                          
-                          // Title truncation logic (heuristic: > 100 chars implies likely multi-line on mobile)
                           const isLongTitle = post.title.length > 100;
 
                           return (
-                            <Card key={post.id} className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden animate-fade-in-down" onClick={() => onNavigate(post.id)}>
+                            <Card key={post.id} className="hover:shadow-lg hover:border-primary/30 transition-all duration-300 cursor-pointer overflow-hidden animate-fade-in-down border-border group" onClick={() => onNavigate(post.id)}>
                                 <div className="flex">
-                                    <div className="flex flex-col items-center p-3 bg-muted/30 border-r border-border gap-1 min-w-[50px]" onClick={e => e.stopPropagation()}>
-                                        <button onClick={() => handleVote(post.id, 'up')} className={`p-1 rounded hover:bg-background ${post.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                    <div className="flex flex-col items-center p-4 bg-secondary/30 border-r border-border gap-1 min-w-[60px]" onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => handleVote(post.id, 'up')} className={`p-1.5 rounded-lg transition-colors hover:bg-background ${post.userVote === 'up' ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'text-muted-foreground'}`}>
                                             <ThumbsUpIcon className="w-5 h-5" />
                                         </button>
-                                        <span className="text-sm font-bold font-mono">{(post.upvotes - post.downvotes)}</span>
-                                        <button onClick={() => handleVote(post.id, 'down')} className={`p-1 rounded hover:bg-background ${post.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                                        <span className={`text-sm font-bold font-mono my-1 ${post.score && post.score > 0 ? 'text-green-600 dark:text-green-400' : ''}`}>{post.score}</span>
+                                        <button onClick={() => handleVote(post.id, 'down')} className={`p-1.5 rounded-lg transition-colors hover:bg-background ${post.userVote === 'down' ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'text-muted-foreground'}`}>
                                             <ThumbsDownIcon className="w-5 h-5" />
                                         </button>
                                     </div>
-                                    <div className="flex-1 p-4 min-w-0"> {/* min-w-0 is critical for flex child wrapping */}
-                                        <div className="flex justify-between items-start mb-1">
-                                            <div className="flex-1 pr-2 min-w-0"> {/* Nested min-w-0 for safety */}
+                                    <div className="flex-1 p-5 min-w-0">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex-1 pr-2 min-w-0">
                                                 <h3 
-                                                    className={`text-lg font-semibold break-words whitespace-normal mb-1 ${!isTitleExpanded && isLongTitle ? 'line-clamp-3' : ''}`}
+                                                    className={`text-lg font-bold break-words whitespace-normal mb-1 text-foreground group-hover:text-primary transition-colors ${!isTitleExpanded && isLongTitle ? 'line-clamp-3' : ''}`}
                                                     style={!isTitleExpanded && isLongTitle ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}}
                                                 >
                                                     {post.title}
@@ -801,20 +841,20 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                                 )}
                                             </div>
                                             {session.user.id === post.user_id && (
-                                                <div className="flex gap-2 ml-2 shrink-0" onClick={e => e.stopPropagation()}>
-                                                    <button onClick={(e) => openEditModal(post, e)} className="text-muted-foreground hover:text-primary p-1 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
-                                                    <button onClick={(e) => initiateDeletePost(post.id, e)} className="text-muted-foreground hover:text-destructive p-1 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
+                                                <div className="flex gap-1 ml-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                                                    <button onClick={(e) => openEditModal(post, e)} className="text-muted-foreground hover:text-primary p-1.5 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
+                                                    <button onClick={(e) => initiateDeletePost(post.id, e)} className="text-muted-foreground hover:text-destructive p-1.5 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
                                                 </div>
                                             )}
                                         </div>
                                         
-                                        <p className={`text-sm text-muted-foreground mb-2 whitespace-pre-wrap break-words ${!isContentExpanded && isLongContent ? 'line-clamp-3' : ''}`}>
+                                        <p className={`text-sm text-muted-foreground mb-3 whitespace-pre-wrap break-words leading-relaxed ${!isContentExpanded && isLongContent ? 'line-clamp-3' : ''}`}>
                                             {post.content}
                                         </p>
                                         {isLongContent && (
                                             <button 
                                                 onClick={(e) => toggleExpansion(post.id, 'content', e)} 
-                                                className="text-xs text-primary hover:underline mb-3 font-medium focus:outline-none"
+                                                className="text-xs text-primary hover:underline mb-4 font-medium focus:outline-none"
                                             >
                                                 {isContentExpanded ? 'Show Less' : 'Show More'}
                                             </button>
@@ -823,24 +863,24 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                                         {renderVideoEmbed(post.youtube_url)}
 
                                         {post.image_url && !post.youtube_url && (
-                                            <div className="mb-3 rounded-md overflow-hidden w-full bg-muted">
-                                                <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[400px] object-contain bg-black/5" />
+                                            <div className="mb-4 rounded-xl overflow-hidden w-full bg-secondary/50 border border-border">
+                                                <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[400px] object-contain" />
                                             </div>
                                         )}
-                                        <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
+                                        <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border/50">
                                             <div className="flex items-center gap-2">
                                                 {post.profiles?.profile_picture_url ? (
-                                                    <img src={post.profiles.profile_picture_url} className="w-5 h-5 rounded-full object-cover" alt="avatar" />
+                                                    <img src={post.profiles.profile_picture_url} className="w-6 h-6 rounded-full object-cover border border-border" alt="avatar" />
                                                 ) : (
-                                                    <div className="w-5 h-5 bg-primary/20 rounded-full" />
+                                                    <div className="w-6 h-6 bg-secondary rounded-full border border-border" />
                                                 )}
-                                                <span className="truncate max-w-[100px]">{post.profiles?.name || 'Unknown'}</span>
+                                                <span className="font-medium text-foreground">{post.profiles?.name || 'Unknown'}</span>
                                                 <span>•</span>
                                                 <span>{new Date(post.created_at).toLocaleDateString()}</span>
                                             </div>
-                                            <div className="flex items-center gap-1">
-                                                <MessageCircleIcon className="w-4 h-4" />
-                                                <span>{post.comment_count || 0} Comments</span>
+                                            <div className="flex items-center gap-1.5 bg-secondary/50 px-2 py-1 rounded-md">
+                                                <MessageCircleIcon className="w-3.5 h-3.5" />
+                                                <span className="font-medium">{post.comment_count || 0} Comments</span>
                                             </div>
                                         </div>
                                     </div>
@@ -854,38 +894,38 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
       ) : (
           <div className="max-w-4xl mx-auto w-full h-full flex flex-col overflow-hidden animate-in fade-in">
               <div className="flex-1 overflow-y-auto space-y-6 pb-4">
-                  <Card>
-                      <div className="flex">
-                          <div className="flex flex-col items-center p-4 bg-muted/30 border-r border-border gap-2 min-w-[60px]">
-                              <button onClick={() => handleVote(selectedPost.id, 'up')} className={`p-1 rounded hover:bg-background ${selectedPost.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                  <Card className="border-0 shadow-none bg-transparent">
+                      <div className="flex bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                          <div className="flex flex-col items-center p-4 bg-secondary/30 border-r border-border gap-2 min-w-[70px]">
+                              <button onClick={() => handleVote(selectedPost.id, 'up')} className={`p-2 rounded-xl transition-all hover:bg-background hover:scale-110 ${selectedPost.userVote === 'up' ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20 shadow-sm' : 'text-muted-foreground'}`}>
                                   <ThumbsUpIcon className="w-6 h-6" />
                               </button>
-                              <div className="text-lg font-bold">{(selectedPost.upvotes - selectedPost.downvotes)}</div>
-                              <button onClick={() => handleVote(selectedPost.id, 'down')} className={`p-1 rounded hover:bg-background ${selectedPost.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                              <div className={`text-xl font-bold font-mono ${selectedPost.score && selectedPost.score > 0 ? 'text-green-600 dark:text-green-400' : ''}`}>{(selectedPost.upvotes - selectedPost.downvotes)}</div>
+                              <button onClick={() => handleVote(selectedPost.id, 'down')} className={`p-2 rounded-xl transition-all hover:bg-background hover:scale-110 ${selectedPost.userVote === 'down' ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'text-muted-foreground'}`}>
                                   <ThumbsDownIcon className="w-6 h-6" />
                               </button>
                           </div>
                           <div className="flex-1 p-6 min-w-0">
                               <div className="flex justify-between items-start mb-4">
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                      <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">{selectedPost.category}</span>
-                                      <span>Posted by {selectedPost.profiles?.name || 'User'}</span>
-                                      <span>• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
+                                  <div className="flex items-center gap-2 text-xs">
+                                      <span className="px-2.5 py-1 rounded-md bg-primary/10 text-primary font-bold uppercase tracking-wide">{selectedPost.category}</span>
+                                      <span className="text-muted-foreground">• Posted by <span className="font-medium text-foreground">{selectedPost.profiles?.name || 'User'}</span></span>
+                                      <span className="text-muted-foreground">• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
                                   </div>
                                   {session.user.id === selectedPost.user_id && (
                                       <div className="flex gap-2 shrink-0">
                                           <Button variant="ghost" size="sm" onClick={(e) => openEditModal(selectedPost, e)} className="h-8"><PenIcon className="w-4 h-4 mr-2" /> Edit</Button>
-                                          <Button variant="ghost" size="sm" onClick={(e) => initiateDeletePost(selectedPost.id, e)} className="h-8 text-destructive hover:text-destructive"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
+                                          <Button variant="ghost" size="sm" onClick={(e) => initiateDeletePost(selectedPost.id, e)} className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"><TrashIcon className="w-4 h-4 mr-2" /> Delete</Button>
                                       </div>
                                   )}
                               </div>
-                              <h2 className="text-2xl font-bold mb-4 break-words">{selectedPost.title}</h2>
-                              <p className="text-foreground whitespace-pre-wrap leading-relaxed mb-6 break-words">{selectedPost.content}</p>
+                              <h2 className="text-3xl font-bold mb-6 break-words leading-tight">{selectedPost.title}</h2>
+                              <p className="text-foreground whitespace-pre-wrap leading-loose mb-8 break-words text-base">{selectedPost.content}</p>
                               
                               {renderVideoEmbed(selectedPost.youtube_url)}
 
                               {selectedPost.image_url && (
-                                  <div className="rounded-lg overflow-hidden border border-border mb-4">
+                                  <div className="rounded-xl overflow-hidden border border-border mb-6 shadow-sm">
                                       <img src={selectedPost.image_url} alt="Post content" className="w-full h-auto" />
                                   </div>
                               )}
@@ -893,45 +933,52 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                       </div>
                   </Card>
 
-                  <div className="space-y-4 pl-4 border-l-2 border-muted ml-4">
-                      <div className="flex items-center justify-between">
-                          <h3 className="font-semibold text-lg">Comments ({comments.length})</h3>
-                          <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg">
-                              <button onClick={() => setCommentSortBy('newest')} className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'newest' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
-                                  <ClockIcon className="w-3 h-3" /> Newest
+                  <div className="space-y-6 pl-4 lg:pl-0">
+                      <div className="flex items-center justify-between border-b border-border pb-4">
+                          <h3 className="font-bold text-xl flex items-center gap-2">
+                              <MessageCircleIcon className="w-5 h-5" /> 
+                              Comments <span className="text-muted-foreground text-sm font-normal">({comments.length})</span>
+                          </h3>
+                          <div className="flex items-center gap-2 bg-card border border-border p-1 rounded-lg shadow-sm">
+                              <button onClick={() => setCommentSortBy('newest')} className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all ${commentSortBy === 'newest' ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:bg-secondary/50'}`}>
+                                  <ClockIcon className="w-3.5 h-3.5" /> Newest
                               </button>
-                              <button onClick={() => setCommentSortBy('popular')} className={`px-2 py-1 text-xs font-medium rounded-md flex items-center gap-1 transition-all ${commentSortBy === 'popular' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:bg-background/50'}`}>
-                                  <TrendingUpIcon className="w-3 h-3" /> Popular
+                              <button onClick={() => setCommentSortBy('popular')} className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all ${commentSortBy === 'popular' ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:bg-secondary/50'}`}>
+                                  <TrendingUpIcon className="w-3.5 h-3.5" /> Popular
                               </button>
                           </div>
                       </div>
 
                       {comments.map(comment => (
-                          <div key={comment.id} className="bg-card p-4 rounded-lg border border-border flex gap-3">
-                              <div className="flex flex-col items-center gap-1 min-w-[24px] pt-1">
-                                  <button onClick={() => handleCommentVote(comment.id, 'up')} className={`hover:text-orange-500 ${comment.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
-                                      <ThumbsUpIcon className="w-4 h-4" />
+                          <div key={comment.id} className="bg-card p-5 rounded-xl border border-border flex gap-4 shadow-sm hover:shadow-md transition-all">
+                              <div className="flex flex-col items-center gap-1 min-w-[32px] pt-1">
+                                  <button onClick={() => handleCommentVote(comment.id, 'up')} className={`hover:text-orange-500 transition-colors ${comment.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                                      <ThumbsUpIcon className="w-5 h-5" />
                                   </button>
-                                  <span className="text-xs font-mono font-bold">{(comment.upvotes || 0) - (comment.downvotes || 0)}</span>
-                                  <button onClick={() => handleCommentVote(comment.id, 'down')} className={`hover:text-blue-500 ${comment.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
-                                      <ThumbsDownIcon className="w-4 h-4" />
+                                  <span className="text-sm font-mono font-bold text-foreground">{(comment.upvotes || 0) - (comment.downvotes || 0)}</span>
+                                  <button onClick={() => handleCommentVote(comment.id, 'down')} className={`hover:text-blue-500 transition-colors ${comment.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}>
+                                      <ThumbsDownIcon className="w-5 h-5" />
                                   </button>
                               </div>
 
                               <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-2">
+                                  <div className="flex items-center gap-3 mb-3">
                                       {comment.profiles?.profile_picture_url ? (
-                                          <img src={comment.profiles.profile_picture_url} className="w-6 h-6 rounded-full object-cover" alt="Avatar" />
+                                          <img src={comment.profiles.profile_picture_url} className="w-8 h-8 rounded-full object-cover border border-border" alt="Avatar" />
                                       ) : (
-                                          <div className="w-6 h-6 bg-secondary rounded-full" />
+                                          <div className="w-8 h-8 bg-secondary rounded-full border border-border" />
                                       )}
-                                      <span className="text-sm font-medium truncate max-w-[150px]">{comment.profiles?.name || 'Unknown'}</span>
-                                      <span className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</span>
+                                      <div>
+                                          <div className="text-sm font-bold text-foreground truncate max-w-[200px]">{comment.profiles?.name || 'Unknown'}</div>
+                                          <div className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</div>
+                                      </div>
                                   </div>
-                                  <p className="text-sm whitespace-pre-wrap break-words">{comment.content}</p>
+                                  <div className="bg-secondary/20 p-3 rounded-lg border border-border/50">
+                                    <p className="text-sm whitespace-pre-wrap break-words leading-relaxed text-foreground">{comment.content}</p>
+                                  </div>
                                   {comment.image_url && (
-                                      <div className="mt-3 rounded-md overflow-hidden max-w-md">
-                                          <img src={comment.image_url} alt="Comment image" className="w-full h-auto max-h-64 object-contain bg-muted" />
+                                      <div className="mt-3 rounded-lg overflow-hidden max-w-md border border-border shadow-sm">
+                                          <img src={comment.image_url} alt="Comment image" className="w-full h-auto max-h-64 object-contain bg-black/5" />
                                       </div>
                                   )}
                               </div>
@@ -940,26 +987,26 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                   </div>
               </div>
 
-              <div className="bg-background pt-4 border-t border-border">
+              <div className="bg-card pt-4 border-t border-border sticky bottom-0 pb-4 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.1)] px-1">
                   {newCommentImagePreview && (
-                      <div className="mb-2 relative w-24 h-24">
-                          <img src={newCommentImagePreview} alt="Preview" className="w-full h-full object-cover rounded border border-border" />
-                          <button onClick={() => { setNewCommentImage(null); setNewCommentImagePreview(''); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"><XCircleIcon className="w-4 h-4" /></button>
+                      <div className="mb-2 relative w-24 h-24 animate-in fade-in slide-in-from-bottom-2">
+                          <img src={newCommentImagePreview} alt="Preview" className="w-full h-full object-cover rounded-lg border border-border shadow-sm" />
+                          <button onClick={() => { setNewCommentImage(null); setNewCommentImagePreview(''); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors"><XCircleIcon className="w-4 h-4" /></button>
                       </div>
                   )}
-                  <div className="flex gap-2 items-end">
-                      <div className="flex gap-2">
-                          <button className="p-2 rounded-md hover:bg-secondary border border-transparent hover:border-border text-muted-foreground" title="Upload Image" onClick={() => document.getElementById('comment-upload')?.click()}>
+                  <div className="flex gap-3 items-end">
+                      <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg border border-border">
+                          <button className="p-2 rounded-md hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary" title="Upload Image" onClick={() => document.getElementById('comment-upload')?.click()}>
                               <UploadImageIcon className="w-5 h-5" />
                               <input id="comment-upload" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'comment')} />
                           </button>
-                          <button className="p-2 rounded-md hover:bg-secondary border border-transparent hover:border-border text-muted-foreground" title="Take Picture" onClick={() => startCamera('comment')}>
+                          <button className="p-2 rounded-md hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary" title="Take Picture" onClick={() => startCamera('comment')}>
                               <CameraIcon className="w-5 h-5" />
                           </button>
                       </div>
-                      <Input value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Add to the discussion..." className="flex-1" onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} />
-                      <Button onClick={handleAddComment} disabled={(!newComment.trim() && !newCommentImage) || isCommenting}>
-                          <SendIcon className="w-4 h-4 mr-2" /> Post
+                      <Input value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Add to the discussion..." className="flex-1 h-12 text-base" onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} />
+                      <Button onClick={handleAddComment} disabled={(!newComment.trim() && !newCommentImage) || isCommenting} className="h-12 px-6 shadow-md">
+                          <SendIcon className="w-5 h-5 mr-2" /> Post
                       </Button>
                   </div>
               </div>
@@ -968,39 +1015,39 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
 
       {/* Create/Edit Post Modal */}
       {showPostModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={resetPostForm}>
-              <Card className="w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                  <CardHeader>
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={resetPostForm}>
+              <Card className="w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                  <CardHeader className="border-b border-border bg-muted/20">
                       <CardTitle>{editingPostId ? 'Edit Post' : 'Create New Post'}</CardTitle>
                       <CardDescription>{editingPostId ? 'Update your content' : `Share with the community in ${activeTab}`}</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4 overflow-y-auto">
-                      <div className="space-y-1.5"><Label>Title</Label><Input value={postForm.title} onChange={e => setPostForm({...postForm, title: e.target.value})} placeholder="What's on your mind?" /></div>
-                      <div className="space-y-1.5"><Label>Content</Label><textarea className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={postForm.content} onChange={e => setPostForm({...postForm, content: e.target.value})} placeholder="Elaborate on your topic..." /></div>
+                  <CardContent className="space-y-5 overflow-y-auto pt-6">
+                      <div className="space-y-1.5"><Label className="font-bold">Title</Label><Input value={postForm.title} onChange={e => setPostForm({...postForm, title: e.target.value})} placeholder="What's on your mind?" className="font-semibold text-lg" /></div>
+                      <div className="space-y-1.5"><Label className="font-bold">Content</Label><textarea className="flex min-h-[150px] w-full rounded-md border border-input bg-background px-4 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y" value={postForm.content} onChange={e => setPostForm({...postForm, content: e.target.value})} placeholder="Elaborate on your topic..." /></div>
                       
-                      <div className="space-y-1.5">
-                          <Label>Media</Label>
+                      <div className="space-y-2 bg-secondary/20 p-4 rounded-xl border border-border/50">
+                          <Label className="font-bold mb-2 block">Media Attachments</Label>
                           <div className="flex flex-wrap items-center gap-3">
                               {!editingPostId && (
                                   <>
-                                    <Button type="button" variant="outline" className="relative overflow-hidden flex-1 h-10">
+                                    <Button type="button" variant="outline" className="relative overflow-hidden flex-1 h-10 hover:bg-background hover:border-primary/50 hover:text-primary transition-all">
                                         <UploadImageIcon className="w-4 h-4 mr-2" /> Upload Photo
                                         <input type="file" accept="image/*" onChange={(e) => handleImageSelect(e, 'post')} className="absolute inset-0 opacity-0 cursor-pointer" />
                                     </Button>
-                                    <Button variant="outline" onClick={() => startCamera('post')} className="flex-1 h-10"><CameraIcon className="w-4 h-4 mr-2" /> Take Photo</Button>
+                                    <Button variant="outline" onClick={() => startCamera('post')} className="flex-1 h-10 hover:bg-background hover:border-primary/50 hover:text-primary transition-all"><CameraIcon className="w-4 h-4 mr-2" /> Take Photo</Button>
                                   </>
                               )}
                               <Button 
                                 variant="outline" 
                                 onClick={() => setShowVideoInput(!showVideoInput)} 
-                                className={`flex-1 h-10 ${showVideoInput || postVideoLink ? 'bg-secondary' : ''}`}
+                                className={`flex-1 h-10 transition-all ${showVideoInput || postVideoLink ? 'bg-primary/10 border-primary/50 text-primary' : 'hover:bg-background hover:border-primary/50 hover:text-primary'}`}
                               >
                                 <PlayIcon className="w-4 h-4 mr-2" /> {postVideoLink ? 'Edit Video Link' : 'Add Video'}
                               </Button>
                           </div>
                           
                           {(showVideoInput || postVideoLink) && (
-                              <div className="relative mt-2 animate-in fade-in slide-in-from-top-1">
+                              <div className="relative mt-3 animate-in fade-in slide-in-from-top-1">
                                   <PlayIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                                   <Input 
                                     value={postVideoLink} 
@@ -1013,19 +1060,19 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
                           )}
 
                           {postImagePreview && (
-                              <div className="relative w-full h-32 mt-2 rounded-md overflow-hidden border border-border bg-muted">
+                              <div className="relative w-full h-48 mt-3 rounded-lg overflow-hidden border border-border bg-black/5 shadow-sm group">
                                   <img src={postImagePreview} alt="Preview" className="w-full h-full object-contain" />
-                                  <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 rounded">
+                                  <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded backdrop-blur-sm">
                                       {originalImageSize} &rarr; {postImageSize}
                                   </div>
-                                  <button onClick={() => { setPostImage(null); setPostImagePreview(''); setPostImageSize(''); }} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-red-500 transition-colors"><XCircleIcon className="w-5 h-5" /></button>
+                                  <button onClick={() => { setPostImage(null); setPostImagePreview(''); setPostImageSize(''); }} className="absolute top-2 right-2 bg-white text-red-500 p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"><XCircleIcon className="w-5 h-5" /></button>
                               </div>
                           )}
                       </div>
                   </CardContent>
-                  <CardFooter className="flex justify-end gap-2 border-t pt-4">
-                      <Button variant="outline" onClick={resetPostForm}>Cancel</Button>
-                      <Button onClick={handleSavePost} disabled={isPosting}>{isPosting ? 'Saving...' : (editingPostId ? 'Update' : 'Post')}</Button>
+                  <CardFooter className="flex justify-end gap-3 border-t border-border bg-muted/20 py-4">
+                      <Button variant="ghost" onClick={resetPostForm}>Cancel</Button>
+                      <Button onClick={handleSavePost} disabled={isPosting} className="px-8">{isPosting ? 'Saving...' : (editingPostId ? 'Update Post' : 'Post Now')}</Button>
                   </CardFooter>
               </Card>
           </div>
