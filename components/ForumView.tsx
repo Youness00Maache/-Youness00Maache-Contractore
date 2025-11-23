@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
 import { Button } from './ui/Button.tsx';
@@ -16,6 +13,7 @@ interface ForumViewProps {
   onUploadImage: (file: File) => Promise<string>;
   initialPostId?: string;
   onNavigate: (postId: string | null) => void;
+  onDbSetupNeeded: () => void;
 }
 
 interface Post {
@@ -51,7 +49,7 @@ interface Comment {
 type Category = 'General' | 'Suggestion' | 'Project Showcase' | 'My Posts';
 type SortOption = 'newest' | 'popular';
 
-const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage, initialPostId, onNavigate }) => {
+const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage, initialPostId, onNavigate, onDbSetupNeeded }) => {
   const [activeTab, setActiveTab] = useState<Category>('General');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [commentSortBy, setCommentSortBy] = useState<SortOption>('newest');
@@ -546,9 +544,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
           alert("Failed to delete post: " + error.message);
       } else if (count === 0) {
           // If no rows deleted, it usually means RLS blocked it or row doesn't exist.
-          // Since we just clicked delete on a visible row, it's likely RLS (missing DELETE policy).
-          alert("Could not delete post. Database update required. Please refresh the page to apply updates.");
-          window.location.reload();
+          // Trigger DB setup screen via callback instead of generic alert
+          onDbSetupNeeded();
       } else {
           setPosts(prev => prev.filter(p => p.id !== postToDelete));
           if (selectedPost?.id === postToDelete) {

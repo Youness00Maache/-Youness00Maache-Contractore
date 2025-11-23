@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification } from './types.ts';
@@ -1263,6 +1254,7 @@ const App: React.FC = () => {
                 onUploadImage={handleUploadForumImage} 
                 initialPostId={view.postId}
                 onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
+                onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
             />
         );
       default: return renderDashboard();

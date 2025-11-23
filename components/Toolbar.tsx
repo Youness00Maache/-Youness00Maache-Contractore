@@ -12,12 +12,11 @@ type ToolbarButtonProps = {
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   isActive: boolean;
   onClick: () => void;
-  tooltip: string | null;
   showTooltip: (label: string) => void;
   hideTooltip: () => void;
 };
 
-const ToolbarButton: React.FC<ToolbarButtonProps> = ({ label, icon: Icon, isActive, onClick, tooltip, showTooltip, hideTooltip }) => (
+const ToolbarButton: React.FC<ToolbarButtonProps> = ({ label, icon: Icon, isActive, onClick, showTooltip, hideTooltip }) => (
     <div className="relative shrink-0" onMouseEnter={() => showTooltip(label)} onMouseLeave={hideTooltip}>
         <button
             className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors duration-200 border ${

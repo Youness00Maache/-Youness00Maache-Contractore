@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useEffect } from 'react';
 import type { ChangeOrderData, LineItem, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -28,7 +29,6 @@ const ChangeOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], on
     title: '',
     changeOrderNumber: `CO-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-001`,
     date: new Date().toISOString().split('T')[0],
-    jobName: job.name,
     reason: '',
     description: '',
     currentContractSum: 0,
