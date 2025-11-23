@@ -286,7 +286,7 @@ export interface ReceiptData extends DocumentStyle {
     title?: string;
     receiptNumber: string;
     date: string;
-    from: string; // client name
+    clientName: string; // Changed from 'from' to 'clientName' for consistency
     amount: number;
     description: string;
     paymentMethod: string;

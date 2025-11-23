@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import type { ReceiptData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -20,23 +21,34 @@ interface Props {
 }
 
 const ReceiptForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
-  const [formData, setFormData] = useState<ReceiptData>(data || {
-    title: '',
-    receiptNumber: `REC-${Date.now().toString().slice(-6)}`,
-    date: new Date().toISOString().split('T')[0],
-    from: job.clientName || '',
-    amount: 0,
-    description: 'Payment for services rendered',
-    paymentMethod: 'Check',
-    companyName: profile.companyName,
-    companyAddress: profile.address,
-    companyPhone: profile.phone,
-    companyWebsite: profile.website,
-    logoUrl: profile.logoUrl,
-    signatureUrl: '',
-    templateId: 'standard',
-    themeColors: { primary: '#000000', secondary: '#666666' }
+  const [formData, setFormData] = useState<ReceiptData>(() => {
+      const initialData = data || {
+        title: '',
+        receiptNumber: `REC-${Date.now().toString().slice(-6)}`,
+        date: new Date().toISOString().split('T')[0],
+        clientName: job.clientName || '',
+        amount: 0,
+        description: 'Payment for services rendered',
+        paymentMethod: 'Check',
+        companyName: profile.companyName,
+        companyAddress: profile.address,
+        companyPhone: profile.phone,
+        companyWebsite: profile.website,
+        logoUrl: profile.logoUrl,
+        signatureUrl: '',
+        templateId: 'standard',
+        themeColors: { primary: '#000000', secondary: '#666666' }
+      };
+
+      // Backward compatibility: if 'from' exists but 'clientName' doesn't, map it.
+      // Using 'any' cast because 'from' is no longer in the interface.
+      if ((initialData as any).from && !initialData.clientName) {
+          initialData.clientName = (initialData as any).from;
+      }
+      
+      return initialData;
   });
+  
   const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
@@ -59,7 +71,7 @@ const ReceiptForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave
       const clientId = e.target.value;
       if (clientId === 'custom') return;
       const client = clients.find(c => c.id === clientId);
-      if (client) setFormData(prev => ({ ...prev, from: client.name }));
+      if (client) setFormData(prev => ({ ...prev, clientName: client.name }));
   };
 
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,7 +142,7 @@ const ReceiptForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave
                               <option value="custom">Manual</option>
                               {clients.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                           </select>
-                          <Input name="from" value={formData.from} onChange={handleChange} className="flex-1" />
+                          <Input name="clientName" value={formData.clientName} onChange={handleChange} className="flex-1" placeholder="Client Name" />
                       </div>
                   </div>
                   

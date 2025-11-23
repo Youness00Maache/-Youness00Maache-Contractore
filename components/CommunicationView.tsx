@@ -1,11 +1,14 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Client, FormData as FormDataType, UserProfile, Job } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card';
-import { Label } from './ui/Label';
-import { Input } from './ui/Input';
-import { Button } from './ui/Button';
-import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon } from './Icons';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
+import { Label } from './ui/Label.tsx';
+import { Input } from './ui/Input.tsx';
+import { Button } from './ui/Button.tsx';
+import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon } from './Icons.tsx';
+import { Session } from '@supabase/supabase-js';
+import { sendGmail } from '../services/gmailService.ts';
+import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 
 interface CommunicationViewProps {
     clients: Client[];
@@ -13,9 +16,10 @@ interface CommunicationViewProps {
     jobs: Job[];
     profile: UserProfile;
     onBack: () => void;
+    session: Session;
 }
 
-const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack }) => {
+const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session }) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedDocId, setSelectedDocId] = useState<string>('');
     
@@ -23,7 +27,8 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [recipientEmail, setRecipientEmail] = useState('');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
-    const [copied, setCopied] = useState(false);
+    const [isSending, setIsSending] = useState(false);
+    const [sendSuccess, setSendSuccess] = useState(false);
 
     // Filtering Logic
     const clientDocs = useMemo(() => {
@@ -48,6 +53,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                 setSelectedDocId('');
                 setSubject('');
                 setBody('');
+                setSendSuccess(false);
             }
         }
     }, [selectedClientId, clients]);
@@ -155,22 +161,48 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
              }
         }
 
-        // If valueToInsert is still the placeholder (because data was missing), maybe don't insert anything or keep placeholder
-        // Current behavior: Insert the resolved value
         setBody(prev => prev + valueToInsert);
     };
 
-    const handleOpenEmail = () => {
-        const mailtoLink = `mailto:${recipientEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        // Use location.href to trigger system mail client without opening a blank tab
-        window.location.href = mailtoLink;
-    };
+    const handleSendEmail = async () => {
+        setIsSending(true);
+        setSendSuccess(false);
+        
+        try {
+            let attachment = undefined;
+            
+            // Generate attachment if document is selected
+            if (selectedDocId) {
+                const doc = forms.find(f => f.id === selectedDocId);
+                if (doc) {
+                    const job = jobs.find(j => j.id === doc.jobId);
+                    // Assuming generateDocumentBase64 is exported from pdfGenerator
+                    const base64Data = await generateDocumentBase64(doc.type, doc.data, profile, job!);
+                    
+                    if (base64Data) {
+                        const docData = doc.data as any;
+                        const filename = `${doc.type}-${docData.invoiceNumber || docData.estimateNumber || docData.poNumber || 'Doc'}.pdf`;
+                        attachment = {
+                            name: filename,
+                            data: base64Data,
+                            type: 'application/pdf'
+                        };
+                    }
+                }
+            }
 
-    const handleCopy = () => {
-        const fullText = `To: ${recipientEmail}\nSubject: ${subject}\n\n${body}`;
-        navigator.clipboard.writeText(fullText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+            await sendGmail(session, recipientEmail, subject, body, attachment);
+            
+            setSendSuccess(true);
+            // Clear selection after delay or keep for reference? Let's keep but show success state.
+            setTimeout(() => setSendSuccess(false), 3000);
+            
+        } catch (error: any) {
+            console.error("Email send failed", error);
+            alert(`Failed to send email: ${error.message}. \n\nMake sure you signed in with Google and granted email permissions.`);
+        } finally {
+            setIsSending(false);
+        }
     };
 
     return (
@@ -183,7 +215,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                     <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight">
                         <MailIcon className="w-8 h-8 text-primary" /> Communication
                     </h1>
-                    <p className="text-muted-foreground text-sm">Compose emails and share documents with clients.</p>
+                    <p className="text-muted-foreground text-sm">Compose emails and share documents via Gmail.</p>
                 </div>
             </header>
 
@@ -304,14 +336,24 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                             </div>
                         </div>
                     </CardContent>
-                    <CardFooter className="bg-muted/20 border-t border-border p-4 flex justify-between items-center">
-                        <Button variant="ghost" onClick={handleCopy} className="text-muted-foreground hover:text-foreground">
-                            {copied ? <CheckCircleIcon className="w-4 h-4 mr-2 text-green-500" /> : <CopyIcon className="w-4 h-4 mr-2" />}
-                            {copied ? 'Copied to Clipboard' : 'Copy Text'}
-                        </Button>
-                        <Button onClick={handleOpenEmail} disabled={!recipientEmail} className="px-8 shadow-md">
-                            <MailIcon className="w-4 h-4 mr-2" /> Open Email App
-                        </Button>
+                    <CardFooter className="bg-muted/20 border-t border-border p-4 flex justify-end items-center gap-3">
+                        {sendSuccess ? (
+                            <div className="flex items-center text-green-600 font-bold animate-in fade-in slide-in-from-right-2">
+                                <CheckCircleIcon className="w-5 h-5 mr-2" /> Sent successfully!
+                            </div>
+                        ) : (
+                            <Button 
+                                onClick={handleSendEmail} 
+                                disabled={!recipientEmail || isSending} 
+                                className="px-8 shadow-md bg-primary hover:bg-primary/90"
+                            >
+                                {isSending ? 'Sending...' : (
+                                    <>
+                                        <SendIcon className="w-4 h-4 mr-2" /> Send via Gmail
+                                    </>
+                                )}
+                            </Button>
+                        )}
                     </CardFooter>
                 </Card>
             </div>

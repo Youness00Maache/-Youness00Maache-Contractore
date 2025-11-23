@@ -494,14 +494,24 @@ const App: React.FC = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (!session) {
+      if (session) {
+          // Persist Google Access Token to LocalStorage for Gmail Service
+          if (session.provider_token) {
+              localStorage.setItem('google_provider_token', session.provider_token);
+          }
+      } else {
           setLoading(false);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-       if (!session) {
+      if (session) {
+          // Persist Google Access Token
+          if (session.provider_token) {
+              localStorage.setItem('google_provider_token', session.provider_token);
+          }
+      } else {
         setProfile(null);
         setJobs([]);
         setForms([]);
@@ -708,11 +718,23 @@ const App: React.FC = () => {
     setView({ screen: 'auth', authScreen: 'checkEmail' });
   };
   const handleLoginWithGoogle = async () => {
-    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+    // Request gmail.send scope for email sending feature
+    await supabase.auth.signInWithOAuth({ 
+        provider: 'google', 
+        options: { 
+            redirectTo: window.location.origin,
+            scopes: 'https://www.googleapis.com/auth/gmail.send',
+            queryParams: {
+                access_type: 'offline',
+                prompt: 'consent',
+            }
+        } 
+    });
   };
   const handleLogout = async () => {
     if (navigator.onLine) await supabase.auth.signOut();
-    localStorage.removeItem('app_view_state'); 
+    localStorage.removeItem('app_view_state');
+    localStorage.removeItem('google_provider_token'); // Clear Google Token on logout
     setSession(null);
     setView({ screen: 'welcome' });
   };
@@ -1234,7 +1256,7 @@ const App: React.FC = () => {
                />;
       case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
       case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-      case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} />;
+      case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} />;
       case 'forum': 
         return (
             <ForumView 
