@@ -42,12 +42,18 @@ export const sendGmail = async (
 
   if (!response.ok) {
     const errorData = await response.json();
-    // If token expired (401), clear it from storage so app knows next time
+    const errorMessage = errorData.error?.message || 'Failed to send email via Gmail API';
+    
+    // If token expired (401) or has insufficient scopes (403), throw specific error to trigger re-auth
     if (response.status === 401) {
         localStorage.removeItem('google_provider_token');
-        throw new Error("Google session expired. Please log out and log back in.");
+        throw new Error("GMAIL_AUTH_ERROR: Session expired");
     }
-    throw new Error(errorData.error?.message || 'Failed to send email via Gmail API');
+    if (response.status === 403 && (errorMessage.includes('scope') || errorMessage.includes('permission'))) {
+        throw new Error("GMAIL_AUTH_ERROR: Insufficient permissions");
+    }
+    
+    throw new Error(errorMessage);
   }
 
   return response.json();

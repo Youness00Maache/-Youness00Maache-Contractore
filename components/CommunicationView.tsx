@@ -184,7 +184,6 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                 const doc = forms.find(f => f.id === selectedDocId);
                 if (doc) {
                     const job = jobs.find(j => j.id === doc.jobId);
-                    // Assuming generateDocumentBase64 is exported from pdfGenerator
                     const base64Data = await generateDocumentBase64(doc.type, doc.data, profile, job!);
                     
                     if (base64Data) {
@@ -206,8 +205,9 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
             
         } catch (error: any) {
             console.error("Email send failed", error);
-            if (error.message.includes("provider token found")) {
-                setHasGoogleToken(false); // Trigger connect button
+            // Check for specific auth errors (missing token OR missing scope)
+            if (error.message.includes("GMAIL_AUTH_ERROR") || error.message.includes("provider token found")) {
+                setHasGoogleToken(false); // This will show the Connect Gmail button
             } else {
                 alert(`Failed to send email: ${error.message}`);
             }
@@ -230,16 +230,19 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                     </div>
                 </header>
                 <div className="flex-1 flex items-center justify-center">
-                    <Card className="w-full max-w-md text-center p-6">
+                    <Card className="w-full max-w-md text-center p-6 shadow-lg">
                         <CardHeader>
                             <CardTitle>Connect Gmail</CardTitle>
-                            <CardDescription>To send emails directly from the app, we need permission to access your Gmail account.</CardDescription>
+                            <CardDescription>To send emails directly from your account, we need permission.</CardDescription>
                         </CardHeader>
-                        <CardContent>
-                            <Button onClick={onConnectGmail} className="w-full flex items-center justify-center gap-2" size="lg">
-                                <GoogleIcon className="w-5 h-5" /> Authorize Gmail Sending
+                        <CardContent className="space-y-4">
+                            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-sm rounded-md">
+                                <strong>Action Required:</strong> Please authorize Gmail to enable sending.
+                            </div>
+                            <Button onClick={onConnectGmail} className="w-full flex items-center justify-center gap-2 shadow-md" size="lg">
+                                <GoogleIcon className="w-5 h-5" /> Connect Gmail Account
                             </Button>
-                            <p className="text-xs text-muted-foreground mt-4">You will be asked to grant permission to "Send email on your behalf".</p>
+                            <p className="text-xs text-muted-foreground">Google will ask to "Send email on your behalf". This is required for this feature.</p>
                         </CardContent>
                     </Card>
                 </div>
