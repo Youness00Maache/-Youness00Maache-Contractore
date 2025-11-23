@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect } from 'react';
 import type { InvoiceData, LineItem, Job, UserProfile } from '../types';
 import { generateInvoicePDF } from '../services/pdfGenerator';
@@ -8,9 +6,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon } from './Icons.tsx';
+import { BackArrowIcon, ExportIcon, InvoiceIcon, ShareIcon } from './Icons.tsx';
 import TemplateSelector from './TemplateSelector.tsx';
 import SignaturePad from './SignaturePad.tsx';
+import ShareModal from './ShareModal.tsx';
 
 interface InvoiceFormProps {
   job: Job;
@@ -53,8 +52,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   );
   const [isDownloading, setIsDownloading] = useState(false);
   const [showPaymentLink, setShowPaymentLink] = useState(!!invoiceData.paypalLink);
+  const [showShareModal, setShowShareModal] = useState(false);
 
-  // Auto-sync logo from profile if it changes and the invoice is editable (Draft)
   useEffect(() => {
     if (invoiceData.status === 'Draft' && userProfile.logoUrl && !invoice) {
         setInvoiceData(prev => ({ ...prev, logoUrl: userProfile.logoUrl }));
@@ -137,7 +136,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   };
 
   const renderPageOne = () => (
-    <Card className="w-full max-w-4xl animate-fade-in-down my-8">
+    <Card className="w-full max-w-4xl animate-fade-in-down my-4">
         <CardHeader>
             <CardTitle>Invoice Setup</CardTitle>
             <CardDescription>Confirm the details for this invoice.</CardDescription>
@@ -228,7 +227,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
   );
 
   const renderPageTwo = () => (
-    <Card className="w-full max-w-4xl animate-fade-in-down my-8">
+    <Card className="w-full max-w-4xl animate-fade-in-down my-4">
       <CardHeader>
         <CardTitle>Invoice Items</CardTitle>
         <CardDescription>Add the services or products you are billing for.</CardDescription>
@@ -411,6 +410,10 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
         <Button variant="outline" onClick={() => setPage(1)}>Back</Button>
         <div className="flex gap-2 flex-wrap justify-end">
              <Button variant="outline" onClick={() => handleSave()}>Save Only</Button>
+             {/* Share Button */}
+             <Button variant="outline" onClick={() => { handleSave(); setShowShareModal(true); }}>
+                 <ShareIcon className="h-4 w-4 mr-2" /> Share
+             </Button>
             <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
               <ExportIcon className="h-4 w-4 mr-2"/> {isDownloading ? 'Downloading...' : 'Download PDF'}
             </Button>
@@ -419,19 +422,29 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
             </Button>
         </div>
       </CardFooter>
+
+      <ShareModal 
+        isOpen={showShareModal} 
+        onClose={() => setShowShareModal(false)} 
+        data={invoiceData} 
+        docType="Invoice" 
+        profile={userProfile} 
+      />
     </Card>
   );
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-        <header className="grid grid-cols-3 items-center pb-4 border-b border-border mb-4">
-             <div className="flex justify-start">
-                <Button variant="ghost" size="sm" onClick={onClose} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+             <div className="flex items-center">
+                <Button variant="ghost" size="sm" onClick={onClose} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                    <BackArrowIcon className="h-6 w-6" />
                 </Button>
-            </div>
-            <h1 className="text-xl font-bold text-center whitespace-nowrap">Create Invoice</h1>
-            <div className="flex items-center gap-2 justify-end">
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                        <InvoiceIcon className="w-6 h-6 text-primary" /> Invoice
+                    </h1>
+                </div>
             </div>
         </header>
         <div className="flex-1 flex items-start justify-center overflow-y-auto">

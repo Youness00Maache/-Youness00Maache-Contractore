@@ -1,8 +1,7 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { NoteData, UserProfile, Job } from '../types.ts';
 import { generateNotePDF } from '../services/pdfGenerator.ts';
-import { CameraIcon, UploadImageIcon, BackArrowIcon, ExportIcon } from './Icons.tsx';
+import { CameraIcon, UploadImageIcon, BackArrowIcon, ExportIcon, NoteIcon } from './Icons.tsx';
 import Toolbar from './Toolbar.tsx';
 import AIVoiceInput from './AIVoiceInput.tsx';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
@@ -637,19 +636,21 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, onSave, onBack 
             </Modal>
         )}
 
-        <header className="grid grid-cols-3 items-center pb-4 border-b border-border mb-4">
-            <div className="flex justify-start">
-                <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+             <div className="flex items-center">
+                <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                    <BackArrowIcon className="h-6 w-6" />
                 </Button>
-            </div>
-            <h1 className="text-xl font-bold text-center whitespace-nowrap">Note</h1>
-            <div className="flex items-center gap-2 justify-end">
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                        <NoteIcon className="w-6 h-6 text-primary" /> Note
+                    </h1>
+                </div>
             </div>
         </header>
         <div className="flex-1">
             <div className="max-w-4xl mx-auto">
-                 <Card>
+                 <Card className="animate-fade-in-down">
                     <CardContent className="pt-6">
                         <div className="flex flex-col space-y-1.5 mb-4">
                             <Label htmlFor="title">Title</Label>

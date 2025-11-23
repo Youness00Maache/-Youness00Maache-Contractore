@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import type { WarrantyData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -40,10 +37,8 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
   const [isDownloading, setIsDownloading] = useState(false);
 
   // Ensure logo syncs if profile logo changes, unless user manually changed it in this session
-  // However, standard behavior requested is "It has to be the logo that you upload in the settings"
   useEffect(() => {
       if (profile.logoUrl && !data?.logoUrl) {
-          // If it's a new form (data is null) or existing form didn't have a specific logo override
           setFormData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
       }
   }, [profile.logoUrl]);
@@ -69,7 +64,6 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      // Use provided upload function if available, otherwise local read
       if (onUploadImage) {
           try {
               const newUrl = await onUploadImage(file);
@@ -101,16 +95,17 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-      <header className="grid grid-cols-3 items-center pb-4 border-b border-border mb-4">
-        <div className="flex justify-start">
-            <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
-                <BackArrowIcon className="h-9 w-9" />
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+         <div className="flex items-center">
+            <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                <BackArrowIcon className="h-6 w-6" />
             </Button>
+            <div>
+                <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                    <ShieldIcon className="w-6 h-6 text-primary" /> Warranty
+                </h1>
+            </div>
         </div>
-        <h1 className="text-xl font-bold text-center flex items-center justify-center gap-2">
-            <ShieldIcon className="w-5 h-5 text-primary"/> Warranty
-        </h1>
-        <div className="flex justify-end"></div>
       </header>
       
       <div className="flex-1 overflow-y-auto">

@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import type { ExpenseLogData, UserProfile, Job, Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
@@ -94,12 +91,17 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-      <header className="grid grid-cols-3 items-center pb-4 border-b border-border mb-4">
-        <div className="flex justify-start">
-            <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center"><BackArrowIcon className="h-9 w-9" /></Button>
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+         <div className="flex items-center">
+            <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                <BackArrowIcon className="h-6 w-6" />
+            </Button>
+            <div>
+                <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                    <ExpenseLogIcon className="w-6 h-6 text-primary" /> Expense Log
+                </h1>
+            </div>
         </div>
-        <h1 className="text-xl font-bold text-center flex items-center gap-2 justify-center"><ExpenseLogIcon className="w-5 h-5 text-primary"/> Expense Log</h1>
-        <div className="flex justify-end"></div>
       </header>
       <div className="flex-1 overflow-y-auto pb-10">
           <Card className="max-w-3xl mx-auto w-full animate-fade-in-down">

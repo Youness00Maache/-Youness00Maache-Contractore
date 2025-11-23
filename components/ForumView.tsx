@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
 import { Button } from './ui/Button.tsx';
 import { Input } from './ui/Input.tsx';
 import { Label } from './ui/Label.tsx';
-import { BackArrowIcon, MessageSquareIcon, ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, SendIcon, UploadImageIcon, XCircleIcon, CameraIcon, ClockIcon, TrendingUpIcon, PlayIcon, PenIcon, TrashIcon } from './Icons.tsx';
+import { BackArrowIcon, MessageSquareIcon, ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, SendIcon, UploadImageIcon, XCircleIcon, CameraIcon, ClockIcon, TrendingUpIcon, PlayIcon, PenIcon, TrashIcon, BellIcon } from './Icons.tsx';
 import { compressImage } from '../utils/imageCompression.ts';
 
 interface ForumViewProps {
@@ -44,6 +45,16 @@ interface Comment {
     downvotes: number;
     userVote?: 'up' | 'down' | null;
     score?: number;
+}
+
+interface NotificationDetail {
+    id: string;
+    type: 'like' | 'comment';
+    post_id: string;
+    created_at: string;
+    is_read: boolean;
+    profiles: { name: string; profile_picture_url: string };
+    forum_posts: { title: string };
 }
 
 type Category = 'General' | 'Suggestion' | 'Project Showcase' | 'My Posts';
@@ -90,11 +101,89 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Notifications State
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationList, setNotificationList] = useState<NotificationDetail[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
   const categoryDescriptions: Record<Category, string> = {
       'General': 'General discussion about the trade. Ask questions, share news, or chat with peers.',
       'Suggestion': 'This is a suggestions forum. Users suggest features to add to the app that they think will be really cool.',
       'Project Showcase': 'Share photos of your latest work and get feedback from the community.',
       'My Posts': 'All posts you have created across different categories.'
+  };
+
+  // Close notifications when clicking outside
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+              setShowNotifications(false);
+          }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Fetch Notification Count for badge
+  const fetchNotificationCount = async () => {
+      if (!session) return;
+      const { count } = await supabase
+          .from('notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', session.user.id)
+          .eq('is_read', false);
+      setUnreadCount(count || 0);
+  };
+
+  useEffect(() => {
+      if (session) fetchNotificationCount();
+  }, [session]);
+
+  // Fetch detailed notifications
+  const fetchNotifications = async () => {
+      if (!session) return;
+      const { data, error } = await supabase
+          .from('notifications')
+          .select(`
+              id, type, post_id, created_at, is_read,
+              profiles:source_user_id (name, profile_picture_url),
+              forum_posts:post_id (title)
+          `)
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+      
+      if (error) {
+          // If error relates to missing relationship (likely FK), trigger setup
+          // PGRST200 is generic embedding error
+          if (error.code === 'PGRST200' || error.message.includes('Could not find a relationship')) {
+              onDbSetupNeeded();
+          } else {
+              console.error("Fetch notif error", error);
+          }
+      } else if (data) {
+          setNotificationList(data);
+      }
+  };
+
+  const handleToggleNotifications = () => {
+      if (!showNotifications) {
+          fetchNotifications();
+      }
+      setShowNotifications(!showNotifications);
+  };
+
+  const handleNotificationClick = async (note: NotificationDetail) => {
+      // Mark as read
+      if (!note.is_read) {
+          await supabase.from('notifications').update({ is_read: true }).eq('id', note.id);
+          setUnreadCount(prev => Math.max(0, prev - 1));
+          setNotificationList(prev => prev.map(n => n.id === note.id ? { ...n, is_read: true } : n));
+      }
+      
+      setShowNotifications(false);
+      onNavigate(note.post_id);
   };
 
   // Helper to extract YouTube Video ID strictly
@@ -707,20 +796,93 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUplo
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
       {/* New Modern Header Style */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-         <div className="flex items-center">
-             <Button variant="ghost" size="sm" onClick={selectedPost ? () => onNavigate(null) : onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+         <div className="flex items-center w-full sm:w-auto">
+             <Button variant="ghost" size="sm" onClick={selectedPost ? () => onNavigate(null) : onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
                 <BackArrowIcon className="h-6 w-6" />
             </Button>
-            <div>
-                <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+            <div className="flex-1">
+                <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight truncate">
                     Community Forum
                 </h1>
             </div>
          </div>
+         
          {!selectedPost && (
-             <Button onClick={openNewPostModal} className="shadow-md shadow-primary/20 rounded-full px-6">
-                 + New Post
-             </Button>
+             <div className="flex items-center gap-3 self-end sm:self-auto">
+                 {/* Notification Bell with Dropdown */}
+                 <div className="relative" ref={notificationRef}>
+                     <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="rounded-full relative hover:bg-secondary" 
+                        onClick={handleToggleNotifications}
+                     >
+                         <BellIcon className="w-6 h-6" />
+                         {unreadCount > 0 && (
+                             <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm ring-2 ring-background">
+                                 {unreadCount > 9 ? '9+' : unreadCount}
+                             </span>
+                         )}
+                     </Button>
+
+                     {showNotifications && (
+                         <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-popover border border-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                             <div className="flex items-center justify-between p-3 border-b border-border bg-muted/30">
+                                 <h3 className="font-semibold text-sm">Notifications</h3>
+                                 <button onClick={() => setShowNotifications(false)} className="text-muted-foreground hover:text-foreground p-1"><XCircleIcon className="w-4 h-4" /></button>
+                             </div>
+                             <div className="max-h-[60vh] overflow-y-auto">
+                                 {notificationList.length === 0 ? (
+                                     <div className="p-8 text-center text-muted-foreground text-sm">
+                                         No notifications yet.
+                                     </div>
+                                 ) : (
+                                     <div className="divide-y divide-border">
+                                         {notificationList.map(note => (
+                                             <div 
+                                                key={note.id} 
+                                                className={`p-3 flex gap-3 cursor-pointer transition-colors hover:bg-muted/50 ${!note.is_read ? 'bg-primary/5' : ''}`}
+                                                onClick={() => handleNotificationClick(note)}
+                                             >
+                                                 <div className="shrink-0 pt-1">
+                                                     {note.profiles?.profile_picture_url ? (
+                                                         <img src={note.profiles.profile_picture_url} className="w-8 h-8 rounded-full object-cover border border-border" alt="avatar" />
+                                                     ) : (
+                                                         <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center border border-border">
+                                                             <span className="text-xs font-bold">{note.profiles?.name?.charAt(0) || '?'}</span>
+                                                         </div>
+                                                     )}
+                                                 </div>
+                                                 <div className="flex-1 min-w-0">
+                                                     <p className="text-sm text-foreground">
+                                                         <span className="font-semibold">{note.profiles?.name || 'Someone'}</span>
+                                                         <span className="text-muted-foreground"> {note.type === 'like' ? 'liked your post' : 'commented on your post'}:</span>
+                                                     </p>
+                                                     <p className="text-xs font-medium text-primary truncate mt-0.5">
+                                                         "{note.forum_posts?.title}"
+                                                     </p>
+                                                     <p className="text-[10px] text-muted-foreground mt-1">
+                                                         {new Date(note.created_at).toLocaleDateString()} at {new Date(note.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                     </p>
+                                                 </div>
+                                                 {!note.is_read && (
+                                                     <div className="self-center">
+                                                         <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                                     </div>
+                                                 )}
+                                             </div>
+                                         ))}
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                     )}
+                 </div>
+
+                 <Button onClick={openNewPostModal} className="shadow-md shadow-primary/20 rounded-full px-6">
+                     + New Post
+                 </Button>
+             </div>
          )}
       </header>
 

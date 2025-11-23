@@ -1,3 +1,5 @@
+
+// ... (keep imports) ...
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification } from './types.ts';
@@ -23,10 +25,11 @@ import ClientsView from './components/ClientsView.tsx';
 import AnalyticsView from './components/AnalyticsView.tsx';
 import ForumView from './components/ForumView.tsx';
 import CalendarView from './components/CalendarView.tsx';
+import CommunicationView from './components/CommunicationView.tsx';
 import Dock from './components/Dock.tsx';
 import JobForm from './components/JobForm.tsx';
 import Welcome from './components/Welcome.tsx';
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
@@ -35,8 +38,7 @@ import { translations } from './utils/translations.ts';
 import { dbApi } from './utils/db.ts';
 import { compressImage } from './utils/imageCompression.ts';
 
-// --- IMPORTANT: CONFIGURE YOUR SUPABASE CREDENTIALS ---
-// You can get these from your Supabase project dashboard at https://app.supabase.com
+// ... (keep Supabase init and SQL_SETUP_SCRIPT) ...
 const supabaseUrl = 'https://iauteblvljppwzsxloyd.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdXRlYmx2bGpwcHd6c3hsb3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1OTk0MTIsImV4cCI6MjA3NjE3NTQxMn0.W2Xu9TuO6odsnF5eK7iLPqV4KB0wVWXzmM2ofnKZw70';
 
@@ -64,6 +66,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   job_title TEXT,
   subscription_tier TEXT DEFAULT 'Basic',
   language TEXT DEFAULT 'English',
+  email_templates JSONB DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -72,6 +75,9 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'profile_picture_url') THEN
         ALTER TABLE public.profiles ADD COLUMN profile_picture_url TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_templates') THEN
+        ALTER TABLE public.profiles ADD COLUMN email_templates JSONB DEFAULT '{}'::jsonb;
     END IF;
 END $$;
 
@@ -233,6 +239,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'forum_comment_votes_user_id_fkey_profiles') THEN
       ALTER TABLE public.forum_comment_votes ADD CONSTRAINT forum_comment_votes_user_id_fkey_profiles FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
   END IF;
+
+  -- Enable joining notifications to profiles to get sender info
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'notifications_source_user_id_fkey_profiles') THEN
+      ALTER TABLE public.notifications ADD CONSTRAINT notifications_source_user_id_fkey_profiles FOREIGN KEY (source_user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
 END $$;
 
 -- 7. ENABLE RLS AND POLICIES
@@ -392,6 +403,7 @@ const App: React.FC = () => {
     | { screen: 'clients' }
     | { screen: 'analytics' }
     | { screen: 'calendar' }
+    | { screen: 'communication' }
     | { screen: 'forum'; postId?: string };
   
   const [session, setSession] = useState<Session | null>(null);
@@ -417,6 +429,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [docSearchQuery, setDocSearchQuery] = useState('');
 
+  // ... (keep effects and handlers: Network, Theme, Auth, fetchData) ...
   // Network Status Listener & Sync
   useEffect(() => {
       const handleOnline = () => {
@@ -462,8 +475,6 @@ const App: React.FC = () => {
               // Keep in queue to retry later
           }
       }
-      
-      // Refresh data after sync to get server state
       fetchData();
   };
 
@@ -506,8 +517,6 @@ const App: React.FC = () => {
   const fetchData = async () => {
     if (!session) return;
     
-    // Avoid triggering the full-screen loader if we already have data (background refresh)
-    // This happens when switching tabs (token refresh) or regaining focus
     if (!profile) {
         setLoading(true);
         setLoadingMessage('Loading profile...');
@@ -515,7 +524,6 @@ const App: React.FC = () => {
 
     const user = session.user;
     
-    // 1. Fetch or create profile
     let currentProfile: UserProfile | null = null;
 
     if (navigator.onLine) {
@@ -534,13 +542,11 @@ const App: React.FC = () => {
         }
 
         if (profileData) {
-            // Sync Google Profile Picture if database one is empty
             const googleAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
             let profilePicUrl = profileData.profile_picture_url;
 
             if (!profilePicUrl && googleAvatar) {
                 profilePicUrl = googleAvatar;
-                // Update database asynchronously
                 supabase.from('profiles').update({ profile_picture_url: googleAvatar }).eq('id', user.id).then();
             }
 
@@ -556,11 +562,11 @@ const App: React.FC = () => {
                 website: profileData.website,
                 jobTitle: profileData.job_title,
                 subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
-                language: profileData.language
+                language: profileData.language,
+                emailTemplates: profileData.email_templates
             };
             await dbApi.put('profile', currentProfile);
         } else if (!profileError || profileError.code === 'PGRST116') {
-            // Create profile if missing
             const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
             const metaAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
             let nameToSet = metaName;
@@ -575,8 +581,8 @@ const App: React.FC = () => {
                     email: user.email,
                     name: nameToSet,
                     company_name: `${nameToSet}'s Company`,
-                    logo_url: '', // Start empty for company logo
-                    profile_picture_url: metaAvatar || '', // Use Google Avatar for profile picture
+                    logo_url: '', 
+                    profile_picture_url: metaAvatar || '', 
                 })
                 .select()
                 .single();
@@ -594,25 +600,23 @@ const App: React.FC = () => {
                     website: newProfileData.website,
                     jobTitle: newProfileData.job_title,
                     subscriptionTier: newProfileData.subscription_tier as 'Basic' | 'Premium',
-                    language: newProfileData.language
+                    language: newProfileData.language,
+                    emailTemplates: newProfileData.email_templates
                 };
                 await dbApi.put('profile', currentProfile);
             }
         }
     } else {
-        // Offline: Load from IndexedDB
         const cachedProfiles = await dbApi.getAll('profile');
         if (cachedProfiles.length > 0) currentProfile = cachedProfiles[0];
     }
     setProfile(currentProfile);
 
-    // 2. Fetch jobs
     if (navigator.onLine) {
         const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
         if (jobsData) {
             const mappedJobs = jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
             setJobs(mappedJobs);
-            // Clear and update offline cache
             await dbApi.clear('jobs');
             for (const j of mappedJobs) await dbApi.put('jobs', j);
         }
@@ -621,7 +625,6 @@ const App: React.FC = () => {
         setJobs(cachedJobs);
     }
 
-    // 3. Fetch docs
     if (navigator.onLine) {
         const { data: formsData } = await supabase.from('documents').select('*').eq('user_id', user.id);
         if (formsData) {
@@ -635,7 +638,6 @@ const App: React.FC = () => {
         setForms(cachedForms);
     }
 
-    // 4. Fetch Clients
     if (navigator.onLine) {
         const { data: clientsData } = await supabase.from('clients').select('*').eq('user_id', user.id);
         if (clientsData) {
@@ -648,7 +650,6 @@ const App: React.FC = () => {
         setClients(cachedClients);
     }
     
-    // 5. Fetch Notifications (Only online)
     if (navigator.onLine) {
         const { count, error: notifError } = await supabase
             .from('notifications')
@@ -659,11 +660,10 @@ const App: React.FC = () => {
         if (!notifError) {
             setNotificationCount(count || 0);
         } else if (notifError.code === '42P01' || /relation "public.notifications" does not exist/i.test(notifError.message)) {
-             setDbSetupError(SQL_SETUP_SCRIPT); // Fix missing table
+             setDbSetupError(SQL_SETUP_SCRIPT);
         }
     }
     
-    // Check for Forum Config (Only if online)
     if (navigator.onLine) {
         const { error: forumError } = await supabase.from('forum_posts').select('id, image_url, youtube_url').limit(1);
         if (forumError) {
@@ -677,7 +677,6 @@ const App: React.FC = () => {
         }
     }
 
-    // Restore View
     const savedViewStr = localStorage.getItem('app_view_state');
     if (savedViewStr) {
         try {
@@ -697,7 +696,7 @@ const App: React.FC = () => {
   }, [session]);
 
 
-  // Handlers
+  // ... (keep handlers: Login, Signup, Logout, Notifications, Navigation, Uploads, Jobs, Clients) ...
   const handleLogin = async (email: string, pass: string) => {
     if (!navigator.onLine) { alert("You must be online to log in."); return; }
     const { error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
@@ -731,26 +730,21 @@ const App: React.FC = () => {
   const navigateToClients = () => setView({ screen: 'clients' });
   const navigateToAnalytics = () => setView({ screen: 'analytics' });
   const navigateToCalendar = () => setView({ screen: 'calendar' });
+  const navigateToCommunication = () => setView({ screen: 'communication' });
   const navigateToForum = (postId?: string) => {
       markNotificationsAsRead();
       setView({ screen: 'forum', postId });
   };
 
-  // Global function to update logo in profile from ANY form
   const handleUpdateAppLogo = async (file: File): Promise<string> => {
      if (!session || !profile) return '';
      try {
          const compressed = await compressImage(file);
          const url = await uploadFile('logos', compressed, session.user.id, true);
-         
-         // Update in DB
          await supabase.from('profiles').update({ logo_url: url }).eq('id', session.user.id);
-         
-         // Update local state
          const updatedProfile = { ...profile, logoUrl: url };
          setProfile(updatedProfile);
          await dbApi.put('profile', updatedProfile);
-         
          return url;
      } catch(e) {
          console.error("Failed to sync logo globally", e);
@@ -763,7 +757,6 @@ const App: React.FC = () => {
       if (!session) return '';
       try {
           const compressed = await compressImage(file);
-          // Reuse 'logos' bucket since it's public, but don't update profile
           return await uploadFile('logos', compressed, session.user.id, true);
       } catch (e) {
           console.error("Failed to upload image", e);
@@ -807,6 +800,7 @@ const App: React.FC = () => {
           profile_picture_url: newProfilePicUrl,
           job_title: updatedProfile.jobTitle,
           language: updatedProfile.language,
+          email_templates: updatedProfile.emailTemplates,
           updated_at: new Date().toISOString(),
       };
       
@@ -825,7 +819,8 @@ const App: React.FC = () => {
               website: data.website, 
               jobTitle: data.job_title,
               subscriptionTier: data.subscription_tier as 'Basic' | 'Premium', 
-              language: data.language
+              language: data.language,
+              emailTemplates: data.email_templates
           };
           
           setProfile(updated);
@@ -833,7 +828,7 @@ const App: React.FC = () => {
           setView({ screen: 'dashboard' });
       } else {
           console.error("Error updating profile:", JSON.stringify(error, null, 2));
-          if (error.code === 'PGRST204' || error.message.includes('profile_picture_url') || error.message.includes('schema cache')) {
+          if (error.code === 'PGRST204' || error.message.includes('profile_picture_url') || error.message.includes('email_templates') || error.message.includes('schema cache')) {
               setDbSetupError(SQL_SETUP_SCRIPT);
           } else {
               alert(`Failed to save profile: ${error.message}`);
@@ -865,7 +860,6 @@ const App: React.FC = () => {
     if (navigator.onLine) {
         const { error } = await supabase.from('jobs').insert(newJob);
         if (!error) {
-          // Refresh jobs from server to be safe
           const { data } = await supabase.from('jobs').select('*').eq('user_id', session.user.id);
           if(data) {
               const mapped = data.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
@@ -875,7 +869,6 @@ const App: React.FC = () => {
           }
         }
     } else {
-        // Offline Save
         await dbApi.put('offline_queue', { id: crypto.randomUUID(), type: 'create_job', payload: newJob, timestamp: Date.now() });
         const optimisticJob = {
             ...newJob,
@@ -890,7 +883,6 @@ const App: React.FC = () => {
         alert("You are offline. Job saved locally.");
     }
     
-    // Check returnTo logic
     const currentView = view as any;
     if (currentView.screen === 'createJob' && currentView.returnTo === 'calendar') {
         setView({ screen: 'calendar' });
@@ -904,14 +896,12 @@ const App: React.FC = () => {
       if (!session) return;
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
       
-      // Update local DB
       const job = jobs.find(j => j.id === jobId);
       if (job) await dbApi.put('jobs', { ...job, status: newStatus });
 
       if (navigator.onLine) {
           await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
       } else {
-          // We could add an update queue action, but simple visual update is fine for MVP
           alert("Status updated locally.");
       }
   };
@@ -1016,6 +1006,7 @@ const App: React.FC = () => {
       return translations[lang] || translations['English'];
   }
 
+  // ... (keep renderAuth, renderDashboard, renderJobDetails, renderForm) ...
   const renderAuth = () => {
     if (view.screen !== 'auth') return null;
     switch(view.authScreen) {
@@ -1041,7 +1032,6 @@ const App: React.FC = () => {
               <Button onClick={() => navigateToCreateJob('dashboard')}>+ {t.newJob}</Button>
               <Button variant="outline" onClick={navigateToCalendar} className="flex items-center gap-2"><CalendarIcon className="w-4 h-4" /> Schedule</Button>
               
-              {/* Community Button with Badge */}
               <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 relative">
                   <MessageSquareIcon className="w-4 h-4" /> Community
                   {notificationCount > 0 && (
@@ -1181,8 +1171,6 @@ const App: React.FC = () => {
     if (!job) return <div>Job not found!</div>;
     const handleCloseForm = () => setView({ screen: 'jobDetails', jobId: jobId });
 
-    // Using a unique key ensures components remount when switching between documents or from "new" to "edit".
-    // This forces initialization with the current `profile` state, fixing the stale logo issue.
     const componentKey = formId || `new-${formType}`;
 
     switch (formType) {
@@ -1206,7 +1194,6 @@ const App: React.FC = () => {
     const t = getTranslation();
     const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
     
-    // Add Calendar to Dock when viewing calendar or dashboard
     if (view.screen === 'dashboard' || view.screen === 'calendar') {
         items.push({ icon: CalendarIcon, label: 'Schedule', onClick: navigateToCalendar });
     }
@@ -1214,6 +1201,8 @@ const App: React.FC = () => {
     if (view.screen === 'jobDetails') items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc(view.jobId) });
     else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
     
+    items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
+
     items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
     return items;
   };
@@ -1245,6 +1234,7 @@ const App: React.FC = () => {
                />;
       case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
       case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
+      case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} />;
       case 'forum': 
         return (
             <ForumView 
@@ -1264,6 +1254,7 @@ const App: React.FC = () => {
   return (
     <main className="w-full min-h-screen bg-background">
       {renderContent()}
+      {/* Dock is hidden on Communication screen */}
       {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
         <Dock items={getDockItems()} />
       )}

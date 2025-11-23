@@ -1,6 +1,10 @@
 
+
+
+
+
 import React, { useState, useEffect } from 'react';
-import type { UserProfile } from '../types';
+import type { UserProfile, EmailTemplate } from '../types';
 import { BackArrowIcon, SunIcon, MoonIcon, LanguageIcon, CreditCardIcon, LogoutIcon, BriefcaseIcon, UploadImageIcon, UserIcon } from './Icons.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
@@ -93,8 +97,6 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
   }, [logoPreview, profilePicPreview]);
   
   const handleSaveChanges = () => {
-    // Pass only the file that corresponds to the current mode if set, or pass both if we want to be safe
-    // The logic in App.tsx handles undefined files gracefully.
     onSave(profile, logoFile, profilePicFile);
   };
 
@@ -109,7 +111,7 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
             <h1 className="text-2xl font-bold">{mode === 'settings' ? 'Settings' : 'My Profile'}</h1>
        </header>
 
-      <main className="flex-1 overflow-y-auto space-y-6 animate-fade-in-down max-w-3xl mx-auto w-full">
+      <main className="flex-1 overflow-y-auto space-y-6 animate-fade-in-down max-w-3xl mx-auto w-full pb-10">
         
         {mode === 'settings' && (
             <>
@@ -120,7 +122,7 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
                             <div className="flex flex-col space-y-1.5"><Label htmlFor="companyName">Company Name</Label><Input id="companyName" name="companyName" value={profile.companyName || ''} onChange={handleChange} /></div>
                             <div className="flex flex-col space-y-1.5"><Label htmlFor="email">Company Email</Label><Input id="email" type="email" name="email" value={profile.email || ''} onChange={handleChange} /></div>
                             <div className="flex flex-col space-y-1.5"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" name="phone" value={profile.phone || ''} onChange={handleChange} /></div>
-                             <div className="flex flex-col space-y-1.5"><Label htmlFor="website">Website</Label><Input id="website" name="website" value={profile.website || ''} onChange={handleChange} /></div>
+                            <div className="flex flex-col space-y-1.5"><Label htmlFor="website">Website</Label><Input id="website" name="website" value={profile.website || ''} onChange={handleChange} /></div>
                             <div className="md:col-span-2 flex flex-col space-y-1.5"><Label htmlFor="address">Address</Label><Input id="address" name="address" value={profile.address || ''} onChange={handleChange} /></div>
                             
                             {/* Company Logo Upload */}
@@ -149,21 +151,21 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
                 <Card>
                     <CardHeader><CardTitle>Appearance & Language</CardTitle></CardHeader>
                     <CardContent className="space-y-6">
-                         <div className="flex items-center justify-between p-2 border rounded-lg">
+                        <div className="flex items-center justify-between p-2 border rounded-lg">
                             <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2"><SunIcon className="w-4 h-4"/> Theme</span></div>
                             <div className="flex items-center gap-2 bg-secondary p-1 rounded-lg">
                                 <button onClick={() => setTheme('light')} className={`p-2 rounded-md transition-all ${theme === 'light' ? 'bg-card shadow-sm' : 'hover:bg-background/50'}`}><SunIcon className={`h-5 w-5 ${theme === 'light' ? 'text-primary' : 'text-muted-foreground'}`} /></button>
                                 <button onClick={() => setTheme('dark')} className={`p-2 rounded-md transition-all ${theme === 'dark' ? 'bg-card shadow-sm' : 'hover:bg-background/50'}`}><MoonIcon className={`h-5 w-5 ${theme === 'dark' ? 'text-primary' : 'text-muted-foreground'}`} /></button>
                             </div>
                         </div>
-                         <div className="flex items-center justify-between p-2 border rounded-lg">
-                             <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2"><LanguageIcon className="w-4 h-4"/> Language</span></div>
+                        <div className="flex items-center justify-between p-2 border rounded-lg">
+                            <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2"><LanguageIcon className="w-4 h-4"/> Language</span></div>
                             <select name="language" value={profile.language || 'English'} onChange={handleChange} className="h-10 rounded-md border border-input bg-background px-3 py-1 text-sm focus:ring-2 focus:ring-ring">
                                 {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
                             </select>
-                         </div>
+                        </div>
                     </CardContent>
-                     <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
+                    <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
                 </Card>
             </>
         )}

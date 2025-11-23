@@ -1,10 +1,7 @@
-
-
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DailyJobReportData, UserProfile, Job, Client } from '../types.ts';
 import { generateDailyJobReportPDF } from '../services/pdfGenerator.ts';
-import { CameraIcon, UploadImageIcon, BackArrowIcon, ExportIcon, CloudSunIcon } from './Icons.tsx';
+import { CameraIcon, UploadImageIcon, BackArrowIcon, ExportIcon, CloudSunIcon, DailyReportIcon } from './Icons.tsx';
 import Toolbar from './Toolbar.tsx';
 import AIVoiceInput from './AIVoiceInput.tsx';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
@@ -581,7 +578,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
   };
 
   const renderPageOne = () => (
-    <Card>
+    <Card className="animate-fade-in-down">
       <CardHeader>
         <CardTitle>Daily Report Setup</CardTitle>
         <CardDescription>Confirm details.</CardDescription>
@@ -669,7 +666,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
   );
 
   const renderPageTwo = () => (
-    <Card>
+    <Card className="animate-fade-in-down">
       <CardContent className="pt-6 px-2 sm:px-6"> {/* Adjusted padding for mobile */}
         <style>{`
             .editor-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; }
@@ -845,14 +842,16 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
             </Modal>
         )}
 
-        <header className="grid grid-cols-3 items-center pb-4 border-b border-border mb-4">
-            <div className="flex justify-start">
-                <Button variant="ghost" size="sm" onClick={page === 1 ? onBack : () => setPage(1)} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+             <div className="flex items-center">
+                <Button variant="ghost" size="sm" onClick={page === 1 ? onBack : () => setPage(1)} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                    <BackArrowIcon className="h-6 w-6" />
                 </Button>
-            </div>
-            <h1 className="text-xl font-bold text-center whitespace-nowrap">Daily Job Report</h1>
-            <div className="flex items-center gap-2 justify-end">
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                        <DailyReportIcon className="w-6 h-6 text-primary" /> Daily Report
+                    </h1>
+                </div>
             </div>
         </header>
         <div className="flex-1">

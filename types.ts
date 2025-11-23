@@ -15,6 +15,11 @@ export enum FormType {
   PurchaseOrder = "Purchase Order",
 }
 
+export interface EmailTemplate {
+    subject: string;
+    body: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -28,6 +33,7 @@ export interface UserProfile {
   jobTitle?: string;
   subscriptionTier?: 'Basic' | 'Premium';
   language?: string;
+  emailTemplates?: Record<string, EmailTemplate>;
 }
 
 export interface Client {
