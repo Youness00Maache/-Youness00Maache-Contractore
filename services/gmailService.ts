@@ -1,6 +1,16 @@
 
 import { Session } from "@supabase/supabase-js";
 
+// Helper to chunk base64 string into 76-character lines for MIME compliance
+const chunkSubstr = (str: string, size: number) => {
+  const numChunks = Math.ceil(str.length / size);
+  const chunks = new Array(numChunks);
+  for (let i = 0, o = 0; i < numChunks; ++i, o += size) {
+    chunks[i] = str.substring(o, o + size);
+  }
+  return chunks;
+};
+
 export const sendGmail = async (
   session: Session,
   to: string,
@@ -61,15 +71,18 @@ const createMimeMessage = (to: string, subject: string, body: string, attachment
 
   // Attachment
   if (attachment) {
-    // Remove data:application/pdf;base64, prefix if present
+    // Remove data:application/pdf;base64, prefix if present to get raw base64
     const base64Data = attachment.data.split(',')[1] || attachment.data;
+    
+    // Split into 76-char lines
+    const chunkedData = chunkSubstr(base64Data, 76).join(nl);
     
     message += `--${boundary}${nl}`;
     message += `Content-Type: ${attachment.type}; name="${attachment.name}"${nl}`;
     message += `Content-Description: ${attachment.name}${nl}`;
-    message += `Content-Disposition: attachment; filename="${attachment.name}"; size=${base64Data.length}${nl}`;
+    message += `Content-Disposition: attachment; filename="${attachment.name}"${nl}`;
     message += `Content-Transfer-Encoding: base64${nl}${nl}`;
-    message += `${base64Data}${nl}`;
+    message += `${chunkedData}${nl}`;
   }
 
   message += `--${boundary}--`;
