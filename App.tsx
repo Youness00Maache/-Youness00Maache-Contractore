@@ -449,13 +449,16 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-  const [view, setView] = useState<AppView>(() => {
-      const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
-      if (path === '/privacy') return { screen: 'privacy' };
-      if (path === '/terms') return { screen: 'terms' };
-      if (path === '/security') return { screen: 'security' };
+  
+  const getViewForPath = (path: string): AppView => {
+      const cleanPath = path.replace(/\/$/, '');
+      if (cleanPath === '/privacy') return { screen: 'privacy' };
+      if (cleanPath === '/terms') return { screen: 'terms' };
+      if (cleanPath === '/security') return { screen: 'security' };
       return { screen: 'welcome' };
-  });
+  };
+
+  const [view, setView] = useState<AppView>(() => getViewForPath(window.location.pathname));
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -477,26 +480,17 @@ const App: React.FC = () => {
   const [docSearchQuery, setDocSearchQuery] = useState('');
 
   const navigate = (path: string) => {
-    window.history.pushState({}, '', path);
-    const newView = getViewForPath(path);
-    setView(newView);
+      window.history.pushState({}, '', path);
+      setView(getViewForPath(path));
   };
   
-  const getViewForPath = (path: string): AppView => {
-      const cleanPath = path.replace(/\/$/, '');
-      if (cleanPath === '/privacy') return { screen: 'privacy' };
-      if (cleanPath === '/terms') return { screen: 'terms' };
-      if (cleanPath === '/security') return { screen: 'security' };
-      return session ? { screen: 'dashboard' } : { screen: 'welcome' };
-  };
-
   useEffect(() => {
     const handlePopState = () => {
       setView(getViewForPath(window.location.pathname));
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [session]);
+  }, []);
 
   useEffect(() => {
       const handleOnline = () => {
@@ -591,6 +585,7 @@ const App: React.FC = () => {
         setClients([]);
         setInventory([]);
         
+        // Don't redirect if on a public page
         const path = window.location.pathname.replace(/\/$/, '');
         if (!['/privacy', '/terms', '/security'].includes(path)) {
             setView({ screen: 'welcome' });
@@ -863,18 +858,18 @@ const App: React.FC = () => {
       if (!error) setNotificationCount(0);
   };
 
-  const navigateToDashboard = () => navigate('/dashboard');
-  const navigateToSettings = () => navigate('/settings');
-  const navigateToNewDoc = (jobId: string) => navigate(`/job/${jobId}/new`);
-  const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard') => navigate('/job/create');
-  const navigateToClients = () => navigate('/clients');
-  const navigateToInventory = () => navigate('/inventory');
-  const navigateToAnalytics = () => navigate('/analytics');
-  const navigateToCalendar = () => navigate('/calendar');
-  const navigateToCommunication = () => navigate('/communication');
+  const navigateToDashboard = () => setView({ screen: 'dashboard' });
+  const navigateToSettings = () => setView({ screen: 'settings' });
+  const navigateToNewDoc = (jobId: string) => setView({ screen: 'selectDocType', jobId });
+  const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard') => setView({ screen: 'createJob', returnTo });
+  const navigateToClients = () => setView({ screen: 'clients' });
+  const navigateToInventory = () => setView({ screen: 'inventory' });
+  const navigateToAnalytics = () => setView({ screen: 'analytics' });
+  const navigateToCalendar = () => setView({ screen: 'calendar' });
+  const navigateToCommunication = () => setView({ screen: 'communication' });
   const navigateToForum = (postId?: string) => {
       markNotificationsAsRead();
-      navigate(postId ? `/forum/${postId}`: '/forum');
+      setView({ screen: 'forum', postId });
   };
 
   const handleUpdateAppLogo = async (file: File): Promise<string> => {
@@ -1218,7 +1213,7 @@ const App: React.FC = () => {
   const renderDashboard = () => {
     if (!profile) return null;
     const t = getTranslation();
-    const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || (j.clientName && j.clientName.toLowerCase().includes(searchQuery.toLowerCase())));
+    const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
     const getStatusColor = (status: string) => {
         switch(status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
     }
@@ -1230,6 +1225,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-4 flex-wrap">
               <Button onClick={() => navigateToCreateJob('dashboard')}>+ {t.newJob}</Button>
               
+              {/* Inventory Button */}
               <Button 
                 variant="outline" 
                 onClick={navigateToInventory} 
@@ -1255,7 +1251,7 @@ const App: React.FC = () => {
         </header>
         <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
         <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
-        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (<Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200 border-gray-400 dark:border-gray-600"><CardHeader><CardTitle className="truncate">{job.name}</CardTitle><CardDescription className="truncate">{job.clientName}</CardDescription></CardHeader><CardContent className="flex-grow"><p className="text-sm text-muted-foreground">{job.clientAddress}</p><div className="flex items-center gap-2 mt-2"><span className={`w-2 h-2 rounded-full ${getStatusColor(job.status)}`}></span><p className="text-sm text-muted-foreground capitalize">{job.status}</p></div></CardContent><CardFooter><Button className="w-full" onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}>{t.viewProject}</Button></CardFooter></Card>))}</div>}
+        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (<Card key={job.id} className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200"><CardHeader><CardTitle className="truncate">{job.name}</CardTitle><CardDescription className="truncate">{job.clientName}</CardDescription></CardHeader><CardContent className="flex-grow"><p className="text-sm text-muted-foreground">{job.clientAddress}</p><div className="flex items-center gap-2 mt-2"><span className={`w-2 h-2 rounded-full ${getStatusColor(job.status)}`}></span><p className="text-sm text-muted-foreground capitalize">{job.status}</p></div></CardContent><CardFooter><Button className="w-full" onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}>{t.viewProject}</Button></CardFooter></Card>))}</div>}
       </div>
     );
   };
@@ -1406,12 +1402,8 @@ const App: React.FC = () => {
         items.push({ icon: CalendarIcon, label: 'Schedule', onClick: navigateToCalendar });
     }
 
-    if (view.screen === 'jobDetails') {
-        items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as any).jobId) });
-    }
-    else if (view.screen === 'dashboard' || view.screen === 'clients') {
-        items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
-    }
+    if (view.screen === 'jobDetails') items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc(view.jobId) });
+    else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
     
     items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
 
@@ -1422,12 +1414,15 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
     if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
+    
+    // Public pages should be accessible regardless of session
+    const backNav = () => navigate(session ? '/dashboard' : '/');
+    if (view.screen === 'privacy') return <PrivacyPolicy onBack={backNav} />;
+    if (view.screen === 'terms') return <TermsOfService onBack={backNav} />;
+    if (view.screen === 'security') return <Security onBack={backNav} />;
+
     if (!session) {
-        if (view.screen === 'welcome') return <Welcome onGetStarted={() => navigate('/signup')} onLogin={() => navigate('/login')} onNavigate={navigate} />;
-        if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => navigate('/')} />;
-        if (view.screen === 'terms') return <TermsOfService onBack={() => navigate('/')} />;
-        if (view.screen === 'security') return <Security onBack={() => navigate('/')} />;
-        
+        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={navigate} />;
         return renderAuth();
     }
     switch (view.screen) {
@@ -1471,9 +1466,6 @@ const App: React.FC = () => {
                 onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
             />
         );
-      case 'privacy': return <PrivacyPolicy onBack={() => navigate('/')} />;
-      case 'terms': return <TermsOfService onBack={() => navigate('/')} />;
-      case 'security': return <Security onBack={() => navigate('/')} />;
       default: return renderDashboard();
     }
   };
