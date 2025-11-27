@@ -1,4 +1,6 @@
 
+
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
@@ -69,7 +71,7 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onLoginWithGoogle, onSwitchTo
       <div className="flex flex-col items-center text-center w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
             <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
-            <h1 className="text-4xl font-bold mb-2 tracking-tight">Contractor AI</h1>
+            <h1 className="text-4xl font-bold mb-2 tracking-tight">ContractorDocs</h1>
             <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
         </div>
         <Card className="w-full">

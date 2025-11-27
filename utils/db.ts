@@ -1,6 +1,6 @@
 
 export const DB_NAME = 'contractor_db';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -33,6 +33,9 @@ export const initDB = (): Promise<IDBDatabase> => {
       }
       if (!db.objectStoreNames.contains('offline_queue')) {
         db.createObjectStore('offline_queue', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('inventory')) {
+        db.createObjectStore('inventory', { keyPath: 'id' });
       }
     };
   });

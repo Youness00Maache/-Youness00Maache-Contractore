@@ -1,17 +1,19 @@
 
-
-
-
-import React from 'react';
-import { FormType } from '../types';
-// FIX: Added .tsx extension to the import path to resolve the module error.
-import { InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BackArrowIcon, ChangeOrderIcon, TruckIcon, PlusIcon } from './Icons.tsx';
+import React, { useState } from 'react';
+import { FormType, UserProfile } from '../types';
+import { InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BackArrowIcon, ChangeOrderIcon, TruckIcon, PlusIcon, StarIcon } from './Icons.tsx';
 import { Button } from './ui/Button.tsx';
+import UpgradeModal from './UpgradeModal.tsx';
 
 interface SelectDocTypeProps {
   onSelect: (type: FormType) => void;
   onBack: () => void;
+  profile?: UserProfile; 
+  docCount?: number;
 }
+
+// Define which docs are PRO (Empty now as requested)
+const proDocs: FormType[] = [];
 
 const docTypes = [
   { type: FormType.Invoice, description: 'Bill clients for work', icon: InvoiceIcon },
@@ -28,13 +30,14 @@ const docTypes = [
   { type: FormType.Note, description: 'Quick notes', icon: NoteIcon },
 ];
 
-// FIX: Correctly typed DocTypeFeature as a React.FC to allow React-specific props like `key` to be passed without causing a TypeScript error.
 interface DocTypeFeatureProps {
   type: FormType;
   description: string;
   icon: React.ElementType;
   index: number;
   onSelect: (type: FormType) => void;
+  isPro: boolean;
+  isLocked: boolean;
 }
 
 const DocTypeFeature: React.FC<DocTypeFeatureProps> = ({
@@ -43,47 +46,77 @@ const DocTypeFeature: React.FC<DocTypeFeatureProps> = ({
   icon: Icon,
   index,
   onSelect,
+  isPro,
+  isLocked
 }) => {
   const borderClasses = [
-    "flex flex-col py-10 relative group/feature dark:border-border",
-    // In a 4-col grid, add a right border unless it's the last in the row
+    "flex flex-col py-10 relative group/feature border-blue-200 dark:border-border",
     "lg:border-r",
     (index + 1) % 4 === 0 && "lg:border-r-0",
-    // In a 2-col grid, add a right border if it's the first in the row
     "border-r",
     (index + 1) % 2 === 0 && "border-r-0",
-    // Add bottom border for all but the last row
     index < 8 && "border-b",
   ].filter(Boolean).join(" ");
 
   return (
     <button
       onClick={() => onSelect(type)}
-      className={borderClasses}
+      className={`${borderClasses} ${isLocked ? 'opacity-90' : ''}`}
     >
       {index < 4 && (
-        <div className="opacity-0 group-hover/feature:opacity-100 transition duration-200 absolute inset-0 h-full w-full bg-gradient-to-t from-secondary dark:from-secondary to-transparent pointer-events-none" />
+        <div className="opacity-0 group-hover/feature:opacity-100 transition duration-200 absolute inset-0 h-full w-full bg-gradient-to-t from-white/40 dark:from-secondary to-transparent pointer-events-none" />
       )}
       {index >= 4 && (
-        <div className="opacity-0 group-hover/feature:opacity-100 transition duration-200 absolute inset-0 h-full w-full bg-gradient-to-b from-secondary dark:from-secondary to-transparent pointer-events-none" />
+        <div className="opacity-0 group-hover/feature:opacity-100 transition duration-200 absolute inset-0 h-full w-full bg-gradient-to-b from-white/40 dark:from-secondary to-transparent pointer-events-none" />
       )}
-      <div className="mb-4 relative z-10 px-10 text-muted-foreground group-hover/feature:text-primary transition-colors duration-200">
+      
+      {/* Pro Badge */}
+      {isPro && (
+          <div className="absolute top-4 right-4 flex items-center gap-1 bg-gradient-to-r from-amber-400 to-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm z-20">
+              <StarIcon className="w-3 h-3 fill-current" /> PRO
+          </div>
+      )}
+
+      <div className="mb-4 relative z-10 px-10 text-blue-400 dark:text-muted-foreground group-hover/feature:text-blue-600 dark:group-hover/feature:text-primary transition-colors duration-200">
         <Icon className="h-8 w-8" />
       </div>
       <div className="text-lg font-bold mb-2 relative z-10 px-10 text-left">
-        <div className="absolute left-0 inset-y-0 h-6 group-hover/feature:h-8 w-1 rounded-tr-full rounded-br-full bg-muted dark:bg-muted group-hover/feature:bg-primary transition-all duration-200 origin-center" />
-        <span className="group-hover/feature:translate-x-2 transition duration-200 inline-block text-foreground">
+        <div className="absolute left-0 inset-y-0 h-6 group-hover/feature:h-8 w-1 rounded-tr-full rounded-br-full bg-blue-200 dark:bg-muted group-hover/feature:bg-blue-500 dark:group-hover/feature:bg-primary transition-all duration-200 origin-center" />
+        <span className="group-hover/feature:translate-x-2 transition duration-200 inline-block text-blue-900 dark:text-foreground">
           {type}
         </span>
       </div>
-      <p className="text-sm text-muted-foreground max-w-xs relative z-10 px-10 text-left">
+      <p className="text-sm text-blue-700/70 dark:text-muted-foreground max-w-xs relative z-10 px-10 text-left">
         {description}
       </p>
     </button>
   );
 };
 
-const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack }) => {
+const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack, profile, docCount = 0 }) => {
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [selectedFeatureName, setSelectedFeatureName] = useState('');
+
+  const isUserPro = profile?.subscriptionTier === 'Premium';
+  const limit = isUserPro ? Infinity : 20;
+
+  const handleSelect = (type: FormType) => {
+      // Check limit first
+      if (docCount >= limit) {
+          setSelectedFeatureName(`Unlimited Documents (Used ${docCount}/${limit})`);
+          setShowUpgrade(true);
+          return;
+      }
+
+      const isProDoc = proDocs.includes(type);
+      if (isProDoc && !isUserPro) {
+          setSelectedFeatureName(type);
+          setShowUpgrade(true);
+      } else {
+          onSelect(type);
+      }
+  };
+
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
        <header className="flex items-center mb-8 gap-4">
@@ -91,29 +124,47 @@ const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack }) => {
             <BackArrowIcon className="h-6 w-6" />
         </Button>
         <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                Select Document
-            </h1>
+            <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold tracking-tight">
+                    Select Document
+                </h1>
+                {!isUserPro && (
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                        Free Plan: {docCount}/20 Used
+                    </span>
+                )}
+            </div>
             <p className="text-muted-foreground text-sm">Choose the type of document you want to create.</p>
         </div>
       </header>
       
       <main className="flex-1 overflow-y-auto pb-10">
-        <div className="max-w-7xl mx-auto bg-card rounded-2xl border border-border shadow-sm overflow-hidden animate-fade-in-down">
+        <div className="max-w-7xl mx-auto bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card rounded-2xl border border-blue-200 dark:border-border shadow-sm overflow-hidden animate-fade-in-down">
             <div className="grid grid-cols-2 lg:grid-cols-4 relative z-10">
-                {docTypes.map((feature, index) => (
-                    <DocTypeFeature
-                        key={feature.type}
-                        type={feature.type}
-                        description={feature.description}
-                        icon={feature.icon}
-                        index={index}
-                        onSelect={onSelect}
-                    />
-                ))}
+                {docTypes.map((feature, index) => {
+                    const isProDoc = proDocs.includes(feature.type);
+                    return (
+                        <DocTypeFeature
+                            key={feature.type}
+                            type={feature.type}
+                            description={feature.description}
+                            icon={feature.icon}
+                            index={index}
+                            onSelect={handleSelect}
+                            isPro={isProDoc}
+                            isLocked={isProDoc && !isUserPro}
+                        />
+                    );
+                })}
             </div>
         </div>
       </main>
+
+      <UpgradeModal 
+        isOpen={showUpgrade} 
+        onClose={() => setShowUpgrade(false)} 
+        featureName={selectedFeatureName} 
+      />
     </div>
   );
 };

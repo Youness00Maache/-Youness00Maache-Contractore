@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0000bb">
-  <title>Contractor Paperwork Hub</title>
+  <title>ContractorDocs</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" sizes="96x96" href="https://youness00-maache-contractore.vercel.app/favicon-96x96.png">
   <link rel="apple-touch-icon" href="https://youness00-maache-contractore.vercel.app/contractore-ai-logo.png">
@@ -58,6 +58,34 @@
     .dark {
       --card: #1a1a1a; --ring: #0000bb; --input: #525252; --muted: #2b2b2b; --accent: #FFCC91; --border: #404040; --radius: 0.5rem; --shadow: 0 2px 6px -2px rgba(0,0,0,.75); --chart-1: #DCC2F9; --chart-2: #398282; --chart-3: #96C0D6; --chart-4: #FF6B56; --chart-5: #611848; --popover: #1a1a1a; --primary: #0000bb; --font-mono: monospace; --font-sans: "Aeonik Pro", sans-serif; --secondary: #2b2b2b; --shadow-lg: 0 0 8px rgba(0,0,0,.7); --shadow-md: 0 2px 10px -2px rgba(0,0,0,.8); --shadow-sm: 0 2px 4px -2px rgba(0,0,0,.8); --shadow-xl: 0 0 12px rgba(0,0,0,.7); --background: #000000; --font-serif: serif; --foreground: #f5f5f5; --shadow-2xl: 0 0 24px rgba(0,0,0,.75); --destructive: #FF6B56; --card-foreground: #f5f5f5; --muted-foreground: #a3a3a3; --accent-foreground: #000000; --popover-foreground: #f5f5f5; --primary-foreground: #ffffff; --secondary-foreground: #f5f5f5; --destructive-foreground: #000000;
     }
+    /* Blue Mode */
+    .blue {
+      --background: #020617; 
+      --foreground: #f8fafc; 
+      --card: #0f172a; 
+      --card-foreground: #f8fafc;
+      --popover: #0f172a; 
+      --popover-foreground: #f8fafc;
+      --primary: #3b82f6; 
+      --primary-foreground: #ffffff;
+      --secondary: #1e293b; 
+      --secondary-foreground: #f8fafc;
+      --muted: #1e293b; 
+      --muted-foreground: #94a3b8; 
+      --accent: #1e293b;
+      --accent-foreground: #f8fafc;
+      --destructive: #ef4444;
+      --destructive-foreground: #ffffff;
+      --border: #1e293b; 
+      --input: #1e293b;
+      --ring: #3b82f6;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+      --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.5);
+      --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.75);
+    }
     body {
       background-color: var(--background);
       color: var(--foreground);
@@ -81,17 +109,17 @@
       scrollbar-width: none;  /* Firefox */
     }
     /* Calendar Overrides for Dark Mode */
-    .dark .rbc-calendar { color: #e2e8f0; }
-    .dark .rbc-off-range-bg { bg-color: #1a1a1a; }
-    .dark .rbc-off-range { color: #525252; }
-    .dark .rbc-header { border-bottom-color: #404040; }
-    .dark .rbc-month-view, .dark .rbc-time-view, .dark .rbc-agenda-view { border-color: #404040; }
-    .dark .rbc-day-bg + .rbc-day-bg { border-left-color: #404040; }
-    .dark .rbc-month-row + .rbc-month-row { border-top-color: #404040; }
-    .dark .rbc-today { background-color: rgba(0, 0, 187, 0.1); }
-    .dark .rbc-btn-group button { color: #e2e8f0; }
-    .dark .rbc-btn-group button:hover { background-color: #2b2b2b; }
-    .dark .rbc-btn-group .rbc-active { background-color: #0000bb; color: white; }
+    .dark .rbc-calendar, .blue .rbc-calendar { color: #e2e8f0; }
+    .dark .rbc-off-range-bg, .blue .rbc-off-range-bg { background-color: #1a1a1a; }
+    .dark .rbc-off-range, .blue .rbc-off-range { color: #525252; }
+    .dark .rbc-header, .blue .rbc-header { border-bottom-color: #404040; }
+    .dark .rbc-month-view, .dark .rbc-time-view, .dark .rbc-agenda-view, .blue .rbc-month-view, .blue .rbc-time-view, .blue .rbc-agenda-view { border-color: #404040; }
+    .dark .rbc-day-bg + .rbc-day-bg, .blue .rbc-day-bg + .rbc-day-bg { border-left-color: #404040; }
+    .dark .rbc-month-row + .rbc-month-row, .blue .rbc-month-row + .rbc-month-row { border-top-color: #404040; }
+    .dark .rbc-today, .blue .rbc-today { background-color: rgba(0, 0, 187, 0.1); }
+    .dark .rbc-btn-group button, .blue .rbc-btn-group button { color: #e2e8f0; }
+    .dark .rbc-btn-group button:hover, .blue .rbc-btn-group button:hover { background-color: #2b2b2b; }
+    .dark .rbc-btn-group .rbc-active, .blue .rbc-btn-group .rbc-active { background-color: #0000bb; color: white; }
     .rbc-event { border-radius: 4px; }
   </style>
   <script>

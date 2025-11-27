@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'contractor-ai-v2';
+const CACHE_NAME = 'contractor-ai-v3';
 const urlsToCache = [
   '/',
   '/index.html',

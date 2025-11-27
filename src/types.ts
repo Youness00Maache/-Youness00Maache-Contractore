@@ -34,7 +34,6 @@ export interface UserProfile {
   language?: string;
   emailTemplates?: Record<string, EmailTemplate>;
   emailUsage?: number; // Track number of emails sent
-  theme?: 'light' | 'dark' | 'blue';
 }
 
 export interface Client {

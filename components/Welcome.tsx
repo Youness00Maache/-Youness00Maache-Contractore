@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
     AppLogo, PlayIcon, StarIcon, MenuIcon, CheckIcon, ArrowRightIcon, 
@@ -16,14 +15,7 @@ interface WelcomeProps {
 
 const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
   const [scrolled, setScrolled] = useState(false);
-
-  // Splash screen effect
-  useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 1800);
-    return () => clearTimeout(timer);
-  }, []);
 
   // Navbar scroll effect
   useEffect(() => {
@@ -31,17 +23,6 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  if (showSplash) {
-    return (
-      <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-[100]">
-        <div className="animate-bounce mb-4">
-            <AppLogo className="w-20 h-20" />
-        </div>
-        <h1 className="text-3xl font-bold text-white tracking-tighter animate-pulse">Contractor AI</h1>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans selection:bg-primary/20 selection:text-primary overflow-x-hidden animate-fade-in">
@@ -52,7 +33,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
             <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
                     <AppLogo className="w-9 h-9" />
-                    <span className="text-xl font-bold tracking-tight text-slate-900">Contractor AI</span>
+                    <span className="text-xl font-bold tracking-tight text-slate-900">ContractorDocs</span>
                 </div>
 
                 {/* Desktop Nav */}
@@ -92,7 +73,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
       </header>
 
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden">
+      <section className="relative pt-24 pb-10 lg:pt-36 lg:pb-20 overflow-hidden">
          {/* Background Gradients */}
          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none">
              <div className="absolute top-20 left-10 w-72 h-72 bg-blue-400/20 rounded-full blur-[100px] mix-blend-multiply animate-pulse"></div>
@@ -162,7 +143,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
                                      <div className="w-full bg-blue-500 rounded-t h-[85%] relative shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
                                      <div className="w-full bg-blue-500/30 rounded-t h-[60%]"></div>
                                   </div>
-                               </div>
+                                </div>
                                <div className="h-48 bg-slate-800/30 rounded-xl border border-slate-800 p-4 space-y-3">
                                   <div className="h-4 w-20 bg-slate-800 rounded"></div>
                                   <div className="h-8 w-32 bg-slate-800 rounded"></div>
@@ -205,22 +186,8 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
          </div>
       </section>
 
-      {/* Logo Wall */}
-      <div className="py-10 border-y border-slate-200 bg-white/50">
-          <div className="max-w-7xl mx-auto px-6 text-center">
-              <p className="text-sm font-semibold text-slate-400 uppercase tracking-widest mb-8">Trusted by innovative builders everywhere</p>
-              <div className="flex flex-wrap justify-center items-center gap-12 lg:gap-20 opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
-                  {['BuildRight Inc.', 'Structura', 'Apex Contractors', 'Foundation First', 'Urban Craft'].map((name, i) => (
-                      <span key={i} className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                          <div className="w-6 h-6 bg-slate-800 rounded-sm"></div> {name}
-                      </span>
-                  ))}
-              </div>
-          </div>
-      </div>
-
       {/* Bento Grid Features */}
-      <section id="features" className="py-24 lg:py-32">
+      <section id="features" className="pt-10 pb-24 lg:pt-20 lg:pb-32">
           <div className="max-w-7xl mx-auto px-6 lg:px-8">
               <div className="mb-20 text-center max-w-3xl mx-auto">
                   <div className="inline-block px-4 py-1.5 bg-blue-50 text-blue-600 font-semibold text-sm rounded-full mb-6">
@@ -237,8 +204,8 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
                   {/* Feature 1 - Large */}
-                  <div className="md:col-span-2 bg-white rounded-3xl p-8 lg:p-10 shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full -translate-y-1/2 translate-x-1/3 group-hover:bg-blue-100 transition-colors"></div>
+                  <div className="md:col-span-2 bg-gradient-to-br from-blue-50 via-blue-100 to-blue-200 rounded-3xl p-8 lg:p-10 shadow-sm border border-white/50 hover:shadow-md transition-shadow relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-white/40 rounded-full -translate-y-1/2 translate-x-1/3 group-hover:bg-white/60 transition-colors"></div>
                       <div className="relative z-10">
                           <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 text-white shadow-lg shadow-blue-600/20">
                               <RobotIcon className="w-6 h-6" />
@@ -270,7 +237,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
                   </div>
 
                   {/* Feature 3 */}
-                  <div className="bg-white rounded-3xl p-8 lg:p-10 shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+                  <div className="bg-gradient-to-br from-blue-50 via-blue-100 to-blue-200 rounded-3xl p-8 lg:p-10 shadow-sm border border-white/50 hover:shadow-md transition-shadow">
                       <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center mb-6 text-purple-600">
                           <SmartphoneIcon className="w-6 h-6" />
                       </div>
@@ -315,21 +282,39 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
               <h2 className="text-3xl font-bold text-center mb-16">Built for the ones who build.</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   {[
-                      { quote: "I used to spend my Sundays doing invoices. Now I do them in the truck before I even leave the job site.", author: "Mike R.", role: "General Contractor" },
-                      { quote: "The templates look so professional. My clients actually comment on how nice the estimates look.", author: "Sarah J.", role: "Interior Designer" },
-                      { quote: "Worth every penny. The daily reports feature alone has saved me from three potential disputes this year.", author: "David K.", role: "Site Foreman" }
+                      { 
+                          quote: "I used to spend my Sundays doing invoices. Now I do them in the truck before I even leave the job site.", 
+                          author: "Mike R.", 
+                          role: "General Contractor",
+                          image: "https://images.contractordocs.app/profile-4.jpg" 
+                      },
+                      { 
+                          quote: "The templates look so professional. My clients actually comment on how nice the estimates look.", 
+                          author: "Steve J.", 
+                          role: "Renovation Specialist",
+                          image: "https://images.contractordocs.app/profile-2.jpg"
+                      },
+                      { 
+                          quote: "Worth every penny. The daily reports feature alone has saved me from three potential disputes this year.", 
+                          author: "David K.", 
+                          role: "Site Foreman",
+                          image: "https://images.contractordocs.app/profile-1.jpg"
+                      }
                   ].map((t, i) => (
-                      <div key={i} className="bg-slate-50 p-8 rounded-2xl border border-slate-100 relative">
-                          <div className="absolute top-6 right-8 text-6xl text-slate-200 font-serif leading-none">"</div>
+                      <div key={i} className="bg-gradient-to-br from-blue-50 via-blue-100 to-blue-200 p-8 rounded-2xl border border-white/50 shadow-lg relative hover:scale-[1.02] transition-transform duration-300">
                           <div className="flex gap-1 mb-4">
                               {[...Array(5)].map((_, j) => <StarIcon key={j} className="w-4 h-4 text-yellow-400 fill-current" />)}
                           </div>
-                          <p className="text-slate-700 font-medium mb-6 relative z-10">{t.quote}</p>
+                          <p className="text-blue-900/80 font-medium mb-6 relative z-10 leading-relaxed">{t.quote}</p>
                           <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-gradient-to-br from-slate-300 to-slate-400 rounded-full"></div>
+                              <img 
+                                src={t.image} 
+                                alt={t.author} 
+                                className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm" 
+                              />
                               <div>
-                                  <p className="text-sm font-bold text-slate-900">{t.author}</p>
-                                  <p className="text-xs text-slate-500">{t.role}</p>
+                                  <p className="text-sm font-bold text-blue-950">{t.author}</p>
+                                  <p className="text-xs text-blue-700">{t.role}</p>
                               </div>
                           </div>
                       </div>
@@ -339,19 +324,38 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
       </section>
 
       {/* Big CTA */}
-      <section className="py-24 px-6">
-          <div className="max-w-5xl mx-auto bg-blue-50 rounded-[3rem] p-12 lg:p-24 text-center relative overflow-hidden border border-blue-100">
-              <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 mix-blend-soft-light"></div>
+      <section className="py-24 px-6 relative overflow-hidden">
+          <div className="max-w-5xl mx-auto relative group perspective-1000">
+              {/* Glow effect behind */}
+              <div className="absolute -inset-4 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-[3rem] blur-2xl opacity-20 group-hover:opacity-30 transition duration-500"></div>
               
-              <div className="relative z-10">
-                  <h2 className="text-4xl lg:text-6xl font-bold text-blue-900 mb-6 tracking-tight">Ready to upgrade your workflow?</h2>
-                  <p className="text-xl text-blue-700 mb-10 max-w-2xl mx-auto">Join 15,000+ contractors who are saving time and winning more jobs.</p>
-                  <div className="flex flex-col sm:flex-row justify-center gap-4">
-                      <Button onClick={onGetStarted} size="lg" className="h-16 px-10 text-xl rounded-full bg-blue-600 text-white hover:bg-blue-700 border-0 shadow-xl shadow-blue-600/20">
-                          Start Your Free Trial
-                      </Button>
+              <div className="relative rounded-[2.5rem] bg-gradient-to-br from-blue-50 via-blue-100 to-blue-200 p-12 lg:p-24 text-center overflow-hidden border border-white/50 shadow-2xl shadow-blue-900/10 transform transition-transform duration-500 hover:scale-[1.01]">
+                  
+                  {/* 3D Shapes / Background Decor */}
+                  <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+                      <div className="absolute -top-[10%] -right-[10%] w-[50%] h-[80%] bg-gradient-to-br from-white/40 to-transparent rounded-full blur-3xl transform rotate-12 mix-blend-overlay"></div>
+                      <div className="absolute top-[20%] -left-[10%] w-[40%] h-[60%] bg-blue-400/10 rounded-full blur-3xl"></div>
+                      {/* Subtle grid */}
+                      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-color-burn"></div>
                   </div>
-                  <p className="mt-6 text-sm text-blue-600/80">No credit card required. Cancel anytime.</p>
+
+                  <div className="relative z-10 flex flex-col items-center">
+                      
+                      <h2 className="text-4xl lg:text-6xl font-bold text-blue-950 mb-6 tracking-tight drop-shadow-sm">
+                          Ready to upgrade your workflow?
+                      </h2>
+                      <p className="text-xl text-blue-800/80 mb-10 max-w-2xl mx-auto leading-relaxed font-medium">
+                          Join 15,000+ contractors who are saving time and winning more jobs with our professional tools.
+                      </p>
+                      <div className="flex flex-col sm:flex-row justify-center gap-4 w-full sm:w-auto">
+                          <Button onClick={onGetStarted} size="lg" className="h-16 px-12 text-xl rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 border-0 shadow-xl shadow-blue-600/25 transform hover:scale-105 transition-all duration-300 ring-4 ring-white/20">
+                              Start for Free
+                          </Button>
+                      </div>
+                      <p className="mt-8 text-sm font-semibold text-blue-700/60 flex items-center gap-2">
+                          <CheckCircleIcon className="w-4 h-4" /> No credit card required
+                      </p>
+                  </div>
               </div>
           </div>
       </section>
@@ -363,7 +367,7 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
                   <div className="col-span-2 lg:col-span-2">
                       <div className="flex items-center gap-2 mb-4">
                           <AppLogo className="w-8 h-8" />
-                          <span className="text-xl font-bold text-slate-900">Contractor AI</span>
+                          <span className="text-xl font-bold text-slate-900">ContractorDocs</span>
                       </div>
                       <p className="text-slate-500 text-sm max-w-xs mb-6">
                           The #1 paperwork automation tool built specifically for trade professionals.
@@ -398,14 +402,14 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
                    <div>
                       <h4 className="font-bold text-slate-900 mb-4">Legal</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><a href="#" className="hover:text-primary">Privacy</a></li>
-                          <li><a href="#" className="hover:text-primary">Terms</a></li>
-                          <li><a href="#" className="hover:text-primary">Security</a></li>
+                          <li><a href="/privacy" className="hover:text-primary">Privacy</a></li>
+                          <li><a href="/terms" className="hover:text-primary">Terms of Service</a></li>
+                          <li><a href="/security" className="hover:text-primary">Security</a></li>
                       </ul>
                   </div>
               </div>
               <div className="border-t border-slate-100 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-500">
-                  <p>© 2024 Contractor AI. All rights reserved.</p>
+                  <p>© 2024 ContractorDocs. All rights reserved.</p>
                   <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-green-500 rounded-full"></span>
                       All Systems Operational

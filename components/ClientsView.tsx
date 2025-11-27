@@ -1,6 +1,5 @@
 
-
-
+// ... existing imports ...
 import React, { useState, useEffect } from 'react';
 import type { Client } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/Card.tsx';
@@ -9,11 +8,11 @@ import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import { BackArrowIcon, SearchIcon, PlusIcon, TrashIcon, UsersIcon, UserIcon, MessageSquareIcon } from './Icons.tsx';
 
+// ... existing logic ...
 interface ClientsViewProps {
   onBack: () => void;
   supabase: any;
   session: any;
-  // New props for offline handling
   clients?: Client[];
   onAddClient?: (client: any) => Promise<void>;
   onDeleteClient?: (id: string) => Promise<void>;
@@ -21,7 +20,6 @@ interface ClientsViewProps {
 }
 
 const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, clients: propClients, onAddClient, onDeleteClient, isOnline }) => {
-  // Fallback to local state if props aren't provided (backwards compatibility)
   const [localClients, setLocalClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -34,7 +32,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
       notes: ''
   });
 
-  // Use props if available, otherwise local state (legacy mode)
   const activeClients = propClients || localClients;
 
   useEffect(() => {
@@ -51,9 +48,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
       
       if (error) {
           console.error('Error fetching clients:', error);
-          if (!error.message.includes('relation "public.clients" does not exist')) {
-             // alert(`Error fetching clients: ${error.message}`);
-          }
       }
       else setLocalClients(data || []);
       setLoading(false);
@@ -68,13 +62,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
           setShowAddModal(false);
           setNewClient({ name: '', email: '', phone: '', address: '', notes: '' });
       } else {
-          // Legacy direct call
           const { error } = await supabase
               .from('clients')
               .insert([{ ...newClient, user_id: session.user.id }]);
           
           if (error) {
-              console.error('Error adding client:', error);
               alert(`Failed to add client: ${error.message}`);
           } else {
               setShowAddModal(false);
@@ -97,7 +89,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
               .eq('id', id);
           
           if (error) {
-              console.error('Error deleting client:', error);
               alert(`Failed to delete client: ${error.message}`);
           }
           else fetchClients();
@@ -128,7 +119,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
             </div>
         </header>
 
-        {/* Search Bar */}
         <div className="relative mb-8 max-w-md">
             <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input 
@@ -139,7 +129,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
             />
         </div>
 
-        {/* Client List */}
         {loading && activeClients.length === 0 ? (
             <div className="flex items-center justify-center h-64 text-muted-foreground">Loading clients...</div>
         ) : filteredClients.length === 0 ? (
@@ -153,42 +142,42 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
         ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredClients.map(client => (
-                    <Card key={client.id} className="relative group hover:shadow-lg transition-all duration-200 border-border hover:border-primary/30 overflow-hidden">
-                        <CardHeader className="pb-3 flex flex-row gap-4 items-center bg-secondary/10 border-b border-border/50">
-                            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary text-lg font-bold shrink-0">
+                    <Card key={client.id} className="relative group hover:shadow-lg transition-all duration-200 border-blue-200 dark:border-border hover:border-blue-300 overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card">
+                        <CardHeader className="pb-3 flex flex-row gap-4 items-center bg-white/40 dark:bg-secondary/10 border-b border-blue-200 dark:border-border/50">
+                            <div className="w-12 h-12 rounded-full bg-white dark:bg-primary/10 flex items-center justify-center text-blue-600 dark:text-primary text-lg font-bold shrink-0 shadow-sm">
                                 {client.name.charAt(0).toUpperCase()}
                             </div>
                             <div className="overflow-hidden">
-                                <CardTitle className="text-lg truncate">{client.name}</CardTitle>
-                                <p className="text-xs text-muted-foreground truncate mt-0.5">Added {client.created_at ? new Date(client.created_at).toLocaleDateString() : 'Recently'}</p>
+                                <CardTitle className="text-lg truncate text-blue-950 dark:text-foreground">{client.name}</CardTitle>
+                                <p className="text-xs text-blue-600/70 dark:text-muted-foreground truncate mt-0.5">Added {client.created_at ? new Date(client.created_at).toLocaleDateString() : 'Recently'}</p>
                             </div>
                         </CardHeader>
                         <CardContent className="pt-4 pb-4 space-y-3 text-sm">
                             {client.email ? (
-                                <div className="flex items-center gap-3 text-muted-foreground group-hover:text-foreground transition-colors">
-                                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                                <div className="flex items-center gap-3 text-blue-700 dark:text-muted-foreground group-hover:text-blue-900 dark:group-hover:text-foreground transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-white dark:bg-secondary flex items-center justify-center shrink-0 shadow-sm">
                                         <span className="text-xs">@</span>
                                     </div>
                                     <span className="truncate">{client.email}</span>
                                 </div>
                             ) : (
-                                <div className="h-8 flex items-center text-muted-foreground/40 italic pl-11">No email</div>
+                                <div className="h-8 flex items-center text-blue-400/50 dark:text-muted-foreground/40 italic pl-11">No email</div>
                             )}
                             
                             {client.phone ? (
-                                <div className="flex items-center gap-3 text-muted-foreground group-hover:text-foreground transition-colors">
-                                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                                <div className="flex items-center gap-3 text-blue-700 dark:text-muted-foreground group-hover:text-blue-900 dark:group-hover:text-foreground transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-white dark:bg-secondary flex items-center justify-center shrink-0 shadow-sm">
                                         <span className="text-xs">#</span>
                                     </div>
                                     <span>{client.phone}</span>
                                 </div>
                             ) : (
-                                <div className="h-8 flex items-center text-muted-foreground/40 italic pl-11">No phone</div>
+                                <div className="h-8 flex items-center text-blue-400/50 dark:text-muted-foreground/40 italic pl-11">No phone</div>
                             )}
 
                             {client.address ? (
-                                <div className="flex items-start gap-3 text-muted-foreground group-hover:text-foreground transition-colors">
-                                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-0.5">
+                                <div className="flex items-start gap-3 text-blue-700 dark:text-muted-foreground group-hover:text-blue-900 dark:group-hover:text-foreground transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-white dark:bg-secondary flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
                                         <span className="text-xs">📍</span>
                                     </div>
                                     <span className="line-clamp-2 leading-relaxed">{client.address}</span>
@@ -205,7 +194,6 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onBack, supabase, session, cl
             </div>
         )}
 
-        {/* Add Client Modal */}
         {showAddModal && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowAddModal(false)}>
                 <Card className="w-full max-w-md animate-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>

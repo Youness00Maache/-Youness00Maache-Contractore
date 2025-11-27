@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { DailyJobReportData, UserProfile, Job, Client } from '../types.ts';
 import { generateDailyJobReportPDF } from '../services/pdfGenerator.ts';
-import { CameraIcon, UploadImageIcon, BackArrowIcon, ExportIcon, CloudSunIcon, DailyReportIcon } from './Icons.tsx';
+import { CameraIcon, UploadImageIcon, BackArrowIcon, ExportIcon, DailyReportIcon } from './Icons.tsx';
 import Toolbar from './Toolbar.tsx';
 import AIVoiceInput from './AIVoiceInput.tsx';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
@@ -544,39 +545,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
     if (editorRef.current) setData(prev => ({...prev, content: editorRef.current!.innerHTML }));
   }, [handleResizeMouseMove]);
 
-  const getLocalWeather = () => {
-      if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(async (position) => {
-              const { latitude, longitude } = position.coords;
-              try {
-                  const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&temperature_unit=fahrenheit`);
-                  const data = await response.json();
-                  if (data.current_weather) {
-                      const temp = `${data.current_weather.temperature}°F`;
-                      const wmo = data.current_weather.weathercode;
-                      let desc = "Clear";
-                      if (wmo > 0 && wmo <= 3) desc = "Partly Cloudy";
-                      else if (wmo > 3 && wmo < 50) desc = "Fog/Haze";
-                      else if (wmo >= 50 && wmo < 60) desc = "Drizzle";
-                      else if (wmo >= 60 && wmo < 70) desc = "Rain";
-                      else if (wmo >= 70 && wmo < 80) desc = "Snow";
-                      else if (wmo >= 80) desc = "Showers";
-                      else if (wmo >= 95) desc = "Thunderstorm";
-                      
-                      setData(prev => ({ ...prev, weather: desc, temperature: temp }));
-                  }
-              } catch (e) {
-                  console.error("Weather fetch error", e);
-                  alert("Could not fetch weather data.");
-              }
-          }, () => {
-              alert("Location access denied. Cannot fetch local weather.");
-          });
-      } else {
-          alert("Geolocation is not supported by this browser.");
-      }
-  };
-
   const renderPageOne = () => (
     <Card className="animate-fade-in-down">
       <CardHeader>
@@ -619,17 +587,6 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
               <div className="space-y-4">
                 <div className="flex flex-col space-y-1.5"><Label htmlFor="reportNumber">Report #</Label><Input id="reportNumber" name="reportNumber" value={data.reportNumber} onChange={handleChange} /></div>
                 <div className="flex flex-col space-y-1.5"><Label htmlFor="date">Date</Label><Input id="date" type="date" name="date" value={data.date} onChange={handleChange} /></div>
-                
-                <div className="flex flex-col space-y-1.5">
-                    <div className="flex justify-between items-center">
-                        <Label htmlFor="weather">Weather</Label>
-                        <Button variant="ghost" size="sm" onClick={getLocalWeather} className="h-6 px-2 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50" title="Auto-fill from location">
-                            <CloudSunIcon className="w-3 h-3 mr-1" /> Get Local Weather
-                        </Button>
-                    </div>
-                    <Input id="weather" name="weather" value={data.weather} onChange={handleChange} placeholder="e.g., Sunny" />
-                </div>
-                <div className="flex flex-col space-y-1.5"><Label htmlFor="temperature">Temperature (°F)</Label><Input id="temperature" name="temperature" value={data.temperature} onChange={handleChange} placeholder="e.g., 75°F" /></div>
               </div>
               <div className="space-y-4">
                   <div className="flex flex-col space-y-1.5">

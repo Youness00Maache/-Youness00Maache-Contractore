@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { FormType, Job, FormData as FormDataType, InvoiceData, EstimateData } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card.tsx';
@@ -13,15 +11,13 @@ interface AnalyticsViewProps {
 }
 
 const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) => {
-  // Date State for Filtering
   const [startDate, setStartDate] = useState(() => {
       const d = new Date();
-      d.setMonth(d.getMonth() - 1); // Default last 30 days
+      d.setMonth(d.getMonth() - 1);
       return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  // --- Metrics Calculation ---
   const metrics = useMemo(() => {
       let totalInvoiced = 0;
       let outstandingPayments = 0;
@@ -30,14 +26,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
       let clientRevenue: Record<string, { total: number; count: number }> = {};
       let dailyRevenue: Record<string, number> = {};
 
-      // Job Status Counts
-      const jobCounts = {
-          active: 0,
-          inactive: 0,
-          paused: 0,
-          completed: 0
-      };
-      
+      const jobCounts = { active: 0, inactive: 0, paused: 0, completed: 0 };
       jobs.forEach(job => {
           if (job.status === 'active') jobCounts.active++;
           else if (job.status === 'inactive') jobCounts.inactive++;
@@ -45,14 +34,12 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
           else if (job.status === 'completed') jobCounts.completed++;
       });
       
-      const totalJobs = jobs.length || 1; // Avoid div by zero for bar widths
+      const totalJobs = jobs.length || 1;
 
-      // Filter Forms by Date Range
       const filteredForms = forms.filter(form => {
           const formDate = new Date(form.createdAt);
           const start = new Date(startDate);
           const end = new Date(endDate);
-          // Set end date to end of day
           end.setHours(23, 59, 59, 999);
           return formDate >= start && formDate <= end;
       });
@@ -75,47 +62,40 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
               }
               totalJobValue += total;
 
-              // Client Leaderboard Logic
               const clientName = data.clientName || 'Unknown';
               if (!clientRevenue[clientName]) clientRevenue[clientName] = { total: 0, count: 0 };
               clientRevenue[clientName].total += total;
               clientRevenue[clientName].count += 1;
 
-              // Daily Revenue for Chart
-              // Assuming invoice issue date is relevant, or use created_at
               const dateKey = data.issueDate || form.createdAt.split('T')[0];
               if (!dailyRevenue[dateKey]) dailyRevenue[dateKey] = 0;
               dailyRevenue[dateKey] += total;
           }
       });
 
-      // Estimate Win Rate
       const estimates = filteredForms.filter(f => f.type === FormType.Estimate);
       const acceptedEstimates = estimates.filter(f => (f.data as EstimateData).status === 'Accepted');
       const winRate = estimates.length > 0 ? Math.round((acceptedEstimates.length / estimates.length) * 100) : 0;
 
       const avgJobValue = invoiceCount > 0 ? totalInvoiced / invoiceCount : 0;
 
-      // Process Chart Data
       const start = new Date(startDate);
       const end = new Date(endDate);
       const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
       
       const chartData: { label: string; value: number; height: string }[] = [];
-      const isMonthly = daysDiff > 90; // Switch to monthly view if range > 90 days
+      const isMonthly = daysDiff > 90;
 
       if (isMonthly) {
-         // Aggregate by Month
          const monthlyRevenue: Record<string, number> = {};
          Object.entries(dailyRevenue).forEach(([dateStr, amount]) => {
              const date = new Date(dateStr);
-             const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+             const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
              monthlyRevenue[monthKey] = (monthlyRevenue[monthKey] || 0) + amount;
          });
          
-         // Fill missing months
          let current = new Date(start);
-         current.setDate(1); // Start of month
+         current.setDate(1);
          while (current <= end) {
              const key = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
              const amount = monthlyRevenue[key] || 0;
@@ -127,13 +107,12 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
              current.setMonth(current.getMonth() + 1);
          }
       } else {
-         // Aggregate by Day
          let current = new Date(start);
          while (current <= end) {
              const key = current.toISOString().split('T')[0];
              const amount = dailyRevenue[key] || 0;
              chartData.push({ 
-                 label: current.getDate().toString(), // Day number
+                 label: current.getDate().toString(),
                  value: amount, 
                  height: '0%' 
              });
@@ -141,15 +120,13 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
          }
       }
 
-      // Normalize Heights
-      const maxVal = Math.max(...chartData.map(d => d.value), 1); // Avoid div by zero
-      chartData.forEach(d => d.height = `${Math.max((d.value / maxVal) * 100, 4)}%`); // Min height 4% for visibility
+      const maxVal = Math.max(...chartData.map(d => d.value), 1);
+      chartData.forEach(d => d.height = `${Math.max((d.value / maxVal) * 100, 4)}%`);
 
-      // Process Leaderboard
       const leaderboard = Object.entries(clientRevenue)
           .map(([name, data]) => ({ name, ...data }))
           .sort((a, b) => b.total - a.total)
-          .slice(0, 5); // Top 5
+          .slice(0, 5);
 
       return {
           totalInvoiced,
@@ -169,10 +146,10 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
   const formatCurrency = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
 
   return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
+    <div className="w-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
       <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
          <div className="flex items-center">
-             <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4" aria-label="Back">
+             <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-4 hover:bg-secondary/80 rounded-full" aria-label="Back">
                 <BackArrowIcon className="h-9 w-9" />
             </Button>
             <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
@@ -181,7 +158,6 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
             </h1>
          </div>
          
-         {/* Styled Date Filter */}
          <div className="flex items-center gap-2 bg-card p-1.5 rounded-lg border shadow-sm">
              <div className="px-2 text-muted-foreground"><CalendarIcon className="w-4 h-4" /></div>
              <div className="flex items-center gap-2">
@@ -204,69 +180,67 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {/* Financial Health */}
-          <Card className="bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-800">
+          <Card className="bg-card border-gray-400 dark:border-gray-600">
              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                     <CreditCardIcon className="w-4 h-4" /> Total Revenue
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold text-green-700 dark:text-green-400">{formatCurrency(metrics.totalInvoiced)}</div>
+                <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.totalInvoiced)}</div>
              </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-red-50 to-rose-100 dark:from-red-900/20 dark:to-rose-900/20 border-red-200 dark:border-red-800">
+          <Card className="bg-card border-gray-400 dark:border-gray-600">
              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                     <ClockIcon className="w-4 h-4" /> Outstanding
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold text-red-700 dark:text-red-400">{formatCurrency(metrics.outstandingPayments)}</div>
+                <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.outstandingPayments)}</div>
              </CardContent>
           </Card>
 
-           <Card>
+           <Card className="bg-card border-gray-400 dark:border-gray-600">
              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <PieChartIcon className="w-4 h-4 text-blue-500" /> Estimate Win Rate
+                    <PieChartIcon className="w-4 h-4" /> Estimate Win Rate
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold">{metrics.winRate}%</div>
+                <div className="text-2xl font-bold text-foreground">{metrics.winRate}%</div>
                 <p className="text-xs text-muted-foreground">{metrics.acceptedEstimatesCount} of {metrics.totalEstimatesCount} accepted</p>
              </CardContent>
           </Card>
 
-           <Card>
+           <Card className="bg-card border-gray-400 dark:border-gray-600">
              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <BarChartIcon className="w-4 h-4 text-purple-500" /> Avg. Job Value
+                    <BarChartIcon className="w-4 h-4" /> Avg. Job Value
                 </CardTitle>
              </CardHeader>
              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(metrics.avgJobValue)}</div>
+                <div className="text-2xl font-bold text-foreground">{formatCurrency(metrics.avgJobValue)}</div>
              </CardContent>
           </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Revenue Chart */}
-          <Card className="lg:col-span-2 flex flex-col min-h-[320px] max-h-[400px]">
+          <Card className="lg:col-span-2 flex flex-col min-h-[320px] max-h-[400px] bg-card border-gray-400 dark:border-gray-600">
               <CardHeader>
-                  <CardTitle>Revenue Trend</CardTitle>
+                  <CardTitle className="text-foreground">Revenue Trend</CardTitle>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
                   <div className="flex-1 flex items-end justify-between gap-2 pt-4 pb-2">
                     {metrics.chartData.length > 0 ? metrics.chartData.map((d, i) => (
                         <div key={i} className="flex flex-col items-center flex-1 group h-full justify-end">
                              <div className="relative w-full flex justify-center h-full items-end">
-                                {/* Explicit background color for visibility without hover */}
                                 <div 
-                                    className="w-full max-w-[30px] bg-blue-500 rounded-t-sm transition-all duration-300 hover:bg-blue-600 relative" 
+                                    className="w-full max-w-[30px] bg-primary rounded-t-sm transition-all duration-300 hover:opacity-80 relative shadow-sm" 
                                     style={{ height: d.height }}
                                 >
-                                    {/* Tooltip on Hover */}
                                     <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-popover text-popover-foreground text-xs font-bold px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 border border-border">
                                         {formatCurrency(d.value)}
                                     </div>
@@ -285,9 +259,9 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
 
           {/* Client Leaderboard Table */}
           <div className="space-y-4">
-               <Card className="bg-card h-full">
+               <Card className="h-full bg-card border-gray-400 dark:border-gray-600">
                   <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                      <CardTitle className="flex items-center gap-2 text-foreground">
                           <AwardIcon className="w-6 h-6" /> Top Clients
                       </CardTitle>
                   </CardHeader>
@@ -319,7 +293,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
                                               <p className="font-semibold text-foreground truncate max-w-[140px]">{client.name}</p>
                                               <p className="text-xs text-muted-foreground">{client.count} job{client.count !== 1 ? 's' : ''}</p>
                                           </td>
-                                          <td className="px-4 py-3 text-right font-bold font-mono">
+                                          <td className="px-4 py-3 text-right font-bold font-mono text-foreground">
                                               {formatCurrency(client.total)}
                                           </td>
                                       </tr>
@@ -338,10 +312,10 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
           </div>
       </div>
 
-      {/* Improved Job Status Breakdown - Now at Bottom */}
-      <Card className="mt-auto bg-secondary/30 border-border/50">
+      {/* Job Status Breakdown */}
+      <Card className="mt-auto bg-card border-gray-400 dark:border-gray-600">
          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Job Overview</CardTitle>
+            <CardTitle className="text-lg text-foreground">Job Overview</CardTitle>
          </CardHeader>
          <CardContent className="p-6">
              <div className="mb-4">

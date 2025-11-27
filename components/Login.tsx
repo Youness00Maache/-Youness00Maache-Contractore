@@ -52,26 +52,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
     }
   };
 
-  const handleDemoLogin = async () => {
-      setEmail('younessmaache6@gmail.com');
-      setPassword('maach1');
-      setError('');
-      setLoading(true);
-      try {
-        await onLogin('younessmaache6@gmail.com', 'maach1');
-      } catch (err: any) {
-        setError(err.message || 'Failed to login with demo credentials.');
-      } finally {
-        setLoading(false);
-      }
-  };
-
   return (
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
       <div className="flex flex-col items-center text-center w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
             <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
-            <h1 className="text-4xl font-bold mb-2 tracking-tight">Contractor AI</h1>
+            <h1 className="text-4xl font-bold mb-2 tracking-tight">ContractorDocs</h1>
             <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
         </div>
         <Card className="w-full">
@@ -121,16 +107,6 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
             <CardFooter className="flex flex-col gap-4">
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? 'Logging in...' : 'Login'}
-              </Button>
-              
-              <Button 
-                type="button" 
-                variant="secondary" 
-                className="w-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 border" 
-                onClick={handleDemoLogin} 
-                disabled={loading}
-              >
-                Demo Login (youness)
               </Button>
               
               <div className="relative w-full">
