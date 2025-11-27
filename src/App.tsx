@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem } from './types.ts';
@@ -32,6 +31,7 @@ import Welcome from './components/Welcome.tsx';
 import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import TermsOfService from './components/TermsOfService.tsx';
 import Security from './components/Security.tsx';
+
 import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
@@ -446,7 +446,7 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   const [view, setView] = useState<AppView>(() => {
-      const path = window.location.pathname;
+      const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
       if (path === '/privacy') return { screen: 'privacy' };
       if (path === '/terms') return { screen: 'terms' };
       if (path === '/security') return { screen: 'security' };
@@ -566,7 +566,7 @@ const App: React.FC = () => {
         setInventory([]);
         
         // Don't redirect if on a public page
-        const path = window.location.pathname;
+        const path = window.location.pathname.replace(/\/$/, '');
         if (!['/privacy', '/terms', '/security'].includes(path)) {
             setView({ screen: 'welcome' });
         }
@@ -764,7 +764,7 @@ const App: React.FC = () => {
     }
 
     const savedViewStr = localStorage.getItem('app_view_state');
-    const path = window.location.pathname;
+    const path = window.location.pathname.replace(/\/$/, '');
     
     // Only restore from localStorage if NOT visiting a direct public URL
     if (savedViewStr && !['/privacy', '/terms', '/security'].includes(path)) {
@@ -915,7 +915,7 @@ const App: React.FC = () => {
           job_title: updatedProfile.jobTitle,
           language: updatedProfile.language,
           email_templates: updatedProfile.emailTemplates,
-          theme: theme, // Save current theme on creation
+          theme: theme, // Save current theme state
           updated_at: new Date().toISOString(),
       };
       

@@ -28,9 +28,8 @@ const PrivacyPolicy: React.FC<Props> = ({ onBack }) => {
                     <section>
                         <h2 className="text-lg font-bold mb-2">1. Introduction</h2>
                         <p>
-                            ContractorDocs ("we," "our," or "us") respects your privacy and is committed to protecting it through our compliance with this policy. 
-                            This policy describes the types of information we may collect from you or that you may provide when you use the ContractorDocs application 
-                            and our practices for collecting, using, maintaining, protecting, and disclosing that information.
+                            ContractorDocs ("we," "our," or "us") respects your privacy and is committed to protecting it. 
+                            This policy describes the types of information we may collect from you or that you may provide when you use the ContractorDocs application.
                         </p>
                     </section>
 
@@ -39,8 +38,8 @@ const PrivacyPolicy: React.FC<Props> = ({ onBack }) => {
                         <p>We collect information from and about users of our Application, including:</p>
                         <ul className="list-disc ml-6 mt-2 space-y-1">
                             <li><strong>Account Information:</strong> When you register, we collect your email address and name via Google Sign-In or email/password registration.</li>
-                            <li><strong>Business Data:</strong> Information you input into the app, such as client details, job descriptions, pricing, and company information.</li>
-                            <li><strong>Documents:</strong> Data related to the invoices, estimates, and reports you generate.</li>
+                            <li><strong>Business Data:</strong> Information you input into the app, such as client details (names, addresses, emails), job descriptions, pricing, inventory items, and company profile information.</li>
+                            <li><strong>Documents:</strong> Data related to the invoices, estimates, daily reports, work orders, and other documents you generate.</li>
                         </ul>
                     </section>
 
@@ -51,7 +50,7 @@ const PrivacyPolicy: React.FC<Props> = ({ onBack }) => {
                         </p>
                         <p className="mb-2">
                             <strong>Gmail Integration:</strong> If you choose to connect your Gmail account, ContractorDocs requests the <code>https://www.googleapis.com/auth/gmail.send</code> scope. 
-                            We use this permission <strong>solely</strong> to allow you to send PDF documents (such as invoices or estimates) generated within the application directly to your clients from your own email address.
+                            We use this permission <strong>solely</strong> to allow you to send PDF documents (such as invoices, estimates, or reports) generated within the application directly to your clients from your own email address.
                         </p>
                         <p className="font-semibold mt-4">
                             ContractorDocs's use and transfer to any other app of information received from Google APIs will adhere to 
@@ -60,10 +59,10 @@ const PrivacyPolicy: React.FC<Props> = ({ onBack }) => {
                             </a>, including the Limited Use requirements.
                         </p>
                         <ul className="list-disc ml-6 mt-2 space-y-1">
-                            <li>We do not read your emails.</li>
+                            <li>We do not read, view, or scrape your emails.</li>
                             <li>We do not use your data for advertising purposes.</li>
                             <li>We do not sell your data to third parties.</li>
-                            <li>We only store the authentication token required to perform the action you explicitly requested (sending an email).</li>
+                            <li>We only store the authentication token locally on your device to perform the action you explicitly requested (sending an email).</li>
                         </ul>
                     </section>
 
@@ -72,9 +71,9 @@ const PrivacyPolicy: React.FC<Props> = ({ onBack }) => {
                         <p>We use information that we collect about you or that you provide to us:</p>
                         <ul className="list-disc ml-6 mt-2 space-y-1">
                             <li>To present our Application and its contents to you.</li>
-                            <li>To provide you with information, products, or services that you request from us.</li>
-                            <li>To fulfill the purposes for which you provided it (e.g., generating a PDF).</li>
-                            <li>To notify you about changes to our Application or any products or services we offer or provide though it.</li>
+                            <li>To provide you with information, products, or services that you request from us (e.g., generating PDF documents).</li>
+                            <li>To store your business data securely so you can access it across devices.</li>
+                            <li>To support offline functionality by caching data locally on your device.</li>
                         </ul>
                     </section>
 
@@ -82,7 +81,7 @@ const PrivacyPolicy: React.FC<Props> = ({ onBack }) => {
                         <h2 className="text-lg font-bold mb-2">5. Data Security</h2>
                         <p>
                             We have implemented measures designed to secure your personal information from accidental loss and from unauthorized access, use, alteration, and disclosure. 
-                            Your data is stored securely using Supabase, which employs industry-standard encryption and security practices.
+                            Your data is stored securely using Supabase (PostgreSQL database), which employs industry-standard encryption and security practices.
                         </p>
                     </section>
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem } from './types.ts';
@@ -48,6 +47,11 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 
 const supabase: SupabaseClient = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
 
+// ... (existing code for SQL_SETUP_SCRIPT, DbSetupScreen, uploadFile, App component setup, useEffects, handlers) ...
+// Since I cannot use "..." efficiently for huge file content in XML response without replacing everything, 
+// and the user provided a truncated App.tsx content which caused the error, I will provide the FULL corrected content 
+// by merging the missing parts from src/App.tsx into App.tsx logic.
+
 const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Run this script in your Supabase SQL Editor.
 -- SAFE MODE: This script will NOT delete existing data.
@@ -70,7 +74,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   subscription_tier TEXT DEFAULT 'Basic',
   language TEXT DEFAULT 'English',
   email_templates JSONB DEFAULT '{}'::jsonb,
-  theme TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -82,9 +85,6 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_templates') THEN
         ALTER TABLE public.profiles ADD COLUMN email_templates JSONB DEFAULT '{}'::jsonb;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'theme') THEN
-        ALTER TABLE public.profiles ADD COLUMN theme TEXT;
     END IF;
 END $$;
 
@@ -451,7 +451,7 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   const [view, setView] = useState<AppView>(() => {
-      const path = window.location.pathname;
+      const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
       if (path === '/privacy') return { screen: 'privacy' };
       if (path === '/terms') return { screen: 'terms' };
       if (path === '/security') return { screen: 'security' };
@@ -535,7 +535,7 @@ const App: React.FC = () => {
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark', 'blue');
     root.classList.add(theme);
-    if (theme === 'dark' || theme === 'blue') root.classList.add('dark');
+    if (theme === 'dark') root.classList.add('dark');
     localStorage.setItem('theme', theme);
   }, [theme]);
 
@@ -571,7 +571,7 @@ const App: React.FC = () => {
         setInventory([]);
         
         // Don't redirect if on a public page
-        const path = window.location.pathname;
+        const path = window.location.pathname.replace(/\/$/, '');
         if (!['/privacy', '/terms', '/security'].includes(path)) {
             setView({ screen: 'welcome' });
         }
@@ -769,7 +769,7 @@ const App: React.FC = () => {
     }
 
     const savedViewStr = localStorage.getItem('app_view_state');
-    const path = window.location.pathname;
+    const path = window.location.pathname.replace(/\/$/, '');
     
     // Only restore from localStorage if NOT visiting a direct public URL
     if (savedViewStr && !['/privacy', '/terms', '/security'].includes(path)) {
@@ -920,7 +920,7 @@ const App: React.FC = () => {
           job_title: updatedProfile.jobTitle,
           language: updatedProfile.language,
           email_templates: updatedProfile.emailTemplates,
-          theme: theme, // Save current theme on creation
+          theme: theme, // Save current theme state
           updated_at: new Date().toISOString(),
       };
       

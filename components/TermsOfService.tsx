@@ -34,62 +34,51 @@ const TermsOfService: React.FC<Props> = ({ onBack }) => {
                     </section>
 
                     <section>
-                        <h2 className="text-lg font-bold mb-2">2. Use License</h2>
+                        <h2 className="text-lg font-bold mb-2">2. Description of Service</h2>
                         <p>
-                            Permission is granted to temporarily download one copy of the materials (information or software) on ContractorDocs for personal, 
-                            non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not:
+                            ContractorDocs provides tools for contractors to generate, manage, and send professional documents such as invoices, estimates, work orders, daily reports, and more. 
+                            The Service includes features for client management, inventory tracking, and communication via Gmail integration.
                         </p>
+                    </section>
+
+                    <section>
+                        <h2 className="text-lg font-bold mb-2">3. Document Generation Disclaimer</h2>
+                        <p>
+                            ContractorDocs provides templates for various business documents. <strong>We are not a law firm and do not provide legal advice.</strong> 
+                            You acknowledge that any documents generated using the Service (including contracts, waivers, and change orders) are for informational and administrative purposes only. 
+                            It is your responsibility to ensure that any legal documents you use comply with applicable local, state, and federal laws.
+                        </p>
+                    </section>
+
+                    <section>
+                        <h2 className="text-lg font-bold mb-2">4. User Responsibilities</h2>
                         <ul className="list-disc ml-6 mt-2 space-y-1">
-                            <li>Modify or copy the materials;</li>
-                            <li>Use the materials for any commercial purpose, or for any public display (commercial or non-commercial);</li>
-                            <li>Attempt to decompile or reverse engineer any software contained on ContractorDocs;</li>
-                            <li>Transfer the materials to another person or "mirror" the materials on any other server.</li>
+                            <li>You are responsible for maintaining the confidentiality of your account and password.</li>
+                            <li>You are responsible for all content (data, text, images) that you upload or generate using the Service.</li>
+                            <li>You agree not to use the Service for any illegal or unauthorized purpose.</li>
                         </ul>
                     </section>
 
                     <section>
-                        <h2 className="text-lg font-bold mb-2">3. Disclaimer</h2>
+                        <h2 className="text-lg font-bold mb-2">5. Gmail Integration</h2>
                         <p>
-                            The materials on ContractorDocs are provided on an 'as is' basis. ContractorDocs makes no warranties, expressed or implied, 
-                            and hereby disclaims and negates all other warranties including, without limitation, implied warranties or conditions of merchantability, 
-                            fitness for a particular purpose, or non-infringement of intellectual property or other violation of rights.
-                        </p>
-                        <p className="mt-2">
-                            Further, ContractorDocs does not warrant or make any representations concerning the accuracy, likely results, or reliability of the use of the 
-                            materials on its website or otherwise relating to such materials or on any sites linked to this site.
+                            If you opt to use the Gmail integration feature to send documents, you authorize ContractorDocs to send emails on your behalf via the Google Gmail API using the `gmail.send` scope. 
+                            You retain full ownership of your email data.
                         </p>
                     </section>
 
                     <section>
-                        <h2 className="text-lg font-bold mb-2">4. Limitations</h2>
+                        <h2 className="text-lg font-bold mb-2">6. Limitation of Liability</h2>
                         <p>
-                            In no event shall ContractorDocs or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, 
-                            or due to business interruption) arising out of the use or inability to use the materials on ContractorDocs, even if ContractorDocs or a ContractorDocs 
-                            authorized representative has been notified orally or in writing of the possibility of such damage.
-                        </p>
-                    </section>
-
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">5. Accuracy of Materials</h2>
-                        <p>
-                            The materials appearing on ContractorDocs could include technical, typographical, or photographic errors. ContractorDocs does not warrant that any of the 
-                            materials on its website are accurate, complete, or current. ContractorDocs may make changes to the materials contained on its website at any time without notice. 
-                            However, ContractorDocs does not make any commitment to update the materials.
-                        </p>
-                    </section>
-
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">6. Modifications</h2>
-                        <p>
-                            ContractorDocs may revise these terms of service for its website at any time without notice. By using this website you are agreeing to be bound by the then 
-                            current version of these terms of service.
+                            In no event shall ContractorDocs be liable for any indirect, incidental, special, consequential or punitive damages, 
+                            including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from your access to or use of the Service.
                         </p>
                     </section>
 
                     <section>
                         <h2 className="text-lg font-bold mb-2">7. Governing Law</h2>
                         <p>
-                            These terms and conditions are governed by and construed in accordance with the laws and you irrevocably submit to the exclusive jurisdiction of the courts in that location.
+                            These terms and conditions are governed by and construed in accordance with the laws of the jurisdiction in which ContractorDocs operates.
                         </p>
                     </section>
                 </CardContent>
