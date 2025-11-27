@@ -47,11 +47,6 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 
 const supabase: SupabaseClient = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
 
-// ... (existing code for SQL_SETUP_SCRIPT, DbSetupScreen, uploadFile, App component setup, useEffects, handlers) ...
-// Since I cannot use "..." efficiently for huge file content in XML response without replacing everything, 
-// and the user provided a truncated App.tsx content which caused the error, I will provide the FULL corrected content 
-// by merging the missing parts from src/App.tsx into App.tsx logic.
-
 const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Run this script in your Supabase SQL Editor.
 -- SAFE MODE: This script will NOT delete existing data.
@@ -74,6 +69,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   subscription_tier TEXT DEFAULT 'Basic',
   language TEXT DEFAULT 'English',
   email_templates JSONB DEFAULT '{}'::jsonb,
+  theme TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -85,6 +81,9 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_templates') THEN
         ALTER TABLE public.profiles ADD COLUMN email_templates JSONB DEFAULT '{}'::jsonb;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'theme') THEN
+        ALTER TABLE public.profiles ADD COLUMN theme TEXT;
     END IF;
 END $$;
 
@@ -450,13 +449,7 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-  const [view, setView] = useState<AppView>(() => {
-      const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
-      if (path === '/privacy') return { screen: 'privacy' };
-      if (path === '/terms') return { screen: 'terms' };
-      if (path === '/security') return { screen: 'security' };
-      return { screen: 'welcome' };
-  });
+  const [view, setView] = useState<AppView>({ screen: 'welcome' });
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -535,7 +528,7 @@ const App: React.FC = () => {
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark', 'blue');
     root.classList.add(theme);
-    if (theme === 'dark') root.classList.add('dark');
+    if (theme === 'dark' || theme === 'blue') root.classList.add('dark');
     localStorage.setItem('theme', theme);
   }, [theme]);
 
@@ -684,7 +677,9 @@ const App: React.FC = () => {
         const cachedProfiles = await dbApi.getAll('profile');
         if (cachedProfiles.length > 0) {
             currentProfile = cachedProfiles[0];
-            if (currentProfile?.theme) setTheme(currentProfile.theme);
+            if (currentProfile?.theme) {
+                setTheme(currentProfile.theme as 'light' | 'dark' | 'blue');
+            }
         }
     }
     setProfile(currentProfile);
@@ -1397,13 +1392,14 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
     if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
+    
+    // Public pages should be accessible regardless of session
+    if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: session ? 'dashboard' : 'welcome' })} />;
+    if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: session ? 'dashboard' : 'welcome' })} />;
+    if (view.screen === 'security') return <Security onBack={() => setView({ screen: session ? 'dashboard' : 'welcome' })} />;
+
     if (!session) {
-        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
-        // Explicitly check for public pages to render them even if not logged in
-        if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
-        if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
-        if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
-        
+        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
         return renderAuth();
     }
     switch (view.screen) {
@@ -1447,9 +1443,6 @@ const App: React.FC = () => {
                 onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
             />
         );
-      case 'privacy': return <PrivacyPolicy onBack={() => setView({ screen: 'dashboard' })} />;
-      case 'terms': return <TermsOfService onBack={() => setView({ screen: 'dashboard' })} />;
-      case 'security': return <Security onBack={() => setView({ screen: 'dashboard' })} />;
       default: return renderDashboard();
     }
   };

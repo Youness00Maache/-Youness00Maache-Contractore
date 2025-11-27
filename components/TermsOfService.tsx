@@ -1,7 +1,6 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/Card.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, FileTextIcon } from './Icons.tsx';
+import { BackArrowIcon } from './Icons.tsx';
 
 interface Props {
     onBack: () => void;
@@ -9,80 +8,61 @@ interface Props {
 
 const TermsOfService: React.FC<Props> = ({ onBack }) => {
     return (
-        <div className="min-h-screen bg-background text-foreground p-4 md:p-8">
-            <header className="flex items-center mb-8 gap-4 max-w-4xl mx-auto">
-                <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full" aria-label="Back">
-                    <BackArrowIcon className="h-6 w-6" />
-                </Button>
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <FileTextIcon className="w-6 h-6 text-primary" /> Terms of Service
-                </h1>
+        <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans">
+            <header className="fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-white/80 backdrop-blur-lg shadow-sm py-3">
+                <div className="max-w-7xl mx-auto px-6 lg:px-8">
+                    <Button variant="ghost" onClick={onBack} className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-primary">
+                        <BackArrowIcon className="w-4 h-4" /> Back to Home
+                    </Button>
+                </div>
             </header>
 
-            <Card className="max-w-4xl mx-auto animate-fade-in-down">
-                <CardHeader>
-                    <CardTitle>Terms of Service</CardTitle>
-                    <p className="text-sm text-muted-foreground">Last Updated: {new Date().toLocaleDateString()}</p>
-                </CardHeader>
-                <CardContent className="space-y-6 text-sm md:text-base leading-relaxed">
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">1. Acceptance of Terms</h2>
-                        <p>
-                            By accessing or using ContractorDocs (the "Service"), you agree to be bound by these Terms. 
-                            If you disagree with any part of the terms, then you may not access the Service.
-                        </p>
-                    </section>
+            <main>
+                <section className="relative pt-32 pb-16 text-center overflow-hidden">
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none">
+                        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-400/20 rounded-full blur-[100px] mix-blend-multiply animate-pulse"></div>
+                        <div className="absolute top-40 right-10 w-72 h-72 bg-purple-400/20 rounded-full blur-[100px] mix-blend-multiply animate-pulse" style={{ animationDelay: '1s' }}></div>
+                    </div>
+                    
+                    <h1 className="text-5xl lg:text-7xl font-bold tracking-tight text-slate-900 mb-4 leading-[1.1]">
+                        Terms of <br className="hidden lg:block" />
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-violet-600">Service</span>
+                    </h1>
+                    <p className="text-slate-500">Last Updated: {new Date().toLocaleDateString()}</p>
+                </section>
+                
+                <section className="pb-24">
+                    <div className="max-w-3xl mx-auto px-6 space-y-8">
+                        <div className="text-slate-600 leading-relaxed space-y-4">
+                            <p>Please read these Terms of Service carefully before using the ContractorDocs application (the "Service"). Your access to and use of the Service is conditioned on your acceptance of and compliance with these Terms.</p>
+                        
+                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">1. Service Description</h2>
+                            <p>ContractorDocs provides a suite of tools for contractors to create, manage, and share business documents. The Service is provided "as is" and we make no guarantees regarding its suitability for any particular purpose.</p>
+                        
+                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">2. User Accounts</h2>
+                            <p>You are responsible for safeguarding your account and for any activities or actions under your account. You must notify us immediately upon becoming aware of any breach of security or unauthorized use of your account.</p>
 
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">2. Description of Service</h2>
-                        <p>
-                            ContractorDocs provides tools for contractors to generate, manage, and send professional documents such as invoices, estimates, work orders, daily reports, and more. 
-                            The Service includes features for client management, inventory tracking, and communication via Gmail integration.
-                        </p>
-                    </section>
+                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">3. User Content</h2>
+                            <p>You retain full ownership of all data and content you create or upload to the Service ("User Content"). We do not claim any ownership rights over your User Content.</p>
 
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">3. Document Generation Disclaimer</h2>
-                        <p>
-                            ContractorDocs provides templates for various business documents. <strong>We are not a law firm and do not provide legal advice.</strong> 
-                            You acknowledge that any documents generated using the Service (including contracts, waivers, and change orders) are for informational and administrative purposes only. 
-                            It is your responsibility to ensure that any legal documents you use comply with applicable local, state, and federal laws.
-                        </p>
-                    </section>
+                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">4. Legal Disclaimer</h2>
+                            <p>ContractorDocs is not a law firm and does not provide legal advice. The document templates provided are for informational purposes only and may not be legally compliant in your jurisdiction. You are solely responsible for ensuring that any documents you create are legally sound.</p>
 
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">4. User Responsibilities</h2>
-                        <ul className="list-disc ml-6 mt-2 space-y-1">
-                            <li>You are responsible for maintaining the confidentiality of your account and password.</li>
-                            <li>You are responsible for all content (data, text, images) that you upload or generate using the Service.</li>
-                            <li>You agree not to use the Service for any illegal or unauthorized purpose.</li>
-                        </ul>
-                    </section>
+                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">5. Limitation of Liability</h2>
+                            <p>In no event shall ContractorDocs be liable for any indirect, incidental, special, consequential or punitive damages, including loss of profits, data, or goodwill, arising out of your use of the Service.</p>
 
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">5. Gmail Integration</h2>
-                        <p>
-                            If you opt to use the Gmail integration feature to send documents, you authorize ContractorDocs to send emails on your behalf via the Google Gmail API using the `gmail.send` scope. 
-                            You retain full ownership of your email data.
-                        </p>
-                    </section>
+                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">6. Changes to Terms</h2>
+                            <p>We reserve the right to modify these terms at any time. We will provide notice of changes by updating the "Last Updated" date. Your continued use of the Service constitutes acceptance of the revised terms.</p>
+                        </div>
+                    </div>
+                </section>
+            </main>
 
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">6. Limitation of Liability</h2>
-                        <p>
-                            In no event shall ContractorDocs be liable for any indirect, incidental, special, consequential or punitive damages, 
-                            including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from your access to or use of the Service.
-                        </p>
-                    </section>
-
-                    <section>
-                        <h2 className="text-lg font-bold mb-2">7. Governing Law</h2>
-                        <p>
-                            These terms and conditions are governed by and construed in accordance with the laws of the jurisdiction in which ContractorDocs operates.
-                        </p>
-                    </section>
-                </CardContent>
-            </Card>
+            <footer className="bg-white border-t border-slate-200 py-8">
+                <div className="max-w-7xl mx-auto px-6 lg:px-8 text-center text-xs text-slate-500">
+                    <p>© 2024 ContractorDocs. All rights reserved.</p>
+                </div>
+            </footer>
         </div>
     );
 };

@@ -11,9 +11,10 @@ import { Card } from './ui/Card.tsx';
 interface WelcomeProps {
   onGetStarted: () => void;
   onLogin: () => void;
+  onNavigate: (screen: 'privacy' | 'terms' | 'security') => void;
 }
 
-const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
+const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin, onNavigate }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -384,27 +385,27 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin }) => {
                   <div>
                       <h4 className="font-bold text-slate-900 mb-4">Product</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><a href="#" className="hover:text-primary">Features</a></li>
-                          <li><a href="#" className="hover:text-primary">Templates</a></li>
-                          <li><a href="#" className="hover:text-primary">Mobile App</a></li>
-                          <li><a href="#" className="hover:text-primary">Pricing</a></li>
+                          <li><button onClick={() => window.location.href = "#features"} className="hover:text-primary text-left">Features</button></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">Templates</button></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">Mobile App</button></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">Pricing</button></li>
                       </ul>
                   </div>
                   <div>
                       <h4 className="font-bold text-slate-900 mb-4">Company</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><a href="#" className="hover:text-primary">About</a></li>
-                          <li><a href="#" className="hover:text-primary">Careers</a></li>
-                          <li><a href="#" className="hover:text-primary">Blog</a></li>
-                          <li><a href="#" className="hover:text-primary">Contact</a></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">About</button></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">Careers</button></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">Blog</button></li>
+                          <li><button onClick={() => {}} className="hover:text-primary text-left">Contact</button></li>
                       </ul>
                   </div>
                    <div>
                       <h4 className="font-bold text-slate-900 mb-4">Legal</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><a href="/privacy" className="hover:text-primary">Privacy</a></li>
-                          <li><a href="/terms" className="hover:text-primary">Terms of Service</a></li>
-                          <li><a href="/security" className="hover:text-primary">Security</a></li>
+                          <li><button onClick={() => onNavigate('privacy')} className="hover:text-primary text-left">Privacy</button></li>
+                          <li><button onClick={() => onNavigate('terms')} className="hover:text-primary text-left">Terms of Service</button></li>
+                          <li><button onClick={() => onNavigate('security')} className="hover:text-primary text-left">Security</button></li>
                       </ul>
                   </div>
               </div>

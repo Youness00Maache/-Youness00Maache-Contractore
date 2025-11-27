@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   subscription_tier TEXT DEFAULT 'Basic',
   language TEXT DEFAULT 'English',
   email_templates JSONB DEFAULT '{}'::jsonb,
+  theme TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -80,6 +81,10 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_templates') THEN
         ALTER TABLE public.profiles ADD COLUMN email_templates JSONB DEFAULT '{}'::jsonb;
+    END IF;
+    -- FIX: Add theme column if it doesn't exist to support theme persistence.
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'theme') THEN
+        ALTER TABLE public.profiles ADD COLUMN theme TEXT;
     END IF;
 END $$;
 
@@ -679,7 +684,9 @@ const App: React.FC = () => {
         const cachedProfiles = await dbApi.getAll('profile');
         if (cachedProfiles.length > 0) {
             currentProfile = cachedProfiles[0];
-            if (currentProfile?.theme) setTheme(currentProfile.theme);
+            if (currentProfile?.theme) {
+                setTheme(currentProfile.theme as 'light' | 'dark' | 'blue');
+            }
         }
     }
     setProfile(currentProfile);
@@ -1393,8 +1400,7 @@ const App: React.FC = () => {
     if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
     if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
     if (!session) {
-        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
-        // Explicitly check for public pages to render them even if not logged in
+        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
         if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
         if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
         if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;

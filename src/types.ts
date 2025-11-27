@@ -34,6 +34,8 @@ export interface UserProfile {
   language?: string;
   emailTemplates?: Record<string, EmailTemplate>;
   emailUsage?: number; // Track number of emails sent
+  // FIX: Added theme property to UserProfile interface to support theme persistence.
+  theme?: 'light' | 'dark' | 'blue';
 }
 
 export interface Client {
