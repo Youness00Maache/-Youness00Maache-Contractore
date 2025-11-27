@@ -39,17 +39,25 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
+  // If this is a navigation request, serve index.html
+  if (event.request.mode === 'navigate') {
+    event.respondWith(caches.match('/index.html').then(response => {
+      return response || fetch(event.request);
+    }));
+    return;
+  }
+  
   // Network-first for Supabase API to get fresh data if possible, but we handle offline logic in App.tsx
   if (url.hostname.includes('supabase.co')) {
     return; 
   }
 
-  // Stale-While-Revalidate for static assets
+  // Stale-While-Revalidate for other static assets
   event.respondWith(
     caches.match(event.request).then(cachedResponse => {
       const fetchPromise = fetch(event.request).then(networkResponse => {
         // Update cache with new version
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+        if (networkResponse && networkResponse.status === 200 && (event.request.url.startsWith('http') || event.request.url.startsWith('https'))) {
             const responseToCache = networkResponse.clone();
             caches.open(CACHE_NAME).then(cache => {
                 cache.put(event.request, responseToCache);

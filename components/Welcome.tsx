@@ -11,7 +11,7 @@ import { Card } from './ui/Card.tsx';
 interface WelcomeProps {
   onGetStarted: () => void;
   onLogin: () => void;
-  onNavigate: (screen: 'privacy' | 'terms' | 'security') => void;
+  onNavigate: (path: string) => void;
 }
 
 const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin, onNavigate }) => {
@@ -24,6 +24,11 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin, onNavigate }) 
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+      e.preventDefault();
+      onNavigate(path);
+  };
 
   return (
     <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans selection:bg-primary/20 selection:text-primary overflow-x-hidden animate-fade-in">
@@ -385,27 +390,27 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin, onNavigate }) 
                   <div>
                       <h4 className="font-bold text-slate-900 mb-4">Product</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><button onClick={() => window.location.href = "#features"} className="hover:text-primary text-left">Features</button></li>
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">Templates</button></li>
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">Mobile App</button></li>
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">Pricing</button></li>
+                          <li><a href="#features" onClick={(e) => { e.preventDefault(); document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-primary">Features</a></li>
+                          <li><a href="#" className="hover:text-primary">Templates</a></li>
+                          <li><a href="#" className="hover:text-primary">Mobile App</a></li>
+                          <li><a href="#" className="hover:text-primary">Pricing</a></li>
                       </ul>
                   </div>
                   <div>
                       <h4 className="font-bold text-slate-900 mb-4">Company</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">About</button></li>
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">Careers</button></li>
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">Blog</button></li>
-                          <li><button onClick={() => {}} className="hover:text-primary text-left">Contact</button></li>
+                          <li><a href="#" className="hover:text-primary">About</a></li>
+                          <li><a href="#" className="hover:text-primary">Careers</a></li>
+                          <li><a href="#" className="hover:text-primary">Blog</a></li>
+                          <li><a href="#" className="hover:text-primary">Contact</a></li>
                       </ul>
                   </div>
                    <div>
                       <h4 className="font-bold text-slate-900 mb-4">Legal</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><button onClick={() => onNavigate('privacy')} className="hover:text-primary text-left">Privacy</button></li>
-                          <li><button onClick={() => onNavigate('terms')} className="hover:text-primary text-left">Terms of Service</button></li>
-                          <li><button onClick={() => onNavigate('security')} className="hover:text-primary text-left">Security</button></li>
+                          <li><a href="/privacy" onClick={(e) => handleNavClick(e, '/privacy')} className="hover:text-primary">Privacy</a></li>
+                          <li><a href="/terms" onClick={(e) => handleNavClick(e, '/terms')} className="hover:text-primary">Terms of Service</a></li>
+                          <li><a href="/security" onClick={(e) => handleNavClick(e, '/security')} className="hover:text-primary">Security</a></li>
                       </ul>
                   </div>
               </div>
