@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { 
     AppLogo, PlayIcon, StarIcon, MenuIcon, CheckIcon, ArrowRightIcon, 
@@ -397,8 +398,8 @@ const Welcome: React.FC<WelcomeProps> = ({ onGetStarted, onLogin, onNavigate }) 
                    <div>
                       <h4 className="font-bold text-slate-900 mb-4">Legal</h4>
                       <ul className="space-y-3 text-sm text-slate-600">
-                          <li><button onClick={() => onNavigate('privacy')} className="hover:text-primary text-left">Privacy</button></li>
-                          <li><button onClick={() => onNavigate('terms')} className="hover:text-primary text-left">Terms of Service</button></li>
+                          <li><a href="https://policy.contractordocs.app/" className="hover:text-primary text-left block" target="_blank" rel="noopener noreferrer">Privacy</a></li>
+                          <li><a href="https://terms.contractordocs.app/" className="hover:text-primary text-left block" target="_blank" rel="noopener noreferrer">Terms of Service</a></li>
                           <li><button onClick={() => onNavigate('security')} className="hover:text-primary text-left">Security</button></li>
                       </ul>
                   </div>
