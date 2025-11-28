@@ -39,9 +39,18 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [copySuccess, setCopySuccess] = useState(false);
 
     useEffect(() => {
-        const token = localStorage.getItem('google_provider_token');
-        setHasGoogleToken(!!token);
-    }, []);
+        // Check for token in session or local storage
+        const token = session?.provider_token || localStorage.getItem('google_provider_token');
+        const hasToken = !!token;
+        setHasGoogleToken(hasToken);
+
+        // Auto-show connect modal ONLY if we don't have a token
+        if (!hasToken) {
+            setShowConnectModal(true);
+        } else {
+            setShowConnectModal(false);
+        }
+    }, [session]);
 
     const isPro = profile.subscriptionTier === 'Premium';
     const emailLimit = 10;
@@ -408,7 +417,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                        </CardHeader>
                        <CardContent className="space-y-4">
                            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-sm rounded-md">
-                               To send this email from your address, please authorize Gmail access.
+                               To send emails from your address, please authorize Gmail access. This is a one-time setup.
                            </div>
                            <Button onClick={onConnectGmail} className="w-full flex gap-2">
                                <GoogleIcon className="w-5 h-5" /> Connect Gmail

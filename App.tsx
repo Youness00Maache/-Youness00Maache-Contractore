@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem } from './types.ts';
@@ -82,6 +83,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_templates') THEN
         ALTER TABLE public.profiles ADD COLUMN email_templates JSONB DEFAULT '{}'::jsonb;
     END IF;
+    -- FIX: Add theme column if it doesn't exist to support theme persistence.
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'theme') THEN
         ALTER TABLE public.profiles ADD COLUMN theme TEXT;
     END IF;
@@ -449,16 +451,14 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-  
-  const getViewForPath = (path: string): AppView => {
-      const cleanPath = path.replace(/\/$/, '');
-      if (cleanPath === '/privacy') return { screen: 'privacy' };
-      if (cleanPath === '/terms') return { screen: 'terms' };
-      if (cleanPath === '/security') return { screen: 'security' };
+  const [view, setView] = useState<AppView>(() => {
+      // Check path only once on initial load for direct public links
+      const path = window.location.pathname.replace(/\/$/, '');
+      if (path === '/privacy') return { screen: 'privacy' };
+      if (path === '/terms') return { screen: 'terms' };
+      if (path === '/security') return { screen: 'security' };
       return { screen: 'welcome' };
-  };
-
-  const [view, setView] = useState<AppView>(() => getViewForPath(window.location.pathname));
+  });
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -478,19 +478,6 @@ const App: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [docSearchQuery, setDocSearchQuery] = useState('');
-
-  const navigate = (path: string) => {
-      window.history.pushState({}, '', path);
-      setView(getViewForPath(path));
-  };
-  
-  useEffect(() => {
-    const handlePopState = () => {
-      setView(getViewForPath(window.location.pathname));
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
 
   useEffect(() => {
       const handleOnline = () => {
@@ -849,7 +836,7 @@ const App: React.FC = () => {
     localStorage.removeItem('app_view_state');
     localStorage.removeItem('google_provider_token');
     setSession(null);
-    navigate('/');
+    setView({ screen: 'welcome' });
   };
 
   const markNotificationsAsRead = async () => {
@@ -1414,15 +1401,12 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
     if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
-    
-    // Public pages should be accessible regardless of session
-    const backNav = () => navigate(session ? '/dashboard' : '/');
-    if (view.screen === 'privacy') return <PrivacyPolicy onBack={backNav} />;
-    if (view.screen === 'terms') return <TermsOfService onBack={backNav} />;
-    if (view.screen === 'security') return <Security onBack={backNav} />;
-
     if (!session) {
-        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={navigate} />;
+        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
+        if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
+        if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
+        if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
+        
         return renderAuth();
     }
     switch (view.screen) {
@@ -1466,6 +1450,9 @@ const App: React.FC = () => {
                 onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
             />
         );
+      case 'privacy': return <PrivacyPolicy onBack={() => setView({ screen: 'dashboard' })} />;
+      case 'terms': return <TermsOfService onBack={() => setView({ screen: 'dashboard' })} />;
+      case 'security': return <Security onBack={() => setView({ screen: 'dashboard' })} />;
       default: return renderDashboard();
     }
   };
