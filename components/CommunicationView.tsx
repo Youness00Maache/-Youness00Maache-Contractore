@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Client, FormData as FormDataType, UserProfile, Job } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
@@ -44,7 +43,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
         const hasToken = !!token;
         setHasGoogleToken(hasToken);
 
-        // Auto-show connect modal ONLY if we don't have a token
+        // Auto-show connect modal immediately if we don't have a token
         if (!hasToken) {
             setShowConnectModal(true);
         } else {
@@ -84,351 +83,186 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
         if (selectedDocId && selectedClientId) {
             const doc = forms.find(f => f.id === selectedDocId);
             const client = clients.find(c => c.id === selectedClientId);
-            
             if (doc && client) {
-                applyTemplate(doc, client);
+                const docType = doc.type;
+                const docData = doc.data as any;
+                const template = {
+                    subject: `${docType} [Document Number] from [My Company]`,
+                    body: `Hi [Client Name],\n\nPlease find the attached ${docType} for your records.\n\nBest regards,\n[My Name]`
+                };
+
+                const replacements: Record<string, string> = {
+                    '[Client Name]': client.name || 'Client',
+                    '[My Company]': profile.companyName || 'Us',
+                    '[My Name]': profile.name || 'Me',
+                    '[Document Type]': docType,
+                    '[Document Number]': docData.invoiceNumber || docData.estimateNumber || docData.workOrderNumber || docData.poNumber || doc.id.substring(0,8),
+                };
+
+                let compiledSubject = template.subject;
+                let compiledBody = template.body;
+
+                for (const [key, value] of Object.entries(replacements)) {
+                    compiledSubject = compiledSubject.replace(new RegExp(key.replace(/\[/g, '\\[').replace(/\]/g, '\\]'), 'g'), value);
+                    compiledBody = compiledBody.replace(new RegExp(key.replace(/\[/g, '\\[').replace(/\]/g, '\\]'), 'g'), value);
+                }
+                
+                setSubject(compiledSubject);
+                setBody(compiledBody);
             }
         }
-    }, [selectedDocId]);
+    }, [selectedDocId, selectedClientId, forms, profile]);
 
-    const getJobName = (doc: FormDataType) => {
-        const job = jobs.find(j => j.id === doc.jobId);
-        if (job) return job.name;
-        const data = doc.data as any;
-        return data.projectName || data.title || 'Project';
-    };
-
-    const applyTemplate = (doc: FormDataType, client: Client) => {
-        const docType = doc.type;
-        const data = doc.data as any;
-        const templateKey = `${docType.toLowerCase().replace(' ', '_')}_default`;
-        const template = profile.emailTemplates?.[templateKey] || getDefaultTemplate(docType);
-
-        const replacements: Record<string, string> = {
-            '[Client Name]': client.name,
-            '[Job Name]': getJobName(doc), 
-            '[My Company]': profile.companyName || 'Us',
-            '[My Name]': profile.name || 'Me',
-            '[Document Number]': data.invoiceNumber || data.estimateNumber || data.workOrderNumber || data.poNumber || 'Doc',
-            '[Total Amount]': data.lineItems ? `$${data.lineItems.reduce((acc: number, item: any) => acc + (item.quantity * item.rate), 0).toFixed(2)}` : ''
-        };
-
-        let subj = template.subject;
-        let bod = template.body;
-
-        for (const [key, value] of Object.entries(replacements)) {
-            subj = subj.split(key).join(value);
-            bod = bod.split(key).join(value);
-        }
-
-        setSubject(subj);
-        setBody(bod);
-    };
-
-    const getDefaultTemplate = (type: string) => {
-        switch (type.toLowerCase()) {
-            case 'invoice':
-                return {
-                    subject: `Invoice [Document Number] from [My Company]`,
-                    body: `Hi [Client Name],\n\nPlease find attached invoice [Document Number] for [Total Amount].\n\nLet me know if you have any questions.\n\nBest regards,\n[My Name]\n[My Company]`
-                };
-            case 'estimate':
-                return {
-                    subject: `Estimate [Document Number] for [Job Name]`,
-                    body: `Hi [Client Name],\n\nHere is the estimate for [Job Name]. We look forward to working with you.\n\nBest,\n[My Name]\n[My Company]`
-                };
-            default:
-                return {
-                    subject: `${type} from [My Company]`,
-                    body: `Hi [Client Name],\n\nPlease find the attached ${type}.\n\nBest,\n[My Name]`
-                };
-        }
-    };
-
-    const insertVariable = (v: string) => {
-        let valueToInsert = v;
-        const client = clients.find(c => c.id === selectedClientId);
-        const doc = forms.find(f => f.id === selectedDocId);
-        const data = doc?.data as any;
-
-        if (v === '[Client Name]' && client) {
-            valueToInsert = client.name;
-        }
-        else if (v === '[My Company]') {
-            valueToInsert = profile.companyName;
-        }
-        else if (v === '[My Name]') {
-            valueToInsert = profile.name;
-        }
-        else if (doc) {
-             if (v === '[Job Name]') {
-                 valueToInsert = getJobName(doc);
-             }
-             else if (data) {
-                if (v === '[Document Number]') {
-                    valueToInsert = data.invoiceNumber || data.estimateNumber || data.workOrderNumber || data.poNumber || data.receiptNumber || '';
-                }
-                else if (v === '[Total Amount]') {
-                     const total = data.lineItems 
-                        ? data.lineItems.reduce((acc: number, item: any) => acc + (Number(item.quantity) * Number(item.rate)), 0)
-                        : (data.amount || 0);
-                     valueToInsert = `$${Number(total).toFixed(2)}`;
-                }
-             }
-        }
-
-        setBody(prev => prev + valueToInsert);
-    };
-
-    const handleCopyEmail = () => {
-        const text = `Subject: ${subject}\n\n${body}`;
-        navigator.clipboard.writeText(text);
+    const handleCopy = () => {
+        const fullText = `Subject: ${subject}\n\n${body}`;
+        navigator.clipboard.writeText(fullText);
         setCopySuccess(true);
         setTimeout(() => setCopySuccess(false), 2000);
     };
 
-    const handleSendEmail = async () => {
-        // Check for Gmail connection first
-        if (!hasGoogleToken) {
-            setShowConnectModal(true);
+    const handleSend = async () => {
+        if (!recipientEmail || !subject || !body) {
+            alert("Please fill in all email fields.");
             return;
         }
 
         if (!isPro && emailsSent >= emailLimit) {
-            setLimitMessage(`You have reached the limit of ${emailLimit} emails for the free plan.`);
+            setLimitMessage(`You've reached your limit of ${emailLimit} emails for this month on the free plan.`);
             setShowUpgrade(true);
             return;
         }
 
         setIsSending(true);
         setSendSuccess(false);
-        
+
         try {
-            let attachment = undefined;
+            let attachment;
             if (selectedDocId) {
                 const doc = forms.find(f => f.id === selectedDocId);
-                if (doc) {
-                    const job = jobs.find(j => j.id === doc.jobId);
-                    const base64Data = await generateDocumentBase64(doc.type, doc.data, profile, job!);
-                    
-                    if (base64Data) {
-                        const docData = doc.data as any;
-                        const filename = `${doc.type}-${docData.invoiceNumber || docData.estimateNumber || docData.poNumber || 'Doc'}.pdf`;
-                        attachment = {
-                            name: filename,
-                            data: base64Data,
-                            type: 'application/pdf'
-                        };
-                    }
+                const job = jobs.find(j => j.id === doc?.jobId);
+                if (doc && job && profile) {
+                    const base64string = await generateDocumentBase64(doc.type, doc.data, profile, job);
+                    const docData = doc.data as any;
+                    const docNumber = docData.invoiceNumber || docData.estimateNumber || docData.workOrderNumber || doc.id.substring(0,8);
+                    attachment = {
+                        name: `${doc.type.replace(/ /g, '_')}-${docNumber}.pdf`,
+                        data: base64string.split(',')[1], // remove dataURL prefix
+                        type: 'application/pdf'
+                    };
                 }
             }
 
             await sendGmail(session, recipientEmail, subject, body, attachment);
-            
             setSendSuccess(true);
-            if (onEmailSent) onEmailSent();
-            
-            setTimeout(() => setSendSuccess(false), 3000);
-            
+            if(onEmailSent) onEmailSent();
+
         } catch (error: any) {
-            console.error("Email send failed", error);
-            if (error.message.includes("GMAIL_AUTH_ERROR") || error.message.includes("provider token found")) {
+            console.error("Failed to send email", error);
+            if (error.message.includes("GMAIL_AUTH_ERROR")) {
+                alert("Authentication error with Google. Please reconnect your Gmail account.");
                 setHasGoogleToken(false);
-                setShowConnectModal(true); // Prompt to reconnect if token is invalid
+                setShowConnectModal(true);
             } else {
-                alert(`Failed to send email: ${error.message}`);
+                alert(`Error: ${error.message}`);
             }
         } finally {
             setIsSending(false);
         }
     };
-
+    
     return (
-        <div className="w-full min-h-screen bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            <header className="flex items-center mb-8 gap-4">
-                <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-2 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
+        <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
+             <header className="flex items-center mb-8 gap-4">
+                <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                    <BackArrowIcon className="h-6 w-6" />
                 </Button>
                 <div>
-                    <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight">
-                        <MailIcon className="w-8 h-8 text-primary" /> Communication
+                    <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
+                        <MailIcon className="w-6 h-6 text-primary" /> Communication Center
                     </h1>
-                    <div className="flex gap-2 items-center">
-                        <p className="text-muted-foreground text-sm">Compose emails via Gmail.</p>
-                        {!isPro && (
-                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
-                                {emailsSent}/{emailLimit} Free Emails Used
-                            </span>
-                        )}
-                    </div>
                 </div>
             </header>
 
-            <div className="flex flex-col lg:flex-row gap-6 flex-1">
-                {/* Left Column: Selection */}
-                <Card className="w-full lg:w-1/3 flex flex-col shadow-md h-fit bg-card border-border">
-                    <CardHeader className="border-b border-border pb-4">
-                        <CardTitle className="text-lg">1. Select Recipient</CardTitle>
+             <main className="flex-1 overflow-y-auto pb-10">
+                <Card className="max-w-3xl mx-auto w-full animate-fade-in-down">
+                    <CardHeader>
+                        <CardTitle>Compose Email</CardTitle>
+                        <CardDescription>Select a client and document to send via email.</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-4 space-y-6">
-                        <div className="space-y-2">
-                            <Label>Client</Label>
-                            <div className="relative">
-                                <select 
-                                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    value={selectedClientId}
-                                    onChange={(e) => setSelectedClientId(e.target.value)}
-                                >
-                                    <option value="">-- Choose a Client --</option>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="client-select">1. Select Client</Label>
+                                <select id="client-select" value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                                    <option value="">-- Select a Client --</option>
                                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                             </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="doc-select">2. Attach Document (Optional)</Label>
+                                <select id="doc-select" value={selectedDocId} onChange={e => setSelectedDocId(e.target.value)} disabled={!selectedClientId} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                                    <option value="">-- No Attachment --</option>
+                                    {clientDocs.map(d => <option key={d.id} value={d.id}>{(d.data as any).title || d.type}</option>)}
+                                </select>
+                            </div>
                         </div>
-
-                        {selectedClientId && (
-                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                                <Label>Select Document to Attach (Optional)</Label>
-                                {clientDocs.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground italic p-4 border border-dashed border-border rounded-md text-center">
-                                        No documents found for this client.
-                                    </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="recipient">To</Label>
+                            <Input id="recipient" value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="recipient@example.com" />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="subject">Subject</Label>
+                            <Input id="subject" value={subject} onChange={e => setSubject(e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="body">Body</Label>
+                            <textarea id="body" value={body} onChange={e => setBody(e.target.value)} className="w-full min-h-[150px] p-2 border rounded-md bg-background text-sm" />
+                        </div>
+                    </CardContent>
+                    <CardFooter className="bg-muted/30 p-4">
+                        <div className="w-full flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="text-xs text-muted-foreground">
+                                {!isPro && `Emails sent: ${emailsSent}/${emailLimit} this month.`}
+                            </div>
+                            <div className="flex gap-2 flex-wrap justify-end">
+                                <Button variant="outline" onClick={handleCopy}>
+                                    <CopyIcon className="w-4 h-4 mr-2" /> {copySuccess ? 'Copied!' : 'Copy Email Text'}
+                                </Button>
+                                {hasGoogleToken ? (
+                                    <Button onClick={handleSend} disabled={isSending || sendSuccess}>
+                                        {isSending ? 'Sending...' : (sendSuccess ? <><CheckCircleIcon className="w-4 h-4 mr-2" /> Sent!</> : <><SendIcon className="w-4 h-4 mr-2" /> Send via Gmail</>)}
+                                    </Button>
                                 ) : (
-                                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
-                                        {clientDocs.map(doc => {
-                                            const data = doc.data as any;
-                                            const title = data.title || data.invoiceNumber || data.estimateNumber || doc.type;
-                                            const date = new Date(doc.createdAt).toLocaleDateString();
-                                            const isSelected = selectedDocId === doc.id;
-
-                                            return (
-                                                <div 
-                                                    key={doc.id}
-                                                    onClick={() => setSelectedDocId(doc.id)}
-                                                    className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all hover:shadow-sm ${isSelected ? 'border-primary bg-background ring-1 ring-primary shadow-sm' : 'border-border hover:bg-secondary/50'}`}
-                                                >
-                                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center mr-3 ${isSelected ? 'border-primary bg-primary' : 'border-muted-foreground'}`}>
-                                                        {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className={`text-sm font-medium truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>{title}</p>
-                                                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                            <span>{doc.type}</span>
-                                                            <span>•</span>
-                                                            <span>{date}</span>
-                                                        </div>
-                                                    </div>
-                                                    {isSelected && <PaperclipIcon className="w-4 h-4 text-primary" />}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                                    <Button onClick={onConnectGmail}>
+                                        <GoogleIcon className="w-4 h-4 mr-2" /> Connect Gmail to Send
+                                    </Button>
                                 )}
                             </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Right Column: Compose */}
-                <Card className="w-full lg:w-2/3 flex flex-col shadow-md h-fit bg-card border-border">
-                    <CardHeader className="border-b border-border pb-4 flex flex-row justify-between items-center">
-                        <CardTitle className="text-lg">2. Compose Message</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-5">
-                        <div className="space-y-1.5">
-                            <Label>To</Label>
-                            <Input 
-                                value={recipientEmail} 
-                                onChange={e => setRecipientEmail(e.target.value)} 
-                                placeholder="client@example.com" 
-                                className="font-medium"
-                            />
                         </div>
-                        
-                        <div className="space-y-1.5">
-                            <Label>Subject</Label>
-                            <Input 
-                                value={subject} 
-                                onChange={e => setSubject(e.target.value)} 
-                                placeholder="Email Subject" 
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                                <Label>Message Body</Label>
-                                <span className="text-xs text-muted-foreground">Supports plain text</span>
-                            </div>
-                            <textarea 
-                                className="flex min-h-[250px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                                value={body}
-                                onChange={e => setBody(e.target.value)}
-                                placeholder="Type your message here..."
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-xs text-muted-foreground uppercase font-bold">Insert Info</Label>
-                            <div className="flex flex-wrap gap-2">
-                                {['[Client Name]', '[Job Name]', '[My Company]', '[Document Number]', '[Total Amount]'].map(v => (
-                                    <button 
-                                        key={v}
-                                        onClick={() => insertVariable(v)}
-                                        className="px-3 py-1.5 text-xs font-medium bg-secondary text-secondary-foreground rounded-full border border-border hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all shadow-sm"
-                                    >
-                                        {v}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </CardContent>
-                    <CardFooter className="border-t border-border p-4 flex justify-end items-center gap-3">
-                        <Button variant="ghost" size="sm" onClick={handleCopyEmail} className="h-10" title="Copy subject and body">
-                            <CopyIcon className="w-4 h-4 mr-2" /> {copySuccess ? 'Copied!' : 'Copy Email'}
-                        </Button>
-                        {sendSuccess ? (
-                            <div className="flex items-center text-green-600 font-bold animate-in fade-in slide-in-from-right-2">
-                                <CheckCircleIcon className="w-5 h-5 mr-2" /> Sent successfully!
-                            </div>
-                        ) : (
-                            <Button 
-                                onClick={handleSendEmail} 
-                                disabled={!recipientEmail || isSending} 
-                                className="px-8 shadow-md bg-primary hover:bg-primary/90"
-                            >
-                                {isSending ? 'Sending...' : (
-                                    <>
-                                        <SendIcon className="w-4 h-4 mr-2" /> Send via Gmail
-                                    </>
-                                )}
-                            </Button>
-                        )}
                     </CardFooter>
                 </Card>
-            </div>
-            
-            <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} featureName={limitMessage || "Email Limit Reached"} />
-            
+            </main>
+
             {showConnectModal && (
-               <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowConnectModal(false)}>
-                   <Card className="w-full max-w-md p-6 shadow-xl" onClick={e => e.stopPropagation()}>
-                       <CardHeader>
-                           <CardTitle>Connect Gmail</CardTitle>
-                           <CardDescription>Permission required to send emails.</CardDescription>
-                       </CardHeader>
-                       <CardContent className="space-y-4">
-                           <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-sm rounded-md">
-                               To send emails from your address, please authorize Gmail access. This is a one-time setup.
-                           </div>
-                           <Button onClick={onConnectGmail} className="w-full flex gap-2">
-                               <GoogleIcon className="w-5 h-5" /> Connect Gmail
-                           </Button>
-                       </CardContent>
-                       <CardFooter className="justify-end">
-                           <Button variant="ghost" onClick={() => setShowConnectModal(false)}>Cancel</Button>
-                       </CardFooter>
-                   </Card>
-               </div>
-           )}
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowConnectModal(false)}>
+                    <Card className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+                        <CardHeader>
+                            <CardTitle>Connect to Gmail</CardTitle>
+                            <CardDescription>To send emails directly from the app, you need to connect your Google account.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-muted-foreground">We only request permission to send emails on your behalf. We will never read your emails.</p>
+                        </CardContent>
+                        <CardFooter className="flex justify-end gap-2">
+                            <Button variant="ghost" onClick={() => setShowConnectModal(false)}>Later</Button>
+                            <Button onClick={onConnectGmail}>
+                                <GoogleIcon className="w-4 h-4 mr-2" /> Connect Now
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                </div>
+            )}
+            <UpgradeModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} featureName={limitMessage || "Direct Email Sending"} />
         </div>
     );
 };
