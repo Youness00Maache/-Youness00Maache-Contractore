@@ -452,8 +452,7 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   const [view, setView] = useState<AppView>(() => {
-      // Check path only once on initial load for direct public links
-      const path = window.location.pathname.replace(/\/$/, '');
+      const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
       if (path === '/privacy') return { screen: 'privacy' };
       if (path === '/terms') return { screen: 'terms' };
       if (path === '/security') return { screen: 'security' };
@@ -541,11 +540,8 @@ const App: React.FC = () => {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  useEffect(() => {
-    if (view.screen !== 'welcome' && view.screen !== 'auth' && !loading) {
-      localStorage.setItem('app_view_state', JSON.stringify(view));
-    }
-  }, [view, loading]);
+  // REMOVED: Effect that saves view state to localStorage
+  // This prevents the app from remembering the last page and forces a dashboard landing on fresh load.
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -772,21 +768,12 @@ const App: React.FC = () => {
         }
     }
 
-    const savedViewStr = localStorage.getItem('app_view_state');
+    // REMOVED: Restore view from localStorage. Always default to dashboard.
     const path = window.location.pathname.replace(/\/$/, '');
-    
-    // Only restore from localStorage if NOT visiting a direct public URL
-    if (savedViewStr && !['/privacy', '/terms', '/security'].includes(path)) {
-        try {
-            const savedView = JSON.parse(savedViewStr);
-            if (savedView.screen !== 'welcome' && savedView.screen !== 'auth') {
-                setView(savedView);
-            }
-        } catch (e) {}
-    } else if (!['/privacy', '/terms', '/security'].includes(path)) {
-        // Only set default dashboard if not on a public page
+    if (!['/privacy', '/terms', '/security'].includes(path)) {
         setView({ screen: 'dashboard' });
     }
+    
     setLoading(false);
   };
 
@@ -838,6 +825,8 @@ const App: React.FC = () => {
     setSession(null);
     setView({ screen: 'welcome' });
   };
+
+  // ... (rest of the file remains unchanged)
 
   const markNotificationsAsRead = async () => {
       if (!session || !navigator.onLine) return;
