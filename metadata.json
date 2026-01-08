@@ -1,0 +1,8 @@
+{
+  "name": "ContractorDocs",
+  "description": "A web application for contractors to manage job-related documents like invoices, timesheets, and reports. It allows for manual data entry and professional PDF generation for all essential paperwork.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

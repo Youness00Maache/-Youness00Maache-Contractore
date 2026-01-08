@@ -1,0 +1,20 @@
+{
+  "name": "ContractorDocs",
+  "short_name": "ContractorDocs",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0000bb",
+  "icons": [
+    {
+      "src": "https://images.contractordocs.app/contractor-icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://images.contractordocs.app/contractor-icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
