@@ -11,6 +11,53 @@ interface TemplateSelectorProps {
     onColorsChange: (colors: { primary: string, secondary: string }) => void;
 }
 
+// Template color definitions matching pdfGenerator.ts
+const templateColors: Record<string, { primary: string, secondary: string }> = {
+    // Existing Templates
+    standard: { primary: '#000000', secondary: '#666666' },
+    professional: { primary: '#2c3e50', secondary: '#34495e' },
+    elegant: { primary: '#8e44ad', secondary: '#9b59b6' },
+    warm: { primary: '#d35400', secondary: '#e67e22' },
+    retro: { primary: '#c0392b', secondary: '#e74c3c' },
+    modern_blue: { primary: '#3498db', secondary: '#2980b9' },
+    tech: { primary: '#16a085', secondary: '#1abc9c' },
+    industrial: { primary: '#f39c12', secondary: '#d35400' },
+    minimal: { primary: '#95a5a6', secondary: '#7f8c8d' },
+    bold: { primary: '#000000', secondary: '#000000' },
+    // Classic Professional
+    executive_classic: { primary: '#1e3a8a', secondary: '#374151' },
+    corporate_standard: { primary: '#4b5563', secondary: '#6b7280' },
+    traditional_blue: { primary: '#1e40af', secondary: '#3b82f6' },
+    business_formal: { primary: '#0f172a', secondary: '#334155' },
+    // Modern Minimalist
+    scandinavian: { primary: '#64748b', secondary: '#94a3b8' },
+    tech_modern: { primary: '#0ea5e9', secondary: '#06b6d4' },
+    digital_first: { primary: '#8b5cf6', secondary: '#a78bfa' },
+    clean_lines: { primary: '#14b8a6', secondary: '#2dd4bf' },
+    contemporary: { primary: '#6366f1', secondary: '#818cf8' },
+    // Corporate
+    enterprise: { primary: '#1e40af', secondary: '#2563eb' },
+    financial: { primary: '#047857', secondary: '#059669' },
+    legal_pro: { primary: '#0369a1', secondary: '#0284c7' },
+    consulting: { primary: '#475569', secondary: '#64748b' },
+    corporate_premium: { primary: '#7c3aed', secondary: '#8b5cf6' },
+    // Creative
+    artistic: { primary: '#ec4899', secondary: '#f472b6' },
+    vibrant_pro: { primary: '#dc2626', secondary: '#ef4444' },
+    designer: { primary: '#7c3aed', secondary: '#a855f7' },
+    trendy: { primary: '#ea580c', secondary: '#f97316' },
+    // Construction
+    construction_pro: { primary: '#f97316', secondary: '#fb923c' },
+    builder_modern: { primary: '#eab308', secondary: '#facc15' },
+    trade_pro: { primary: '#0891b2', secondary: '#06b6d4' },
+    project_manager: { primary: '#15803d', secondary: '#16a34a' },
+    // Premium
+    gold_standard: { primary: '#d97706', secondary: '#f59e0b' },
+    platinum: { primary: '#71717a', secondary: '#a1a1aa' },
+    executive_suite: { primary: '#18181b', secondary: '#3f3f46' },
+    prestige: { primary: '#831843', secondary: '#9f1239' },
+};
+
 const layouts = [
     // Existing Templates
     { id: 'standard', name: 'Standard', type: 'Classic', category: 'Classic' },
@@ -68,10 +115,20 @@ const categories = ['All', 'Classic', 'Modern', 'Corporate', 'Creative', 'Constr
 const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedTemplateId, onSelectTemplate, themeColors, onColorsChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [tempLayout, setTempLayout] = useState(selectedTemplateId);
-    const [primaryColor, setPrimaryColor] = useState(themeColors?.primary || '#0000bb');
-    const [secondaryColor, setSecondaryColor] = useState(themeColors?.secondary || '#666666');
+    const [primaryColor, setPrimaryColor] = useState(themeColors?.primary || templateColors[selectedTemplateId]?.primary || '#0000bb');
+    const [secondaryColor, setSecondaryColor] = useState(themeColors?.secondary || templateColors[selectedTemplateId]?.secondary || '#666666');
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
+
+    // When template is selected, update colours to match template's default palette
+    const handleTemplateSelect = (id: string) => {
+        setTempLayout(id);
+        const colors = templateColors[id];
+        if (colors) {
+            setPrimaryColor(colors.primary);
+            setSecondaryColor(colors.secondary);
+        }
+    };
 
     const handleApply = () => {
         onSelectTemplate(tempLayout);
@@ -127,8 +184,8 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedTemplateId,
                                             key={cat}
                                             onClick={() => setSelectedCategory(cat)}
                                             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${selectedCategory === cat
-                                                    ? 'bg-primary text-primary-foreground shadow-sm'
-                                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                                                ? 'bg-primary text-primary-foreground shadow-sm'
+                                                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                                                 }`}
                                         >
                                             {cat}
@@ -141,10 +198,10 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedTemplateId,
                                     {filteredLayouts.map((l) => (
                                         <button
                                             key={l.id}
-                                            onClick={() => setTempLayout(l.id)}
+                                            onClick={() => handleTemplateSelect(l.id)}
                                             className={`p-2.5 rounded-lg border text-left transition-all relative overflow-hidden ${tempLayout === l.id
-                                                    ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm'
-                                                    : 'border-border hover:bg-secondary hover:border-primary/50'
+                                                ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm'
+                                                : 'border-border hover:bg-secondary hover:border-primary/50'
                                                 }`}
                                         >
                                             <span className="font-semibold text-xs block truncate">{l.name}</span>
