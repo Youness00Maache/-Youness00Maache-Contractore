@@ -562,6 +562,7 @@ const App: React.FC = () => {
           if (session.provider_token) {
             localStorage.setItem('google_provider_token', session.provider_token);
           }
+          setView({ screen: 'dashboard' });
         } else {
           setLoading(false);
         }
@@ -580,6 +581,7 @@ const App: React.FC = () => {
               if (!error) fetchData(); // Refresh profile state
             });
           }
+          setView({ screen: 'dashboard' });
         } else {
           setProfile(null);
           setJobs([]);
@@ -1241,9 +1243,7 @@ const App: React.FC = () => {
     const t = getTranslation();
     const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
 
-    if (view.screen === 'dashboard' || view.screen === 'calendar') {
-      items.push({ icon: CalendarIcon, label: 'Calendar', onClick: navigateToCalendar });
-    }
+
 
     if (view.screen === 'jobDetails') {
       items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as { jobId: string }).jobId) });
@@ -1293,6 +1293,8 @@ const App: React.FC = () => {
           onDeleteClient={handleDeleteClient}
           isOnline={isOnline}
           onNavigateToNewDoc={handleNavigateToNewDoc}
+          onNavigateToJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+          onNavigateToDoc={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType })}
         />;
       case 'inventory':
         return <InventoryView
@@ -1337,7 +1339,7 @@ const App: React.FC = () => {
   return (
     <main className="w-full min-h-screen bg-background">
       {renderContent()}
-      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients' || view.screen === 'calendar') && (
+      {session && !loading && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
         <Dock items={getDockItems()} />
       )}
       <UpgradeModal isOpen={showGlobalUpgrade} onClose={() => setShowGlobalUpgrade(false)} featureName={upgradeFeature} onUpgrade={handleUpgradeSuccess} />

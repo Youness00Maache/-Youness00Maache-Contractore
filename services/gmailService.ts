@@ -17,7 +17,8 @@ export const sendGmail = async (
   subject: string,
   body: string,
   attachment: { name: string; data: string; type: string } | undefined,
-  accessToken?: string
+  accessToken?: string,
+  htmlBody?: string // NEW: Optional HTML body
 ) => {
   // Use provided token, or fallback to session/localStorage for legacy support
   const providerToken = accessToken || session.provider_token || localStorage.getItem('google_provider_token');
@@ -26,7 +27,7 @@ export const sendGmail = async (
     throw new Error("No provider token found. Please sign in with Google again.");
   }
 
-  const mimeMessage = createMimeMessage(to, subject, body, attachment);
+  const mimeMessage = createMimeMessage(to, subject, body, attachment, htmlBody);
   // Encode to Base64URL
   const base64EncodedEmail = btoa(mimeMessage).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -60,7 +61,7 @@ export const sendGmail = async (
   return response.json();
 };
 
-const createMimeMessage = (to: string, subject: string, body: string, attachment?: { name: string; data: string; type: string }) => {
+const createMimeMessage = (to: string, subject: string, body: string, attachment?: { name: string; data: string; type: string }, htmlBody?: string) => {
   const boundary = "foo_bar_baz";
   const nl = "\r\n";
 
@@ -70,11 +71,32 @@ const createMimeMessage = (to: string, subject: string, body: string, attachment
   message += `MIME-Version: 1.0${nl}`;
   message += `Content-Type: multipart/mixed; boundary="${boundary}"${nl}${nl}`;
 
-  // Body
-  message += `--${boundary}${nl}`;
-  message += `Content-Type: text/plain; charset="UTF-8"${nl}`;
-  message += `Content-Transfer-Encoding: 7bit${nl}${nl}`;
-  message += `${body}${nl}${nl}`;
+  // If HTML body is provided, create multipart/alternative for both plain text and HTML
+  if (htmlBody) {
+    const altBoundary = "alt_boundary";
+    message += `--${boundary}${nl}`;
+    message += `Content-Type: multipart/alternative; boundary="${altBoundary}"${nl}${nl}`;
+
+    // Plain text version
+    message += `--${altBoundary}${nl}`;
+    message += `Content-Type: text/plain; charset="UTF-8"${nl}`;
+    message += `Content-Transfer-Encoding: 7bit${nl}${nl}`;
+    message += `${body}${nl}${nl}`;
+
+    // HTML version
+    message += `--${altBoundary}${nl}`;
+    message += `Content-Type: text/html; charset="UTF-8"${nl}`;
+    message += `Content-Transfer-Encoding: 7bit${nl}${nl}`;
+    message += `${htmlBody}${nl}${nl}`;
+
+    message += `--${altBoundary}--${nl}`;
+  } else {
+    // Plain text only (legacy behavior)
+    message += `--${boundary}${nl}`;
+    message += `Content-Type: text/plain; charset="UTF-8"${nl}`;
+    message += `Content-Transfer-Encoding: 7bit${nl}${nl}`;
+    message += `${body}${nl}${nl}`;
+  }
 
   // Attachment
   if (attachment) {

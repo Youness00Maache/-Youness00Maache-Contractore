@@ -10,6 +10,8 @@ import { Session } from '@supabase/supabase-js';
 import { sendGmail } from '../services/gmailService.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 import UpgradeModal from './UpgradeModal.tsx';
+import EmailTemplateSelector from './EmailTemplateSelector.tsx';
+import { EMAIL_TEMPLATES, EmailTemplateDefinition, applyTemplateVariables } from '../utils/emailTemplates.ts';
 
 interface CommunicationViewProps {
     clients: Client[];
@@ -42,6 +44,13 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [showUpgrade, setShowUpgrade] = useState(false);
     const [limitMessage, setLimitMessage] = useState('');
     const [copySuccess, setCopySuccess] = useState(false);
+
+    // Template System State
+    const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+    const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplateDefinition | null>(null);
+    const [primaryColor, setPrimaryColor] = useState('#3b82f6'); // Default blue
+    const [secondaryColor, setSecondaryColor] = useState('#8b5cf6'); // Default purple
+    const [showPreview, setShowPreview] = useState(false);
 
     // Watch for session/profile updates
     useEffect(() => {
@@ -225,7 +234,10 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                 }
             }
 
-            await sendGmail(session, recipientEmail, subject, body, attachment, profile.gmailAccessToken);
+            // Generate HTML email if template is selected
+            const htmlEmail = generateHtmlEmail();
+
+            await sendGmail(session, recipientEmail, subject, body, attachment, profile.gmailAccessToken, htmlEmail);
 
             setSendSuccess(true);
             if (onEmailSent) onEmailSent();
@@ -243,6 +255,41 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
         } finally {
             setIsSending(false);
         }
+    };
+
+    // Generate HTML email from template
+    const generateHtmlEmail = (): string | undefined => {
+        if (!selectedTemplate) return undefined;
+
+        const variables: Record<string, string> = {
+            body: body.replace(/\n/g, '<br>'),
+            logo_url: profile.logoUrl || '',
+            company_name: profile.companyName || '',
+            company_address: profile.address || '',
+            company_phone: profile.phone || '',
+            company_website: profile.website || '',
+            user_name: profile.name || '',
+            user_job_title: profile.jobTitle || '',
+            user_phone: profile.phone || '',
+            user_website: profile.website || '',
+            primary_color: primaryColor,
+            secondary_color: secondaryColor,
+        };
+
+        // Simple template variable replacement (basic version)
+        let html = selectedTemplate.html;
+        for (const [key, value] of Object.entries(variables)) {
+            const placeholder = `{{${key}}}`;
+            html = html.split(placeholder).join(value);
+        }
+
+        // Handle conditional blocks (basic #if support)
+        const ifPattern = /\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
+        html = html.replace(ifPattern, (match, varName, content) => {
+            return variables[varName] ? content : '';
+        });
+
+        return html;
     };
 
     return (
@@ -336,6 +383,93 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                         <CardTitle className="text-lg">2. Compose Message</CardTitle>
                     </CardHeader>
                     <CardContent className="p-6 space-y-5">
+                        {/* Template Selection & Customization */}
+                        <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950/20 dark:to-blue-950/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800">
+                            <div className="flex justify-between items-start mb-3">
+                                <div>
+                                    <Label className="text-sm font-bold">📧 Email Template</Label>
+                                    <p className="text-xs text-muted-foreground mt-1">Choose a professional design for your email</p>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowTemplateSelector(true)}
+                                    className="bg-white hover:bg-primary hover:text-primary-foreground"
+                                >
+                                    <StarIcon className="w-4 h-4 mr-2" />
+                                    {selectedTemplate ? 'Change Template' : 'Browse Templates'}
+                                </Button>
+                            </div>
+
+                            {selectedTemplate && (
+                                <div className="mt-3 p-3 bg-white dark:bg-gray-900 rounded-lg border border-border space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                                            <span className="text-sm font-medium">{selectedTemplate.name}</span>
+                                            <span className="text-xs text-muted-foreground capitalize">({selectedTemplate.category})</span>
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setSelectedTemplate(null)}
+                                            className="h-7 text-xs"
+                                        >
+                                            <XCircleIcon className="w-3 h-3 mr-1" />
+                                            Remove
+                                        </Button>
+                                    </div>
+
+                                    {/* Color Customization */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <Label className="text-xs mb-1 block">Primary Color</Label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={primaryColor}
+                                                    onChange={(e) => setPrimaryColor(e.target.value)}
+                                                    className="w-10 h-10 rounded border border-border cursor-pointer"
+                                                />
+                                                <Input
+                                                    value={primaryColor}
+                                                    onChange={(e) => setPrimaryColor(e.target.value)}
+                                                    className="h-10 text-xs font-mono"
+                                                    placeholder="#3b82f6"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <Label className="text-xs mb-1 block">Secondary Color</Label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={secondaryColor}
+                                                    onChange={(e) => setSecondaryColor(e.target.value)}
+                                                    className="w-10 h-10 rounded border border-border cursor-pointer"
+                                                />
+                                                <Input
+                                                    value={secondaryColor}
+                                                    onChange={(e) => setSecondaryColor(e.target.value)}
+                                                    className="h-10 text-xs font-mono"
+                                                    placeholder="#8b5cf6"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setShowPreview(true)}
+                                        className="w-full"
+                                    >
+                                        👁️ Preview Email
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+
                         <div className="space-y-1.5">
                             <Label>To</Label>
                             <Input
@@ -431,8 +565,45 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                     </Card>
                 </div>
             )}
+
+            {/* Template Selector Modal */}
+            {showTemplateSelector && (
+                <EmailTemplateSelector
+                    onSelect={(template) => {
+                        setSelectedTemplate(template);
+                        setShowTemplateSelector(false);
+                    }}
+                    onClose={() => setShowTemplateSelector(false)}
+                    selectedTemplateId={selectedTemplate?.id}
+                />
+            )}
+
+            {/* Preview Modal */}
+            {showPreview && selectedTemplate && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowPreview(false)}>
+                    <div className="w-full max-w-4xl max-h-[90vh] bg-background rounded-xl shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="border-b border-border p-4 flex justify-between items-center">
+                            <h3 className="text-lg font-bold">Email Preview</h3>
+                            <Button variant="ghost" size="sm" onClick={() => setShowPreview(false)}>
+                                <XCircleIcon className="w-5 h-5" />
+                            </Button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-6 bg-gray-50 dark:bg-gray-900">
+                            <div className="max-w-2xl mx-auto bg-white shadow-lg">
+                                <iframe
+                                    srcDoc={generateHtmlEmail()}
+                                    className="w-full h-full min-h-[600px] border-0"
+                                    title="Email Preview"
+                                    sandbox="allow-same-origin"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 export default CommunicationView;
+

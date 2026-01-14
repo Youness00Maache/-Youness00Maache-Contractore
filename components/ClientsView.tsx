@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import ClientDetails from './ClientDetails.tsx';
 import { Client, FormData as FormDataType, FormType, Job } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
@@ -17,6 +18,8 @@ interface ClientsViewProps {
     onDeleteClient?: (id: string) => Promise<void>;
     isOnline?: boolean;
     onNavigateToNewDoc?: (type: FormType, clientId: string) => void;
+    onNavigateToJob?: (jobId: string) => void;
+    onNavigateToDoc?: (formId: string, jobId: string, type: FormType) => void;
 }
 
 const ClientsView: React.FC<ClientsViewProps> = ({
@@ -29,8 +32,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     onAddClient,
     onDeleteClient,
     isOnline,
-    onNavigateToNewDoc
+    onNavigateToNewDoc,
+    onNavigateToJob,
+    onNavigateToDoc
 }) => {
+    const [selectedDetailsClient, setSelectedDetailsClient] = useState<Client | null>(null);
     const [localClients, setLocalClients] = useState<Client[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -178,6 +184,27 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
+    if (selectedDetailsClient) {
+        // Filter jobs and docs for this client
+        const clientJobs = jobs.filter(j => j.clientName === selectedDetailsClient.name);
+        const clientJobIds = clientJobs.map(j => j.id);
+        const clientDocs = forms.filter(f => {
+            const data = f.data as any;
+            return clientJobIds.includes(f.jobId) || data.clientName === selectedDetailsClient.name;
+        });
+
+        return (
+            <ClientDetails
+                client={selectedDetailsClient}
+                jobs={clientJobs}
+                docs={clientDocs}
+                onBack={() => setSelectedDetailsClient(null)}
+                onNavigateToJob={onNavigateToJob || (() => { })}
+                onNavigateToDoc={onNavigateToDoc || (() => { })}
+            />
+        );
+    }
+
     return (
         <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
             <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
@@ -220,7 +247,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredClients.map(client => (
-                        <Card key={client.id} className="group hover:shadow-xl transition-all duration-300 border-blue-100 dark:border-border hover:border-blue-300 dark:hover:border-primary/50 bg-gradient-to-br from-white to-blue-50/30 dark:from-card dark:to-card relative overflow-hidden">
+                        <Card
+                            key={client.id}
+                            onClick={() => setSelectedDetailsClient(client)}
+                            className="group hover:shadow-xl transition-all duration-300 border-blue-100 dark:border-border hover:border-blue-300 dark:hover:border-primary/50 bg-gradient-to-br from-white to-blue-50/30 dark:from-card dark:to-card relative overflow-hidden cursor-pointer"
+                        >
                             <CardHeader className="pb-3 flex flex-row gap-4 items-center border-b border-blue-100 dark:border-border bg-white/50 dark:bg-secondary/20">
                                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-lg relative">
                                     {client.name.charAt(0).toUpperCase()}

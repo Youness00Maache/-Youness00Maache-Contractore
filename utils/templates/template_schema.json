@@ -1,0 +1,504 @@
+{
+    "template_info": {
+        "filename": "1.pptx",
+        "type": "invoice",
+        "language": "french",
+        "total_placeholders": 51,
+        "max_line_items": 4,
+        "has_table": true,
+        "table_structure": {
+            "columns": 4,
+            "headers": [
+                "DESCRIPTION",
+                "PRIX HT",
+                "QUANTITÉ",
+                "TOTAL"
+            ],
+            "max_rows": 4
+        }
+    },
+    "placeholder_schema": {
+        "header": {
+            "document_title": {
+                "current_value": "FACTURE",
+                "field_name": "document_title",
+                "font": "Coco Gothic Heavy",
+                "size": "50pt",
+                "max_length": 30,
+                "editable": true
+            },
+            "company_logo_text": {
+                "current_value": "La",
+                "field_name": "company_logo_text",
+                "font": "Mistrully",
+                "size": "55pt",
+                "max_length": 20,
+                "editable": true
+            },
+            "invoice_number": {
+                "current_value": "0012345",
+                "field_name": "invoice_number",
+                "font": "Coco Gothic",
+                "size": "14pt",
+                "max_length": 20,
+                "editable": true,
+                "format": "N° {number}"
+            },
+            "invoice_date": {
+                "current_value": "30/07/27",
+                "field_name": "invoice_date",
+                "font": "Coco Gothic",
+                "size": "14pt",
+                "max_length": 10,
+                "editable": true,
+                "format": "DD/MM/YY"
+            }
+        },
+        "vendor": {
+            "name": {
+                "current_value": "Andrea Sanchez",
+                "field_name": "vendor_name",
+                "font": "Coco Gothic",
+                "size": "11pt",
+                "max_length": 50,
+                "editable": true
+            },
+            "email": {
+                "current_value": "hello@reallygreatsite.com",
+                "field_name": "vendor_email",
+                "font": "Coco Gothic",
+                "size": "11pt",
+                "max_length": 50,
+                "editable": true
+            },
+            "address": {
+                "current_value": "123 Anywhere St., Any City",
+                "field_name": "vendor_address",
+                "font": "Coco Gothic",
+                "size": "11pt",
+                "max_length": 60,
+                "editable": true
+            }
+        },
+        "client": {
+            "label": {
+                "current_value": "Client",
+                "field_name": "client_label",
+                "font": "Coco Gothic Bold",
+                "size": "20pt",
+                "max_length": 20,
+                "editable": true
+            },
+            "name": {
+                "current_value": "Lou Huet",
+                "field_name": "client_name",
+                "font": "Coco Gothic Bold",
+                "size": "20pt",
+                "max_length": 50,
+                "editable": true
+            },
+            "phone": {
+                "current_value": "123-456-7890",
+                "field_name": "client_phone",
+                "font": "Coco Gothic",
+                "size": "11pt",
+                "max_length": 20,
+                "editable": true
+            },
+            "email": {
+                "current_value": "hello@reallygreatsite.com",
+                "field_name": "client_email",
+                "font": "Coco Gothic",
+                "size": "11pt",
+                "max_length": 50,
+                "editable": true
+            },
+            "address": {
+                "current_value": "123 Anywhere St., Any City",
+                "field_name": "client_address",
+                "font": "Coco Gothic",
+                "size": "11pt",
+                "max_length": 60,
+                "editable": true
+            }
+        },
+        "table_headers": {
+            "description": {
+                "current_value": "DESCRIPTION",
+                "field_name": "table_header_description",
+                "font": "Coco Gothic Bold",
+                "size": "14pt",
+                "color": "#FFF2EA",
+                "background": "#191919",
+                "editable": true
+            },
+            "price": {
+                "current_value": "PRIX HT",
+                "field_name": "table_header_price",
+                "font": "Coco Gothic Bold",
+                "size": "14pt",
+                "color": "#FFF2EA",
+                "background": "#191919",
+                "editable": true
+            },
+            "quantity": {
+                "current_value": "QUANTITÉ",
+                "field_name": "table_header_quantity",
+                "font": "Coco Gothic Bold",
+                "size": "14pt",
+                "color": "#FFF2EA",
+                "background": "#191919",
+                "editable": true
+            },
+            "total": {
+                "current_value": "TOTAL",
+                "field_name": "table_header_total",
+                "font": "Coco Gothic Bold",
+                "size": "14pt",
+                "color": "#FFF2EA",
+                "background": "#191919",
+                "editable": true
+            }
+        },
+        "line_items": [
+            {
+                "index": 1,
+                "description": {
+                    "current_value": "Séance photo (portrait individuel)",
+                    "field_name": "line_item_1_description",
+                    "font": "Coco Gothic",
+                    "size": "12pt",
+                    "max_length": 80,
+                    "editable": true
+                },
+                "unit_price": {
+                    "current_value": "300€",
+                    "field_name": "line_item_1_price",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true
+                },
+                "quantity": {
+                    "current_value": "1",
+                    "field_name": "line_item_1_quantity",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 6,
+                    "editable": true
+                },
+                "total": {
+                    "current_value": "300€",
+                    "field_name": "line_item_1_total",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true,
+                    "calculated": true
+                }
+            },
+            {
+                "index": 2,
+                "description": {
+                    "current_value": "Retouches photo (10 images)",
+                    "field_name": "line_item_2_description",
+                    "font": "Coco Gothic",
+                    "size": "12pt",
+                    "max_length": 80,
+                    "editable": true
+                },
+                "unit_price": {
+                    "current_value": "10€",
+                    "field_name": "line_item_2_price",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true
+                },
+                "quantity": {
+                    "current_value": "10",
+                    "field_name": "line_item_2_quantity",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 6,
+                    "editable": true
+                },
+                "total": {
+                    "current_value": "100€",
+                    "field_name": "line_item_2_total",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true,
+                    "calculated": true
+                }
+            },
+            {
+                "index": 3,
+                "description": {
+                    "current_value": "Album photo imprimé (20 pages)",
+                    "field_name": "line_item_3_description",
+                    "font": "Coco Gothic",
+                    "size": "12pt",
+                    "max_length": 80,
+                    "editable": true
+                },
+                "unit_price": {
+                    "current_value": "30€",
+                    "field_name": "line_item_3_price",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true
+                },
+                "quantity": {
+                    "current_value": "2",
+                    "field_name": "line_item_3_quantity",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 6,
+                    "editable": true
+                },
+                "total": {
+                    "current_value": "60€",
+                    "field_name": "line_item_3_total",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true,
+                    "calculated": true
+                }
+            },
+            {
+                "index": 4,
+                "description": {
+                    "current_value": "Tirage photo",
+                    "field_name": "line_item_4_description",
+                    "font": "Coco Gothic",
+                    "size": "12pt",
+                    "max_length": 80,
+                    "editable": true
+                },
+                "unit_price": {
+                    "current_value": "5€",
+                    "field_name": "line_item_4_price",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true
+                },
+                "quantity": {
+                    "current_value": "45",
+                    "field_name": "line_item_4_quantity",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 6,
+                    "editable": true
+                },
+                "total": {
+                    "current_value": "225",
+                    "field_name": "line_item_4_total",
+                    "font": "Coco Gothic",
+                    "size": "14pt",
+                    "max_length": 15,
+                    "editable": true,
+                    "calculated": true
+                }
+            }
+        ],
+        "totals": {
+            "subtotal_label": {
+                "current_value": "SOUS TOTAL",
+                "field_name": "subtotal_label",
+                "font": "Coco Gothic",
+                "size": "14pt",
+                "editable": true
+            },
+            "subtotal_amount": {
+                "current_value": "685€",
+                "field_name": "subtotal_amount",
+                "font": "Coco Gothic",
+                "size": "14pt",
+                "editable": true,
+                "calculated": true
+            },
+            "tax_label": {
+                "current_value": "TVA 0%",
+                "field_name": "tax_label",
+                "font": "Coco Gothic",
+                "size": "14pt",
+                "editable": true
+            },
+            "tax_amount": {
+                "current_value": "0€",
+                "field_name": "tax_amount",
+                "font": "Coco Gothic",
+                "size": "14pt",
+                "editable": true,
+                "calculated": true
+            },
+            "grand_total_label": {
+                "current_value": "TOTAL.",
+                "field_name": "grand_total_label",
+                "font": "Coco Gothic Bold",
+                "size": "14pt",
+                "color": "#FFFFFF",
+                "background": "#000000",
+                "editable": true
+            },
+            "grand_total_amount": {
+                "current_value": "685€",
+                "field_name": "grand_total_amount",
+                "font": "Coco Gothic Bold",
+                "size": "14pt",
+                "color": "#FFFFFF",
+                "background": "#000000",
+                "editable": true,
+                "calculated": true
+            }
+        },
+        "payment": {
+            "payment_method": {
+                "current_value": "chèque",
+                "field_name": "payment_method",
+                "font": "Coco Gothic",
+                "size": "12pt",
+                "max_length": 40,
+                "editable": true,
+                "format": "Mode de paiement : {method}"
+            },
+            "due_date": {
+                "current_value": "30/12/27",
+                "field_name": "due_date",
+                "font": "Coco Gothic",
+                "size": "12pt",
+                "max_length": 10,
+                "editable": true,
+                "format": "Date d'échéance : {date}"
+            }
+        },
+        "footer": {
+            "thank_you_script": {
+                "current_value": "Merci",
+                "field_name": "thank_you_script",
+                "font": "Mistrully",
+                "size": "30pt",
+                "max_length": 20,
+                "editable": true
+            },
+            "thank_you_message": {
+                "current_value": "POUR VOTRE CONFIANCE",
+                "field_name": "thank_you_message",
+                "font": "Coco Gothic Heavy",
+                "size": "27pt",
+                "max_length": 50,
+                "editable": true
+            },
+            "signature_instructions": {
+                "current_value": "Signature suivie de la mention \"Lu et approuvé, bon pour accord\" :",
+                "field_name": "signature_instructions",
+                "font": "Coco Gothic",
+                "size": "12pt",
+                "max_length": 100,
+                "editable": true
+            }
+        }
+    },
+    "design_elements": {
+        "images": [
+            {
+                "id": "rId2",
+                "filename": "image1.png",
+                "size_bytes": 1073639,
+                "type": "decorative_gradient",
+                "editable": false,
+                "description": "Warm gradient overlay (pink/orange/yellow)"
+            },
+            {
+                "id": "rId3",
+                "filename": "image2.png",
+                "size_bytes": 753190,
+                "type": "decorative_gradient",
+                "editable": false,
+                "description": "Soft gradient accent (yellow/orange/pink) - used twice",
+                "usage_count": 2
+            },
+            {
+                "id": "rId4",
+                "filename": "image3.png",
+                "size_bytes": 958184,
+                "type": "decorative_gradient",
+                "editable": false,
+                "description": "Pastel gradient element (pink/yellow/orange)"
+            }
+        ],
+        "color_scheme": {
+            "primary_text": "#000000",
+            "header_background": "#191919",
+            "header_text": "#FFF2EA",
+            "total_background": "#000000",
+            "total_text": "#FFFFFF"
+        },
+        "customizable_colors": {
+            "table_header_bg": {
+                "current": "#191919",
+                "location": "Table header row background",
+                "applies_to": "table_headers"
+            },
+            "table_header_text": {
+                "current": "#FFF2EA",
+                "location": "Table header row text",
+                "applies_to": "table_headers"
+            },
+            "total_row_bg": {
+                "current": "#000000",
+                "location": "Grand total row background",
+                "applies_to": "grand_total"
+            },
+            "total_row_text": {
+                "current": "#FFFFFF",
+                "location": "Grand total row text",
+                "applies_to": "grand_total"
+            },
+            "body_text": {
+                "current": "#000000",
+                "location": "All body text",
+                "applies_to": "all_text"
+            }
+        },
+        "fonts": {
+            "coco_gothic": {
+                "variants": [
+                    "Regular",
+                    "Bold",
+                    "Heavy"
+                ],
+                "usage": "Body text, headers, totals"
+            },
+            "mistrully": {
+                "variants": [
+                    "Regular"
+                ],
+                "usage": "Decorative script elements (logo, thank you)"
+            }
+        }
+    },
+    "constraints": {
+        "line_items_max": 4,
+        "description_max_chars": 80,
+        "price_max_chars": 15,
+        "quantity_max_chars": 6,
+        "name_max_chars": 50,
+        "email_max_chars": 50,
+        "phone_max_chars": 20,
+        "address_max_chars": 60
+    },
+    "layout_preserved": {
+        "table_position": true,
+        "text_box_positions": true,
+        "font_sizes": true,
+        "alignment": true,
+        "spacing": true,
+        "decorative_elements": true
+    }
+}

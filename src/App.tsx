@@ -310,70 +310,70 @@ NOTIFY pgrst, 'reload config';
 
 const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => {
   return (
-  <div className="flex items-center justify-center min-h-screen bg-background p-4 md:p-8">
-    <Card className="max-w-4xl w-full animate-fade-in-down">
-      <CardHeader>
-        <CardTitle className="text-2xl text-destructive">Database Update Required</CardTitle>
-        <CardDescription>
-          To enable Price Book, Client Portal, and Inventory, please run this script.
-          <br/><br/>
-          <strong>This script is safe and will NOT delete your data.</strong>
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
+    <div className="flex items-center justify-center min-h-screen bg-background p-4 md:p-8">
+      <Card className="max-w-4xl w-full animate-fade-in-down">
+        <CardHeader>
+          <CardTitle className="text-2xl text-destructive">Database Update Required</CardTitle>
+          <CardDescription>
+            To enable Price Book, Client Portal, and Inventory, please run this script.
+            <br /><br />
+            <strong>This script is safe and will NOT delete your data.</strong>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
             <div>
-                <Label htmlFor="sql-script">SQL Script</Label>
-                <textarea
-                    id="sql-script"
-                    readOnly
-                    value={sqlScript}
-                    className="mt-1 w-full h-96 p-3 font-mono text-xs bg-muted rounded-md border focus:ring-2 focus:ring-primary"
-                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                />
+              <Label htmlFor="sql-script">SQL Script</Label>
+              <textarea
+                id="sql-script"
+                readOnly
+                value={sqlScript}
+                className="mt-1 w-full h-96 p-3 font-mono text-xs bg-muted rounded-md border focus:ring-2 focus:ring-primary"
+                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+              />
             </div>
-             <div>
-                <h4 className="font-semibold">Instructions:</h4>
-                <ol className="list-decimal list-inside text-sm text-muted-foreground mt-2 space-y-1">
-                    <li>Go to your <a href="https://app.supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Supabase Dashboard</a>.</li>
-                    <li>Click on <strong>SQL Editor</strong> (left sidebar).</li>
-                    <li>Click <strong>+ New query</strong>.</li>
-                    <li>Paste the script above and click <strong>Run</strong>.</li>
-                    <li>Come back here and refresh the page.</li>
-                </ol>
+            <div>
+              <h4 className="font-semibold">Instructions:</h4>
+              <ol className="list-decimal list-inside text-sm text-muted-foreground mt-2 space-y-1">
+                <li>Go to your <a href="https://app.supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Supabase Dashboard</a>.</li>
+                <li>Click on <strong>SQL Editor</strong> (left sidebar).</li>
+                <li>Click <strong>+ New query</strong>.</li>
+                <li>Paste the script above and click <strong>Run</strong>.</li>
+                <li>Come back here and refresh the page.</li>
+              </ol>
             </div>
-        </div>
-      </CardContent>
-      <CardFooter className="flex-col items-center gap-4">
-        <Button onClick={() => window.location.reload()} className="w-full">
-          Refresh Page
-        </Button>
-      </CardFooter>
-    </Card>
-  </div>
+          </div>
+        </CardContent>
+        <CardFooter className="flex-col items-center gap-4">
+          <Button onClick={() => window.location.reload()} className="w-full">
+            Refresh Page
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
   );
 };
 
 
 // Helper to upload a file to Supabase Storage
 const uploadFile = async (bucket: string, file: File, userId: string, isPublicUpload: boolean = false): Promise<string> => {
-    if (!navigator.onLine) {
-        throw new Error("Cannot upload file while offline");
-    }
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}/${Date.now()}.${fileExt}`;
-    
-    const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
-    if (error) {
-        console.error('Error uploading file:', error);
-        throw error;
-    }
-    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
-    return data.publicUrl;
+  if (!navigator.onLine) {
+    throw new Error("Cannot upload file while offline");
+  }
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${userId}/${Date.now()}.${fileExt}`;
+
+  const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
+  if (error) {
+    console.error('Error uploading file:', error);
+    throw error;
+  }
+  const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+  return data.publicUrl;
 };
 
 const App: React.FC = () => {
-  type AppView = 
+  type AppView =
     | { screen: 'welcome' }
     | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
     | { screen: 'dashboard' }
@@ -394,29 +394,29 @@ const App: React.FC = () => {
     | { screen: 'privacy' }
     | { screen: 'terms' }
     | { screen: 'security' };
-  
+
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   const [view, setView] = useState<AppView>(() => {
-      const params = new URLSearchParams(window.location.search);
-      // Check for Portal URL param
-      const portalKey = params.get('portal');
-      // Check for Approval Token
-      const approvalToken = params.get('approval_token');
+    const params = new URLSearchParams(window.location.search);
+    // Check for Portal URL param
+    const portalKey = params.get('portal');
+    // Check for Approval Token
+    const approvalToken = params.get('approval_token');
 
-      if (portalKey || approvalToken) {
-          // If external link exists, we don't need app state, we'll render portal view directly
-          return { screen: 'welcome' }; // Placeholder, logic handled below
-      }
+    if (portalKey || approvalToken) {
+      // If external link exists, we don't need app state, we'll render portal view directly
+      return { screen: 'welcome' }; // Placeholder, logic handled below
+    }
 
-      const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
-      if (path === '/privacy') return { screen: 'privacy' };
-      if (path === '/terms') return { screen: 'terms' };
-      if (path === '/security') return { screen: 'security' };
-      return { screen: 'welcome' };
+    const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
+    if (path === '/privacy') return { screen: 'privacy' };
+    if (path === '/terms') return { screen: 'terms' };
+    if (path === '/security') return { screen: 'security' };
+    return { screen: 'welcome' };
   });
-  
+
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [forms, setForms] = useState<FormDataType[]>([]);
@@ -424,15 +424,15 @@ const App: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  
+
   // External Access State
   const [portalKey, setPortalKey] = useState<string | null>(null);
   const [approvalToken, setApprovalToken] = useState<string | null>(null);
-  
+
   const [notificationCount, setNotificationCount] = useState(0);
 
   const [dbSetupError, setDbSetupError] = useState<string | null>(null);
-  
+
   const [theme, setTheme] = useState<'light' | 'dark' | 'blue'>(() => {
     const savedTheme = localStorage.getItem('theme');
     return (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'blue') ? (savedTheme as 'light' | 'dark' | 'blue') : 'dark';
@@ -440,40 +440,40 @@ const App: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [docSearchQuery, setDocSearchQuery] = useState('');
-  
+
   const [showToolsMenu, setShowToolsMenu] = useState(false);
 
   useEffect(() => {
-      const params = new URLSearchParams(window.location.search);
-      const pk = params.get('portal');
-      const at = params.get('approval_token');
-      
-      if (pk) {
-          setPortalKey(pk);
-          setLoading(false);
-      } else if (at) {
-          setApprovalToken(at);
-          setLoading(false);
-      }
+    const params = new URLSearchParams(window.location.search);
+    const pk = params.get('portal');
+    const at = params.get('approval_token');
+
+    if (pk) {
+      setPortalKey(pk);
+      setLoading(false);
+    } else if (at) {
+      setApprovalToken(at);
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-      const handleOnline = () => {
-          setIsOnline(true);
-          syncOfflineData();
-      };
-      const handleOffline = () => setIsOnline(false);
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('offline', handleOffline);
-      return () => {
-          window.removeEventListener('online', handleOnline);
-          window.removeEventListener('offline', handleOffline);
-      };
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncOfflineData();
+    };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [session]);
 
   const syncOfflineData = async () => {
-      // ... existing sync logic ...
-      fetchData();
+    // ... existing sync logic ...
+    fetchData();
   };
 
   useEffect(() => {
@@ -486,201 +486,201 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if ((!portalKey && !approvalToken) && !supabase) {
-        setLoading(false);
-        return;
+      setLoading(false);
+      return;
     }
     if (!portalKey && !approvalToken) {
-        supabase.auth.getSession().then(({ data: { session } }) => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
         setSession(session);
         if (session) {
-            if (session.provider_token) {
-                localStorage.setItem('google_provider_token', session.provider_token);
-            }
+          if (session.provider_token) {
+            localStorage.setItem('google_provider_token', session.provider_token);
+          }
         } else {
-            setLoading(false);
+          setLoading(false);
         }
-        });
+      });
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         setSession(session);
         if (session) {
-            if (session.provider_token) {
-                localStorage.setItem('google_provider_token', session.provider_token);
-            }
+          if (session.provider_token) {
+            localStorage.setItem('google_provider_token', session.provider_token);
+          }
         } else {
-            setProfile(null);
-            setJobs([]);
-            setForms([]);
-            setClients([]);
-            setInventory([]);
-            setSavedItems([]);
-            
-            const path = window.location.pathname.replace(/\/$/, '');
-            if (!['/privacy', '/terms', '/security'].includes(path)) {
-                setView({ screen: 'welcome' });
-            }
-            
-            setLoading(false);
-        }
-        });
+          setProfile(null);
+          setJobs([]);
+          setForms([]);
+          setClients([]);
+          setInventory([]);
+          setSavedItems([]);
 
-        return () => subscription.unsubscribe();
+          const path = window.location.pathname.replace(/\/$/, '');
+          if (!['/privacy', '/terms', '/security'].includes(path)) {
+            setView({ screen: 'welcome' });
+          }
+
+          setLoading(false);
+        }
+      });
+
+      return () => subscription.unsubscribe();
     }
   }, [portalKey, approvalToken]);
-  
+
   const fetchData = async () => {
     if (!session) return;
-    
+
     if (!profile) {
-        setLoading(true);
-        setLoadingMessage('Loading profile...');
+      setLoading(true);
+      setLoadingMessage('Loading profile...');
     }
 
     const user = session.user;
     let currentProfile: UserProfile | null = null;
 
     if (navigator.onLine) {
-        const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-        if (profileError && profileError.code !== 'PGRST116') { 
-            if (/relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(profileError.message)) {
-                setDbSetupError(SQL_SETUP_SCRIPT);
-                setLoading(false);
-                return;
-            }
+      if (profileError && profileError.code !== 'PGRST116') {
+        if (/relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(profileError.message)) {
+          setDbSetupError(SQL_SETUP_SCRIPT);
+          setLoading(false);
+          return;
         }
+      }
 
-        if (profileData) {
-            currentProfile = {
-                id: profileData.id,
-                email: profileData.email,
-                name: profileData.name,
-                companyName: profileData.company_name,
-                logoUrl: profileData.logo_url,
-                profilePictureUrl: profileData.profile_picture_url,
-                address: profileData.address,
-                phone: profileData.phone,
-                website: profileData.website,
-                jobTitle: profileData.job_title,
-                subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
-                language: profileData.language,
-                emailTemplates: profileData.email_templates,
-                theme: profileData.theme,
-                emailUsage: profileData.email_usage || 0
-            };
-            if (profileData.theme) {
-                setTheme(profileData.theme as 'light' | 'dark' | 'blue');
-            }
-            await dbApi.put('profile', currentProfile);
-        } else if (!profileError || profileError.code === 'PGRST116') {
-             // Create profile logic...
-             // Simplified for brevity, reusing existing logic
-             const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
-             const { data: newProfileData } = await supabase.from('profiles').insert({
-                    id: user.id,
-                    email: user.email,
-                    name: metaName || 'User',
-                    company_name: 'My Company',
-                    theme: theme,
-                }).select().single();
-             if (newProfileData) {
-                 currentProfile = {
-                     id: newProfileData.id,
-                     email: newProfileData.email,
-                     name: newProfileData.name,
-                     companyName: newProfileData.company_name,
-                     logoUrl: '',
-                     profilePictureUrl: '',
-                     address: '',
-                     phone: '',
-                     website: '',
-                     subscriptionTier: 'Basic',
-                     theme: theme,
-                     emailUsage: 0
-                 }
-             }
+      if (profileData) {
+        currentProfile = {
+          id: profileData.id,
+          email: profileData.email,
+          name: profileData.name,
+          companyName: profileData.company_name,
+          logoUrl: profileData.logo_url,
+          profilePictureUrl: profileData.profile_picture_url,
+          address: profileData.address,
+          phone: profileData.phone,
+          website: profileData.website,
+          jobTitle: profileData.job_title,
+          subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
+          language: profileData.language,
+          emailTemplates: profileData.email_templates,
+          theme: profileData.theme,
+          emailUsage: profileData.email_usage || 0
+        };
+        if (profileData.theme) {
+          setTheme(profileData.theme as 'light' | 'dark' | 'blue');
         }
+        await dbApi.put('profile', currentProfile);
+      } else if (!profileError || profileError.code === 'PGRST116') {
+        // Create profile logic...
+        // Simplified for brevity, reusing existing logic
+        const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
+        const { data: newProfileData } = await supabase.from('profiles').insert({
+          id: user.id,
+          email: user.email,
+          name: metaName || 'User',
+          company_name: 'My Company',
+          theme: theme,
+        }).select().single();
+        if (newProfileData) {
+          currentProfile = {
+            id: newProfileData.id,
+            email: newProfileData.email,
+            name: newProfileData.name,
+            companyName: newProfileData.company_name,
+            logoUrl: '',
+            profilePictureUrl: '',
+            address: '',
+            phone: '',
+            website: '',
+            subscriptionTier: 'Basic',
+            theme: theme,
+            emailUsage: 0
+          }
+        }
+      }
     } else {
-        const cachedProfiles = await dbApi.getAll('profile');
-        if (cachedProfiles.length > 0) {
-            currentProfile = cachedProfiles[0];
-            if (currentProfile?.theme) setTheme(currentProfile.theme);
-        }
+      const cachedProfiles = await dbApi.getAll('profile');
+      if (cachedProfiles.length > 0) {
+        currentProfile = cachedProfiles[0];
+        if (currentProfile?.theme) setTheme(currentProfile.theme);
+      }
     }
     setProfile(currentProfile);
 
     // Jobs
     if (navigator.onLine) {
-        const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
-        if (jobsData) {
-            const mappedJobs = jobsData.map(j => ({...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id}));
-            setJobs(mappedJobs);
-            await dbApi.clear('jobs');
-            for (const j of mappedJobs) await dbApi.put('jobs', j);
-        }
+      const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
+      if (jobsData) {
+        const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id }));
+        setJobs(mappedJobs);
+        await dbApi.clear('jobs');
+        for (const j of mappedJobs) await dbApi.put('jobs', j);
+      }
     } else {
-        const cachedJobs = await dbApi.getAll('jobs');
-        setJobs(cachedJobs);
+      const cachedJobs = await dbApi.getAll('jobs');
+      setJobs(cachedJobs);
     }
 
     // Forms
     if (navigator.onLine) {
-        const { data: formsData } = await supabase.from('documents').select('*').eq('user_id', user.id);
-        if (formsData) {
-            // Include public_token in mappedForms
-            const mappedForms = formsData.map(f => ({...f, jobId: f.job_id, createdAt: f.created_at, public_token: f.public_token }));
-            setForms(mappedForms);
-            await dbApi.clear('documents');
-            for (const f of mappedForms) await dbApi.put('documents', f);
-        }
+      const { data: formsData } = await supabase.from('documents').select('*').eq('user_id', user.id);
+      if (formsData) {
+        // Include public_token in mappedForms
+        const mappedForms = formsData.map(f => ({ ...f, jobId: f.job_id, createdAt: f.created_at, public_token: f.public_token }));
+        setForms(mappedForms);
+        await dbApi.clear('documents');
+        for (const f of mappedForms) await dbApi.put('documents', f);
+      }
     } else {
-        const cachedForms = await dbApi.getAll('documents');
-        setForms(cachedForms);
+      const cachedForms = await dbApi.getAll('documents');
+      setForms(cachedForms);
     }
 
     // Clients
     if (navigator.onLine) {
-        const { data: clientsData, error: clientError } = await supabase.from('clients').select('*').eq('user_id', user.id);
-        if (clientsData) {
-            setClients(clientsData);
-            await dbApi.clear('clients');
-            for (const c of clientsData) await dbApi.put('clients', c);
-        } else if (clientError && /column ".*" does not exist/i.test(clientError.message)) {
-             setDbSetupError(SQL_SETUP_SCRIPT);
-        }
+      const { data: clientsData, error: clientError } = await supabase.from('clients').select('*').eq('user_id', user.id);
+      if (clientsData) {
+        setClients(clientsData);
+        await dbApi.clear('clients');
+        for (const c of clientsData) await dbApi.put('clients', c);
+      } else if (clientError && /column ".*" does not exist/i.test(clientError.message)) {
+        setDbSetupError(SQL_SETUP_SCRIPT);
+      }
     } else {
-        const cachedClients = await dbApi.getAll('clients');
-        setClients(cachedClients);
+      const cachedClients = await dbApi.getAll('clients');
+      setClients(cachedClients);
     }
 
     // Inventory
     if (navigator.onLine) {
-        const { data: invData } = await supabase.from('inventory').select('*').eq('user_id', user.id).order('name');
-        if (invData) {
-            setInventory(invData);
-            await dbApi.clear('inventory');
-            for (const i of invData) await dbApi.put('inventory', i);
-        }
+      const { data: invData } = await supabase.from('inventory').select('*').eq('user_id', user.id).order('name');
+      if (invData) {
+        setInventory(invData);
+        await dbApi.clear('inventory');
+        for (const i of invData) await dbApi.put('inventory', i);
+      }
     } else {
-        const cachedInventory = await dbApi.getAll('inventory');
-        setInventory(cachedInventory);
+      const cachedInventory = await dbApi.getAll('inventory');
+      setInventory(cachedInventory);
     }
 
     // Saved Items (Price Book)
     if (navigator.onLine) {
-        const { data: savedData, error: savedError } = await supabase.from('saved_items').select('*').eq('user_id', user.id).order('name');
-        if (savedData) {
-            setSavedItems(savedData);
-            // Cache logic for saved items could be added here
-        } else if (savedError && savedError.message.includes('relation "public.saved_items" does not exist')) {
-             setDbSetupError(SQL_SETUP_SCRIPT);
-        }
+      const { data: savedData, error: savedError } = await supabase.from('saved_items').select('*').eq('user_id', user.id).order('name');
+      if (savedData) {
+        setSavedItems(savedData);
+        // Cache logic for saved items could be added here
+      } else if (savedError && savedError.message.includes('relation "public.saved_items" does not exist')) {
+        setDbSetupError(SQL_SETUP_SCRIPT);
+      }
     }
-    
+
     setLoading(false);
   };
 
@@ -703,14 +703,14 @@ const App: React.FC = () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
   };
   const handleConnectGmail = async () => {
-      await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-              redirectTo: window.location.origin,
-              scopes: 'https://www.googleapis.com/auth/gmail.send',
-              queryParams: { access_type: 'offline', prompt: 'consent' }
-          }
-      });
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        scopes: 'https://www.googleapis.com/auth/gmail.send',
+        queryParams: { access_type: 'offline', prompt: 'consent' }
+      }
+    });
   };
   const handleLogout = async () => {
     if (navigator.onLine) await supabase.auth.signOut();
@@ -737,170 +737,170 @@ const App: React.FC = () => {
   // Data Handlers
   const handleUpdateAppLogo = async (file: File): Promise<string> => { return ''; }; // Placeholder for brevity
   const handleUploadDocumentImage = async (file: File): Promise<string> => {
-      if (!session) return '';
-      try {
-          const compressed = await compressImage(file);
-          return await uploadFile('logos', compressed, session.user.id, true);
-      } catch (e) {
-          console.error("Failed to upload image", e);
-          return '';
-      }
+    if (!session) return '';
+    try {
+      const compressed = await compressImage(file);
+      return await uploadFile('logos', compressed, session.user.id, true);
+    } catch (e) {
+      console.error("Failed to upload image", e);
+      return '';
+    }
   };
   const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
-      if (!session) return;
-      setLoading(true);
-      let newLogoUrl = updatedProfile.logoUrl;
-      let newProfilePicUrl = updatedProfile.profilePictureUrl;
-      
-      try {
-          if (logoFile) newLogoUrl = await uploadFile('logos', logoFile, session.user.id, true);
-          if (profilePicFile) newProfilePicUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
-      } catch (error) { setLoading(false); return; }
-      
-      const profileForDb = {
-          id: session.user.id,
-          name: updatedProfile.name,
-          company_name: updatedProfile.companyName,
-          email: updatedProfile.email,
-          phone: updatedProfile.phone,
-          address: updatedProfile.address,
-          website: updatedProfile.website,
-          logo_url: newLogoUrl,
-          profile_picture_url: newProfilePicUrl,
-          job_title: updatedProfile.jobTitle,
-          language: updatedProfile.language,
-          email_templates: updatedProfile.emailTemplates,
-          theme: theme,
-          updated_at: new Date().toISOString(),
-      };
-      
-      const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
-      if (!error && data) {
-          setProfile({ ...updatedProfile, logoUrl: newLogoUrl, profilePictureUrl: newProfilePicUrl });
-          setView({ screen: 'dashboard' });
-      }
-      setLoading(false);
+    if (!session) return;
+    setLoading(true);
+    let newLogoUrl = updatedProfile.logoUrl;
+    let newProfilePicUrl = updatedProfile.profilePictureUrl;
+
+    try {
+      if (logoFile) newLogoUrl = await uploadFile('logos', logoFile, session.user.id, true);
+      if (profilePicFile) newProfilePicUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
+    } catch (error) { setLoading(false); return; }
+
+    const profileForDb = {
+      id: session.user.id,
+      name: updatedProfile.name,
+      company_name: updatedProfile.companyName,
+      email: updatedProfile.email,
+      phone: updatedProfile.phone,
+      address: updatedProfile.address,
+      website: updatedProfile.website,
+      logo_url: newLogoUrl,
+      profile_picture_url: newProfilePicUrl,
+      job_title: updatedProfile.jobTitle,
+      language: updatedProfile.language,
+      email_templates: updatedProfile.emailTemplates,
+      theme: theme,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
+    if (!error && data) {
+      setProfile({ ...updatedProfile, logoUrl: newLogoUrl, profilePictureUrl: newProfilePicUrl });
+      setView({ screen: 'dashboard' });
+    }
+    setLoading(false);
   };
-  
+
   const handleEmailSent = async () => {
-      if (!session || !profile) return;
-      const newCount = (profile.emailUsage || 0) + 1;
-      setProfile({ ...profile, emailUsage: newCount });
-      await supabase.from('profiles').update({ email_usage: newCount }).eq('id', session.user.id);
+    if (!session || !profile) return;
+    const newCount = (profile.emailUsage || 0) + 1;
+    setProfile({ ...profile, emailUsage: newCount });
+    await supabase.from('profiles').update({ email_usage: newCount }).eq('id', session.user.id);
   };
-  
+
   const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
   const handleSaveJob = async (jobData: any): Promise<string> => {
-      if (!session) return '';
-      const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active' };
-      await supabase.from('jobs').insert(newJob);
-      fetchData(); // Refresh
-      if(view.screen === 'createJob' && view.returnTo === 'calendar') {
-          setView({ screen: 'calendar' });
-      } else {
-          setView({ screen: 'dashboard' });
-      }
-      return newJob.id;
+    if (!session) return '';
+    const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active' };
+    await supabase.from('jobs').insert(newJob);
+    fetchData(); // Refresh
+    if (view.screen === 'createJob' && view.returnTo === 'calendar') {
+      setView({ screen: 'calendar' });
+    } else {
+      setView({ screen: 'dashboard' });
+    }
+    return newJob.id;
   };
   const handleUpdateJobStatus = async (jobId: string, newStatus: any) => {
-      await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
+    await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
   };
   const handleSaveForm = async (formData: any) => {
-      if (!session) return;
-      if (view.screen !== 'form') return;
-      
-      const formRecord: any = { 
-          id: view.formId || crypto.randomUUID(), 
-          user_id: session.user.id, 
-          job_id: view.jobId, 
-          type: view.formType, 
-          data: formData 
-      };
-      
-      await supabase.from('documents').upsert(formRecord);
-      await fetchData();
-      setView({ screen: 'jobDetails', jobId: view.jobId });
+    if (!session) return;
+    if (view.screen !== 'form') return;
+
+    const formRecord: any = {
+      id: view.formId || crypto.randomUUID(),
+      user_id: session.user.id,
+      job_id: view.jobId,
+      type: view.formType,
+      data: formData
+    };
+
+    await supabase.from('documents').upsert(formRecord);
+    await fetchData();
+    setView({ screen: 'jobDetails', jobId: view.jobId });
   };
   const handleAddClient = async (clientData: any) => {
-      if (!session) return;
-      await supabase.from('clients').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...clientData });
-      fetchData();
+    if (!session) return;
+    await supabase.from('clients').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...clientData });
+    fetchData();
   };
   const handleDeleteClient = async (id: string) => {
-      await supabase.from('clients').delete().eq('id', id);
-      fetchData();
+    await supabase.from('clients').delete().eq('id', id);
+    fetchData();
   };
-  
+
   // New handler for "Quick Create" from Client screen
   const handleNavigateToNewDoc = async (type: FormType, clientId: string) => {
-      if (!session) return;
-      
-      const client = clients.find(c => c.id === clientId);
-      if (!client) return;
+    if (!session) return;
 
-      let activeJob = jobs.find(j => j.clientName === client.name && j.status === 'active');
-      let jobId = activeJob?.id;
-      
-      if (!activeJob) {
-          const newJobData = {
-            name: `${client.name} - General`,
-            clientName: client.name,
-            clientAddress: client.address || '',
-            startDate: new Date().toISOString().split('T')[0],
-          };
-          const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
-          
-          await supabase.from('jobs').insert({
-              id: newJob.id,
-              user_id: session.user.id,
-              name: newJob.name,
-              client_name: newJob.clientName,
-              client_address: newJob.clientAddress,
-              start_date: newJob.startDate
-          });
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
 
-          setJobs(prev => [...prev, newJob]); 
-          jobId = newJob.id;
-      }
+    let activeJob = jobs.find(j => j.clientName === client.name && j.status === 'active');
+    let jobId = activeJob?.id;
 
-      setView({ screen: 'form', formType: type, jobId: jobId!, formId: null });
+    if (!activeJob) {
+      const newJobData = {
+        name: `${client.name} - General`,
+        clientName: client.name,
+        clientAddress: client.address || '',
+        startDate: new Date().toISOString().split('T')[0],
+      };
+      const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
+
+      await supabase.from('jobs').insert({
+        id: newJob.id,
+        user_id: session.user.id,
+        name: newJob.name,
+        client_name: newJob.clientName,
+        client_address: newJob.clientAddress,
+        start_date: newJob.startDate
+      });
+
+      setJobs(prev => [...prev, newJob]);
+      jobId = newJob.id;
+    }
+
+    setView({ screen: 'form', formType: type, jobId: jobId!, formId: null });
   };
-  
+
   // Price Book Handlers
   const handleAddSavedItem = async (item: any) => {
-      if (!session) return;
-      await supabase.from('saved_items').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...item });
-      const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
-      if (data) setSavedItems(data);
+    if (!session) return;
+    await supabase.from('saved_items').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...item });
+    const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
+    if (data) setSavedItems(data);
   };
   const handleUpdateSavedItem = async (item: SavedItem) => { };
   const handleDeleteSavedItem = async (id: string) => {
-      await supabase.from('saved_items').delete().eq('id', id);
-      setSavedItems(prev => prev.filter(i => i.id !== id));
+    await supabase.from('saved_items').delete().eq('id', id);
+    setSavedItems(prev => prev.filter(i => i.id !== id));
   };
 
   // Inventory Handlers
   const handleAddInventoryItem = async (itemData: any) => {
-      if (!session) return;
-      await supabase.from('inventory').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...itemData });
-      fetchData();
+    if (!session) return;
+    await supabase.from('inventory').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...itemData });
+    fetchData();
   };
   const handleUpdateInventoryItem = async (item: InventoryItem) => {
-      await supabase.from('inventory').update({ quantity: item.quantity, low_stock_threshold: item.low_stock_threshold }).eq('id', item.id);
-      fetchData();
+    await supabase.from('inventory').update({ quantity: item.quantity, low_stock_threshold: item.low_stock_threshold }).eq('id', item.id);
+    fetchData();
   };
   const handleDeleteInventoryItem = async (id: string) => {
-      await supabase.from('inventory').delete().eq('id', id);
-      fetchData();
+    await supabase.from('inventory').delete().eq('id', id);
+    fetchData();
   };
 
   const getTranslation = () => { return translations[profile?.language || 'English']; }
 
   // Render logic...
-  const renderAuth = () => { 
+  const renderAuth = () => {
     if (view.screen !== 'auth') return null;
-    switch(view.authScreen) {
+    switch (view.authScreen) {
       case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} />;
       case 'signup': return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
       case 'checkEmail': return <div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>;
@@ -912,57 +912,57 @@ const App: React.FC = () => {
     const t = getTranslation();
     const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
     const getStatusColor = (status: string) => {
-        switch(status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
+      switch (status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
     }
     return (
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
         <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
-            <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome} {profile.name.split(' ')[0]}!</h1></div>
-            {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
-            <div className="flex items-center gap-3 flex-wrap md:flex-nowrap justify-end">
-              
-              <div className="relative">
-                  <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border">
-                      Tools <ChevronDownIcon className="w-4 h-4 opacity-50" />
-                  </Button>
-                  {showToolsMenu && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
-                        <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
-                            <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                <BoxIcon className="w-4 h-4 text-primary" /> Inventory
-                            </button>
-                            <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                <TagIcon className="w-4 h-4 text-primary" /> Price Book
-                            </button>
-                            <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                <CalendarIcon className="w-4 h-4 text-primary" /> Schedule
-                            </button>
-                            <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                <CalculatorIcon className="w-4 h-4 text-primary" /> Calculator
-                            </button>
-                            <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                <BarChartIcon className="w-4 h-4 text-primary" /> Insights
-                            </button>
-                        </div>
-                      </>
-                  )}
-              </div>
+          <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome} {profile.name.split(' ')[0]}!</h1></div>
+          {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
+          <div className="flex items-center gap-3 flex-wrap md:flex-nowrap justify-end">
 
-              <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 bg-card border-border">
-                  <MessageSquareIcon className="w-4 h-4" /> 
-                  <span className="hidden sm:inline">Community</span>
-                  {notificationCount > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{notificationCount > 9 ? '9+' : notificationCount}</span>}
+            <div className="relative">
+              <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border">
+                Tools <ChevronDownIcon className="w-4 h-4 opacity-50" />
               </Button>
-              
-              <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm">
-                 <PlusIcon className="w-4 h-4 mr-2" /> {t.newJob}
-              </Button>
-
-              <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border ml-1 shrink-0">
-                {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}
-              </Button>
+              {showToolsMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
+                    <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                      <BoxIcon className="w-4 h-4 text-primary" /> Inventory
+                    </button>
+                    <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                      <TagIcon className="w-4 h-4 text-primary" /> Price Book
+                    </button>
+                    <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                      <CalendarIcon className="w-4 h-4 text-primary" /> Schedule
+                    </button>
+                    <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                      <CalculatorIcon className="w-4 h-4 text-primary" /> Calculator
+                    </button>
+                    <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                      <BarChartIcon className="w-4 h-4 text-primary" /> Insights
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
+
+            <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 bg-card border-border">
+              <MessageSquareIcon className="w-4 h-4" />
+              <span className="hidden sm:inline">Community</span>
+              {notificationCount > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{notificationCount > 9 ? '9+' : notificationCount}</span>}
+            </Button>
+
+            <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm">
+              <PlusIcon className="w-4 h-4 mr-2" /> {t.newJob}
+            </Button>
+
+            <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border ml-1 shrink-0">
+              {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}
+            </Button>
+          </div>
         </header>
         <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
         <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
@@ -978,110 +978,110 @@ const App: React.FC = () => {
     const t = getTranslation();
     const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type; };
     const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
-    const getDocIcon = (type: FormType) => { switch(type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; }}; 
+    const getDocIcon = (type: FormType) => { switch (type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; } };
     const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground border border-border">{status}</span> : null; };
 
     return (
       <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
         <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
           <div className="flex items-center">
-              <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                <BackArrowIcon className="h-6 w-6" />
-              </Button>
-              <div>
-                  <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight truncate max-w-xs md:max-w-md">
-                      {job.name}
-                  </h1>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                      <UsersIcon className="w-4 h-4" />
-                      {job.clientName}
-                  </div>
+            <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+              <BackArrowIcon className="h-6 w-6" />
+            </Button>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight truncate max-w-xs md:max-w-md">
+                {job.name}
+              </h1>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                <UsersIcon className="w-4 h-4" />
+                {job.clientName}
               </div>
+            </div>
           </div>
           <div className="flex items-center gap-3">
-              <select 
-                value={job.status} 
-                onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)} 
-                className="h-9 rounded-full border bg-card px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer"
-              >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="paused">Paused</option>
-                  <option value="completed">Completed</option>
-              </select>
-              <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
-                  <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
-              </Button>
+            <select
+              value={job.status}
+              onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
+              className="h-9 rounded-full border bg-card px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer"
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="paused">Paused</option>
+              <option value="completed">Completed</option>
+            </select>
+            <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
+              <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
+            </Button>
           </div>
         </header>
 
         {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold animate-pulse">You are OFFLINE. Documents created will sync later.</div>}
-        
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
-                <div className="relative w-full max-w-xs">
-                    <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
-                    <Input 
-                        placeholder="Search docs..." 
-                        className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all" 
-                        value={docSearchQuery} 
-                        onChange={(e) => setDocSearchQuery(e.target.value)} 
-                    />
-                </div>
-            </div>
 
-            {jobForms.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border">
-                    <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
-                        <BriefcaseIcon className="w-6 h-6" />
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
+            <div className="relative w-full max-w-xs">
+              <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
+              <Input
+                placeholder="Search docs..."
+                className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
+                value={docSearchQuery}
+                onChange={(e) => setDocSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {jobForms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border">
+              <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
+                <BriefcaseIcon className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
+              <p className="text-muted-foreground max-w-sm mt-1 mb-6">{t.noDocsYet}</p>
+              <Button variant="outline" onClick={() => navigateToNewDoc(job.id)} className="rounded-full">
+                Create First Document
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {jobForms.map(form => {
+                const Icon = getDocIcon(form.type);
+                return (
+                  <Card
+                    key={form.id}
+                    className="group hover:shadow-lg transition-all duration-200 border-border hover:border-primary/30 cursor-pointer bg-card overflow-hidden"
+                    onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
+                  >
+                    <div className="p-4 flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 overflow-hidden">
+                        <div className="p-2.5 bg-primary/10 text-primary rounded-xl shrink-0 group-hover:scale-110 transition-transform duration-300">
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-semibold truncate pr-2 text-foreground group-hover:text-primary transition-colors">{getDocTitle(form)}</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5 font-medium">{form.type}</p>
+                          <p className="text-[10px] text-muted-foreground/70 mt-1">Created {new Date(form.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        {getStatusBadge(form)}
+                      </div>
                     </div>
-                    <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
-                    <p className="text-muted-foreground max-w-sm mt-1 mb-6">{t.noDocsYet}</p>
-                    <Button variant="outline" onClick={() => navigateToNewDoc(job.id)} className="rounded-full">
-                        Create First Document
-                    </Button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {jobForms.map(form => { 
-                        const Icon = getDocIcon(form.type); 
-                        return (
-                            <Card 
-                                key={form.id} 
-                                className="group hover:shadow-lg transition-all duration-200 border-border hover:border-primary/30 cursor-pointer bg-card overflow-hidden"
-                                onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
-                            >
-                                <div className="p-4 flex items-start justify-between gap-3">
-                                    <div className="flex items-start gap-3 overflow-hidden">
-                                        <div className="p-2.5 bg-primary/10 text-primary rounded-xl shrink-0 group-hover:scale-110 transition-transform duration-300">
-                                            <Icon className="w-5 h-5" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <h4 className="font-semibold truncate pr-2 text-foreground group-hover:text-primary transition-colors">{getDocTitle(form)}</h4>
-                                            <p className="text-xs text-muted-foreground mt-0.5 font-medium">{form.type}</p>
-                                            <p className="text-[10px] text-muted-foreground/70 mt-1">Created {new Date(form.createdAt).toLocaleDateString()}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-2">
-                                        {getStatusBadge(form)}
-                                    </div>
-                                </div>
-                                <div className="px-4 pb-3 pt-0 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity -translate-y-2 group-hover:translate-y-0 duration-200">
-                                    <span className="text-xs font-bold text-primary flex items-center">
-                                        Edit Document <BackArrowIcon className="w-3 h-3 ml-1 rotate-180" />
-                                    </span>
-                                </div>
-                            </Card>
-                        ); 
-                    })}
-                </div>
-            )}
+                    <div className="px-4 pb-3 pt-0 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity -translate-y-2 group-hover:translate-y-0 duration-200">
+                      <span className="text-xs font-bold text-primary flex items-center">
+                        Edit Document <BackArrowIcon className="w-3 h-3 ml-1 rotate-180" />
+                      </span>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
   };
-  
+
   const renderForm = () => {
     if (view.screen !== 'form' || !profile) return null;
     const { formType, jobId, formId } = view;
@@ -1115,38 +1115,38 @@ const App: React.FC = () => {
   const getDockItems = () => {
     const t = getTranslation();
     const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
-    
+
     if (view.screen === 'dashboard' || view.screen === 'calendar') {
-        items.push({ icon: CalendarIcon, label: 'Schedule', onClick: navigateToCalendar });
+      items.push({ icon: CalendarIcon, label: 'Schedule', onClick: navigateToCalendar });
     }
 
     if (view.screen === 'jobDetails') {
       items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as { jobId: string }).jobId) });
     }
     else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
-    
+
     items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
 
     items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
     return items;
   };
-  
+
   const renderContent = () => {
     // 1. External Portal View (Many documents)
     if (portalKey) return <PortalView supabase={supabase} portalKey={portalKey} />;
-    
+
     // 2. Single Document Approval View
     if (approvalToken) return <DocumentApprovalView supabase={supabase} approvalToken={approvalToken} />;
-    
+
     if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
     if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
     if (!session) {
-        if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
-        if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
-        if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
-        if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
-        
-        return renderAuth();
+      if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
+      if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
+      if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
+      if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
+
+      return renderAuth();
     }
     switch (view.screen) {
       case 'dashboard': return renderDashboard();
@@ -1156,51 +1156,51 @@ const App: React.FC = () => {
       case 'form': return renderForm();
       case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
       case 'profile': if (!profile) return null; return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} />;
-      case 'clients': 
-        return <ClientsView 
-                  onBack={navigateToDashboard} 
-                  supabase={supabase} 
-                  session={session}
-                  clients={clients}
-                  forms={forms} // Pass forms for approval flow
-                  jobs={jobs}
-                  onAddClient={handleAddClient}
-                  onDeleteClient={handleDeleteClient}
-                  isOnline={isOnline}
-                  onNavigateToNewDoc={handleNavigateToNewDoc}
-               />;
+      case 'clients':
+        return <ClientsView
+          onBack={navigateToDashboard}
+          supabase={supabase}
+          session={session}
+          clients={clients}
+          forms={forms} // Pass forms for approval flow
+          jobs={jobs}
+          onAddClient={handleAddClient}
+          onDeleteClient={handleDeleteClient}
+          isOnline={isOnline}
+          onNavigateToNewDoc={handleNavigateToNewDoc}
+        />;
       case 'inventory':
-        return <InventoryView 
-                  onBack={navigateToDashboard}
-                  inventory={inventory}
-                  onAddItem={handleAddInventoryItem}
-                  onUpdateItem={handleUpdateInventoryItem}
-                  onDeleteItem={handleDeleteInventoryItem}
-               />;
+        return <InventoryView
+          onBack={navigateToDashboard}
+          inventory={inventory}
+          onAddItem={handleAddInventoryItem}
+          onUpdateItem={handleUpdateInventoryItem}
+          onDeleteItem={handleDeleteInventoryItem}
+        />;
       case 'pricebook':
-        return <PriceBookView 
-                  onBack={navigateToDashboard}
-                  savedItems={savedItems}
-                  onAddItem={handleAddSavedItem}
-                  onUpdateItem={handleUpdateSavedItem}
-                  onDeleteItem={handleDeleteSavedItem}
-               />;
+        return <PriceBookView
+          onBack={navigateToDashboard}
+          savedItems={savedItems}
+          onAddItem={handleAddSavedItem}
+          onUpdateItem={handleUpdateSavedItem}
+          onDeleteItem={handleDeleteSavedItem}
+        />;
       case 'profitCalculator':
         return <ProfitCalculatorView onBack={navigateToDashboard} />;
       case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
       case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
       case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onEmailSent={handleEmailSent} />;
-      case 'forum': 
+      case 'forum':
         return (
-            <ForumView 
-                onBack={navigateToDashboard} 
-                supabase={supabase} 
-                session={session} 
-                onUploadImage={handleUploadForumImage} 
-                initialPostId={view.postId}
-                onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
-                onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
-            />
+          <ForumView
+            onBack={navigateToDashboard}
+            supabase={supabase}
+            session={session}
+            onUploadImage={handleUploadForumImage}
+            initialPostId={view.postId}
+            onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
+            onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
+          />
         );
       case 'privacy': return <PrivacyPolicy onBack={() => setView({ screen: 'dashboard' })} />;
       case 'terms': return <TermsOfService onBack={() => setView({ screen: 'dashboard' })} />;
@@ -1212,7 +1212,7 @@ const App: React.FC = () => {
   return (
     <main className="w-full min-h-screen bg-background">
       {renderContent()}
-      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients' || view.screen === 'calendar') && (
+      {session && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
         <Dock items={getDockItems()} />
       )}
     </main>

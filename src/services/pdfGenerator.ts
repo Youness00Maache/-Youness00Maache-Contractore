@@ -42,6 +42,7 @@ const loadImage = async (url: string): Promise<{ data: string; format: string; w
             img.src = dataUrl;
         });
     } catch (e) {
+        console.error('loadImage failed for url:', url, e);
         return null;
     }
 };
@@ -58,14 +59,42 @@ const safeText = (doc: any, text: any, x: number, y: number, options?: any) => {
 };
 
 // New helper to draw template background on any page
-const drawTemplateBackground = (doc: any, template: TemplateStyle, primaryRgb: number[]) => {
+const drawTemplateBackground = async (doc: any, template: TemplateStyle, primaryRgb: number[]) => {
+    if (template.backgroundImage) {
+        try {
+            console.log('Attempting to load background:', template.backgroundImage);
+            const bg = await loadImage(template.backgroundImage);
+            if (bg) {
+                console.log('Background loaded successfully, dimensions:', bg.width, 'x', bg.height);
+                // Draw background full page (A4)
+                doc.addImage(bg.data, bg.format, 0, 0, 210, 297);
+                return; // Skip drawing default borders
+            } else {
+                console.error('Background image loaded but returned null');
+                // Draw error text on PDF to debug
+                doc.setTextColor(255, 0, 0);
+                doc.setFontSize(12);
+                doc.text(`Error: Could not load background image: ${template.backgroundImage}`, 10, 10);
+                doc.text(`Please ensure file exists in /public/templates/`, 10, 15);
+                return; // Don't draw borders if we specified a background image
+            }
+        } catch (e) {
+            console.error('Failed to load background image', e);
+            // Draw error text
+            doc.setTextColor(255, 0, 0);
+            doc.setFontSize(12);
+            doc.text(`Exception loading background: ${e}`, 10, 10);
+            return; // Don't draw borders if we specified a background image
+        }
+    }
+
     if (template.layoutType === 'modern') {
         // Draw a thin top bar for continuation pages to maintain theme
         doc.setFillColor(...primaryRgb);
         doc.rect(0, 0, 210, 5, 'F');
     } else {
-        // Draw standard borders
-        doc.setDrawColor(template.borderColor || '#000000');
+        // Draw standard borders (only for non-background templates)
+        doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
         doc.setLineWidth(0.5);
         doc.rect(10, 10, 190, 277);
         doc.rect(12, 12, 186, 273);
@@ -238,71 +267,358 @@ const renderHtmlToPdf = async (
 
 interface TemplateStyle {
     id: string;
+    name: string;
+    layoutEngine: 'classic_bordered' | 'modern_sidebar' | 'minimalist' | 'bold_header' | 'compact' | 'two_column' | 'executive';
     primaryColor: string;
     secondaryColor: string;
     textColor: string;
-    headerColor: string;
-    headerTextColor: string;
-    font: string;
-    headerFont: string;
-    alternateRowColor: string;
-    borderColor: string;
-    borderRadius: number;
-    showFooterLine: boolean;
-    layoutType?: 'certificate' | 'modern';
+    font: 'times' | 'helvetica' | 'courier';
+    headerFont: 'times' | 'helvetica' | 'courier';
+    backgroundImage?: string;
+    layoutType?: string;
+    // Layout-specific properties
+    sidebarWidth?: number;
+    marginSize?: number;
+    headerHeight?: number;
+
+    // Flexible Layout Configuration
+    layoutConfig?: {
+        // Document Header (Invoice #, Date, Title)
+        headerPos: { x: number, y: number, align: 'left' | 'right' | 'center' };
+
+        // Company Info
+        companyInfoPos: { x: number, y: number, align: 'left' | 'right' | 'center' };
+
+        // Client Info
+        clientInfoPos: { x: number, y: number, align: 'left' | 'right' | 'center' };
+
+        // Logo
+        logoPos: { x: number, y: number, w: number, h: number, maxW?: number, maxH?: number };
+
+        // Main Content Table
+        gridStartY: number;
+
+        // Totals Section
+        totalsPos: { x: number, align: 'left' | 'right' };
+    };
 }
 
 const templates: Record<string, TemplateStyle> = {
-    // ========== EXISTING TEMPLATES (UNCHANGED) ==========
-    standard: { id: 'standard', primaryColor: '#000000', secondaryColor: '#666666', textColor: '#222222', headerColor: '#ffffff', headerTextColor: '#000000', font: 'helvetica', headerFont: 'times', alternateRowColor: '#f2f2f2', borderColor: '#000000', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    professional: { id: 'professional', primaryColor: '#2c3e50', secondaryColor: '#34495e', textColor: '#2c3e50', headerColor: '#2c3e50', headerTextColor: '#ecf0f1', font: 'times', headerFont: 'times', alternateRowColor: '#eaeded', borderColor: '#bdc3c7', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    elegant: { id: 'elegant', primaryColor: '#8e44ad', secondaryColor: '#9b59b6', textColor: '#4a235a', headerColor: '#ffffff', headerTextColor: '#8e44ad', font: 'times', headerFont: 'times', alternateRowColor: '#f5eef8', borderColor: '#d7bde2', borderRadius: 0, showFooterLine: false, layoutType: 'certificate' },
-    warm: { id: 'warm', primaryColor: '#d35400', secondaryColor: '#e67e22', textColor: '#5d4037', headerColor: '#fdebd0', headerTextColor: '#d35400', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fef5e7', borderColor: '#f5cba7', borderRadius: 2, showFooterLine: true, layoutType: 'certificate' },
-    retro: { id: 'retro', primaryColor: '#c0392b', secondaryColor: '#e74c3c', textColor: '#5a4d41', headerColor: '#f9e79f', headerTextColor: '#c0392b', font: 'courier', headerFont: 'courier', alternateRowColor: '#fcf3cf', borderColor: '#d35400', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' },
-    modern_blue: { id: 'modern_blue', primaryColor: '#3498db', secondaryColor: '#2980b9', textColor: '#2c3e50', headerColor: '#3498db', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ebf5fb', borderColor: '#aed6f1', borderRadius: 4, showFooterLine: false, layoutType: 'modern' },
-    tech: { id: 'tech', primaryColor: '#16a085', secondaryColor: '#1abc9c', textColor: '#000000', headerColor: '#e8f8f5', headerTextColor: '#16a085', font: 'courier', headerFont: 'courier', alternateRowColor: '#e8f6f3', borderColor: '#48c9b0', borderRadius: 0, showFooterLine: true, layoutType: 'modern' },
-    industrial: { id: 'industrial', primaryColor: '#f39c12', secondaryColor: '#d35400', textColor: '#000000', headerColor: '#333333', headerTextColor: '#f39c12', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fcf3cf', borderColor: '#000000', borderRadius: 0, showFooterLine: true, layoutType: 'modern' },
-    minimal: { id: 'minimal', primaryColor: '#95a5a6', secondaryColor: '#7f8c8d', textColor: '#7f8c8d', headerColor: '#ffffff', headerTextColor: '#333333', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ffffff', borderColor: '#ecf0f1', borderRadius: 0, showFooterLine: false, layoutType: 'modern' },
-    bold: { id: 'bold', primaryColor: '#000000', secondaryColor: '#000000', textColor: '#000000', headerColor: '#000000', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#e5e5e5', borderColor: '#000000', borderRadius: 6, showFooterLine: false, layoutType: 'modern' },
-
-    // ========== NEW TEMPLATES ==========
-    // Classic Professional Category
-    executive_classic: { id: 'executive_classic', primaryColor: '#1e3a8a', secondaryColor: '#374151', textColor: '#1f2937', headerColor: '#1e3a8a', headerTextColor: '#ffffff', font: 'times', headerFont: 'times', alternateRowColor: '#eff6ff', borderColor: '#3b82f6', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    corporate_standard: { id: 'corporate_standard', primaryColor: '#4b5563', secondaryColor: '#6b7280', textColor: '#374151', headerColor: '#ffffff', headerTextColor: '#1f2937', font: 'times', headerFont: 'times', alternateRowColor: '#f9fafb', borderColor: '#9ca3af', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    traditional_blue: { id: 'traditional_blue', primaryColor: '#1e40af', secondaryColor: '#3b82f6', textColor: '#1e293b', headerColor: '#ffffff', headerTextColor: '#1e40af', font: 'times', headerFont: 'times', alternateRowColor: '#dbeafe', borderColor: '#60a5fa', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' },
-    business_formal: { id: 'business_formal', primaryColor: '#0f172a', secondaryColor: '#334155', textColor: '#1e293b', headerColor: '#f8fafc', headerTextColor: '#0f172a', font: 'times', headerFont: 'times', alternateRowColor: '#f1f5f9', borderColor: '#475569', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-
-    // Modern Minimalist Category
-    scandinavian: { id: 'scandinavian', primaryColor: '#64748b', secondaryColor: '#94a3b8', textColor: '#475569', headerColor: '#ffffff', headerTextColor: '#334155', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: 3, showFooterLine: false, layoutType: 'modern' },
-    tech_modern: { id: 'tech_modern', primaryColor: '#0ea5e9', secondaryColor: '#06b6d4', textColor: '#0c4a6e', headerColor: '#0ea5e9', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#e0f2fe', borderColor: '#7dd3fc', borderRadius: 5, showFooterLine: false, layoutType: 'modern' },
-    digital_first: { id: 'digital_first', primaryColor: '#8b5cf6', secondaryColor: '#a78bfa', textColor: '#4c1d95', headerColor: '#8b5cf6', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#f5f3ff', borderColor: '#c4b5fd', borderRadius: 4, showFooterLine: false, layoutType: 'modern' },
-    clean_lines: { id: 'clean_lines', primaryColor: '#14b8a6', secondaryColor: '#2dd4bf', textColor: '#134e4a', headerColor: '#ffffff', headerTextColor: '#0f766e', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ffffff', borderColor: '#99f6e4', borderRadius: 2, showFooterLine: false, layoutType: 'modern' },
-    contemporary: { id: 'contemporary', primaryColor: '#6366f1', secondaryColor: '#818cf8', textColor: '#312e81', headerColor: '#6366f1', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#eef2ff', borderColor: '#a5b4fc', borderRadius: 3, showFooterLine: false, layoutType: 'modern' },
-
-    // Corporate Category
-    enterprise: { id: 'enterprise', primaryColor: '#1e40af', secondaryColor: '#2563eb', textColor: '#1e3a8a', headerColor: '#1e40af', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#dbeafe', borderColor: '#60a5fa', borderRadius: 2, showFooterLine: true, layoutType: 'modern' },
-    financial: { id: 'financial', primaryColor: '#047857', secondaryColor: '#059669', textColor: '#064e3b', headerColor: '#ffffff', headerTextColor: '#047857', font: 'times', headerFont: 'times', alternateRowColor: '#d1fae5', borderColor: '#34d399', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    legal_pro: { id: 'legal_pro', primaryColor: '#0369a1', secondaryColor: '#0284c7', textColor: '#0c4a6e', headerColor: '#f0f9ff', headerTextColor: '#075985', font: 'times', headerFont: 'times', alternateRowColor: '#e0f2fe', borderColor: '#7dd3fc', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    consulting: { id: 'consulting', primaryColor: '#475569', secondaryColor: '#64748b', textColor: '#334155', headerColor: '#475569', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#f1f5f9', borderColor: '#cbd5e1', borderRadius: 2, showFooterLine: true, layoutType: 'modern' },
-    corporate_premium: { id: 'corporate_premium', primaryColor: '#7c3aed', secondaryColor: '#8b5cf6', textColor: '#5b21b6', headerColor: '#7c3aed', headerTextColor: '#ffffff', font: 'times', headerFont: 'times', alternateRowColor: '#ede9fe', borderColor: '#a78bfa', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' },
-
-    // Creative Category
-    artistic: { id: 'artistic', primaryColor: '#ec4899', secondaryColor: '#f472b6', textColor: '#831843', headerColor: '#ffffff', headerTextColor: '#db2777', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fce7f3', borderColor: '#f9a8d4', borderRadius: 4, showFooterLine: false, layoutType: 'modern' },
-    vibrant_pro: { id: 'vibrant_pro', primaryColor: '#dc2626', secondaryColor: '#ef4444', textColor: '#7f1d1d', headerColor: '#dc2626', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fee2e2', borderColor: '#fca5a5', borderRadius: 3, showFooterLine: false, layoutType: 'modern' },
-    designer: { id: 'designer', primaryColor: '#7c3aed', secondaryColor: '#a855f7', textColor: '#581c87', headerColor: '#ffffff', headerTextColor: '#7c3aed', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#faf5ff', borderColor: '#d8b4fe', borderRadius: 5, showFooterLine: false, layoutType: 'modern' },
-    trendy: { id: 'trendy', primaryColor: '#ea580c', secondaryColor: '#f97316', textColor: '#7c2d12', headerColor: '#ea580c', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ffedd5', borderColor: '#fdba74', borderRadius: 4, showFooterLine: false, layoutType: 'modern' },
-
-    // Construction/Contractor Category
-    construction_pro: { id: 'construction_pro', primaryColor: '#f97316', secondaryColor: '#fb923c', textColor: '#7c2d12', headerColor: '#f97316', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fed7aa', borderColor: '#fdba74', borderRadius: 2, showFooterLine: true, layoutType: 'modern' },
-    builder_modern: { id: 'builder_modern', primaryColor: '#eab308', secondaryColor: '#facc15', textColor: '#713f12', headerColor: '#eab308', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fef9c3', borderColor: '#fde047', borderRadius: 3, showFooterLine: true, layoutType: 'modern' },
-    trade_pro: { id: 'trade_pro', primaryColor: '#0891b2', secondaryColor: '#06b6d4', textColor: '#164e63', headerColor: '#0891b2', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#cffafe', borderColor: '#67e8f9', borderRadius: 1, showFooterLine: true, layoutType: 'modern' },
-    project_manager: { id: 'project_manager', primaryColor: '#15803d', secondaryColor: '#16a34a', textColor: '#14532d', headerColor: '#15803d', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#dcfce7', borderColor: '#86efac', borderRadius: 2, showFooterLine: true, layoutType: 'modern' },
-
-    // Premium/Luxury Category
-    gold_standard: { id: 'gold_standard', primaryColor: '#d97706', secondaryColor: '#f59e0b', textColor: '#78350f', headerColor: '#ffffff', headerTextColor: '#b45309', font: 'times', headerFont: 'times', alternateRowColor: '#fef3c7', borderColor: '#fbbf24', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' },
-    platinum: { id: 'platinum', primaryColor: '#71717a', secondaryColor: '#a1a1aa', textColor: '#3f3f46', headerColor: '#71717a', headerTextColor: '#ffffff', font: 'times', headerFont: 'times', alternateRowColor: '#f4f4f5', borderColor: '#d4d4d8', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    executive_suite: { id: 'executive_suite', primaryColor: '#18181b', secondaryColor: '#3f3f46', textColor: '#27272a', headerColor: '#18181b', headerTextColor: '#ffffff', font: 'times', headerFont: 'times', alternateRowColor: '#fafafa', borderColor: '#52525b', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    prestige: { id: 'prestige', primaryColor: '#831843', secondaryColor: '#9f1239', textColor: '#500724', headerColor: '#831843', headerTextColor: '#ffffff', font: 'times', headerFont: 'times', alternateRowColor: '#fce7f3', borderColor: '#be123c', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' }
+    classic_bordered: {
+        id: 'classic_bordered',
+        name: 'Classic Bordered',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#2c3e50',
+        secondaryColor: '#34495e',
+        textColor: '#2c3e50',
+        font: 'times',
+        headerFont: 'times',
+    },
+    modern_sidebar: {
+        id: 'modern_sidebar',
+        name: 'Modern Sidebar',
+        layoutEngine: 'modern_sidebar',
+        primaryColor: '#3498db',
+        secondaryColor: '#2980b9',
+        textColor: '#2c3e50',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        sidebarWidth: 60,
+    },
+    minimalist: {
+        id: 'minimalist',
+        name: 'Minimalist',
+        layoutEngine: 'minimalist',
+        primaryColor: '#64748b',
+        secondaryColor: '#94a3b8',
+        textColor: '#475569',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        marginSize: 30,
+    },
+    bold_header: {
+        id: 'bold_header',
+        name: 'Bold Header',
+        layoutEngine: 'bold_header',
+        primaryColor: '#1e40af',
+        secondaryColor: '#2563eb',
+        textColor: '#1e3a8a',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        headerHeight: 50,
+    },
+    compact: {
+        id: 'compact',
+        name: 'Compact',
+        layoutEngine: 'compact',
+        primaryColor: '#475569',
+        secondaryColor: '#64748b',
+        textColor: '#334155',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        marginSize: 15,
+    },
+    two_column: {
+        id: 'two_column',
+        name: 'Two Column',
+        layoutEngine: 'two_column',
+        primaryColor: '#16a085',
+        secondaryColor: '#1abc9c',
+        textColor: '#0f766e',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+    },
+    executive: {
+        id: 'executive',
+        name: 'Executive',
+        layoutEngine: 'executive',
+        primaryColor: '#831843',
+        secondaryColor: '#9f1239',
+        textColor: '#500724',
+        font: 'times',
+        headerFont: 'times',
+        marginSize: 25,
+    },
+    // Designer Templates (Image Backgrounds)
+    template_1: {
+        id: 'template_1',
+        name: 'Layout 1',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/1.jpg',
+        layoutConfig: {
+            headerPos: { x: 20, y: 30, align: 'left' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 160, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_2: {
+        id: 'template_2',
+        name: 'Layout 2',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/2.jpg',
+        layoutConfig: {
+            headerPos: { x: 105, y: 30, align: 'center' },
+            companyInfoPos: { x: 20, y: 60, align: 'left' },
+            clientInfoPos: { x: 110, y: 60, align: 'left' },
+            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 100,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_3: {
+        id: 'template_3',
+        name: 'Layout 3',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/3.jpg',
+        layoutConfig: {
+            headerPos: { x: 20, y: 30, align: 'left' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_4: {
+        id: 'template_4',
+        name: 'Layout 4',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/4.jpg',
+        layoutConfig: {
+            headerPos: { x: 190, y: 30, align: 'right' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 20, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_5: {
+        id: 'template_5',
+        name: 'Layout 5',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/5.jpg',
+        layoutConfig: {
+            headerPos: { x: 105, y: 30, align: 'center' },
+            companyInfoPos: { x: 20, y: 60, align: 'left' },
+            clientInfoPos: { x: 110, y: 60, align: 'left' },
+            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 100,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_6: {
+        id: 'template_6',
+        name: 'Layout 6',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/6.jpg',
+        layoutConfig: {
+            headerPos: { x: 20, y: 30, align: 'left' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_7: {
+        id: 'template_7',
+        name: 'Layout 7',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/7.jpg',
+        layoutConfig: {
+            headerPos: { x: 190, y: 30, align: 'right' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 20, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_8: {
+        id: 'template_8',
+        name: 'Layout 8',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/8.jpg',
+        layoutConfig: {
+            headerPos: { x: 105, y: 30, align: 'center' },
+            companyInfoPos: { x: 20, y: 60, align: 'left' },
+            clientInfoPos: { x: 110, y: 60, align: 'left' },
+            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 100,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_9: {
+        id: 'template_9',
+        name: 'Layout 9',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/9.jpg',
+        layoutConfig: {
+            headerPos: { x: 20, y: 30, align: 'left' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_10: {
+        id: 'template_10',
+        name: 'Layout 10',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/10.jpg',
+        layoutConfig: {
+            headerPos: { x: 190, y: 30, align: 'right' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 20, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_11: {
+        id: 'template_11',
+        name: 'Layout 11',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/11.jpg',
+        layoutConfig: {
+            headerPos: { x: 105, y: 30, align: 'center' },
+            companyInfoPos: { x: 20, y: 60, align: 'left' },
+            clientInfoPos: { x: 110, y: 60, align: 'left' },
+            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 100,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    template_12: {
+        id: 'template_12',
+        name: 'Layout 12',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#333333',
+        secondaryColor: '#555555',
+        textColor: '#000000',
+        font: 'helvetica',
+        headerFont: 'helvetica',
+        backgroundImage: '/templates/12.jpg',
+        layoutConfig: {
+            headerPos: { x: 20, y: 30, align: 'left' },
+            companyInfoPos: { x: 20, y: 70, align: 'left' },
+            clientInfoPos: { x: 110, y: 70, align: 'left' },
+            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
+            gridStartY: 110,
+            totalsPos: { x: 190, align: 'right' }
+        }
+    },
+    // Alias for backward compatibility
+    standard: {
+        id: 'standard',
+        name: 'Standard',
+        layoutEngine: 'classic_bordered',
+        primaryColor: '#2c3e50',
+        secondaryColor: '#34495e',
+        textColor: '#2c3e50',
+        font: 'times',
+        headerFont: 'times',
+    },
 };
 
 const hexToRgb = (hex: string) => {
@@ -311,6 +627,57 @@ const hexToRgb = (hex: string) => {
 };
 
 const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, template: TemplateStyle, primaryRgb: number[], title: string, dateLabel: string, dateValue: string, idLabel: string, idValue: string) => {
+    // 1. Flexible Layout Engine
+    if (template.layoutConfig) {
+        // Draw Background first (already handled by caller, but ensure order if needed)
+        // Note: Caller executes: await drawDocumentHeader(...) which calls drawTemplateBackground internally for non-modern types.
+        // For flexible layouts, we assume background is drawn by caller or we call it here if it wasn't.
+        // But existing flow calls layout-specific bg logic inside drawDocumentHeader. Let's call it:
+        await drawTemplateBackground(doc, template, primaryRgb);
+
+        const config = template.layoutConfig;
+
+        // Draw Logo
+        if (data.logoUrl) {
+            const imgData = await loadImage(data.logoUrl);
+            if (imgData) {
+                let targetW = config.logoPos.w;
+                let targetH = config.logoPos.h;
+
+                // Aspect Ratio Preservation
+                const imgRatio = imgData.width / imgData.height;
+                const boxRatio = targetW / targetH;
+
+                if (imgRatio > boxRatio) {
+                    targetH = targetW / imgRatio;
+                } else {
+                    targetW = targetH * imgRatio;
+                }
+
+                doc.addImage(imgData.data, imgData.format, config.logoPos.x, config.logoPos.y, targetW, targetH);
+            }
+        }
+
+        // Draw Header (Title, ID, Date)
+        doc.setTextColor(...primaryRgb);
+        doc.setFont(template.headerFont, 'bold');
+        doc.setFontSize(26);
+        doc.text(title, config.headerPos.x, config.headerPos.y, { align: config.headerPos.align });
+
+        doc.setFontSize(10);
+        doc.setFont(template.font, 'normal');
+        doc.setTextColor(0, 0, 0); // Default black for details
+
+        // Calculate offsets for ID/Date below title
+        let detailY = config.headerPos.y + 7;
+        safeText(doc, `${idLabel}: ${idValue}`, config.headerPos.x, detailY, { align: config.headerPos.align });
+        detailY += 5;
+        safeText(doc, `${dateLabel}: ${dateValue}`, config.headerPos.x, detailY, { align: config.headerPos.align });
+
+        return config.gridStartY; // Return the configured grid start Y
+    }
+
+    // 2. Existing Logic (Modern / Classic)
     const isModern = template.layoutType === 'modern';
     let yPos = 0;
 
@@ -340,7 +707,7 @@ const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, tem
         yPos = 60;
     } else {
         // Use the helper to draw borders
-        drawTemplateBackground(doc, template, primaryRgb);
+        await drawTemplateBackground(doc, template, primaryRgb);
 
         yPos = 25;
         if (data.logoUrl) {
@@ -370,6 +737,46 @@ const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, tem
 };
 
 const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number, template: TemplateStyle) => {
+    // 1. Flexible Layout Engine
+    if (template.layoutConfig) {
+        const config = template.layoutConfig;
+        const labelFont = 'helvetica';
+        const bodyFont = 'helvetica';
+
+        doc.setFontSize(10);
+        doc.setFont(labelFont, 'bold');
+        doc.setTextColor(0, 0, 0);
+
+        // Company (From)
+        doc.text('FROM:', config.companyInfoPos.x, config.companyInfoPos.y, { align: config.companyInfoPos.align });
+        // Client (To)
+        doc.text('TO:', config.clientInfoPos.x, config.clientInfoPos.y, { align: config.clientInfoPos.align });
+
+        doc.setFont(bodyFont, 'normal');
+        doc.setTextColor(60, 60, 60);
+
+        // Company Details
+        let leftY = config.companyInfoPos.y + 5;
+        const compAlign = config.companyInfoPos.align;
+        safeText(doc, data.companyName || profile.companyName, config.companyInfoPos.x, leftY, { align: compAlign });
+        const compAddr = doc.splitTextToSize(data.companyAddress || profile.address || '', 80);
+        doc.text(compAddr, config.companyInfoPos.x, leftY + 5, { align: compAlign });
+        const compPhone = data.companyPhone || profile.phone || '';
+        const compWeb = data.companyWebsite || profile.website || '';
+        const compContact = [compPhone, compWeb].filter(Boolean).join(' | ');
+        doc.text(compContact, config.companyInfoPos.x, leftY + 5 + (compAddr.length * 5), { align: compAlign });
+
+        // Client Details
+        let rightY = config.clientInfoPos.y + 5;
+        const clientAlign = config.clientInfoPos.align;
+        safeText(doc, data.clientName || '', config.clientInfoPos.x, rightY, { align: clientAlign });
+        const clientAddr = doc.splitTextToSize(data.clientAddress || data.projectAddress || '', 80);
+        doc.text(clientAddr, config.clientInfoPos.x, rightY + 5, { align: clientAlign });
+
+        // For flexible grids, we just return the GridStartY (usually larger than these text blocks)
+        return Math.max(config.gridStartY, leftY + 20, rightY + 20);
+    }
+
     const labelFont = template.layoutType === 'modern' ? 'helvetica' : 'times';
     const bodyFont = template.layoutType === 'modern' ? 'helvetica' : 'times';
     const isModern = template.layoutType === 'modern';
