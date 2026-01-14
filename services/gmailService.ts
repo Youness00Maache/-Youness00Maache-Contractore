@@ -28,8 +28,8 @@ export const sendGmail = async (
   }
 
   const mimeMessage = createMimeMessage(to, subject, body, attachment, htmlBody);
-  // Encode to Base64URL
-  const base64EncodedEmail = btoa(mimeMessage).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  // Encode to Base64URL with Unicode support
+  const base64EncodedEmail = btoa(unescape(encodeURIComponent(mimeMessage))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
   const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
