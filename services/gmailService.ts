@@ -89,7 +89,7 @@ const createMimeMessage = (to: string, subject: string, body: string, attachment
     message += `Content-Transfer-Encoding: 7bit${nl}${nl}`;
     message += `${htmlBody}${nl}${nl}`;
 
-    message += `--${altBoundary}--${nl}`;
+    message += `--${altBoundary}--${nl}${nl}`;
   } else {
     // Plain text only (legacy behavior)
     message += `--${boundary}${nl}`;
