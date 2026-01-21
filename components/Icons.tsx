@@ -142,6 +142,9 @@ export const ArrowRightIcon = (props: any) => <StrokeIcon {...props}><line x1="5
 export const ShieldIcon = (props: any) => <StrokeIcon {...props}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" /></StrokeIcon>;
 export const SmartphoneIcon = (props: any) => <StrokeIcon {...props}><rect width="14" height="20" x="5" y="2" rx="2" ry="2" /><path d="M12 18h.01" /></StrokeIcon>;
 export const ChartIcon = (props: any) => <StrokeIcon {...props}><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></StrokeIcon>;
+export const FilterIcon = (props: any) => <StrokeIcon {...props}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></StrokeIcon>;
+export const DollarIcon = (props: any) => <StrokeIcon {...props}><line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></StrokeIcon>;
+export const MapPinIcon = (props: any) => <StrokeIcon {...props}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></StrokeIcon>;
 export const FileTextIcon = (props: any) => <StrokeIcon {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" x2="8" y1="13" y2="13" /><line x1="16" x2="8" y1="17" y2="17" /><line x1="10" x2="8" y1="9" y2="9" /></StrokeIcon>;
 export const RobotIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="12" x="3" y="6" rx="2" /><circle cx="9" cy="12" r="2" /><circle cx="15" cy="12" r="2" /><line x1="12" x2="12" y1="2" y2="6" /><line x1="12" x2="12" y1="18" y2="22" /></StrokeIcon>;
 export const AwardIcon = (props: any) => <StrokeIcon {...props}><circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" /></StrokeIcon>;

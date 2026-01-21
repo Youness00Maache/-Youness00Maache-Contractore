@@ -57,7 +57,22 @@ export interface InventoryItem {
   name: string;
   quantity: number;
   category?: string;
+  unit?: string;
+  cost_price?: number;
+  supplier?: string;
+  location?: string;
   low_stock_threshold?: number;
+  created_at?: string;
+}
+
+export interface InventoryHistoryItem {
+  id: string;
+  item_id: string;
+  user_id: string;
+  action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation';
+  quantity_change: number;
+  notes?: string;
+  job_id?: string;
   created_at?: string;
 }
 
@@ -187,6 +202,7 @@ export interface MaterialLogItem {
   supplier: string;
   quantity: number;
   unitCost: number;
+  inventoryItemId?: string;
 }
 
 export interface MaterialLogData extends DocumentStyle {
@@ -202,6 +218,7 @@ export interface MaterialLogData extends DocumentStyle {
   clientAddress?: string;
   logoUrl?: string;
   signatureUrl?: string;
+  deductInventory?: boolean;
 }
 
 export interface EstimateData extends DocumentStyle {

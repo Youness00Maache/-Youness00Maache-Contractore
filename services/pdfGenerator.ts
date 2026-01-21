@@ -1,5 +1,7 @@
 
 import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData } from '../types.ts';
+import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate } from '../utils/templates/documentHtmlTemplates.ts';
+import { getNeonCyberpunkHtmlTemplate, getLuxuryGoldNavyHtmlTemplate, getOrganicNatureHtmlTemplate, getGeometricBoldHtmlTemplate, getPastelSoftHtmlTemplate, getVintageCraftHtmlTemplate, getBlueprintTechHtmlTemplate, getAbstractMemphisHtmlTemplate, getCrimsonNoirHtmlTemplate, getWatercolorArtisticHtmlTemplate, getSwissGridHtmlTemplate, getSpaceOdysseyHtmlTemplate, getRetroTerminalHtmlTemplate, getPlayfulPopHtmlTemplate, getElegantSerifHtmlTemplate } from '../utils/templates/allNewTemplates.ts';
 
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -370,6 +372,46 @@ const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number
 export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice: InvoiceData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
+
+    // --> Advanced HTML Template Logic
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+        if (templateId === 'template_swiss') templateFn = getSwissGridHtmlTemplate;
+        if (templateId === 'template_space') templateFn = getSpaceOdysseyHtmlTemplate;
+        if (templateId === 'template_retro') templateFn = getRetroTerminalHtmlTemplate;
+        if (templateId === 'template_pop') templateFn = getPlayfulPopHtmlTemplate;
+        if (templateId === 'template_serif') templateFn = getElegantSerifHtmlTemplate;
+
+        const html = templateFn(invoice, profile, invoice.isProgressBilling ? 'PROGRESS INVOICE' : 'INVOICE', {
+            date: 'Date',
+            dateValue: invoice.issueDate,
+            id: 'Invoice #',
+            idValue: invoice.invoiceNumber
+        });
+
+        // Render full page HTML (A4 width approx 210mm)
+        await renderHtmlToPdf(doc, html, 0, 0, 210);
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
+        return;
+    }
+
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(invoice.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -483,6 +525,40 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
 export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
+
+    // --> Advanced HTML Template Logic
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor'];
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+
+        const html = templateFn(data, profile, 'ESTIMATE', {
+            date: 'Valid Until',
+            dateValue: data.expiryDate,
+            id: 'Estimate #',
+            idValue: data.estimateNumber
+        });
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210);
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`Estimate-${data.estimateNumber}.pdf`);
+        return;
+    }
+
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 

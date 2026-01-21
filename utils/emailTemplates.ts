@@ -1,38 +1,38 @@
 
 export interface EmailTemplateDefinition {
-    id: string;
-    name: string;
-    category: 'modern' | 'corporate' | 'minimalist' | 'creative' | 'billing';
-    thumbnail: string; // base64 or URL for preview
-    html: string; // HTML template with placeholders
+  id: string;
+  name: string;
+  category: 'modern' | 'corporate' | 'minimalist' | 'creative' | 'billing';
+  thumbnail: string; // base64 or URL for preview
+  html: string; // HTML template with placeholders
 }
 
 /**
  * Replace placeholders in HTML template with actual values
  */
 export const applyTemplateVariables = (
-    html: string,
-    variables: Record<string, string>
+  html: string,
+  variables: Record<string, string>
 ): string => {
-    let result = html;
-    for (const [key, value] of Object.entries(variables)) {
-        const placeholder = `{{${key}}}`;
-        result = result.split(placeholder).join(value || '');
-    }
-    return result;
+  let result = html;
+  for (const [key, value] of Object.entries(variables)) {
+    const placeholder = `{{${key}}}`;
+    result = result.split(placeholder).join(value || '');
+  }
+  return result;
 };
 
 /**
  * Collection of 13-15 professional HTML email templates
  */
 export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
-    // ===== MODERN TEMPLATES =====
-    {
-        id: 'modern-gradient',
-        name: 'Modern Gradient',
-        category: 'modern',
-        thumbnail: '',
-        html: `
+  // ===== MODERN TEMPLATES =====
+  {
+    id: 'modern-gradient',
+    name: 'Modern Gradient',
+    category: 'modern',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -75,14 +75,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'modern-clean',
-        name: 'Modern Clean',
-        category: 'modern',
-        thumbnail: '',
-        html: `
+  {
+    id: 'modern-clean',
+    name: 'Modern Clean',
+    category: 'modern',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -125,14 +125,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'modern-bold',
-        name: 'Modern Bold',
-        category: 'modern',
-        thumbnail: '',
-        html: `
+  {
+    id: 'modern-bold',
+    name: 'Modern Bold',
+    category: 'modern',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -143,7 +143,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .header { background: {{primary_color}}; padding: 50px 30px; text-align: center; position: relative; }
     .header::after { content: ''; position: absolute; bottom: -20px; left: 0; right: 0; height: 20px; background: white; border-radius: 20px 20px 0 0; }
-    .logo { max-width: 160px; filter: brightness(0) invert(1); }
+    .logo { max-width: 160px; }
     .content { padding: 40px 40px 50px; color: #1e293b; line-height: 1.7; font-size: 15px; }
     .signature-card { background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); padding: 25px; border-radius: 10px; margin-top: 30px; border-left: 4px solid {{primary_color}}; }
     .signature-name { font-weight: 700; font-size: 18px; color: #0f172a; }
@@ -173,15 +173,15 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    // ===== CORPORATE TEMPLATES =====
-    {
-        id: 'corporate-classic',
-        name: 'Corporate Classic',
-        category: 'corporate',
-        thumbnail: '',
-        html: `
+  // ===== CORPORATE TEMPLATES =====
+  {
+    id: 'corporate-classic',
+    name: 'Corporate Classic',
+    category: 'corporate',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -227,14 +227,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'corporate-professional',
-        name: 'Corporate Professional',
-        category: 'corporate',
-        thumbnail: '',
-        html: `
+  {
+    id: 'corporate-professional',
+    name: 'Corporate Professional',
+    category: 'corporate',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -295,14 +295,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'corporate-executive',
-        name: 'Corporate Executive',
-        category: 'corporate',
-        thumbnail: '',
-        html: `
+  {
+    id: 'corporate-executive',
+    name: 'Corporate Executive',
+    category: 'corporate',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -349,15 +349,15 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    // ===== MINIMALIST TEMPLATES =====
-    {
-        id: 'minimalist-simple',
-        name: 'Minimalist Simple',
-        category: 'minimalist',
-        thumbnail: '',
-        html: `
+  // ===== MINIMALIST TEMPLATES =====
+  {
+    id: 'minimalist-simple',
+    name: 'Minimalist Simple',
+    category: 'minimalist',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -393,14 +393,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'minimalist-elegant',
-        name: 'Minimalist Elegant',
-        category: 'minimalist',
-        thumbnail: '',
-        html: `
+  {
+    id: 'minimalist-elegant',
+    name: 'Minimalist Elegant',
+    category: 'minimalist',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -434,14 +434,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'minimalist-zen',
-        name: 'Minimalist Zen',
-        category: 'minimalist',
-        thumbnail: '',
-        html: `
+  {
+    id: 'minimalist-zen',
+    name: 'Minimalist Zen',
+    category: 'minimalist',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -471,15 +471,15 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    // ===== BILLING/INVOICE TEMPLATES =====
-    {
-        id: 'billing-structured',
-        name: 'Billing Structured',
-        category: 'billing',
-        thumbnail: '',
-        html: `
+  // ===== BILLING/INVOICE TEMPLATES =====
+  {
+    id: 'billing-structured',
+    name: 'Billing Structured',
+    category: 'billing',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -491,7 +491,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .header-billing { background: {{primary_color}}; padding: 25px 40px; color: white; }
     .header-billing h1 { margin: 0; font-size: 22px; font-weight: 700; }
     .header-billing .tagline { margin-top: 5px; font-size: 13px; opacity: 0.9; }
-    .logo-billing { max-width: 130px; margin-bottom: 15px; filter: brightness(0) invert(1); }
+    .logo-billing { max-width: 130px; margin-bottom: 15px; }
     .content { padding: 35px 40px; color: #333; line-height: 1.7; font-size: 14px; }
     .info-grid { display: table; width: 100%; margin: 30px 0; border-top: 2px solid {{primary_color}}; padding-top: 20px; }
     .info-row { display: table-row; }
@@ -538,14 +538,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'billing-professional',
-        name: 'Billing Professional',
-        category: 'billing',
-        thumbnail: '',
-        html: `
+  {
+    id: 'billing-professional',
+    name: 'Billing Professional',
+    category: 'billing',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -605,15 +605,15 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    // ===== CREATIVE TEMPLATES =====
-    {
-        id: 'creative-vibrant',
-        name: 'Creative Vibrant',
-        category: 'creative',
-        thumbnail: '',
-        html: `
+  // ===== CREATIVE TEMPLATES =====
+  {
+    id: 'creative-vibrant',
+    name: 'Creative Vibrant',
+    category: 'creative',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -625,7 +625,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .creative-card { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .creative-header { background: linear-gradient(135deg, {{primary_color}} 0%, {{secondary_color}} 100%); padding: 50px 35px; text-align: center; position: relative; }
     .creative-header::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120"><path fill="rgba(255,255,255,0.1)" d="M0,0V46.29c47.79,22.2,103.59,32.17,158,28,70.36-5.37,136.33-33.31,206.8-37.5C438.64,32.43,512.34,53.67,583,72.05c69.27,18,138.3,24.88,209.4,13.08,36.15-6,69.85-17.84,104.45-29.34C989.49,25,1113-14.29,1200,52.47V0Z" opacity=".25"/></svg>'); background-size: cover; opacity: 0.3; }
-    .creative-logo { max-width: 140px; position: relative; z-index: 1; filter: brightness(0) invert(1); }
+    .creative-logo { max-width: 140px; position: relative; z-index: 1; }
     .creative-subtitle { color: rgba(255,255,255,0.9); margin-top: 15px; font-size: 16px; font-weight: 300; position: relative; z-index: 1; }
     .creative-content { padding: 45px 35px; color: #2d3748; line-height: 1.8; font-size: 15px; }
     .creative-sig { margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); border-radius: 15px; text-align: center; }
@@ -657,14 +657,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'creative-playful',
-        name: 'Creative Playful',
-        category: 'creative',
-        thumbnail: '',
-        html: `
+  {
+    id: 'creative-playful',
+    name: 'Creative Playful',
+    category: 'creative',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -674,7 +674,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif; background: #fff5e6; }
     .playful-container { max-width: 580px; margin: 30px auto; background: white; border: 8px solid {{primary_color}}; border-radius: 30px; padding: 40px; box-shadow: 12px 12px 0 rgba(0,0,0,0.1); }
     .playful-logo { max-width: 120px; margin-bottom: 25px; }
-    .playful-title { font-size: 26px; color: {{primary_color}}; font-weight: bold; transform: rotate(-2deg); display: inline-block; }
+    .playful-title { font-size: 26px; color: {{primary_color}}; font-weight: bold; transform: rotate(-2deg); transform-origin: left; display: inline-block; }
     .playful-content { color: #333; line-height: 1.9; font-size: 15px; margin-top: 30px; }
     .playful-sig { margin-top: 40px; padding: 20px; background: #fffacd; border-left: 6px solid {{primary_color}}; border-radius: 0 15px 15px 0; transform: rotate(1deg); }
     .playful-sig-name { font-weight: bold; font-size: 18px; color: #333; }
@@ -697,14 +697,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'creative-artistic',
-        name: 'Creative Artistic',
-        category: 'creative',
-        thumbnail: '',
-        html: `
+  {
+    id: 'creative-artistic',
+    name: 'Creative Artistic',
+    category: 'creative',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -741,14 +741,14 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    },
+  },
 
-    {
-        id: 'signature-focused',
-        name: 'Signature Focused',
-        category: 'minimalist',
-        thumbnail: '',
-        html: `
+  {
+    id: 'signature-focused',
+    name: 'Signature Focused',
+    category: 'minimalist',
+    thumbnail: '',
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -787,19 +787,19 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   </div>
 </body>
 </html>`
-    }
+  }
 ];
 
 /**
  * Get template by ID
  */
 export const getTemplateById = (id: string): EmailTemplateDefinition | undefined => {
-    return EMAIL_TEMPLATES.find(t => t.id === id);
+  return EMAIL_TEMPLATES.find(t => t.id === id);
 };
 
 /**
  * Get templates by category
  */
 export const getTemplatesByCategory = (category: string): EmailTemplateDefinition[] => {
-    return EMAIL_TEMPLATES.filter(t => t.category === category);
+  return EMAIL_TEMPLATES.filter(t => t.category === category);
 };

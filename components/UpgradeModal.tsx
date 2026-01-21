@@ -7,9 +7,10 @@ interface UpgradeModalProps {
     onClose: () => void;
     featureName: string;
     onUpgrade?: () => void;
+    userId?: string;
 }
 
-const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureName, onUpgrade }) => {
+const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureName, onUpgrade, userId }) => {
     React.useEffect(() => {
         if (isOpen && (window as any).paypal) {
             const containerId = 'paypal-button-container-P-65E58669J9805670ENFP23EA';
@@ -19,7 +20,10 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                 (window as any).paypal.Buttons({
                     style: { shape: 'rect', color: 'black', layout: 'vertical', label: 'subscribe' },
                     createSubscription: function (data: any, actions: any) {
-                        return actions.subscription.create({ plan_id: 'P-65E58669J9805670ENFP23EA' });
+                        return actions.subscription.create({
+                            plan_id: 'P-65E58669J9805670ENFP23EA',
+                            custom_id: userId // Pass User ID for Webhook tracking
+                        });
                     },
                     onApprove: function (data: any, actions: any) {
                         if (onUpgrade) onUpgrade();

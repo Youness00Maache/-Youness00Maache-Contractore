@@ -38,6 +38,28 @@ const templateColors: Record<string, { primary: string, secondary: string }> = {
     template_10: { primary: '#333333', secondary: '#555555' },
     template_11: { primary: '#333333', secondary: '#555555' },
     template_12: { primary: '#333333', secondary: '#555555' },
+    template_html: { primary: '#000000', secondary: '#666666' },
+    template_html_2: { primary: '#2c3e50', secondary: '#1a1a1a' },
+    template_html_3: { primary: '#111111', secondary: '#333333' },
+    template_html_4: { primary: '#4F46E5', secondary: '#7C3AED' },
+    // New Advanced Templates
+    template_neon: { primary: '#00F0FF', secondary: '#FF006E' },
+    template_luxury: { primary: '#D4AF37', secondary: '#0A1931' },
+    template_nature: { primary: '#2D6A4F', secondary: '#6C584C' },
+    template_geometric: { primary: '#E63946', secondary: '#1D3557' },
+    template_pastel: { primary: '#FFB5D8', secondary: '#C9ADA7' },
+    // Set 2 Templates
+    template_vintage: { primary: '#8B4513', secondary: '#FDF5E6' },
+    template_blueprint: { primary: '#003366', secondary: '#FFFFFF' },
+    template_memphis: { primary: '#FFD700', secondary: '#00CED1' },
+    template_crimson: { primary: '#DC143C', secondary: '#0A0A0A' },
+    template_watercolor: { primary: '#EE82EE', secondary: '#87CEFA' },
+    // Set 3 Templates
+    template_swiss: { primary: '#FF0000', secondary: '#FFFFFF' },
+    template_space: { primary: '#050510', secondary: '#BB86FC' },
+    template_retro: { primary: '#33ff00', secondary: '#000000' },
+    template_pop: { primary: '#fff000', secondary: '#ff00de' },
+    template_serif: { primary: '#333333', secondary: '#FDFBF7' },
 };
 
 const layouts = [
@@ -148,6 +170,123 @@ const layouts = [
         name: 'Designer Template 12',
         description: 'Professional designer layout with custom background',
         type: 'Designer'
+    },
+    {
+        id: 'template_html',
+        name: 'Modern Advanced HTML',
+        description: 'Premium HTML-based layout with advanced styling',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_html_2',
+        name: 'Luxury Split Design',
+        description: 'Stunning high-end interface with dark sidebar',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_html_3',
+        name: 'Premium Minimalist',
+        description: 'Clean, agency-style layout with focus on typography',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_html_4',
+        name: 'Gradient Border Premium',
+        description: 'Modern design with gradient accents and rounded corners',
+        type: 'HTML Style'
+    },
+    // --- 5 NEW PREMIUM TEMPLATES ---
+    {
+        id: 'template_neon',
+        name: 'Neon Cyberpunk',
+        description: 'Dark futuristic design with glowing neon accents',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_luxury',
+        name: 'Luxury Gold & Navy',
+        description: 'Premium business elegance with gold ornamentals',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_nature',
+        name: 'Organic Nature',
+        description: 'Earth tones with flowing shapes and eco-friendly aesthetic',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_geometric',
+        name: 'Geometric Bold',
+        description: 'Sharp angles and modern patterns with high contrast',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_pastel',
+        name: 'Pastel Soft',
+        description: 'Gentle gradients with rounded friendly design',
+        type: 'HTML Style'
+    },
+    // --- 5 MORE (SET 2) ---
+    {
+        id: 'template_vintage',
+        name: 'Vintage Craft',
+        description: 'Textured paper with typewriter typography',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_blueprint',
+        name: 'Blueprint Tech',
+        description: 'Engineering blueprint look with grid lines',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_memphis',
+        name: 'Abstract Memphis',
+        description: '80s geometric patterns with vibrant shapes',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_crimson',
+        name: 'Crimson Noir',
+        description: 'Dark mode with bold red accents and cinematic feel',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_watercolor',
+        name: 'Watercolor Artistic',
+        description: 'Soft watercolor splashes and artistic layout',
+        type: 'HTML Style'
+    },
+    // --- 5 MORE (SET 3) ---
+    {
+        id: 'template_swiss',
+        name: 'Swiss Grid Style',
+        description: 'Clean red/white typographic design',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_space',
+        name: 'Space Odyssey',
+        description: 'Futuristic deep space background with glowing text',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_retro',
+        name: 'Retro Terminal',
+        description: 'Green phosphor code-style hacker aesthetic',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_pop',
+        name: 'Playful Pop Art',
+        description: 'Vibrant comic book style with halftones',
+        type: 'HTML Style'
+    },
+    {
+        id: 'template_serif',
+        name: 'Classical Elegant',
+        description: 'Traditional refined design with serif typography',
+        type: 'HTML Style'
     },
 ];
 

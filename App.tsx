@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
-import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, SavedItem } from './types.ts';
+import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import UpgradeModal from './components/UpgradeModal.tsx';
@@ -327,6 +327,38 @@ BEGIN
 END;
 $$;
 
+-- 10.5 UPDATE INVENTORY SCHEMA (New Columns)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'unit') THEN
+        ALTER TABLE public.inventory ADD COLUMN unit TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'cost_price') THEN
+        ALTER TABLE public.inventory ADD COLUMN cost_price NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'supplier') THEN
+        ALTER TABLE public.inventory ADD COLUMN supplier TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'location') THEN
+        ALTER TABLE public.inventory ADD COLUMN location TEXT;
+    END IF;
+END $$;
+
+-- 11. INVENTORY HISTORY
+CREATE TABLE IF NOT EXISTS public.inventory_history (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  item_id UUID NOT NULL REFERENCES public.inventory(id) ON DELETE CASCADE,
+  action TEXT NOT NULL,
+  quantity_change INTEGER NOT NULL,
+  notes TEXT,
+  job_id UUID REFERENCES public.jobs(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.inventory_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage their own inventory history" ON public.inventory_history;
+CREATE POLICY "Users can manage their own inventory history" ON public.inventory_history FOR ALL USING (auth.uid() = user_id);
+
 NOTIFY pgrst, 'reload config';
 `;
 
@@ -444,6 +476,7 @@ const App: React.FC = () => {
   const [forms, setForms] = useState<FormDataType[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [inventoryHistory, setInventoryHistory] = useState<InventoryHistoryItem[]>([]);
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -753,6 +786,12 @@ const App: React.FC = () => {
       setInventory(cachedInventory);
     }
 
+    // Inventory History
+    if (navigator.onLine) {
+      const { data: histData } = await supabase.from('inventory_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100);
+      if (histData) setInventoryHistory(histData);
+    }
+
     // Saved Items (Price Book)
     if (navigator.onLine) {
       const { data: savedData, error: savedError } = await supabase.from('saved_items').select('*').eq('user_id', user.id).order('name');
@@ -905,6 +944,22 @@ const App: React.FC = () => {
       data: formData
     };
 
+    // Inventory Deduction Logic (Phase 3)
+    if (view.formType === FormType.MaterialLog && (formData as any).deductInventory) {
+      const matData = formData as MaterialLogData;
+      console.log("Processing Inventory Deduction for Material Log...");
+
+      for (const item of matData.items) {
+        if (item.inventoryItemId) {
+          // Deduct stock
+          await handleAllocateInventory(item.inventoryItemId, view.jobId, item.quantity);
+        }
+      }
+
+      // Disable flag after processing so it doesn't run again on next save
+      formData.deductInventory = false;
+    }
+
     await supabase.from('documents').upsert(formRecord);
     await fetchData();
     setView({ screen: 'jobDetails', jobId: view.jobId });
@@ -985,17 +1040,56 @@ const App: React.FC = () => {
   };
 
   // Inventory Handlers
+  const handleLogInventoryAction = async (itemId: string, action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation', quantityChange: number, notes?: string, jobId?: string) => {
+    if (!session) return;
+    const historyItem = { id: crypto.randomUUID(), user_id: session.user.id, item_id: itemId, action, quantity_change: quantityChange, notes, job_id: jobId, created_at: new Date().toISOString() };
+    await supabase.from('inventory_history').insert(historyItem);
+    setInventoryHistory(prev => [historyItem as InventoryHistoryItem, ...prev]);
+  };
+
   const handleAddInventoryItem = async (itemData: any) => {
     if (!session) return;
-    await supabase.from('inventory').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...itemData });
+    const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...itemData };
+    await supabase.from('inventory').insert(newItem);
+    await handleLogInventoryAction(newItem.id, 'add', newItem.quantity, 'Initial stock');
     fetchData();
   };
   const handleUpdateInventoryItem = async (item: InventoryItem) => {
-    await supabase.from('inventory').update({ quantity: item.quantity, low_stock_threshold: item.low_stock_threshold }).eq('id', item.id);
+    // Find old item to calculate diff
+    const oldItem = inventory.find(i => i.id === item.id);
+    const diff = item.quantity - (oldItem?.quantity || 0);
+
+    await supabase.from('inventory').update({
+      quantity: item.quantity,
+      low_stock_threshold: item.low_stock_threshold,
+      // Update new fields if passed (InventoryView sends whole item)
+      category: item.category,
+      unit: item.unit,
+      cost_price: item.cost_price,
+      supplier: item.supplier,
+      location: item.location
+    }).eq('id', item.id);
+
+    if (diff !== 0) {
+      await handleLogInventoryAction(item.id, diff > 0 ? 'restock' : 'update', diff, diff > 0 ? 'Manual Restock' : 'Manual Adjustment');
+    }
+
     fetchData();
   };
   const handleDeleteInventoryItem = async (id: string) => {
     await supabase.from('inventory').delete().eq('id', id);
+    // History automatically deleted by CASCADE or we keep it? CASCADE is set in SQL.
+    fetchData();
+  };
+
+  const handleAllocateInventory = async (itemId: string, jobId: string, quantity: number) => {
+    if (!session) return;
+    const item = inventory.find(i => i.id === itemId);
+    if (!item) return;
+
+    const newQty = Math.max(0, item.quantity - quantity);
+    await supabase.from('inventory').update({ quantity: newQty }).eq('id', itemId);
+    await handleLogInventoryAction(itemId, 'job_allocation', -quantity, 'Allocated to job', jobId);
     fetchData();
   };
 
@@ -1228,8 +1322,10 @@ const App: React.FC = () => {
       case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+
+      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} inventory={inventory} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} publicToken={publicToken} />;
+
       case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
@@ -1300,9 +1396,12 @@ const App: React.FC = () => {
         return <InventoryView
           onBack={navigateToDashboard}
           inventory={inventory}
+          history={inventoryHistory}
+          jobs={jobs}
           onAddItem={handleAddInventoryItem}
           onUpdateItem={handleUpdateInventoryItem}
           onDeleteItem={handleDeleteInventoryItem}
+          onAllocate={handleAllocateInventory}
         />;
       case 'pricebook':
         return <PriceBookView
@@ -1342,7 +1441,13 @@ const App: React.FC = () => {
       {session && !loading && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
         <Dock items={getDockItems()} />
       )}
-      <UpgradeModal isOpen={showGlobalUpgrade} onClose={() => setShowGlobalUpgrade(false)} featureName={upgradeFeature} onUpgrade={handleUpgradeSuccess} />
+      <UpgradeModal
+        isOpen={showGlobalUpgrade}
+        onClose={() => setShowGlobalUpgrade(false)}
+        featureName={upgradeFeature}
+        onUpgrade={handleUpgradeSuccess}
+        userId={session?.user?.id}
+      />
 
       <ConfirmationModal
         isOpen={showDeleteJobModal}
