@@ -11,7 +11,9 @@ export enum FormType {
   Note = "Note",
   Receipt = "Receipt",
   ChangeOrder = "Change Order",
+  ChangeOrder = "Change Order",
   PurchaseOrder = "Purchase Order",
+  ProfitReport = "Profit Report",
 }
 
 export interface EmailTemplate {
@@ -66,11 +68,54 @@ export interface SavedItem {
   description?: string;
   rate: number;
   unit_cost?: number; // Renamed from cost to unit_cost to match DB, aliased where needed
-  cost?: number; 
+  cost?: number;
   category?: string;
+  category_id?: string; // FK to price_book_categories
+  // Advanced Price Book Fields
+  type?: 'service' | 'material' | 'labor' | 'bundle';
+  images?: string[]; // Array of image URLs
+  taxable?: boolean;
+  sku?: string; // Stock Keeping Unit / Code
+  markup?: number; // Profit markup percentage
+  // Elite Features (Phase 1)
+  is_assembly?: boolean; // Is this a bundle/assembly?
+  assembly_items?: AssemblyItem[]; // Components of this assembly
+  is_favorite?: boolean; // Starred/favorited
+  last_used_at?: string; // Last time added to a document
+  use_count?: number; // How many times used
   created_at?: string;
   updated_at?: string;
 }
+
+export interface AssemblyItem {
+  item_id: string;
+  quantity: number;
+  override_price?: number | null; // Override component price
+}
+
+export interface ItemVendor {
+  id: string;
+  item_id: string;
+  vendor_name: string;
+  vendor_sku?: string;
+  vendor_price?: number;
+  lead_time_days?: number;
+  is_preferred?: boolean;
+  last_updated?: string;
+  user_id: string;
+}
+
+export interface PriceHistory {
+  id: string;
+  item_id: string;
+  old_price?: number;
+  new_price?: number;
+  old_cost?: number;
+  new_cost?: number;
+  changed_at: string;
+  changed_by: string;
+}
+
 
 export interface Job {
   id: string;
@@ -128,10 +173,10 @@ export interface InvoiceData extends DocumentStyle {
   isProgressBilling?: boolean;
   // Recurring Invoice fields
   recurrence?: { // Keep recurrence object for compatibility with logic
-      enabled: boolean;
-      frequency: 'Monthly' | 'Quarterly' | 'Bi-Annually' | 'Annually';
-      lastRunDate?: string;
-      nextRunDate?: string;
+    enabled: boolean;
+    frequency: 'Monthly' | 'Quarterly' | 'Bi-Annually' | 'Annually';
+    lastRunDate?: string;
+    nextRunDate?: string;
   };
 }
 
@@ -353,7 +398,7 @@ export interface FormData {
   jobId: string;
   type: FormType;
   createdAt: string;
-  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData;
+  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData | ProfitReportData;
   public_token?: string; // Add public_token for digital sign-offs
 }
 

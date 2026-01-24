@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon, EstimateIcon, TrendingUpIcon, EyeIcon, EyeOffIcon, TagIcon, SearchIcon, GlobeIcon, CheckIcon, CheckCircleIcon } from './Icons.tsx';
+import { BackArrowIcon, ExportIcon, EstimateIcon, TrendingUpIcon, EyeIcon, EyeOffIcon, TagIcon, SearchIcon, GlobeIcon, CheckIcon, CheckCircleIcon, SaveIcon } from './Icons.tsx';
 import { generateEstimatePDF } from '../services/pdfGenerator.ts';
 import TemplateSelector from './TemplateSelector.tsx';
 import SignaturePad from './SignaturePad.tsx';
@@ -20,9 +20,10 @@ interface Props {
     onBack: () => void;
     onUploadImage?: (file: File) => Promise<string>;
     publicToken?: string;
+    onSaveToPriceBook?: (item: Partial<SavedItem>) => Promise<void>;
 }
 
-const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], savedItems = [], onSave, onBack, onUploadImage, publicToken }) => {
+const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], savedItems = [], onSave, onBack, onUploadImage, publicToken, onSaveToPriceBook }) => {
     const [page, setPage] = useState(1);
     const [showCosts, setShowCosts] = useState(false);
     const [showItemPicker, setShowItemPicker] = useState<string | null>(null); // Stores ID of line item being picked for
@@ -268,6 +269,15 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                                         title="Pick from Price Book"
                                     >
                                         <TagIcon className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-10 w-10 shrink-0 text-muted-foreground hover:text-primary"
+                                        onClick={() => onSaveToPriceBook?.({ name: item.description, rate: item.rate, unit_cost: item.unitCost, description: item.description })}
+                                        title="Quick Add to Price Book"
+                                    >
+                                        <SaveIcon className="w-4 h-4" />
                                     </Button>
                                 </div>
                             </div>

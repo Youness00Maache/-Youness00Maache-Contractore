@@ -12,6 +12,7 @@ export enum FormType {
   Receipt = "Receipt",
   ChangeOrder = "Change Order",
   PurchaseOrder = "Purchase Order",
+  ProfitReport = "Profit Report",
 }
 
 export interface EmailTemplate {
@@ -354,12 +355,46 @@ export interface ReceiptData extends DocumentStyle {
   signatureUrl?: string;
 }
 
+
+
+export interface ProfitReportData extends DocumentStyle {
+  title?: string;
+  reportNumber: string;
+  date: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  logoUrl?: string;
+
+  // Profit Report Specifics
+  items: {
+    id: string;
+    description: string;
+    cost: number;
+    charge: number;
+  }[];
+  vatEnabled: boolean;
+  vatRate: number;
+
+  // Calculated Totals
+  totalCost: number;
+  totalRevenue: number;
+  grossProfit: number;
+  margin: number;
+  markup: number;
+  taxAmount: number;
+  totalWithTax: number;
+
+  notes?: string;
+}
+
 export interface FormData {
   id: string;
   jobId: string;
   type: FormType;
   createdAt: string;
-  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData;
+  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData | ProfitReportData;
   // FIX: Add optional 'public_token' property to FormData interface to resolve property does not exist error.
   public_token?: string; // Add public_token for digital sign-offs
 }

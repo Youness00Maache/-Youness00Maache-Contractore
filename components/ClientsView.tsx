@@ -302,7 +302,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => copyPortalLink(client)}
+                                        onClick={(e) => { e.stopPropagation(); copyPortalLink(client); }}
                                         className="text-xs h-9 bg-white/50 hover:bg-white text-blue-700 border-blue-200"
                                         title="Copy Magic Portal Link"
                                     >
@@ -312,7 +312,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                     <Button
                                         variant="default"
                                         size="sm"
-                                        onClick={() => openApprovalModal(client)}
+                                        onClick={(e) => { e.stopPropagation(); openApprovalModal(client); }}
                                         className="text-xs h-9 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
                                         title="Get Approval Link"
                                     >
@@ -321,7 +321,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                 </div>
                             </CardContent>
                             <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button variant="ghost" size="sm" onClick={() => handleDelete(client.id)} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0 rounded-full">
+                                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleDelete(client.id); }} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0 rounded-full">
                                     <TrashIcon className="w-4 h-4" />
                                 </Button>
                             </div>

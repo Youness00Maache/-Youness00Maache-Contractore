@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { FormType, UserProfile } from '../types.ts';
+import { FormType, UserProfile } from '../types';
 import { InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BackArrowIcon, ChangeOrderIcon, TruckIcon, PlusIcon, StarIcon } from './Icons.tsx';
 import { Button } from './ui/Button.tsx';
 import UpgradeModal from './UpgradeModal.tsx';
@@ -8,7 +8,7 @@ import UpgradeModal from './UpgradeModal.tsx';
 interface SelectDocTypeProps {
   onSelect: (type: FormType) => void;
   onBack: () => void;
-  profile?: UserProfile; 
+  profile?: UserProfile;
   docCount?: number;
 }
 
@@ -69,12 +69,12 @@ const DocTypeFeature: React.FC<DocTypeFeatureProps> = ({
       {index >= 4 && (
         <div className="opacity-0 group-hover/feature:opacity-100 transition duration-200 absolute inset-0 h-full w-full bg-gradient-to-b from-white/40 dark:from-secondary to-transparent pointer-events-none" />
       )}
-      
+
       {/* Pro Badge */}
       {isPro && (
-          <div className="absolute top-4 right-4 flex items-center gap-1 bg-gradient-to-r from-amber-400 to-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm z-20">
-              <StarIcon className="w-3 h-3 fill-current" /> PRO
-          </div>
+        <div className="absolute top-4 right-4 flex items-center gap-1 bg-gradient-to-r from-amber-400 to-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm z-20">
+          <StarIcon className="w-3 h-3 fill-current" /> PRO
+        </div>
       )}
 
       <div className="mb-4 relative z-10 px-10 text-blue-400 dark:text-muted-foreground group-hover/feature:text-blue-600 dark:group-hover/feature:text-primary transition-colors duration-200">
@@ -101,69 +101,57 @@ const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack, profile
   const limit = isUserPro ? Infinity : 20;
 
   const handleSelect = (type: FormType) => {
-      // Check limit first
-      if (docCount >= limit) {
-          setSelectedFeatureName(`Unlimited Documents (Used ${docCount}/${limit})`);
-          setShowUpgrade(true);
-          return;
-      }
-
-      const isProDoc = proDocs.includes(type);
-      if (isProDoc && !isUserPro) {
-          setSelectedFeatureName(type);
-          setShowUpgrade(true);
-      } else {
-          onSelect(type);
-      }
+    const isProDoc = proDocs.includes(type);
+    if (isProDoc && !isUserPro) {
+      setSelectedFeatureName(type);
+      setShowUpgrade(true);
+    } else {
+      onSelect(type);
+    }
   };
 
   return (
     <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-       <header className="flex items-center mb-8 gap-4">
+      <header className="flex items-center mb-8 gap-4">
         <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-            <BackArrowIcon className="h-6 w-6" />
+          <BackArrowIcon className="h-6 w-6" />
         </Button>
         <div>
-            <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight">
-                    Select Document
-                </h1>
-                {!isUserPro && (
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
-                        Free Plan: {docCount}/20 Used
-                    </span>
-                )}
-            </div>
-            <p className="text-muted-foreground text-sm">Choose the type of document you want to create.</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">
+              Select Document
+            </h1>
+          </div>
+          <p className="text-muted-foreground text-sm">Choose the type of document you want to create.</p>
         </div>
       </header>
-      
+
       <main className="flex-1 overflow-y-auto pb-10">
         <div className="max-w-7xl mx-auto bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card rounded-2xl border border-blue-200 dark:border-border shadow-sm overflow-hidden animate-fade-in-down">
-            <div className="grid grid-cols-2 lg:grid-cols-4 relative z-10">
-                {docTypes.map((feature, index) => {
-                    const isProDoc = proDocs.includes(feature.type);
-                    return (
-                        <DocTypeFeature
-                            key={feature.type}
-                            type={feature.type}
-                            description={feature.description}
-                            icon={feature.icon}
-                            index={index}
-                            onSelect={handleSelect}
-                            isPro={isProDoc}
-                            isLocked={isProDoc && !isUserPro}
-                        />
-                    );
-                })}
-            </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 relative z-10">
+            {docTypes.map((feature, index) => {
+              const isProDoc = proDocs.includes(feature.type);
+              return (
+                <DocTypeFeature
+                  key={feature.type}
+                  type={feature.type}
+                  description={feature.description}
+                  icon={feature.icon}
+                  index={index}
+                  onSelect={handleSelect}
+                  isPro={isProDoc}
+                  isLocked={isProDoc && !isUserPro}
+                />
+              );
+            })}
+          </div>
         </div>
       </main>
 
-      <UpgradeModal 
-        isOpen={showUpgrade} 
-        onClose={() => setShowUpgrade(false)} 
-        featureName={selectedFeatureName} 
+      <UpgradeModal
+        isOpen={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+        featureName={selectedFeatureName}
       />
     </div>
   );

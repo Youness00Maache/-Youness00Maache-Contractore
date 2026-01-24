@@ -1,6 +1,6 @@
 
-import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData } from '../types.ts';
-import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate } from '../utils/templates/documentHtmlTemplates.ts';
+import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData, ProfitReportData } from '../types.ts';
+import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate, getProfitReportHtmlTemplate } from '../utils/templates/documentHtmlTemplates.ts';
 import { getNeonCyberpunkHtmlTemplate, getLuxuryGoldNavyHtmlTemplate, getOrganicNatureHtmlTemplate, getGeometricBoldHtmlTemplate, getPastelSoftHtmlTemplate, getVintageCraftHtmlTemplate, getBlueprintTechHtmlTemplate, getAbstractMemphisHtmlTemplate, getCrimsonNoirHtmlTemplate, getWatercolorArtisticHtmlTemplate, getSwissGridHtmlTemplate, getSpaceOdysseyHtmlTemplate, getRetroTerminalHtmlTemplate, getPlayfulPopHtmlTemplate, getElegantSerifHtmlTemplate } from '../utils/templates/allNewTemplates.ts';
 
 declare const jspdf: any;
@@ -1218,6 +1218,35 @@ export const generateChangeOrderPDF = async (profile: UserProfile, job: Job, dat
     doc.save(`ChangeOrder-${data.changeOrderNumber}.pdf`);
 };
 
+export const generateProfitReportPDF = async (
+    profile: UserProfile,
+    data: ProfitReportData,
+    getBlob: boolean = false
+): Promise<string> => {
+    const doc = new jspdf.jsPDF();
+    const width = doc.internal.pageSize.width;
+    const height = doc.internal.pageSize.height;
+
+    // Construct labels for the template
+    const labels = {
+        id: 'REPORT #',
+        idValue: data.reportNumber,
+        date: 'DATE',
+        dateValue: data.date
+    };
+
+    const htmlContent = getProfitReportHtmlTemplate(data, profile, data.title || 'Profit Report', labels);
+
+    // Render HTML content
+    const yAfterContent = await renderHtmlToPdf(doc, htmlContent, 0, 0, width, () => {
+        // Optional: Adding footer or background on new pages if needed
+    });
+
+    if (getBlob) return doc.output('datauristring');
+    doc.save(`ProfitReport-${data.reportNumber}.pdf`);
+    return '';
+};
+
 export const generateDocumentBase64 = async (type: string, data: any, profile: UserProfile, job: Job): Promise<string> => {
     switch (type) {
         case 'Invoice': return generateInvoicePDF(profile, job, data, data.templateId || 'standard', true);
@@ -1232,6 +1261,7 @@ export const generateDocumentBase64 = async (type: string, data: any, profile: U
         case 'Receipt': return generateReceiptPDF(profile, job, data, data.templateId || 'standard', true);
         case 'Change Order': return generateChangeOrderPDF(profile, job, data, data.templateId || 'standard', true);
         case 'Purchase Order': return generatePurchaseOrderPDF(profile, job, data, data.templateId || 'standard', true);
+        case 'Profit Report': return generateProfitReportPDF(profile, data as ProfitReportData, true);
         default: return '';
     }
 };

@@ -1,5 +1,7 @@
 
 import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData } from '../types.ts';
+import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate } from '../utils/templates/documentHtmlTemplates.ts';
+import { getNeonCyberpunkHtmlTemplate, getLuxuryGoldNavyHtmlTemplate, getOrganicNatureHtmlTemplate, getGeometricBoldHtmlTemplate, getPastelSoftHtmlTemplate, getVintageCraftHtmlTemplate, getBlueprintTechHtmlTemplate, getAbstractMemphisHtmlTemplate, getCrimsonNoirHtmlTemplate, getWatercolorArtisticHtmlTemplate, getSwissGridHtmlTemplate, getSpaceOdysseyHtmlTemplate, getRetroTerminalHtmlTemplate, getPlayfulPopHtmlTemplate, getElegantSerifHtmlTemplate } from '../utils/templates/allNewTemplates.ts';
 
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -42,7 +44,6 @@ const loadImage = async (url: string): Promise<{ data: string; format: string; w
             img.src = dataUrl;
         });
     } catch (e) {
-        console.error('loadImage failed for url:', url, e);
         return null;
     }
 };
@@ -59,42 +60,14 @@ const safeText = (doc: any, text: any, x: number, y: number, options?: any) => {
 };
 
 // New helper to draw template background on any page
-const drawTemplateBackground = async (doc: any, template: TemplateStyle, primaryRgb: number[]) => {
-    if (template.backgroundImage) {
-        try {
-            console.log('Attempting to load background:', template.backgroundImage);
-            const bg = await loadImage(template.backgroundImage);
-            if (bg) {
-                console.log('Background loaded successfully, dimensions:', bg.width, 'x', bg.height);
-                // Draw background full page (A4)
-                doc.addImage(bg.data, bg.format, 0, 0, 210, 297);
-                return; // Skip drawing default borders
-            } else {
-                console.error('Background image loaded but returned null');
-                // Draw error text on PDF to debug
-                doc.setTextColor(255, 0, 0);
-                doc.setFontSize(12);
-                doc.text(`Error: Could not load background image: ${template.backgroundImage}`, 10, 10);
-                doc.text(`Please ensure file exists in /public/templates/`, 10, 15);
-                return; // Don't draw borders if we specified a background image
-            }
-        } catch (e) {
-            console.error('Failed to load background image', e);
-            // Draw error text
-            doc.setTextColor(255, 0, 0);
-            doc.setFontSize(12);
-            doc.text(`Exception loading background: ${e}`, 10, 10);
-            return; // Don't draw borders if we specified a background image
-        }
-    }
-
+const drawTemplateBackground = (doc: any, template: TemplateStyle, primaryRgb: number[]) => {
     if (template.layoutType === 'modern') {
         // Draw a thin top bar for continuation pages to maintain theme
         doc.setFillColor(...primaryRgb);
         doc.rect(0, 0, 210, 5, 'F');
     } else {
-        // Draw standard borders (only for non-background templates)
-        doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
+        // Draw standard borders
+        doc.setDrawColor(template.borderColor || '#000000');
         doc.setLineWidth(0.5);
         doc.rect(10, 10, 190, 277);
         doc.rect(12, 12, 186, 273);
@@ -267,358 +240,31 @@ const renderHtmlToPdf = async (
 
 interface TemplateStyle {
     id: string;
-    name: string;
-    layoutEngine: 'classic_bordered' | 'modern_sidebar' | 'minimalist' | 'bold_header' | 'compact' | 'two_column' | 'executive';
     primaryColor: string;
     secondaryColor: string;
     textColor: string;
-    font: 'times' | 'helvetica' | 'courier';
-    headerFont: 'times' | 'helvetica' | 'courier';
-    backgroundImage?: string;
-    layoutType?: string;
-    // Layout-specific properties
-    sidebarWidth?: number;
-    marginSize?: number;
-    headerHeight?: number;
-
-    // Flexible Layout Configuration
-    layoutConfig?: {
-        // Document Header (Invoice #, Date, Title)
-        headerPos: { x: number, y: number, align: 'left' | 'right' | 'center' };
-
-        // Company Info
-        companyInfoPos: { x: number, y: number, align: 'left' | 'right' | 'center' };
-
-        // Client Info
-        clientInfoPos: { x: number, y: number, align: 'left' | 'right' | 'center' };
-
-        // Logo
-        logoPos: { x: number, y: number, w: number, h: number, maxW?: number, maxH?: number };
-
-        // Main Content Table
-        gridStartY: number;
-
-        // Totals Section
-        totalsPos: { x: number, align: 'left' | 'right' };
-    };
+    headerColor: string;
+    headerTextColor: string;
+    font: string;
+    headerFont: string;
+    alternateRowColor: string;
+    borderColor: string;
+    borderRadius: number;
+    showFooterLine: boolean;
+    layoutType?: 'certificate' | 'modern';
 }
 
 const templates: Record<string, TemplateStyle> = {
-    classic_bordered: {
-        id: 'classic_bordered',
-        name: 'Classic Bordered',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#2c3e50',
-        secondaryColor: '#34495e',
-        textColor: '#2c3e50',
-        font: 'times',
-        headerFont: 'times',
-    },
-    modern_sidebar: {
-        id: 'modern_sidebar',
-        name: 'Modern Sidebar',
-        layoutEngine: 'modern_sidebar',
-        primaryColor: '#3498db',
-        secondaryColor: '#2980b9',
-        textColor: '#2c3e50',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        sidebarWidth: 60,
-    },
-    minimalist: {
-        id: 'minimalist',
-        name: 'Minimalist',
-        layoutEngine: 'minimalist',
-        primaryColor: '#64748b',
-        secondaryColor: '#94a3b8',
-        textColor: '#475569',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        marginSize: 30,
-    },
-    bold_header: {
-        id: 'bold_header',
-        name: 'Bold Header',
-        layoutEngine: 'bold_header',
-        primaryColor: '#1e40af',
-        secondaryColor: '#2563eb',
-        textColor: '#1e3a8a',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        headerHeight: 50,
-    },
-    compact: {
-        id: 'compact',
-        name: 'Compact',
-        layoutEngine: 'compact',
-        primaryColor: '#475569',
-        secondaryColor: '#64748b',
-        textColor: '#334155',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        marginSize: 15,
-    },
-    two_column: {
-        id: 'two_column',
-        name: 'Two Column',
-        layoutEngine: 'two_column',
-        primaryColor: '#16a085',
-        secondaryColor: '#1abc9c',
-        textColor: '#0f766e',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-    },
-    executive: {
-        id: 'executive',
-        name: 'Executive',
-        layoutEngine: 'executive',
-        primaryColor: '#831843',
-        secondaryColor: '#9f1239',
-        textColor: '#500724',
-        font: 'times',
-        headerFont: 'times',
-        marginSize: 25,
-    },
-    // Designer Templates (Image Backgrounds)
-    template_1: {
-        id: 'template_1',
-        name: 'Layout 1',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/1.jpg',
-        layoutConfig: {
-            headerPos: { x: 20, y: 30, align: 'left' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 160, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_2: {
-        id: 'template_2',
-        name: 'Layout 2',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/2.jpg',
-        layoutConfig: {
-            headerPos: { x: 105, y: 30, align: 'center' },
-            companyInfoPos: { x: 20, y: 60, align: 'left' },
-            clientInfoPos: { x: 110, y: 60, align: 'left' },
-            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 100,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_3: {
-        id: 'template_3',
-        name: 'Layout 3',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/3.jpg',
-        layoutConfig: {
-            headerPos: { x: 20, y: 30, align: 'left' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_4: {
-        id: 'template_4',
-        name: 'Layout 4',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/4.jpg',
-        layoutConfig: {
-            headerPos: { x: 190, y: 30, align: 'right' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 20, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_5: {
-        id: 'template_5',
-        name: 'Layout 5',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/5.jpg',
-        layoutConfig: {
-            headerPos: { x: 105, y: 30, align: 'center' },
-            companyInfoPos: { x: 20, y: 60, align: 'left' },
-            clientInfoPos: { x: 110, y: 60, align: 'left' },
-            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 100,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_6: {
-        id: 'template_6',
-        name: 'Layout 6',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/6.jpg',
-        layoutConfig: {
-            headerPos: { x: 20, y: 30, align: 'left' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_7: {
-        id: 'template_7',
-        name: 'Layout 7',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/7.jpg',
-        layoutConfig: {
-            headerPos: { x: 190, y: 30, align: 'right' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 20, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_8: {
-        id: 'template_8',
-        name: 'Layout 8',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/8.jpg',
-        layoutConfig: {
-            headerPos: { x: 105, y: 30, align: 'center' },
-            companyInfoPos: { x: 20, y: 60, align: 'left' },
-            clientInfoPos: { x: 110, y: 60, align: 'left' },
-            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 100,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_9: {
-        id: 'template_9',
-        name: 'Layout 9',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/9.jpg',
-        layoutConfig: {
-            headerPos: { x: 20, y: 30, align: 'left' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_10: {
-        id: 'template_10',
-        name: 'Layout 10',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/10.jpg',
-        layoutConfig: {
-            headerPos: { x: 190, y: 30, align: 'right' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 20, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_11: {
-        id: 'template_11',
-        name: 'Layout 11',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/11.jpg',
-        layoutConfig: {
-            headerPos: { x: 105, y: 30, align: 'center' },
-            companyInfoPos: { x: 20, y: 60, align: 'left' },
-            clientInfoPos: { x: 110, y: 60, align: 'left' },
-            logoPos: { x: 85, y: 15, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 100,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    template_12: {
-        id: 'template_12',
-        name: 'Layout 12',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#333333',
-        secondaryColor: '#555555',
-        textColor: '#000000',
-        font: 'helvetica',
-        headerFont: 'helvetica',
-        backgroundImage: '/templates/12.jpg',
-        layoutConfig: {
-            headerPos: { x: 20, y: 30, align: 'left' },
-            companyInfoPos: { x: 20, y: 70, align: 'left' },
-            clientInfoPos: { x: 110, y: 70, align: 'left' },
-            logoPos: { x: 150, y: 20, maxW: 40, maxH: 20, w: 40, h: 20 },
-            gridStartY: 110,
-            totalsPos: { x: 190, align: 'right' }
-        }
-    },
-    // Alias for backward compatibility
-    standard: {
-        id: 'standard',
-        name: 'Standard',
-        layoutEngine: 'classic_bordered',
-        primaryColor: '#2c3e50',
-        secondaryColor: '#34495e',
-        textColor: '#2c3e50',
-        font: 'times',
-        headerFont: 'times',
-    },
+    standard: { id: 'standard', primaryColor: '#000000', secondaryColor: '#666666', textColor: '#222222', headerColor: '#ffffff', headerTextColor: '#000000', font: 'helvetica', headerFont: 'times', alternateRowColor: '#f2f2f2', borderColor: '#000000', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
+    professional: { id: 'professional', primaryColor: '#2c3e50', secondaryColor: '#34495e', textColor: '#2c3e50', headerColor: '#2c3e50', headerTextColor: '#ecf0f1', font: 'times', headerFont: 'times', alternateRowColor: '#eaeded', borderColor: '#bdc3c7', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
+    elegant: { id: 'elegant', primaryColor: '#8e44ad', secondaryColor: '#9b59b6', textColor: '#4a235a', headerColor: '#ffffff', headerTextColor: '#8e44ad', font: 'times', headerFont: 'times', alternateRowColor: '#f5eef8', borderColor: '#d7bde2', borderRadius: 0, showFooterLine: false, layoutType: 'certificate' },
+    warm: { id: 'warm', primaryColor: '#d35400', secondaryColor: '#e67e22', textColor: '#5d4037', headerColor: '#fdebd0', headerTextColor: '#d35400', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fef5e7', borderColor: '#f5cba7', borderRadius: 2, showFooterLine: true, layoutType: 'certificate' },
+    retro: { id: 'retro', primaryColor: '#c0392b', secondaryColor: '#e74c3c', textColor: '#5a4d41', headerColor: '#f9e79f', headerTextColor: '#c0392b', font: 'courier', headerFont: 'courier', alternateRowColor: '#fcf3cf', borderColor: '#d35400', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' },
+    modern_blue: { id: 'modern_blue', primaryColor: '#3498db', secondaryColor: '#2980b9', textColor: '#2c3e50', headerColor: '#3498db', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ebf5fb', borderColor: '#aed6f1', borderRadius: 4, showFooterLine: false, layoutType: 'modern' },
+    tech: { id: 'tech', primaryColor: '#16a085', secondaryColor: '#1abc9c', textColor: '#000000', headerColor: '#e8f8f5', headerTextColor: '#16a085', font: 'courier', headerFont: 'courier', alternateRowColor: '#e8f6f3', borderColor: '#48c9b0', borderRadius: 0, showFooterLine: true, layoutType: 'modern' },
+    industrial: { id: 'industrial', primaryColor: '#f39c12', secondaryColor: '#d35400', textColor: '#000000', headerColor: '#333333', headerTextColor: '#f39c12', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#fcf3cf', borderColor: '#000000', borderRadius: 0, showFooterLine: true, layoutType: 'modern' },
+    minimal: { id: 'minimal', primaryColor: '#95a5a6', secondaryColor: '#7f8c8d', textColor: '#7f8c8d', headerColor: '#ffffff', headerTextColor: '#333333', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#ffffff', borderColor: '#ecf0f1', borderRadius: 0, showFooterLine: false, layoutType: 'modern' },
+    bold: { id: 'bold', primaryColor: '#000000', secondaryColor: '#000000', textColor: '#000000', headerColor: '#000000', headerTextColor: '#ffffff', font: 'helvetica', headerFont: 'helvetica', alternateRowColor: '#e5e5e5', borderColor: '#000000', borderRadius: 6, showFooterLine: false, layoutType: 'modern' }
 };
 
 const hexToRgb = (hex: string) => {
@@ -627,57 +273,6 @@ const hexToRgb = (hex: string) => {
 };
 
 const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, template: TemplateStyle, primaryRgb: number[], title: string, dateLabel: string, dateValue: string, idLabel: string, idValue: string) => {
-    // 1. Flexible Layout Engine
-    if (template.layoutConfig) {
-        // Draw Background first (already handled by caller, but ensure order if needed)
-        // Note: Caller executes: await drawDocumentHeader(...) which calls drawTemplateBackground internally for non-modern types.
-        // For flexible layouts, we assume background is drawn by caller or we call it here if it wasn't.
-        // But existing flow calls layout-specific bg logic inside drawDocumentHeader. Let's call it:
-        await drawTemplateBackground(doc, template, primaryRgb);
-
-        const config = template.layoutConfig;
-
-        // Draw Logo
-        if (data.logoUrl) {
-            const imgData = await loadImage(data.logoUrl);
-            if (imgData) {
-                let targetW = config.logoPos.w;
-                let targetH = config.logoPos.h;
-
-                // Aspect Ratio Preservation
-                const imgRatio = imgData.width / imgData.height;
-                const boxRatio = targetW / targetH;
-
-                if (imgRatio > boxRatio) {
-                    targetH = targetW / imgRatio;
-                } else {
-                    targetW = targetH * imgRatio;
-                }
-
-                doc.addImage(imgData.data, imgData.format, config.logoPos.x, config.logoPos.y, targetW, targetH);
-            }
-        }
-
-        // Draw Header (Title, ID, Date)
-        doc.setTextColor(...primaryRgb);
-        doc.setFont(template.headerFont, 'bold');
-        doc.setFontSize(26);
-        doc.text(title, config.headerPos.x, config.headerPos.y, { align: config.headerPos.align });
-
-        doc.setFontSize(10);
-        doc.setFont(template.font, 'normal');
-        doc.setTextColor(0, 0, 0); // Default black for details
-
-        // Calculate offsets for ID/Date below title
-        let detailY = config.headerPos.y + 7;
-        safeText(doc, `${idLabel}: ${idValue}`, config.headerPos.x, detailY, { align: config.headerPos.align });
-        detailY += 5;
-        safeText(doc, `${dateLabel}: ${dateValue}`, config.headerPos.x, detailY, { align: config.headerPos.align });
-
-        return config.gridStartY; // Return the configured grid start Y
-    }
-
-    // 2. Existing Logic (Modern / Classic)
     const isModern = template.layoutType === 'modern';
     let yPos = 0;
 
@@ -707,7 +302,7 @@ const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, tem
         yPos = 60;
     } else {
         // Use the helper to draw borders
-        await drawTemplateBackground(doc, template, primaryRgb);
+        drawTemplateBackground(doc, template, primaryRgb);
 
         yPos = 25;
         if (data.logoUrl) {
@@ -737,46 +332,6 @@ const drawDocumentHeader = async (doc: any, data: any, profile: UserProfile, tem
 };
 
 const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number, template: TemplateStyle) => {
-    // 1. Flexible Layout Engine
-    if (template.layoutConfig) {
-        const config = template.layoutConfig;
-        const labelFont = 'helvetica';
-        const bodyFont = 'helvetica';
-
-        doc.setFontSize(10);
-        doc.setFont(labelFont, 'bold');
-        doc.setTextColor(0, 0, 0);
-
-        // Company (From)
-        doc.text('FROM:', config.companyInfoPos.x, config.companyInfoPos.y, { align: config.companyInfoPos.align });
-        // Client (To)
-        doc.text('TO:', config.clientInfoPos.x, config.clientInfoPos.y, { align: config.clientInfoPos.align });
-
-        doc.setFont(bodyFont, 'normal');
-        doc.setTextColor(60, 60, 60);
-
-        // Company Details
-        let leftY = config.companyInfoPos.y + 5;
-        const compAlign = config.companyInfoPos.align;
-        safeText(doc, data.companyName || profile.companyName, config.companyInfoPos.x, leftY, { align: compAlign });
-        const compAddr = doc.splitTextToSize(data.companyAddress || profile.address || '', 80);
-        doc.text(compAddr, config.companyInfoPos.x, leftY + 5, { align: compAlign });
-        const compPhone = data.companyPhone || profile.phone || '';
-        const compWeb = data.companyWebsite || profile.website || '';
-        const compContact = [compPhone, compWeb].filter(Boolean).join(' | ');
-        doc.text(compContact, config.companyInfoPos.x, leftY + 5 + (compAddr.length * 5), { align: compAlign });
-
-        // Client Details
-        let rightY = config.clientInfoPos.y + 5;
-        const clientAlign = config.clientInfoPos.align;
-        safeText(doc, data.clientName || '', config.clientInfoPos.x, rightY, { align: clientAlign });
-        const clientAddr = doc.splitTextToSize(data.clientAddress || data.projectAddress || '', 80);
-        doc.text(clientAddr, config.clientInfoPos.x, rightY + 5, { align: clientAlign });
-
-        // For flexible grids, we just return the GridStartY (usually larger than these text blocks)
-        return Math.max(config.gridStartY, leftY + 20, rightY + 20);
-    }
-
     const labelFont = template.layoutType === 'modern' ? 'helvetica' : 'times';
     const bodyFont = template.layoutType === 'modern' ? 'helvetica' : 'times';
     const isModern = template.layoutType === 'modern';
@@ -817,6 +372,46 @@ const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number
 export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice: InvoiceData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
+
+    // --> Advanced HTML Template Logic
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+        if (templateId === 'template_swiss') templateFn = getSwissGridHtmlTemplate;
+        if (templateId === 'template_space') templateFn = getSpaceOdysseyHtmlTemplate;
+        if (templateId === 'template_retro') templateFn = getRetroTerminalHtmlTemplate;
+        if (templateId === 'template_pop') templateFn = getPlayfulPopHtmlTemplate;
+        if (templateId === 'template_serif') templateFn = getElegantSerifHtmlTemplate;
+
+        const html = templateFn(invoice, profile, invoice.isProgressBilling ? 'PROGRESS INVOICE' : 'INVOICE', {
+            date: 'Date',
+            dateValue: invoice.issueDate,
+            id: 'Invoice #',
+            idValue: invoice.invoiceNumber
+        });
+
+        // Render full page HTML (A4 width approx 210mm)
+        await renderHtmlToPdf(doc, html, 0, 0, 210);
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
+        return;
+    }
+
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(invoice.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -830,8 +425,8 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
     if (invoice.isProgressBilling) {
         tableColumn = ["Description", "Scheduled Value", "% Billed", "Current Amount"];
         tableRows = invoice.lineItems.map(item => {
-            const scheduledVal = Number(item.progressValue || item.rate || 0);
-            const pct = Number(item.progressPercentage || item.quantity || 0);
+            const scheduledVal = Number((item.rate * item.quantity) || 0); // Assuming rate * qty is schedule value for now, or just rate if quantity is 1
+            const pct = Number(item.percentComplete || 0);
             const currentAmount = scheduledVal * (pct / 100);
             return [
                 item.description,
@@ -865,8 +460,8 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
 
     const subtotal = invoice.lineItems.reduce((acc, item) => {
         if (invoice.isProgressBilling) {
-            const val = Number(item.progressValue || item.rate || 0);
-            const pct = Number(item.progressPercentage || item.quantity || 0);
+            const val = Number((item.rate * item.quantity) || 0);
+            const pct = Number(item.percentComplete || 0);
             return acc + (val * (pct / 100));
         } else {
             return acc + (item.quantity * item.rate);
@@ -930,6 +525,40 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
 export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
+
+    // --> Advanced HTML Template Logic
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor'];
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+
+        const html = templateFn(data, profile, 'ESTIMATE', {
+            date: 'Valid Until',
+            dateValue: data.expiryDate,
+            id: 'Estimate #',
+            idValue: data.estimateNumber
+        });
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210);
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`Estimate-${data.estimateNumber}.pdf`);
+        return;
+    }
+
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -969,11 +598,42 @@ export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: 
         currentY += (terms.length * 5) + 15;
     }
 
+    // Dual Signature Section
+    let signY = currentY + 10;
+
+    // Check if we need a new page for signatures
+    if (signY + 30 > doc.internal.pageSize.height) {
+        doc.addPage();
+        drawTemplateBackground(doc, template, primaryRgb);
+        signY = 20;
+    }
+
+    // Contractor Signature (Always shown)
     if (data.signatureUrl) {
         const sig = await loadImage(data.signatureUrl);
-        if (sig) doc.addImage(sig.data, sig.format, 20, currentY, 40, 15);
-        doc.line(20, currentY + 15, 80, currentY + 15);
-        doc.text('Accepted By (Client)', 20, currentY + 20);
+        if (sig) {
+            doc.addImage(sig.data, sig.format, 20, signY, 40, 15);
+        }
+    }
+    doc.setDrawColor(0);
+    doc.line(20, signY + 15, 80, signY + 15);
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Authorized By (Contractor)', 20, signY + 20);
+
+    // Client Signature (Only shown if signed)
+    if (data.clientSignatureUrl) {
+        const clientSig = await loadImage(data.clientSignatureUrl);
+        if (clientSig) {
+            doc.addImage(clientSig.data, clientSig.format, 120, signY, 40, 15);
+        }
+        doc.line(120, signY + 15, 180, signY + 15);
+        doc.text('Accepted By (Client)', 120, signY + 20);
+
+        if (data.clientSignedAt) {
+            doc.setFontSize(8);
+            doc.text(`Signed: ${new Date(data.clientSignedAt).toLocaleDateString()}`, 120, signY + 25);
+        }
     }
 
     if (getBlob) return doc.output('datauristring');
@@ -1310,9 +970,13 @@ export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data
     doc.text(`Vendor: ${data.vendor}`, 20, currentY);
     currentY += 10;
 
-    // Support for multiple items in table
+    // Support for multiple items in table using lineItems (preferred) or legacy items
+    const items = data.items || [];
+    // If lineItems is empty but we have data.item (legacy/single item mode), construct one - though type definition suggests items is array of ExpenseItem
+    // Check if items is populated correctly from ExpenseLogData which has 'items: ExpenseItem[]'
+
     const tableColumn = ["Description", "Amount"];
-    const tableRows = (data.items || []).map(item => [
+    const tableRows = items.map(item => [
         item.description,
         `$${(item.amount || 0).toFixed(2)}`
     ]);
@@ -1511,6 +1175,44 @@ export const generateChangeOrderPDF = async (profile: UserProfile, job: Job, dat
     doc.text(`Net Change: $${changeTotal.toFixed(2)}`, 190, finalY + 6, { align: 'right' });
     doc.setFont(template.font, 'bold');
     doc.text(`New Contract Total: $${newTotal.toFixed(2)}`, 190, finalY + 12, { align: 'right' });
+
+    // Dual Signature Section
+    let signY = finalY + 30;
+
+    // Check if we need a new page for signatures
+    if (signY + 30 > doc.internal.pageSize.height) {
+        doc.addPage();
+        drawTemplateBackground(doc, template, primaryRgb);
+        signY = 20;
+    }
+
+    // Contractor Signature (Always shown)
+    if (data.signatureUrl) {
+        const sig = await loadImage(data.signatureUrl);
+        if (sig) {
+            doc.addImage(sig.data, sig.format, 20, signY, 40, 15);
+        }
+    }
+    doc.setDrawColor(0);
+    doc.line(20, signY + 15, 80, signY + 15);
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Authorized By (Contractor)', 20, signY + 20);
+
+    // Client Signature (Only shown if signed)
+    if (data.clientSignatureUrl) {
+        const clientSig = await loadImage(data.clientSignatureUrl);
+        if (clientSig) {
+            doc.addImage(clientSig.data, clientSig.format, 120, signY, 40, 15);
+        }
+        doc.line(120, signY + 15, 180, signY + 15);
+        doc.text('Accepted By (Client)', 120, signY + 20);
+
+        if (data.clientSignedAt) {
+            doc.setFontSize(8);
+            doc.text(`Signed: ${new Date(data.clientSignedAt).toLocaleDateString()}`, 120, signY + 25);
+        }
+    }
 
     if (getBlob) return doc.output('datauristring');
     doc.save(`ChangeOrder-${data.changeOrderNumber}.pdf`);

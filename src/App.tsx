@@ -790,6 +790,36 @@ const App: React.FC = () => {
   };
 
   const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
+  const handleUploadPriceBookImage = async (file: File): Promise<string> => { return uploadFile('price-book', file, session!.user.id, true); }
+  const handleSaveToPriceBook = async (itemData: Partial<SavedItem>) => {
+    if (!session) return;
+    try {
+      const newItem = {
+        user_id: session.user.id,
+        name: itemData.name || 'New Item',
+        description: itemData.description || '',
+        rate: itemData.rate || 0,
+        unit_cost: itemData.unit_cost || 0,
+        markup: itemData.markup || 0,
+        category: itemData.category || 'General',
+        type: itemData.type || 'material',
+        is_favorite: itemData.is_favorite || false,
+        is_assembly: itemData.is_assembly || false,
+        assembly_items: itemData.assembly_items || []
+      };
+
+      const { data, error } = await supabase.from('saved_items').insert(newItem).select();
+      if (error) throw error;
+      if (data) {
+        setSavedItems(prev => [...prev, data[0]]);
+        alert(`"${newItem.name}" added to Price Book!`);
+      }
+    } catch (err) {
+      console.error("Error adding to price book", err);
+      alert("Failed to add to price book.");
+    }
+  };
+
   const handleSaveJob = async (jobData: any): Promise<string> => {
     if (!session) return '';
     const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active' };
@@ -870,13 +900,73 @@ const App: React.FC = () => {
   // Price Book Handlers
   const handleAddSavedItem = async (item: any) => {
     if (!session) return;
-    await supabase.from('saved_items').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...item });
+    const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...item };
+
+    // Attempt full save (Elite features)
+    const { error } = await supabase.from('saved_items').insert(newItem);
+
+    if (error) {
+      console.warn("Full insert failed, attempting fallback to basic fields:", error);
+      // Fallback: Strip new columns if schema is outdated
+      const basicItem = {
+        id: newItem.id,
+        user_id: newItem.user_id,
+        name: newItem.name,
+        description: newItem.description || '',
+        rate: newItem.rate || 0,
+        unit_cost: newItem.unit_cost || newItem.cost || 0, // Try both properties map to unit_cost
+        category: newItem.category || 'General'
+        // explicit exclusion of: is_assembly, images, markup, etc.
+      };
+
+      const { error: fallbackError } = await supabase.from('saved_items').insert(basicItem);
+
+      if (fallbackError) {
+        console.error("Fallback insert failed:", fallbackError);
+        alert(`Failed to save item: ${error.message}\n\nPlease run the SQL script to fix your database.`);
+        throw error;
+      }
+
+      alert("Item saved in Basic Mode (Legacy).\n\nAdvanced features like Assemblies and Images were not saved because your database needs updating.\n\nPlease run the provided SQL script to enable all features.");
+    }
+
     const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
     if (data) setSavedItems(data);
   };
-  const handleUpdateSavedItem = async (item: SavedItem) => { };
+  const handleUpdateSavedItem = async (item: SavedItem) => {
+    // Attempt full update
+    const { error } = await supabase.from('saved_items').update(item).eq('id', item.id);
+
+    if (error) {
+      console.warn("Full update failed, attempting fallback:", error);
+      const basicItem = {
+        name: item.name,
+        description: item.description || '',
+        rate: item.rate || 0,
+        unit_cost: item.unit_cost || item.cost || 0,
+        category: item.category || 'General'
+      };
+
+      const { error: fallbackError } = await supabase.from('saved_items').update(basicItem).eq('id', item.id);
+
+      if (fallbackError) {
+        console.error("Fallback update failed:", fallbackError);
+        alert(`Failed to update item: ${error.message}\n\nPlease run the SQL script.`);
+        throw error;
+      }
+      alert("Item updated in Basic Mode (Legacy).\n\nPlease run the SQL script to enable full features.");
+    }
+
+    const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
+    if (data) setSavedItems(data);
+  };
   const handleDeleteSavedItem = async (id: string) => {
-    await supabase.from('saved_items').delete().eq('id', id);
+    const { error } = await supabase.from('saved_items').delete().eq('id', id);
+    if (error) {
+      console.error("Error deleting item:", error);
+      alert(`Error deleting item: ${error.message}`);
+      throw error;
+    }
     setSavedItems(prev => prev.filter(i => i.id !== id));
   };
 
@@ -1096,13 +1186,13 @@ const App: React.FC = () => {
     const publicToken = form?.public_token;
 
     switch (formType) {
-      case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} />;
+      case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} onSaveToPriceBook={handleSaveToPriceBook} />;
       case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
       case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} publicToken={publicToken} />;
+      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} publicToken={publicToken} onSaveToPriceBook={handleSaveToPriceBook} />;
       case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
       case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
@@ -1184,6 +1274,7 @@ const App: React.FC = () => {
           onAddItem={handleAddSavedItem}
           onUpdateItem={handleUpdateSavedItem}
           onDeleteItem={handleDeleteSavedItem}
+          onUploadImage={handleUploadPriceBookImage}
         />;
       case 'profitCalculator':
         return <ProfitCalculatorView onBack={navigateToDashboard} />;

@@ -9,17 +9,17 @@ import { InventoryItem, InventoryHistoryItem, Job } from '../types.ts';
 interface InventoryViewProps {
     onBack: () => void;
     inventory: InventoryItem[];
-    history: InventoryHistoryItem[];
-    jobs: Job[];
+    history?: InventoryHistoryItem[];
+    jobs?: Job[];
     onUpdateItem: (item: InventoryItem) => Promise<void>;
     onAddItem: (item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at'>) => Promise<void>;
     onDeleteItem: (id: string) => Promise<void>;
-    onAllocate: (itemId: string, jobId: string, quantity: number) => Promise<void>;
+    onAllocate?: (itemId: string, jobId: string, quantity: number) => Promise<void>;
 }
 
 const formatMoney = (amount: number) => `$${Number(amount || 0).toFixed(2)}`;
 
-const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, history, jobs, onUpdateItem, onAddItem, onDeleteItem, onAllocate }) => {
+const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, history = [], jobs = [], onUpdateItem, onAddItem, onDeleteItem, onAllocate }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
     const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'value'>('name');
@@ -86,7 +86,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
     };
 
     const handleAllocate = async () => {
-        if (!allocateModalItem || !allocateData.jobId) return;
+        if (!allocateModalItem || !allocateData.jobId || !onAllocate) return;
         setLoading(true);
         await onAllocate(allocateModalItem.id, allocateData.jobId, allocateData.quantity);
         setAllocateModalItem(null);

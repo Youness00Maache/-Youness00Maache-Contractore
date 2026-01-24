@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
@@ -363,1113 +362,1188 @@ NOTIFY pgrst, 'reload config';
 `;
 
 const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => {
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-background p-4 md:p-8">
-      <Card className="max-w-4xl w-full animate-fade-in-down">
-        <CardHeader>
-          <CardTitle className="text-2xl text-destructive">Database Update Required</CardTitle>
-          <CardDescription>
-            To enable Price Book, Client Portal, and Inventory, please run this script.
-            <br /><br />
-            <strong>This script is safe and will NOT delete your data.</strong>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="sql-script">SQL Script</Label>
-              <textarea
-                id="sql-script"
-                readOnly
-                value={sqlScript}
-                className="mt-1 w-full h-96 p-3 font-mono text-xs bg-muted rounded-md border focus:ring-2 focus:ring-primary"
-                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-              />
-            </div>
-            <div>
-              <h4 className="font-semibold">Instructions:</h4>
-              <ol className="list-decimal list-inside text-sm text-muted-foreground mt-2 space-y-1">
-                <li>Go to your <a href="https://app.supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Supabase Dashboard</a>.</li>
-                <li>Click on <strong>SQL Editor</strong> (left sidebar).</li>
-                <li>Click <strong>+ New query</strong>.</li>
-                <li>Paste the script above and click <strong>Run</strong>.</li>
-                <li>Come back here and refresh the page.</li>
-              </ol>
-            </div>
-          </div>
-        </CardContent>
-        <CardFooter className="flex-col items-center gap-4">
-          <Button onClick={() => window.location.reload()} className="w-full">
-            Refresh Page
-          </Button>
-        </CardFooter>
-      </Card>
-    </div>
-  );
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-background p-4 md:p-8">
+            <Card className="max-w-4xl w-full animate-fade-in-down">
+                <CardHeader>
+                    <CardTitle className="text-2xl text-destructive">Database Update Required</CardTitle>
+                    <CardDescription>
+                        To enable Price Book, Client Portal, and Inventory, please run this script.
+                        <br /><br />
+                        <strong>This script is safe and will NOT delete your data.</strong>
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="space-y-4">
+                        <div>
+                            <Label htmlFor="sql-script">SQL Script</Label>
+                            <textarea
+                                id="sql-script"
+                                readOnly
+                                value={sqlScript}
+                                className="mt-1 w-full h-96 p-3 font-mono text-xs bg-muted rounded-md border focus:ring-2 focus:ring-primary"
+                                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                            />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold">Instructions:</h4>
+                            <ol className="list-decimal list-inside text-sm text-muted-foreground mt-2 space-y-1">
+                                <li>Go to your <a href="https://app.supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Supabase Dashboard</a>.</li>
+                                <li>Click on <strong>SQL Editor</strong> (left sidebar).</li>
+                                <li>Click <strong>+ New query</strong>.</li>
+                                <li>Paste the script above and click <strong>Run</strong>.</li>
+                                <li>Come back here and refresh the page.</li>
+                            </ol>
+                        </div>
+                    </div>
+                </CardContent>
+                <CardFooter className="flex-col items-center gap-4">
+                    <Button onClick={() => window.location.reload()} className="w-full">
+                        Refresh Page
+                    </Button>
+                </CardFooter>
+            </Card>
+        </div>
+    );
 };
 
 
 // Helper to upload a file to Supabase Storage
 const uploadFile = async (bucket: string, file: File, userId: string, isPublicUpload: boolean = false): Promise<string> => {
-  if (!navigator.onLine) {
-    throw new Error("Cannot upload file while offline");
-  }
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${userId}/${Date.now()}.${fileExt}`;
+    if (!navigator.onLine) {
+        throw new Error("Cannot upload file while offline");
+    }
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${userId}/${Date.now()}.${fileExt}`;
 
-  const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
-  if (error) {
-    console.error('Error uploading file:', error);
-    throw error;
-  }
-  const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
-  return data.publicUrl;
+    const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
+    if (error) {
+        console.error('Error uploading file:', error);
+        throw error;
+    }
+    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+    return data.publicUrl;
 };
 
 const App: React.FC = () => {
-  type AppView =
-    | { screen: 'welcome' }
-    | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
-    | { screen: 'dashboard' }
-    | { screen: 'jobDetails'; jobId: string }
-    | { screen: 'createJob'; returnTo?: 'dashboard' | 'calendar' }
-    | { screen: 'selectDocType'; jobId: string }
-    | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
-    | { screen: 'settings' }
-    | { screen: 'profile' }
-    | { screen: 'clients' }
-    | { screen: 'analytics' }
-    | { screen: 'calendar' }
-    | { screen: 'communication' }
-    | { screen: 'inventory' }
-    | { screen: 'pricebook' }
-    | { screen: 'profitCalculator' }
-    | { screen: 'forum'; postId?: string }
-    | { screen: 'privacy' }
-    | { screen: 'terms' }
-    | { screen: 'security' };
+    type AppView =
+        | { screen: 'welcome' }
+        | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
+        | { screen: 'dashboard' }
+        | { screen: 'jobDetails'; jobId: string }
+        | { screen: 'createJob'; returnTo?: 'dashboard' | 'calendar' }
+        | { screen: 'selectDocType'; jobId: string }
+        | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
+        | { screen: 'settings' }
+        | { screen: 'profile' }
+        | { screen: 'clients' }
+        | { screen: 'analytics' }
+        | { screen: 'calendar' }
+        | { screen: 'communication' }
+        | { screen: 'inventory' }
+        | { screen: 'pricebook' }
+        | { screen: 'profitCalculator' }
+        | { screen: 'forum'; postId?: string }
+        | { screen: 'privacy' }
+        | { screen: 'terms' }
+        | { screen: 'security' };
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-  const [view, setView] = useState<AppView>(() => {
-    const params = new URLSearchParams(window.location.search);
-    // Check for Portal URL param
-    const portalKey = params.get('portal');
-    // Check for Approval Token
-    const approvalToken = params.get('approval_token');
+    const [session, setSession] = useState<Session | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [loadingMessage, setLoadingMessage] = useState('Initializing...');
+    const [view, setView] = useState<AppView>(() => {
+        const params = new URLSearchParams(window.location.search);
+        // Check for Portal URL param
+        const portalKey = params.get('portal');
+        // Check for Approval Token
+        const approvalToken = params.get('approval_token');
 
-    if (portalKey || approvalToken) {
-      // If external link exists, we don't need app state, we'll render portal view directly
-      return { screen: 'welcome' }; // Placeholder, logic handled below
-    }
-
-    const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
-    if (path === '/privacy') return { screen: 'privacy' };
-    if (path === '/terms') return { screen: 'terms' };
-    if (path === '/security') return { screen: 'security' };
-    return { screen: 'welcome' };
-  });
-
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [forms, setForms] = useState<FormDataType[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [inventoryHistory, setInventoryHistory] = useState<InventoryHistoryItem[]>([]);
-  const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  // External Access State
-  const [portalKey, setPortalKey] = useState<string | null>(null);
-  const [approvalToken, setApprovalToken] = useState<string | null>(null);
-
-  const [notificationCount, setNotificationCount] = useState(0);
-
-  const [dbSetupError, setDbSetupError] = useState<string | null>(null);
-
-  const [theme, setTheme] = useState<'light' | 'dark' | 'blue'>(() => {
-    const savedTheme = localStorage.getItem('theme');
-    return (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'blue') ? (savedTheme as 'light' | 'dark' | 'blue') : 'dark';
-  });
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [docSearchQuery, setDocSearchQuery] = useState('');
-
-  const [showToolsMenu, setShowToolsMenu] = useState(false);
-
-  // Upgrade / Subscription State
-  const [showGlobalUpgrade, setShowGlobalUpgrade] = useState(false);
-  const [upgradeFeature, setUpgradeFeature] = useState('');
-
-  // Delete Confirmation State
-  const [showDeleteJobModal, setShowDeleteJobModal] = useState(false);
-  const [jobToDelete, setJobToDelete] = useState<string | null>(null);
-  const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
-  const [docToDelete, setDocToDelete] = useState<string | null>(null);
-
-  const FREE_LIMITS = { jobs: 6, clients: 3, docs: 12 };
-
-  const handleUpgradeSuccess = async () => {
-    if (!session) return;
-    await supabase.from('profiles').update({ subscription_tier: 'Premium' }).eq('id', session.user.id);
-    setProfile(prev => prev ? ({ ...prev, subscriptionTier: 'Premium' }) : null);
-    setShowGlobalUpgrade(false);
-    alert("Upgrade Successful! You are now a Premium user.");
-  };
-
-  const checkLimit = (type: 'jobs' | 'clients' | 'docs', contextId?: string): boolean => {
-    if (profile?.subscriptionTier === 'Premium') return true;
-    let count = 0;
-    if (type === 'jobs') count = jobs.length;
-    else if (type === 'clients') count = clients.length;
-    else if (type === 'docs') {
-      if (contextId) {
-        count = forms.filter(f => f.jobId === contextId).length;
-      } else {
-        // Fallback if no context ID (should not happen for doc creation)
-        count = forms.length;
-      }
-    }
-
-    console.log(`[DEBUG] Checking limit for ${type}: count=${count}, limit=${FREE_LIMITS[type]}`);
-
-    if (count >= FREE_LIMITS[type]) {
-      setUpgradeFeature(`${FREE_LIMITS[type]} ${type} limit per project (Free Plan). You have ${count}.`);
-      setShowGlobalUpgrade(true);
-      return false;
-    }
-    return true;
-  };
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const pk = params.get('portal');
-    const at = params.get('approval_token');
-
-    if (pk) {
-      setPortalKey(pk);
-      setLoading(false);
-    } else if (at) {
-      setApprovalToken(at);
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      syncOfflineData();
-    };
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [session]);
-
-  const syncOfflineData = async () => {
-    // ... existing sync logic ...
-    fetchData();
-  };
-
-  useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove('light', 'dark', 'blue');
-    root.classList.add(theme);
-    if (theme === 'dark' || theme === 'blue') root.classList.add('dark');
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  useEffect(() => {
-    if ((!portalKey && !approvalToken) && !supabase) {
-      setLoading(false);
-      return;
-    }
-    if (!portalKey && !approvalToken) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setSession(session);
-        if (session) {
-          if (session.provider_token) {
-            localStorage.setItem('google_provider_token', session.provider_token);
-          }
-          setView({ screen: 'dashboard' });
-        } else {
-          setLoading(false);
+        if (portalKey || approvalToken) {
+            // If external link exists, we don't need app state, we'll render portal view directly
+            return { screen: 'welcome' }; // Placeholder, logic handled below
         }
-      });
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-        if (session) {
-          if (session.provider_token) {
-            localStorage.setItem('google_provider_token', session.provider_token);
-            // PERSIST TOKEN TO DB
-            supabase.from('profiles').update({
-              gmail_access_token: session.provider_token,
-              gmail_refresh_token: session.provider_refresh_token
-            }).eq('id', session.user.id).then(({ error }) => {
-              if (!error) fetchData(); // Refresh profile state
-            });
-          }
-          setView({ screen: 'dashboard' });
-        } else {
-          setProfile(null);
-          setJobs([]);
-          setForms([]);
-          setClients([]);
-          setInventory([]);
-          setSavedItems([]);
-
-          const path = window.location.pathname.replace(/\/$/, '');
-          if (!['/privacy', '/terms', '/security'].includes(path)) {
-            setView({ screen: 'welcome' });
-          }
-
-          setLoading(false);
-        }
-      });
-
-      return () => subscription.unsubscribe();
-    }
-  }, [portalKey, approvalToken]);
-
-  const fetchData = async () => {
-    if (!session) return;
-
-    if (!profile) {
-      setLoading(true);
-      setLoadingMessage('Loading profile...');
-    }
-
-    const user = session.user;
-    let currentProfile: UserProfile | null = null;
-
-    if (navigator.onLine) {
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        if (/relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(profileError.message)) {
-          setDbSetupError(SQL_SETUP_SCRIPT);
-          setLoading(false);
-          return;
-        }
-      }
-
-      if (profileData) {
-        currentProfile = {
-          id: profileData.id,
-          email: profileData.email,
-          name: profileData.name,
-          companyName: profileData.company_name,
-          logoUrl: profileData.logo_url,
-          profilePictureUrl: profileData.profile_picture_url,
-          address: profileData.address,
-          phone: profileData.phone,
-          website: profileData.website,
-          jobTitle: profileData.job_title,
-          subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
-          language: profileData.language,
-          emailTemplates: profileData.email_templates,
-          theme: profileData.theme,
-          emailUsage: profileData.email_usage || 0,
-          gmailAccessToken: profileData.gmail_access_token,
-          gmailRefreshToken: profileData.gmail_refresh_token
-        };
-        if (profileData.theme) {
-          setTheme(profileData.theme as 'light' | 'dark' | 'blue');
-        }
-        await dbApi.put('profile', currentProfile);
-      } else if (!profileError || profileError.code === 'PGRST116') {
-        // Create profile logic...
-        // Simplified for brevity, reusing existing logic
-        const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
-        const { data: newProfileData } = await supabase.from('profiles').insert({
-          id: user.id,
-          email: user.email,
-          name: metaName || 'User',
-          company_name: 'My Company',
-          theme: theme,
-        }).select().single();
-        if (newProfileData) {
-          currentProfile = {
-            id: newProfileData.id,
-            email: newProfileData.email,
-            name: newProfileData.name,
-            companyName: newProfileData.company_name,
-            logoUrl: '',
-            profilePictureUrl: '',
-            address: '',
-            phone: '',
-            website: '',
-            subscriptionTier: 'Basic',
-            theme: theme,
-            emailUsage: 0
-          }
-        }
-      }
-    } else {
-      const cachedProfiles = await dbApi.getAll('profile');
-      if (cachedProfiles.length > 0) {
-        currentProfile = cachedProfiles[0];
-        if (currentProfile?.theme) setTheme(currentProfile.theme);
-      }
-    }
-    setProfile(currentProfile);
-
-    // Jobs
-    if (navigator.onLine) {
-      const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
-      if (jobsData) {
-        const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id }));
-        setJobs(mappedJobs);
-        await dbApi.clear('jobs');
-        for (const j of mappedJobs) await dbApi.put('jobs', j);
-      }
-    } else {
-      const cachedJobs = await dbApi.getAll('jobs');
-      setJobs(cachedJobs);
-    }
-
-    // Forms
-    if (navigator.onLine) {
-      const { data: formsData } = await supabase
-        .from('documents')
-        .select('id, user_id, job_id, type, data, created_at, public_token')
-        .eq('user_id', user.id);
-      if (formsData) {
-        // Include public_token in mappedForms
-        const mappedForms = formsData.map(f => ({ ...f, jobId: f.job_id, createdAt: f.created_at, public_token: f.public_token }));
-        setForms(mappedForms);
-        await dbApi.clear('documents');
-        for (const f of mappedForms) await dbApi.put('documents', f);
-      }
-    } else {
-      const cachedForms = await dbApi.getAll('documents');
-      setForms(cachedForms);
-    }
-
-    // Clients
-    if (navigator.onLine) {
-      const { data: clientsData, error: clientError } = await supabase
-        .from('clients')
-        .select('id, user_id, name, email, phone, address, notes, portal_key, created_at')
-        .eq('user_id', user.id);
-      if (clientsData) {
-        setClients(clientsData);
-        await dbApi.clear('clients');
-        for (const c of clientsData) await dbApi.put('clients', c);
-      } else if (clientError && /column ".*" does not exist/i.test(clientError.message)) {
-        setDbSetupError(SQL_SETUP_SCRIPT);
-      }
-    } else {
-      const cachedClients = await dbApi.getAll('clients');
-      setClients(cachedClients);
-    }
-
-    // Inventory
-    if (navigator.onLine) {
-      const { data: invData } = await supabase.from('inventory').select('*').eq('user_id', user.id).order('name');
-      if (invData) {
-        setInventory(invData);
-        await dbApi.clear('inventory');
-        for (const i of invData) await dbApi.put('inventory', i);
-      }
-    } else {
-      const cachedInventory = await dbApi.getAll('inventory');
-      setInventory(cachedInventory);
-    }
-
-    // Inventory History
-    if (navigator.onLine) {
-      const { data: histData } = await supabase.from('inventory_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100);
-      if (histData) setInventoryHistory(histData);
-    }
-
-    // Saved Items (Price Book)
-    if (navigator.onLine) {
-      const { data: savedData, error: savedError } = await supabase.from('saved_items').select('*').eq('user_id', user.id).order('name');
-      if (savedData) {
-        setSavedItems(savedData);
-        // Cache logic for saved items could be added here
-      } else if (savedError && savedError.message.includes('relation "public.saved_items" does not exist')) {
-        setDbSetupError(SQL_SETUP_SCRIPT);
-      }
-    }
-
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    if (session) fetchData();
-  }, [session]);
-
-  // Auth Handlers (Login, Signup, Google)
-  const handleLogin = async (email: string, pass: string) => {
-    if (!navigator.onLine) { alert("You must be online to log in."); return; }
-    const { error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
-    if (error) throw error;
-  };
-  const handleSignup = async (email: string, pass: string) => {
-    const { error } = await supabase.auth.signUp({ email: email, password: pass });
-    if (error) throw error;
-    setView({ screen: 'auth', authScreen: 'checkEmail' });
-  };
-  const handleLoginWithGoogle = async () => {
-    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
-  };
-  const handleConnectGmail = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-        scopes: 'https://www.googleapis.com/auth/gmail.send',
-        queryParams: { access_type: 'offline', prompt: 'consent' }
-      }
+        const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
+        if (path === '/privacy') return { screen: 'privacy' };
+        if (path === '/terms') return { screen: 'terms' };
+        if (path === '/security') return { screen: 'security' };
+        return { screen: 'welcome' };
     });
-  };
-  const handleLogout = async () => {
-    if (navigator.onLine) await supabase.auth.signOut();
-    localStorage.removeItem('app_view_state');
-    localStorage.removeItem('google_provider_token');
-    setSession(null);
-    setView({ screen: 'welcome' });
-  };
 
-  // Nav Handlers
-  const navigateToDashboard = () => setView({ screen: 'dashboard' });
-  const navigateToSettings = () => setView({ screen: 'settings' });
-  const navigateToNewDoc = (jobId: string) => {
-    if (checkLimit('docs', jobId)) setView({ screen: 'selectDocType', jobId });
-  };
-  const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard') => {
-    if (checkLimit('jobs')) setView({ screen: 'createJob', returnTo });
-  };
-  const navigateToClients = () => setView({ screen: 'clients' });
-  const navigateToInventory = () => setView({ screen: 'inventory' });
-  const navigateToPriceBook = () => setView({ screen: 'pricebook' });
-  const navigateToCalculator = () => setView({ screen: 'profitCalculator' });
-  const navigateToAnalytics = () => setView({ screen: 'analytics' });
-  const navigateToCalendar = () => setView({ screen: 'calendar' });
-  const navigateToCommunication = () => setView({ screen: 'communication' });
-  const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
+    const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [jobs, setJobs] = useState<Job[]>([]);
+    const [forms, setForms] = useState<FormDataType[]>([]);
+    const [clients, setClients] = useState<Client[]>([]);
+    const [inventory, setInventory] = useState<InventoryItem[]>([]);
+    const [inventoryHistory, setInventoryHistory] = useState<InventoryHistoryItem[]>([]);
+    const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Data Handlers
-  const handleUpdateAppLogo = async (file: File): Promise<string> => { return ''; }; // Placeholder for brevity
-  const handleUploadDocumentImage = async (file: File): Promise<string> => {
-    if (!session) return '';
-    try {
-      const compressed = await compressImage(file);
-      return await uploadFile('logos', compressed, session.user.id, true);
-    } catch (e) {
-      console.error("Failed to upload image", e);
-      return '';
-    }
-  };
-  const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
-    if (!session) return;
-    setLoading(true);
-    let newLogoUrl = updatedProfile.logoUrl;
-    let newProfilePicUrl = updatedProfile.profilePictureUrl;
+    // External Access State
+    const [portalKey, setPortalKey] = useState<string | null>(null);
+    const [approvalToken, setApprovalToken] = useState<string | null>(null);
 
-    try {
-      if (logoFile) newLogoUrl = await uploadFile('logos', logoFile, session.user.id, true);
-      if (profilePicFile) newProfilePicUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
-    } catch (error) { setLoading(false); return; }
+    const [notificationCount, setNotificationCount] = useState(0);
 
-    const profileForDb = {
-      id: session.user.id,
-      name: updatedProfile.name,
-      company_name: updatedProfile.companyName,
-      email: updatedProfile.email,
-      phone: updatedProfile.phone,
-      address: updatedProfile.address,
-      website: updatedProfile.website,
-      logo_url: newLogoUrl,
-      profile_picture_url: newProfilePicUrl,
-      job_title: updatedProfile.jobTitle,
-      language: updatedProfile.language,
-      email_templates: updatedProfile.emailTemplates,
-      theme: theme,
-      updated_at: new Date().toISOString(),
+    const [dbSetupError, setDbSetupError] = useState<string | null>(null);
+
+    const [theme, setTheme] = useState<'light' | 'dark' | 'blue'>(() => {
+        const savedTheme = localStorage.getItem('theme');
+        return (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'blue') ? (savedTheme as 'light' | 'dark' | 'blue') : 'dark';
+    });
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const [docSearchQuery, setDocSearchQuery] = useState('');
+
+    const [showToolsMenu, setShowToolsMenu] = useState(false);
+
+    // Upgrade / Subscription State
+    const [showGlobalUpgrade, setShowGlobalUpgrade] = useState(false);
+    const [upgradeFeature, setUpgradeFeature] = useState('');
+
+    // Delete Confirmation State
+    const [showDeleteJobModal, setShowDeleteJobModal] = useState(false);
+    const [jobToDelete, setJobToDelete] = useState<string | null>(null);
+    const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
+    const [docToDelete, setDocToDelete] = useState<string | null>(null);
+
+    const FREE_LIMITS = { jobs: 6, clients: 3, docs: 12 };
+
+    const handleUpgradeSuccess = async () => {
+        if (!session) return;
+        await supabase.from('profiles').update({ subscription_tier: 'Premium' }).eq('id', session.user.id);
+        setProfile(prev => prev ? ({ ...prev, subscriptionTier: 'Premium' }) : null);
+        setShowGlobalUpgrade(false);
+        alert("Upgrade Successful! You are now a Premium user.");
     };
 
-    const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
-    if (!error && data) {
-      setProfile({ ...updatedProfile, logoUrl: newLogoUrl, profilePictureUrl: newProfilePicUrl });
-      setView({ screen: 'dashboard' });
-    }
-    setLoading(false);
-  };
-
-  const handleEmailSent = async () => {
-    if (!session || !profile) return;
-    const newCount = (profile.emailUsage || 0) + 1;
-    setProfile({ ...profile, emailUsage: newCount });
-    await supabase.from('profiles').update({ email_usage: newCount }).eq('id', session.user.id);
-  };
-
-  const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
-  const handleSaveJob = async (jobData: any): Promise<string> => {
-    if (!session) return '';
-    const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active' };
-    await supabase.from('jobs').insert(newJob);
-    fetchData(); // Refresh
-    if (view.screen === 'createJob' && view.returnTo === 'calendar') {
-      setView({ screen: 'calendar' });
-    } else {
-      setView({ screen: 'dashboard' });
-    }
-    return newJob.id;
-  };
-  const handleUpdateJobStatus = async (jobId: string, newStatus: any) => {
-    await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
-    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
-  };
-  const handleSaveForm = async (formData: any) => {
-    if (!session) return;
-    if (view.screen !== 'form') return;
-
-    const formRecord: any = {
-      id: view.formId || crypto.randomUUID(),
-      user_id: session.user.id,
-      job_id: view.jobId,
-      type: view.formType,
-      data: formData
-    };
-
-    // Inventory Deduction Logic (Phase 3)
-    if (view.formType === FormType.MaterialLog && (formData as any).deductInventory) {
-      const matData = formData as MaterialLogData;
-      console.log("Processing Inventory Deduction for Material Log...");
-
-      for (const item of matData.items) {
-        if (item.inventoryItemId) {
-          // Deduct stock
-          await handleAllocateInventory(item.inventoryItemId, view.jobId, item.quantity);
+    const checkLimit = (type: 'jobs' | 'clients' | 'docs', contextId?: string): boolean => {
+        if (profile?.subscriptionTier === 'Premium') return true;
+        let count = 0;
+        if (type === 'jobs') count = jobs.length;
+        else if (type === 'clients') count = clients.length;
+        else if (type === 'docs') {
+            if (contextId) {
+                count = forms.filter(f => f.jobId === contextId).length;
+            } else {
+                // Fallback if no context ID (should not happen for doc creation)
+                count = forms.length;
+            }
         }
-      }
 
-      // Disable flag after processing so it doesn't run again on next save
-      formData.deductInventory = false;
-    }
+        console.log(`[DEBUG] Checking limit for ${type}: count=${count}, limit=${FREE_LIMITS[type]}`);
 
-    await supabase.from('documents').upsert(formRecord);
-    await fetchData();
-    setView({ screen: 'jobDetails', jobId: view.jobId });
-  };
-  const handleAddClient = async (clientData: any) => {
-    if (!session) return;
-    await supabase.from('clients').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...clientData });
-    fetchData();
-  };
-  const handleDeleteClient = async (id: string) => {
-    await supabase.from('clients').delete().eq('id', id);
-    fetchData();
-  };
+        if (count >= FREE_LIMITS[type]) {
+            setUpgradeFeature(`${FREE_LIMITS[type]} ${type} limit per project (Free Plan). You have ${count}.`);
+            setShowGlobalUpgrade(true);
+            return false;
+        }
+        return true;
+    };
 
-  const handleDeleteJob = async () => {
-    if (!jobToDelete || !session) return;
-    await supabase.from('jobs').delete().eq('id', jobToDelete);
-    // Associated documents will be deleted by ON DELETE CASCADE in DB
-    fetchData();
-    setJobToDelete(null);
-    setShowDeleteJobModal(false);
-  };
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const pk = params.get('portal');
+        const at = params.get('approval_token');
 
-  const handleDeleteDoc = async () => {
-    if (!docToDelete || !session) return;
-    await supabase.from('documents').delete().eq('id', docToDelete);
-    fetchData();
-    setDocToDelete(null);
-    setShowDeleteDocModal(false);
-  };
+        if (pk) {
+            setPortalKey(pk);
+            setLoading(false);
+        } else if (at) {
+            setApprovalToken(at);
+            setLoading(false);
+        }
+    }, []);
 
-  // New handler for "Quick Create" from Client screen
-  const handleNavigateToNewDoc = async (type: FormType, clientId: string) => {
-    if (!session) return;
+    useEffect(() => {
+        const handleOnline = () => {
+            setIsOnline(true);
+            syncOfflineData();
+        };
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, [session]);
 
-    const client = clients.find(c => c.id === clientId);
-    if (!client) return;
+    const syncOfflineData = async () => {
+        // ... existing sync logic ...
+        fetchData();
+    };
 
-    let activeJob = jobs.find(j => j.clientName === client.name && j.status === 'active');
-    let jobId = activeJob?.id;
+    useEffect(() => {
+        const root = window.document.documentElement;
+        root.classList.remove('light', 'dark', 'blue');
+        root.classList.add(theme);
+        if (theme === 'dark' || theme === 'blue') root.classList.add('dark');
+        localStorage.setItem('theme', theme);
+    }, [theme]);
 
-    if (!activeJob) {
-      const newJobData = {
-        name: `${client.name} - General`,
-        clientName: client.name,
-        clientAddress: client.address || '',
-        startDate: new Date().toISOString().split('T')[0],
-      };
-      const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
+    useEffect(() => {
+        if ((!portalKey && !approvalToken) && !supabase) {
+            setLoading(false);
+            return;
+        }
+        if (!portalKey && !approvalToken) {
+            supabase.auth.getSession().then(({ data: { session } }) => {
+                setSession(session);
+                if (session) {
+                    if (session.provider_token) {
+                        localStorage.setItem('google_provider_token', session.provider_token);
+                    }
+                    setView({ screen: 'dashboard' });
+                } else {
+                    setLoading(false);
+                }
+            });
 
-      await supabase.from('jobs').insert({
-        id: newJob.id,
-        user_id: session.user.id,
-        name: newJob.name,
-        client_name: newJob.clientName,
-        client_address: newJob.clientAddress,
-        start_date: newJob.startDate
-      });
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                setSession(session);
+                if (session) {
+                    if (session.provider_token) {
+                        localStorage.setItem('google_provider_token', session.provider_token);
+                        // PERSIST TOKEN TO DB
+                        supabase.from('profiles').update({
+                            gmail_access_token: session.provider_token,
+                            gmail_refresh_token: session.provider_refresh_token
+                        }).eq('id', session.user.id).then(({ error }) => {
+                            if (!error) fetchData(); // Refresh profile state
+                        });
+                    }
+                    setView({ screen: 'dashboard' });
+                } else {
+                    setProfile(null);
+                    setJobs([]);
+                    setForms([]);
+                    setClients([]);
+                    setInventory([]);
+                    setSavedItems([]);
 
-      setJobs(prev => [...prev, newJob]);
-      jobId = newJob.id;
-    }
+                    const path = window.location.pathname.replace(/\/$/, '');
+                    if (!['/privacy', '/terms', '/security'].includes(path)) {
+                        setView({ screen: 'welcome' });
+                    }
 
-    setView({ screen: 'form', formType: type, jobId: jobId!, formId: null });
-  };
+                    setLoading(false);
+                }
+            });
 
-  // Price Book Handlers
-  const handleAddSavedItem = async (item: any) => {
-    if (!session) return;
-    await supabase.from('saved_items').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...item });
-    const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
-    if (data) setSavedItems(data);
-  };
-  const handleUpdateSavedItem = async (item: SavedItem) => { };
-  const handleDeleteSavedItem = async (id: string) => {
-    await supabase.from('saved_items').delete().eq('id', id);
-    setSavedItems(prev => prev.filter(i => i.id !== id));
-  };
+            return () => subscription.unsubscribe();
+        }
+    }, [portalKey, approvalToken]);
 
-  // Inventory Handlers
-  const handleLogInventoryAction = async (itemId: string, action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation', quantityChange: number, notes?: string, jobId?: string) => {
-    if (!session) return;
-    const historyItem = { id: crypto.randomUUID(), user_id: session.user.id, item_id: itemId, action, quantity_change: quantityChange, notes, job_id: jobId, created_at: new Date().toISOString() };
-    await supabase.from('inventory_history').insert(historyItem);
-    setInventoryHistory(prev => [historyItem as InventoryHistoryItem, ...prev]);
-  };
+    const fetchData = async () => {
+        if (!session) return;
 
-  const handleAddInventoryItem = async (itemData: any) => {
-    if (!session) return;
-    const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...itemData };
-    await supabase.from('inventory').insert(newItem);
-    await handleLogInventoryAction(newItem.id, 'add', newItem.quantity, 'Initial stock');
-    fetchData();
-  };
-  const handleUpdateInventoryItem = async (item: InventoryItem) => {
-    // Find old item to calculate diff
-    const oldItem = inventory.find(i => i.id === item.id);
-    const diff = item.quantity - (oldItem?.quantity || 0);
+        if (!profile) {
+            setLoading(true);
+            setLoadingMessage('Loading profile...');
+        }
 
-    await supabase.from('inventory').update({
-      quantity: item.quantity,
-      low_stock_threshold: item.low_stock_threshold,
-      // Update new fields if passed (InventoryView sends whole item)
-      category: item.category,
-      unit: item.unit,
-      cost_price: item.cost_price,
-      supplier: item.supplier,
-      location: item.location
-    }).eq('id', item.id);
+        const user = session.user;
+        let currentProfile: UserProfile | null = null;
 
-    if (diff !== 0) {
-      await handleLogInventoryAction(item.id, diff > 0 ? 'restock' : 'update', diff, diff > 0 ? 'Manual Restock' : 'Manual Adjustment');
-    }
+        if (navigator.onLine) {
+            const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .single();
 
-    fetchData();
-  };
-  const handleDeleteInventoryItem = async (id: string) => {
-    await supabase.from('inventory').delete().eq('id', id);
-    // History automatically deleted by CASCADE or we keep it? CASCADE is set in SQL.
-    fetchData();
-  };
+            if (profileError && profileError.code !== 'PGRST116') {
+                if (/relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(profileError.message)) {
+                    setDbSetupError(SQL_SETUP_SCRIPT);
+                    setLoading(false);
+                    return;
+                }
+            }
 
-  const handleAllocateInventory = async (itemId: string, jobId: string, quantity: number) => {
-    if (!session) return;
-    const item = inventory.find(i => i.id === itemId);
-    if (!item) return;
+            if (profileData) {
+                currentProfile = {
+                    id: profileData.id,
+                    email: profileData.email,
+                    name: profileData.name,
+                    companyName: profileData.company_name,
+                    logoUrl: profileData.logo_url,
+                    profilePictureUrl: profileData.profile_picture_url,
+                    address: profileData.address,
+                    phone: profileData.phone,
+                    website: profileData.website,
+                    jobTitle: profileData.job_title,
+                    subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
+                    language: profileData.language,
+                    emailTemplates: profileData.email_templates,
+                    theme: profileData.theme,
+                    emailUsage: profileData.email_usage || 0,
+                    gmailAccessToken: profileData.gmail_access_token,
+                    gmailRefreshToken: profileData.gmail_refresh_token
+                };
+                if (profileData.theme) {
+                    setTheme(profileData.theme as 'light' | 'dark' | 'blue');
+                }
+                await dbApi.put('profile', currentProfile);
+            } else if (!profileError || profileError.code === 'PGRST116') {
+                // Create profile logic...
+                // Simplified for brevity, reusing existing logic
+                const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
+                const { data: newProfileData } = await supabase.from('profiles').insert({
+                    id: user.id,
+                    email: user.email,
+                    name: metaName || 'User',
+                    company_name: 'My Company',
+                    theme: theme,
+                }).select().single();
+                if (newProfileData) {
+                    currentProfile = {
+                        id: newProfileData.id,
+                        email: newProfileData.email,
+                        name: newProfileData.name,
+                        companyName: newProfileData.company_name,
+                        logoUrl: '',
+                        profilePictureUrl: '',
+                        address: '',
+                        phone: '',
+                        website: '',
+                        subscriptionTier: 'Basic',
+                        theme: theme,
+                        emailUsage: 0
+                    }
+                }
+            }
+        } else {
+            const cachedProfiles = await dbApi.getAll('profile');
+            if (cachedProfiles.length > 0) {
+                currentProfile = cachedProfiles[0];
+                if (currentProfile?.theme) setTheme(currentProfile.theme);
+            }
+        }
+        setProfile(currentProfile);
 
-    const newQty = Math.max(0, item.quantity - quantity);
-    await supabase.from('inventory').update({ quantity: newQty }).eq('id', itemId);
-    await handleLogInventoryAction(itemId, 'job_allocation', -quantity, 'Allocated to job', jobId);
-    fetchData();
-  };
+        // Jobs
+        if (navigator.onLine) {
+            const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
+            if (jobsData) {
+                const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id }));
+                setJobs(mappedJobs);
+                await dbApi.clear('jobs');
+                for (const j of mappedJobs) await dbApi.put('jobs', j);
+            }
+        } else {
+            const cachedJobs = await dbApi.getAll('jobs');
+            setJobs(cachedJobs);
+        }
 
-  const getTranslation = () => { return translations[profile?.language || 'English']; }
+        // Forms
+        if (navigator.onLine) {
+            const { data: formsData } = await supabase
+                .from('documents')
+                .select('id, user_id, job_id, type, data, created_at, public_token')
+                .eq('user_id', user.id);
+            if (formsData) {
+                // Include public_token in mappedForms
+                const mappedForms = formsData.map(f => ({ ...f, jobId: f.job_id, createdAt: f.created_at, public_token: f.public_token }));
+                setForms(mappedForms);
+                await dbApi.clear('documents');
+                for (const f of mappedForms) await dbApi.put('documents', f);
+            }
+        } else {
+            const cachedForms = await dbApi.getAll('documents');
+            setForms(cachedForms);
+        }
 
-  // Render logic...
-  const renderAuth = () => {
-    if (view.screen !== 'auth') return null;
-    switch (view.authScreen) {
-      case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} />;
-      case 'signup': return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
-      case 'checkEmail': return <div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>;
-    }
-  };
+        // Clients
+        if (navigator.onLine) {
+            const { data: clientsData, error: clientError } = await supabase
+                .from('clients')
+                .select('id, user_id, name, email, phone, address, notes, portal_key, created_at')
+                .eq('user_id', user.id);
+            if (clientsData) {
+                setClients(clientsData);
+                await dbApi.clear('clients');
+                for (const c of clientsData) await dbApi.put('clients', c);
+            } else if (clientError && /column ".*" does not exist/i.test(clientError.message)) {
+                setDbSetupError(SQL_SETUP_SCRIPT);
+            }
+        } else {
+            const cachedClients = await dbApi.getAll('clients');
+            setClients(cachedClients);
+        }
 
-  const renderDashboard = () => {
-    if (!profile) return null;
-    const t = getTranslation();
-    const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
-    const getStatusColor = (status: string) => {
-      switch (status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
-    }
-    return (
-      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-        <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
-          <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome} {profile.name.split(' ')[0]}!</h1></div>
-          {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
-          <div className="flex items-center gap-3 flex-wrap md:flex-nowrap justify-end">
+        // Inventory
+        if (navigator.onLine) {
+            const { data: invData } = await supabase.from('inventory').select('*').eq('user_id', user.id).order('name');
+            if (invData) {
+                setInventory(invData);
+                await dbApi.clear('inventory');
+                for (const i of invData) await dbApi.put('inventory', i);
+            }
+        } else {
+            const cachedInventory = await dbApi.getAll('inventory');
+            setInventory(cachedInventory);
+        }
 
-            {profile.subscriptionTier !== 'Premium' && (
-              <div className="flex items-center gap-2 mr-2">
-                <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
-                  Jobs: {jobs.length}/{FREE_LIMITS.jobs}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
-                  onClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
-                >
-                  Upgrade
-                </Button>
-              </div>
-            )}
-            <div className="relative">
-              <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border">
-                Tools <ChevronDownIcon className="w-4 h-4 opacity-50" />
-              </Button>
-              {showToolsMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
-                    <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                      <BoxIcon className="w-4 h-4 text-primary" /> Inventory
-                    </button>
-                    <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                      <TagIcon className="w-4 h-4 text-primary" /> Price Book
-                    </button>
-                    <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                      <CalendarIcon className="w-4 h-4 text-primary" /> Calendar
-                    </button>
-                    <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                      <CalculatorIcon className="w-4 h-4 text-primary" /> Calculator
-                    </button>
-                    <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                      <BarChartIcon className="w-4 h-4 text-primary" /> Insights
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+        // Inventory History
+        if (navigator.onLine) {
+            const { data: histData } = await supabase.from('inventory_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100);
+            if (histData) setInventoryHistory(histData);
+        }
 
-            <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 bg-card border-border">
-              <MessageSquareIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">Community</span>
-              {notificationCount > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{notificationCount > 9 ? '9+' : notificationCount}</span>}
-            </Button>
+        // Saved Items (Price Book)
+        if (navigator.onLine) {
+            const { data: savedData, error: savedError } = await supabase.from('saved_items').select('*').eq('user_id', user.id).order('name');
+            if (savedData) {
+                setSavedItems(savedData);
+                // Cache logic for saved items could be added here
+            } else if (savedError && savedError.message.includes('relation "public.saved_items" does not exist')) {
+                setDbSetupError(SQL_SETUP_SCRIPT);
+            }
+        }
 
-            <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm">
-              <PlusIcon className="w-4 h-4 mr-2" /> {t.newJob}
-            </Button>
+        setLoading(false);
+    };
 
-            <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border ml-1 shrink-0">
-              {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}
-            </Button>
-          </div>
-        </header>
-        <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
-        <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
-        {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (
-          <JobCard
-            key={job.id}
-            job={job}
-            onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}
-            onDelete={() => { setJobToDelete(job.id); setShowDeleteJobModal(true); }}
-            t={t}
-          />
-        ))}</div>}
-      </div>
-    );
-  };
+    useEffect(() => {
+        if (session) fetchData();
+    }, [session]);
 
-  const renderJobDetails = () => {
-    if (view.screen !== 'jobDetails' || !profile) return null;
-    const job = jobs.find(j => j.id === view.jobId);
-    if (!job) return <div>Job not found!</div>;
-    const t = getTranslation();
-    const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type; };
-    const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
-    const getDocIcon = (type: FormType) => { switch (type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; } };
-    const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground border border-border">{status}</span> : null; };
+    // Auth Handlers (Login, Signup, Google)
+    const handleLogin = async (email: string, pass: string) => {
+        if (!navigator.onLine) { alert("You must be online to log in."); return; }
+        const { error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
+        if (error) throw error;
+    };
+    const handleSignup = async (email: string, pass: string) => {
+        const { error } = await supabase.auth.signUp({ email: email, password: pass });
+        if (error) throw error;
+        setView({ screen: 'auth', authScreen: 'checkEmail' });
+    };
+    const handleLoginWithGoogle = async () => {
+        await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+    };
+    const handleConnectGmail = async () => {
+        await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: window.location.origin,
+                scopes: 'https://www.googleapis.com/auth/gmail.send',
+                queryParams: { access_type: 'offline', prompt: 'consent' }
+            }
+        });
+    };
+    const handleLogout = async () => {
+        if (navigator.onLine) await supabase.auth.signOut();
+        localStorage.removeItem('app_view_state');
+        localStorage.removeItem('google_provider_token');
+        setSession(null);
+        setView({ screen: 'welcome' });
+    };
 
-    return (
-      <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-        <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
-          <div className="flex items-center">
-            <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-              <BackArrowIcon className="h-6 w-6" />
-            </Button>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight truncate max-w-xs md:max-w-md">
-                {job.name}
-              </h1>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                <UsersIcon className="w-4 h-4" />
-                {job.clientName}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <select
-              value={job.status}
-              onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
-              className="h-9 rounded-full border bg-card px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer"
-            >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="paused">Paused</option>
-              <option value="completed">Completed</option>
-            </select>
-            <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
-              <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
-            </Button>
-          </div>
-        </header>
+    // Nav Handlers
+    const navigateToDashboard = () => setView({ screen: 'dashboard' });
+    const navigateToSettings = () => setView({ screen: 'settings' });
+    const navigateToNewDoc = (jobId: string) => {
+        if (checkLimit('docs', jobId)) setView({ screen: 'selectDocType', jobId });
+    };
+    const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard') => {
+        if (checkLimit('jobs')) setView({ screen: 'createJob', returnTo });
+    };
+    const navigateToClients = () => setView({ screen: 'clients' });
+    const navigateToInventory = () => setView({ screen: 'inventory' });
+    const navigateToPriceBook = () => setView({ screen: 'pricebook' });
+    const navigateToCalculator = () => setView({ screen: 'profitCalculator' });
+    const navigateToAnalytics = () => setView({ screen: 'analytics' });
+    const navigateToCalendar = () => setView({ screen: 'calendar' });
+    const navigateToCommunication = () => setView({ screen: 'communication' });
+    const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
 
-        {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold animate-pulse">You are OFFLINE. Documents created will sync later.</div>}
+    // Data Handlers
+    const handleUpdateAppLogo = async (file: File): Promise<string> => { return ''; }; // Placeholder for brevity
+    const handleUploadDocumentImage = async (file: File): Promise<string> => {
+        if (!session) return '';
+        try {
+            const compressed = await compressImage(file);
+            return await uploadFile('logos', compressed, session.user.id, true);
+        } catch (e) {
+            console.error("Failed to upload image", e);
+            return '';
+        }
+    };
+    const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
+        if (!session) return;
+        setLoading(true);
+        let newLogoUrl = updatedProfile.logoUrl;
+        let newProfilePicUrl = updatedProfile.profilePictureUrl;
 
-        <div className="space-y-6">
+        try {
+            if (logoFile) newLogoUrl = await uploadFile('logos', logoFile, session.user.id, true);
+            if (profilePicFile) newProfilePicUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
+        } catch (error) { setLoading(false); return; }
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {profile.subscriptionTier !== 'Premium' && (
-                <div className="flex items-center gap-2 mr-2">
-                  <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
-                    Jobs: {jobs.length}/{FREE_LIMITS.jobs}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
-                    onClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
-                  >
-                    Upgrade
-                  </Button>
-                </div>
-              )}
-              <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
-              {profile.subscriptionTier !== 'Premium' && (
-                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
-                  {jobForms.length}/{FREE_LIMITS.docs} Used (Project)
-                </span>
-              )}
-            </div>
-            <div className="relative w-full max-w-xs">
-              <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
-              <Input
-                placeholder="Search docs..."
-                className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
-                value={docSearchQuery}
-                onChange={(e) => setDocSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
+        const profileForDb = {
+            id: session.user.id,
+            name: updatedProfile.name,
+            company_name: updatedProfile.companyName,
+            email: updatedProfile.email,
+            phone: updatedProfile.phone,
+            address: updatedProfile.address,
+            website: updatedProfile.website,
+            logo_url: newLogoUrl,
+            profile_picture_url: newProfilePicUrl,
+            job_title: updatedProfile.jobTitle,
+            language: updatedProfile.language,
+            email_templates: updatedProfile.emailTemplates,
+            theme: theme,
+            updated_at: new Date().toISOString(),
+        };
 
-          {jobForms.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border">
-              <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
-                <BriefcaseIcon className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
-              <p className="text-muted-foreground max-w-sm mt-1 mb-6">{t.noDocsYet}</p>
-              <Button variant="outline" onClick={() => navigateToNewDoc(job.id)} className="rounded-full">
-                Create First Document
-              </Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {jobForms.map(form => (
-                <DocumentCard
-                  key={form.id}
-                  form={form}
-                  onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
-                  onDelete={() => { setDocToDelete(form.id); setShowDeleteDocModal(true); }}
-                />
-              ))}
-            </div>
-          )}
-        </div >
-      </div >
-    );
-  };
+        const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
+        if (!error && data) {
+            setProfile({ ...updatedProfile, logoUrl: newLogoUrl, profilePictureUrl: newProfilePicUrl });
+            setView({ screen: 'dashboard' });
+        }
+        setLoading(false);
+    };
 
-  const renderForm = () => {
-    if (view.screen !== 'form' || !profile) return null;
-    const { formType, jobId, formId } = view;
-    const job = jobs.find(j => j.id === jobId);
-    const form = forms.find(f => f.id === formId);
-    if (!job) return <div>Job not found!</div>;
-    const handleCloseForm = () => setView({ screen: 'jobDetails', jobId: jobId });
+    const handleEmailSent = async () => {
+        if (!session || !profile) return;
+        const newCount = (profile.emailUsage || 0) + 1;
+        setProfile({ ...profile, emailUsage: newCount });
+        await supabase.from('profiles').update({ email_usage: newCount }).eq('id', session.user.id);
+    };
 
-    const componentKey = formId || `new-${formType}`;
+    const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
+    const handleSaveJob = async (jobData: any): Promise<string> => {
+        if (!session) return '';
+        const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active' };
+        await supabase.from('jobs').insert(newJob);
+        fetchData(); // Refresh
+        if (view.screen === 'createJob' && view.returnTo === 'calendar') {
+            setView({ screen: 'calendar' });
+        } else {
+            setView({ screen: 'dashboard' });
+        }
+        return newJob.id;
+    };
+    const handleUpdateJobStatus = async (jobId: string, newStatus: any) => {
+        await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
+        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
+    };
+    const handleSaveForm = async (formData: any) => {
+        if (!session) return;
+        if (view.screen !== 'form') return;
 
-    // Pass public token to forms that support approval
-    const publicToken = form?.public_token;
+        const formRecord: any = {
+            id: view.formId || crypto.randomUUID(),
+            user_id: session.user.id,
+            job_id: view.jobId,
+            type: view.formType,
+            data: formData
+        };
 
-    switch (formType) {
-      case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} />;
-      case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-      case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+        // Inventory Deduction Logic (Phase 3)
+        if (view.formType === FormType.MaterialLog && (formData as any).deductInventory) {
+            const matData = formData as MaterialLogData;
+            console.log("Processing Inventory Deduction for Material Log...");
 
-      case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} inventory={inventory} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} publicToken={publicToken} />;
+            for (const item of matData.items) {
+                if (item.inventoryItemId) {
+                    // Deduct stock
+                    await handleAllocateInventory(item.inventoryItemId, view.jobId, item.quantity);
+                }
+            }
 
-      case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ChangeOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} publicToken={publicToken} />;
-      case FormType.PurchaseOrder: return <PurchaseOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as PurchaseOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-      default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
-    }
-  };
+            // Disable flag after processing so it doesn't run again on next save
+            formData.deductInventory = false;
+        }
 
-  const getDockItems = () => {
-    const t = getTranslation();
-    const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
+        await supabase.from('documents').upsert(formRecord);
+        await fetchData();
+        setView({ screen: 'jobDetails', jobId: view.jobId });
+    };
+    const handleAddClient = async (clientData: any) => {
+        if (!session) return;
+        await supabase.from('clients').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...clientData });
+        fetchData();
+    };
+    const handleDeleteClient = async (id: string) => {
+        await supabase.from('clients').delete().eq('id', id);
+        fetchData();
+    };
 
+    const handleDeleteJob = async () => {
+        if (!jobToDelete || !session) return;
+        await supabase.from('jobs').delete().eq('id', jobToDelete);
+        // Associated documents will be deleted by ON DELETE CASCADE in DB
+        fetchData();
+        setJobToDelete(null);
+        setShowDeleteJobModal(false);
+    };
 
+    const handleDeleteDoc = async () => {
+        if (!docToDelete || !session) return;
+        await supabase.from('documents').delete().eq('id', docToDelete);
+        fetchData();
+        setDocToDelete(null);
+        setShowDeleteDocModal(false);
+    };
 
-    if (view.screen === 'jobDetails') {
-      items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as { jobId: string }).jobId) });
-    }
-    else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
+    // New handler for "Quick Create" from Client screen
+    const handleNavigateToNewDoc = async (type: FormType, clientId: string) => {
+        if (!session) return;
 
-    items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
+        const client = clients.find(c => c.id === clientId);
+        if (!client) return;
 
-    items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
-    return items;
-  };
+        let activeJob = jobs.find(j => j.clientName === client.name && j.status === 'active');
+        let jobId = activeJob?.id;
 
-  const renderContent = () => {
-    // 1. External Portal View (Many documents)
-    if (portalKey) return <PortalView supabase={supabase} portalKey={portalKey} />;
+        if (!activeJob) {
+            const newJobData = {
+                name: `${client.name} - General`,
+                clientName: client.name,
+                clientAddress: client.address || '',
+                startDate: new Date().toISOString().split('T')[0],
+            };
+            const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
 
-    // 2. Single Document Approval View
-    if (approvalToken) return <DocumentApprovalView supabase={supabase} approvalToken={approvalToken} />;
+            await supabase.from('jobs').insert({
+                id: newJob.id,
+                user_id: session.user.id,
+                name: newJob.name,
+                client_name: newJob.clientName,
+                client_address: newJob.clientAddress,
+                start_date: newJob.startDate
+            });
 
-    if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
-    if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
-    if (!session) {
-      if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
-      if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
-      if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
-      if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
+            setJobs(prev => [...prev, newJob]);
+            jobId = newJob.id;
+        }
 
-      return renderAuth();
-    }
-    switch (view.screen) {
-      case 'dashboard': return renderDashboard();
-      case 'jobDetails': return renderJobDetails();
-      case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} jobCount={jobs.filter(j => j.status === 'active').length} profile={profile} />;
-      case 'selectDocType': { const activeJob = jobs.find(j => j.id === view.jobId); if (!activeJob) return <div>Error</div>; return <SelectDocType onSelect={(type) => setView({ screen: 'form', formType: type, jobId: activeJob.id, formId: null })} onBack={() => setView({ screen: 'jobDetails', jobId: view.jobId })} profile={profile} docCount={forms.length} />; }
-      case 'form': return renderForm();
-      case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
-      case 'profile': if (!profile) return null; return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
-      case 'clients':
-        return <ClientsView
-          onBack={navigateToDashboard}
-          supabase={supabase}
-          session={session}
-          clients={clients}
-          forms={forms} // Pass forms for approval flow
-          jobs={jobs}
-          onAddClient={async (data) => { if (checkLimit('clients')) await handleAddClient(data); }}
-          onDeleteClient={handleDeleteClient}
-          isOnline={isOnline}
-          onNavigateToNewDoc={handleNavigateToNewDoc}
-          onNavigateToJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
-          onNavigateToDoc={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType })}
-        />;
-      case 'inventory':
-        return <InventoryView
-          onBack={navigateToDashboard}
-          inventory={inventory}
-          history={inventoryHistory}
-          jobs={jobs}
-          onAddItem={handleAddInventoryItem}
-          onUpdateItem={handleUpdateInventoryItem}
-          onDeleteItem={handleDeleteInventoryItem}
-          onAllocate={handleAllocateInventory}
-        />;
-      case 'pricebook':
-        return <PriceBookView
-          onBack={navigateToDashboard}
-          savedItems={savedItems}
-          onAddItem={handleAddSavedItem}
-          onUpdateItem={handleUpdateSavedItem}
-          onDeleteItem={handleDeleteSavedItem}
-        />;
-      case 'profitCalculator':
-        return <ProfitCalculatorView onBack={navigateToDashboard} />;
-      case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
-      case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-      case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} />;
-      case 'forum':
+        setView({ screen: 'form', formType: type, jobId: jobId!, formId: null });
+    };
+
+    // Price Book Handlers
+    // Price Book Handlers (Robus & Fallback Enabled)
+    const handleAddSavedItem = async (item: any) => {
+        if (!session) return;
+
+        // 1. Try Full Save (Elite Mode)
+        const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...item };
+        const { error } = await supabase.from('saved_items').insert(newItem);
+
+        if (error) {
+            console.error("Price Book Save Error (Full):", error);
+
+            // 2. Check for Schema Mismatch (Missing Columns)
+            // Postgres error 42703: undefined_column, or general 400 Bad Request from Supabase
+            if (error.message?.includes('column') || error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
+                alert("⚠️ Database Schema Outdated\n\nSaving in 'Basic Mode' because your database hasn't been updated with the SQL script yet.\n\nAdvanced features (Assemblies, Images, etc.) were NOT saved.\n\nPlease run 'REPAIR_PRICEBOOK.sql' in Supabase to fix this permanently.");
+
+                // 3. Fallback Save (Basic Mode)
+                const basicItem = {
+                    id: newItem.id,
+                    user_id: newItem.user_id,
+                    name: newItem.name,
+                    description: newItem.description,
+                    rate: newItem.rate,
+                    // Handle cost/unit_cost alias
+                    unit_cost: newItem.unit_cost || newItem.cost || 0,
+                    category: newItem.category
+                };
+
+                const { error: fallbackError } = await supabase.from('saved_items').insert(basicItem);
+
+                if (fallbackError) {
+                    alert("❌ Save Failed (Even in Basic Mode): " + fallbackError.message);
+                    return; // Stop here
+                }
+            } else {
+                // Other error (Permission, etc.)
+                alert("❌ Save Failed: " + error.message);
+                return;
+            }
+        }
+
+        // Refresh Data
+        const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
+        if (data) setSavedItems(data);
+    };
+
+    const handleUpdateSavedItem = async (item: SavedItem) => {
+        if (!session) return;
+
+        // 1. Try Full Update
+        const { error } = await supabase.from('saved_items').update(item).eq('id', item.id);
+
+        if (error) {
+            console.error("Price Book Update Error:", error);
+            if (error.message?.includes('column') || error.code === '42703' || error.message?.includes('does not exist')) {
+                alert("⚠️ Database Schema Outdated\n\nUpdate performed in 'Basic Mode'. Some fields were disregarded.\nPlease run the SQL repair script.");
+
+                // Fallback Update
+                const basicItem = {
+                    name: item.name,
+                    description: item.description,
+                    rate: item.rate,
+                    unit_cost: item.unit_cost || item.cost,
+                    category: item.category
+                };
+                await supabase.from('saved_items').update(basicItem).eq('id', item.id);
+            } else {
+                alert("❌ Update Failed: " + error.message);
+            }
+        }
+
+        // Refresh
+        const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
+        if (data) setSavedItems(data);
+    };
+
+    const handleDeleteSavedItem = async (id: string) => {
+        const { error } = await supabase.from('saved_items').delete().eq('id', id);
+        if (error) {
+            alert("Delete Failed: " + error.message);
+            return;
+        }
+        setSavedItems(prev => prev.filter(i => i.id !== id));
+    };
+
+    // Inventory Handlers
+    const handleLogInventoryAction = async (itemId: string, action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation', quantityChange: number, notes?: string, jobId?: string) => {
+        if (!session) return;
+        const historyItem = { id: crypto.randomUUID(), user_id: session.user.id, item_id: itemId, action, quantity_change: quantityChange, notes, job_id: jobId, created_at: new Date().toISOString() };
+        await supabase.from('inventory_history').insert(historyItem);
+        setInventoryHistory(prev => [historyItem as InventoryHistoryItem, ...prev]);
+    };
+
+    const handleAddInventoryItem = async (itemData: any) => {
+        if (!session) return;
+        const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...itemData };
+        await supabase.from('inventory').insert(newItem);
+        await handleLogInventoryAction(newItem.id, 'add', newItem.quantity, 'Initial stock');
+        fetchData();
+    };
+    const handleUpdateInventoryItem = async (item: InventoryItem) => {
+        // Find old item to calculate diff
+        const oldItem = inventory.find(i => i.id === item.id);
+        const diff = item.quantity - (oldItem?.quantity || 0);
+
+        await supabase.from('inventory').update({
+            quantity: item.quantity,
+            low_stock_threshold: item.low_stock_threshold,
+            // Update new fields if passed (InventoryView sends whole item)
+            category: item.category,
+            unit: item.unit,
+            cost_price: item.cost_price,
+            supplier: item.supplier,
+            location: item.location
+        }).eq('id', item.id);
+
+        if (diff !== 0) {
+            await handleLogInventoryAction(item.id, diff > 0 ? 'restock' : 'update', diff, diff > 0 ? 'Manual Restock' : 'Manual Adjustment');
+        }
+
+        fetchData();
+    };
+    const handleDeleteInventoryItem = async (id: string) => {
+        await supabase.from('inventory').delete().eq('id', id);
+        // History automatically deleted by CASCADE or we keep it? CASCADE is set in SQL.
+        fetchData();
+    };
+
+    const handleAllocateInventory = async (itemId: string, jobId: string, quantity: number) => {
+        if (!session) return;
+        const item = inventory.find(i => i.id === itemId);
+        if (!item) return;
+
+        const newQty = Math.max(0, item.quantity - quantity);
+        await supabase.from('inventory').update({ quantity: newQty }).eq('id', itemId);
+        await handleLogInventoryAction(itemId, 'job_allocation', -quantity, 'Allocated to job', jobId);
+        fetchData();
+    };
+
+    const getTranslation = () => { return translations[profile?.language || 'English']; }
+
+    // Render logic...
+    const renderAuth = () => {
+        if (view.screen !== 'auth') return null;
+        switch (view.authScreen) {
+            case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} />;
+            case 'signup': return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
+            case 'checkEmail': return <div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>;
+        }
+    };
+
+    const renderDashboard = () => {
+        if (!profile) return null;
+        const t = getTranslation();
+        const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
+        const getStatusColor = (status: string) => {
+            switch (status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
+        }
         return (
-          <ForumView
-            onBack={navigateToDashboard}
-            supabase={supabase}
-            session={session}
-            onUploadImage={handleUploadForumImage}
-            initialPostId={view.postId}
-            onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
-            onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
-          />
+            <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
+                <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
+                    <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome} {profile.name.split(' ')[0]}!</h1></div>
+                    {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
+                    <div className="flex items-center gap-3 flex-wrap md:flex-nowrap justify-end">
+
+                        {profile.subscriptionTier !== 'Premium' && (
+                            <div className="flex items-center gap-2 mr-2">
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
+                                    Jobs: {jobs.length}/{FREE_LIMITS.jobs}
+                                </span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
+                                    onClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
+                                >
+                                    Upgrade
+                                </Button>
+                            </div>
+                        )}
+                        <div className="relative">
+                            <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border">
+                                Tools <ChevronDownIcon className="w-4 h-4 opacity-50" />
+                            </Button>
+                            {showToolsMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
+                                    <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
+                                        <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                            <BoxIcon className="w-4 h-4 text-primary" /> Inventory
+                                        </button>
+                                        <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                            <TagIcon className="w-4 h-4 text-primary" /> Price Book
+                                        </button>
+                                        <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                            <CalendarIcon className="w-4 h-4 text-primary" /> Calendar
+                                        </button>
+                                        <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                            <CalculatorIcon className="w-4 h-4 text-primary" /> Calculator
+                                        </button>
+                                        <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                            <BarChartIcon className="w-4 h-4 text-primary" /> Insights
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 bg-card border-border">
+                            <MessageSquareIcon className="w-4 h-4" />
+                            <span className="hidden sm:inline">Community</span>
+                            {notificationCount > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{notificationCount > 9 ? '9+' : notificationCount}</span>}
+                        </Button>
+
+                        <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm">
+                            <PlusIcon className="w-4 h-4 mr-2" /> {t.newJob}
+                        </Button>
+
+                        <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border ml-1 shrink-0">
+                            {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}
+                        </Button>
+                    </div>
+                </header>
+                <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
+                <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
+                {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (
+                    <JobCard
+                        key={job.id}
+                        job={job}
+                        onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}
+                        onDelete={() => { setJobToDelete(job.id); setShowDeleteJobModal(true); }}
+                        t={t}
+                    />
+                ))}</div>}
+            </div>
         );
-      case 'privacy': return <PrivacyPolicy onBack={() => setView({ screen: 'dashboard' })} />;
-      case 'terms': return <TermsOfService onBack={() => setView({ screen: 'dashboard' })} />;
-      case 'security': return <Security onBack={() => setView({ screen: 'dashboard' })} />;
-      default: return renderDashboard();
-    }
-  };
+    };
 
-  return (
-    <main className="w-full min-h-screen bg-background">
-      {renderContent()}
-      {session && !loading && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
-        <Dock items={getDockItems()} />
-      )}
-      <UpgradeModal
-        isOpen={showGlobalUpgrade}
-        onClose={() => setShowGlobalUpgrade(false)}
-        featureName={upgradeFeature}
-        onUpgrade={handleUpgradeSuccess}
-        userId={session?.user?.id}
-      />
+    const renderJobDetails = () => {
+        if (view.screen !== 'jobDetails' || !profile) return null;
+        const job = jobs.find(j => j.id === view.jobId);
+        if (!job) return <div>Job not found!</div>;
+        const t = getTranslation();
+        const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type; };
+        const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
+        const getDocIcon = (type: FormType) => { switch (type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; } };
+        const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground border border-border">{status}</span> : null; };
 
-      <ConfirmationModal
-        isOpen={showDeleteJobModal}
-        onClose={() => setShowDeleteJobModal(false)}
-        onConfirm={handleDeleteJob}
-        title="Delete Job"
-        message="Are you sure you want to delete this job? All associated documents (Invoices, Estimates, etc.) will be permanently deleted. This action cannot be undone."
-        confirmLabel="Delete"
-        isDestructive={true}
-      />
+        return (
+            <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
+                <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
+                    <div className="flex items-center">
+                        <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
+                            <BackArrowIcon className="h-6 w-6" />
+                        </Button>
+                        <div>
+                            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight truncate max-w-xs md:max-w-md">
+                                {job.name}
+                            </h1>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                                <UsersIcon className="w-4 h-4" />
+                                {job.clientName}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <select
+                            value={job.status}
+                            onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
+                            className="h-9 rounded-full border bg-card px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer"
+                        >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="paused">Paused</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                        <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
+                            <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
+                        </Button>
+                    </div>
+                </header>
 
-      <ConfirmationModal
-        isOpen={showDeleteDocModal}
-        onClose={() => setShowDeleteDocModal(false)}
-        onConfirm={handleDeleteDoc}
-        title="Delete Document"
-        message="Are you sure you want to permanently delete this document? This action cannot be undone."
-        confirmLabel="Delete"
-        isDestructive={true}
-      />
-    </main>
-  );
+                {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold animate-pulse">You are OFFLINE. Documents created will sync later.</div>}
+
+                <div className="space-y-6">
+
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            {profile.subscriptionTier !== 'Premium' && (
+                                <div className="flex items-center gap-2 mr-2">
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
+                                        Jobs: {jobs.length}/{FREE_LIMITS.jobs}
+                                    </span>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
+                                        onClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
+                                    >
+                                        Upgrade
+                                    </Button>
+                                </div>
+                            )}
+                            <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
+                            {profile.subscriptionTier !== 'Premium' && (
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                                    {jobForms.length}/{FREE_LIMITS.docs} Used (Project)
+                                </span>
+                            )}
+                        </div>
+                        <div className="relative w-full max-w-xs">
+                            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
+                            <Input
+                                placeholder="Search docs..."
+                                className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
+                                value={docSearchQuery}
+                                onChange={(e) => setDocSearchQuery(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    {jobForms.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border">
+                            <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
+                                <BriefcaseIcon className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
+                            <p className="text-muted-foreground max-w-sm mt-1 mb-6">{t.noDocsYet}</p>
+                            <Button variant="outline" onClick={() => navigateToNewDoc(job.id)} className="rounded-full">
+                                Create First Document
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {jobForms.map(form => (
+                                <DocumentCard
+                                    key={form.id}
+                                    form={form}
+                                    onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
+                                    onDelete={() => { setDocToDelete(form.id); setShowDeleteDocModal(true); }}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div >
+            </div >
+        );
+    };
+
+    const renderForm = () => {
+        if (view.screen !== 'form' || !profile) return null;
+        const { formType, jobId, formId } = view;
+        const job = jobs.find(j => j.id === jobId);
+        const form = forms.find(f => f.id === formId);
+        if (!job) return <div>Job not found!</div>;
+        const handleCloseForm = () => setView({ screen: 'jobDetails', jobId: jobId });
+
+        const componentKey = formId || `new-${formType}`;
+
+        // Pass public token to forms that support approval
+        const publicToken = form?.public_token;
+
+        switch (formType) {
+            case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} />;
+            case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
+            case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+
+            case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} inventory={inventory} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} publicToken={publicToken} />;
+
+            case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ChangeOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} publicToken={publicToken} />;
+            case FormType.PurchaseOrder: return <PurchaseOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as PurchaseOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
+            default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
+        }
+    };
+
+    const getDockItems = () => {
+        const t = getTranslation();
+        const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
+
+
+
+        if (view.screen === 'jobDetails') {
+            items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as { jobId: string }).jobId) });
+        }
+        else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
+
+        items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
+
+        items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
+        return items;
+    };
+
+    const renderContent = () => {
+        // 1. External Portal View (Many documents)
+        if (portalKey) return <PortalView supabase={supabase} portalKey={portalKey} />;
+
+        // 2. Single Document Approval View
+        if (approvalToken) return <DocumentApprovalView supabase={supabase} approvalToken={approvalToken} />;
+
+        if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
+        if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
+        if (!session) {
+            if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
+            if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
+            if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
+            if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
+
+            return renderAuth();
+        }
+        switch (view.screen) {
+            case 'dashboard': return renderDashboard();
+            case 'jobDetails': return renderJobDetails();
+            case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} jobCount={jobs.filter(j => j.status === 'active').length} profile={profile} />;
+            case 'selectDocType': { const activeJob = jobs.find(j => j.id === view.jobId); if (!activeJob) return <div>Error</div>; return <SelectDocType onSelect={(type) => setView({ screen: 'form', formType: type, jobId: activeJob.id, formId: null })} onBack={() => setView({ screen: 'jobDetails', jobId: view.jobId })} profile={profile} docCount={forms.length} />; }
+            case 'form': return renderForm();
+            case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
+            case 'profile': if (!profile) return null; return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
+            case 'clients':
+                return <ClientsView
+                    onBack={navigateToDashboard}
+                    supabase={supabase}
+                    session={session}
+                    clients={clients}
+                    forms={forms} // Pass forms for approval flow
+                    jobs={jobs}
+                    onAddClient={async (data) => { if (checkLimit('clients')) await handleAddClient(data); }}
+                    onDeleteClient={handleDeleteClient}
+                    isOnline={isOnline}
+                    onNavigateToNewDoc={handleNavigateToNewDoc}
+                    onNavigateToJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onNavigateToDoc={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType })}
+                />;
+            case 'inventory':
+                return <InventoryView
+                    onBack={navigateToDashboard}
+                    inventory={inventory}
+                    history={inventoryHistory}
+                    jobs={jobs}
+                    onAddItem={handleAddInventoryItem}
+                    onUpdateItem={handleUpdateInventoryItem}
+                    onDeleteItem={handleDeleteInventoryItem}
+                    onAllocate={handleAllocateInventory}
+                />;
+            case 'pricebook':
+                return <PriceBookView
+                    onBack={navigateToDashboard}
+                    savedItems={savedItems}
+                    onAddItem={handleAddSavedItem}
+                    onUpdateItem={handleUpdateSavedItem}
+                    onDeleteItem={handleDeleteSavedItem}
+                    onUploadImage={(file) => uploadFile('price-book-images', file, session!.user.id, true)}
+                    isPremium={profile?.subscriptionTier === 'Premium'}
+                />;
+            case 'profitCalculator':
+                return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
+            case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
+            case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
+            case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} />;
+            case 'forum':
+                return (
+                    <ForumView
+                        onBack={navigateToDashboard}
+                        supabase={supabase}
+                        session={session}
+                        onUploadImage={handleUploadForumImage}
+                        initialPostId={view.postId}
+                        onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
+                        onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
+                    />
+                );
+            case 'privacy': return <PrivacyPolicy onBack={() => setView({ screen: 'dashboard' })} />;
+            case 'terms': return <TermsOfService onBack={() => setView({ screen: 'dashboard' })} />;
+            case 'security': return <Security onBack={() => setView({ screen: 'dashboard' })} />;
+            default: return renderDashboard();
+        }
+    };
+
+    return (
+        <main className="w-full min-h-screen bg-background">
+            {renderContent()}
+            {session && !loading && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
+                <Dock items={getDockItems()} />
+            )}
+            <UpgradeModal
+                isOpen={showGlobalUpgrade}
+                onClose={() => setShowGlobalUpgrade(false)}
+                featureName={upgradeFeature}
+                onUpgrade={handleUpgradeSuccess}
+                userId={session?.user?.id}
+            />
+
+            <ConfirmationModal
+                isOpen={showDeleteJobModal}
+                onClose={() => setShowDeleteJobModal(false)}
+                onConfirm={handleDeleteJob}
+                title="Delete Job"
+                message="Are you sure you want to delete this job? All associated documents (Invoices, Estimates, etc.) will be permanently deleted. This action cannot be undone."
+                confirmLabel="Delete"
+                isDestructive={true}
+            />
+
+            <ConfirmationModal
+                isOpen={showDeleteDocModal}
+                onClose={() => setShowDeleteDocModal(false)}
+                onConfirm={handleDeleteDoc}
+                title="Delete Document"
+                message="Are you sure you want to permanently delete this document? This action cannot be undone."
+                confirmLabel="Delete"
+                isDestructive={true}
+            />
+        </main>
+    );
 };
 
 export default App;
