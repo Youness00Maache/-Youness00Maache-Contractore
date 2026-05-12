@@ -16,7 +16,7 @@ export const sendGmail = async (
   to: string,
   subject: string,
   body: string,
-  attachment: { name: string; data: string; type: string } | undefined,
+  attachments: { name: string; data: string; type: string }[] | undefined,
   accessToken?: string,
   htmlBody?: string // NEW: Optional HTML body
 ) => {
@@ -27,7 +27,7 @@ export const sendGmail = async (
     throw new Error("No provider token found. Please sign in with Google again.");
   }
 
-  const mimeMessage = createMimeMessage(to, subject, body, attachment, htmlBody);
+  const mimeMessage = createMimeMessage(to, subject, body, attachments, htmlBody);
   // Encode to Base64URL with Unicode support
   const base64EncodedEmail = btoa(unescape(encodeURIComponent(mimeMessage))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -61,7 +61,7 @@ export const sendGmail = async (
   return response.json();
 };
 
-const createMimeMessage = (to: string, subject: string, body: string, attachment?: { name: string; data: string; type: string }, htmlBody?: string) => {
+const createMimeMessage = (to: string, subject: string, body: string, attachments?: { name: string; data: string; type: string }[], htmlBody?: string) => {
   const boundary = "foo_bar_baz";
   const nl = "\r\n";
 
@@ -98,20 +98,22 @@ const createMimeMessage = (to: string, subject: string, body: string, attachment
     message += `${body}${nl}${nl}`;
   }
 
-  // Attachment
-  if (attachment) {
-    // Remove data:application/pdf;base64, prefix if present to get raw base64
-    const base64Data = attachment.data.split(',')[1] || attachment.data;
+  // Attachments
+  if (attachments && attachments.length > 0) {
+    for (const attachment of attachments) {
+      // Remove data:application/pdf;base64, prefix if present to get raw base64
+      const base64Data = attachment.data.split(',')[1] || attachment.data;
 
-    // Split into 76-char lines
-    const chunkedData = chunkSubstr(base64Data, 76).join(nl);
+      // Split into 76-char lines
+      const chunkedData = chunkSubstr(base64Data, 76).join(nl);
 
-    message += `--${boundary}${nl}`;
-    message += `Content-Type: ${attachment.type}; name="${attachment.name}"${nl}`;
-    message += `Content-Description: ${attachment.name}${nl}`;
-    message += `Content-Disposition: attachment; filename="${attachment.name}"${nl}`;
-    message += `Content-Transfer-Encoding: base64${nl}${nl}`;
-    message += `${chunkedData}${nl}`;
+      message += `--${boundary}${nl}`;
+      message += `Content-Type: ${attachment.type}; name="${attachment.name}"${nl}`;
+      message += `Content-Description: ${attachment.name}${nl}`;
+      message += `Content-Disposition: attachment; filename="${attachment.name}"${nl}`;
+      message += `Content-Transfer-Encoding: base64${nl}${nl}`;
+      message += `${chunkedData}${nl}`;
+    }
   }
 
   message += `--${boundary}--`;

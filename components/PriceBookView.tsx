@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, PlusIcon, TrashIcon, SearchIcon, TagIcon, FolderIcon, MoreVerticalIcon, CheckIcon } from './Icons.tsx';
+import { BackArrowIcon, PlusIcon, TrashIcon, SearchIcon, TagIcon, FolderIcon, MoreVerticalIcon, CheckIcon, BoxIcon, CopyIcon } from './Icons.tsx';
 import { SavedItem } from '../types.ts';
+import { DropdownMenu, DropdownItem } from './ui/DropdownMenu.tsx';
 import PriceBookItemDetails from './PriceBookItemDetails.tsx';
 
 interface PriceBookViewProps {
@@ -11,12 +12,13 @@ interface PriceBookViewProps {
     savedItems: SavedItem[];
     onUpdateItem: (item: SavedItem) => Promise<void>;
     onAddItem: (item: Omit<SavedItem, 'id' | 'user_id' | 'created_at'>) => Promise<void>;
+    onDuplicateItem: (item: SavedItem) => Promise<void>;
     onDeleteItem: (id: string) => Promise<void>;
     onUploadImage: (file: File) => Promise<string>;
     isPremium: boolean;
 }
 
-const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpdateItem, onAddItem, onDeleteItem, onUploadImage, isPremium }) => {
+const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpdateItem, onAddItem, onDuplicateItem, onDeleteItem, onUploadImage, isPremium }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('All Items');
     const [showItemDetails, setShowItemDetails] = useState(false);
@@ -49,13 +51,13 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
         setShowItemDetails(true);
     };
 
-    const handleAddNewClick = () => {
-        setEditingItem(null);
+    const handleAddNewClick = (isAssembly = false) => {
+        setEditingItem({ is_assembly: isAssembly } as any);
         setShowItemDetails(true);
     };
 
     const handleSaveItem = async (itemData: any) => {
-        if (editingItem) {
+        if (editingItem && editingItem.id) {
             await onUpdateItem({ ...editingItem, ...itemData });
         } else {
             await onAddItem(itemData);
@@ -109,9 +111,22 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                 </div>
 
                 <div className="p-4 border-t border-border/50 bg-gradient-to-b from-transparent to-muted/30">
-                    <Button onClick={handleAddNewClick} className="w-full bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:scale-[1.02] transition-all duration-200">
-                        <PlusIcon className="w-4 h-4 mr-2" /> Add Item
-                    </Button>
+                    <DropdownMenu
+                        side="top"
+                        align="left"
+                        trigger={
+                            <Button className="w-full bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:scale-[1.02] transition-all duration-200">
+                                <PlusIcon className="w-4 h-4 mr-2" /> Add Item
+                            </Button>
+                        }
+                    >
+                        <DropdownItem onClick={() => handleAddNewClick(false)}>
+                            <PlusIcon className="w-4 h-4 mr-2" /> Add Standard Item
+                        </DropdownItem>
+                        <DropdownItem onClick={() => handleAddNewClick(true)}>
+                            <BoxIcon className="w-4 h-4 mr-2" /> Create Assembly/Kit
+                        </DropdownItem>
+                    </DropdownMenu>
                 </div>
             </div>
 
@@ -123,9 +138,20 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                         <BackArrowIcon className="w-5 h-5" />
                     </Button>
                     <h1 className="font-bold text-lg">Price Book</h1>
-                    <Button size="sm" onClick={handleAddNewClick} className="rounded-full w-8 h-8 p-0">
-                        <PlusIcon className="w-5 h-5" />
-                    </Button>
+                    <DropdownMenu
+                        trigger={
+                            <Button size="sm" className="rounded-full w-8 h-8 p-0">
+                                <PlusIcon className="w-5 h-5" />
+                            </Button>
+                        }
+                    >
+                        <DropdownItem onClick={() => handleAddNewClick(false)}>
+                            <PlusIcon className="w-4 h-4 mr-2" /> Add Standard Item
+                        </DropdownItem>
+                        <DropdownItem onClick={() => handleAddNewClick(true)}>
+                            <BoxIcon className="w-4 h-4 mr-2" /> Create Assembly/Kit
+                        </DropdownItem>
+                    </DropdownMenu>
                 </div>
 
                 {/* Filter Bar */}
@@ -173,9 +199,10 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                             <p className="text-muted-foreground max-w-sm mt-2">
                                 Try adjusting your search query or select a different category.
                             </p>
-                            <Button variant="outline" className="mt-6" onClick={handleAddNewClick}>
-                                Create New Item
-                            </Button>
+                            <DropdownMenu trigger={<Button variant="outline" className="mt-6">Create New Item</Button>}>
+                                <DropdownItem onClick={() => handleAddNewClick(false)}>Add Standard Item</DropdownItem>
+                                <DropdownItem onClick={() => handleAddNewClick(true)}>Create Assembly/Kit</DropdownItem>
+                            </DropdownMenu>
                         </div>
                     ) : (
                         viewMode === 'grid' ? (
@@ -201,6 +228,26 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                                         <div className="p-4">
                                             <div className="flex justify-between items-start mb-1">
                                                 <h3 className="font-bold text-base line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
+                                                <div onClick={e => e.stopPropagation()}>
+                                                    <DropdownMenu trigger={
+                                                        <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground rounded-full transition-colors bg-white/50 dark:bg-zinc-800/50 shadow-sm border border-border/50">
+                                                            <MoreVerticalIcon className="w-5 h-5" />
+                                                        </Button>
+                                                    }>
+                                                        <DropdownItem onClick={() => onDuplicateItem(item)}>
+                                                            <div className="flex items-center gap-2">
+                                                                <CopyIcon className="w-4 h-4" />
+                                                                <span>Duplicate</span>
+                                                            </div>
+                                                        </DropdownItem>
+                                                        <DropdownItem onClick={() => onDeleteItem(item.id)} destructive>
+                                                            <div className="flex items-center gap-2">
+                                                                <TrashIcon className="w-4 h-4" />
+                                                                <span>Delete</span>
+                                                            </div>
+                                                        </DropdownItem>
+                                                    </DropdownMenu>
+                                                </div>
                                             </div>
                                             <div className="text-xs text-muted-foreground mb-3 flex items-center gap-2">
                                                 {item.sku && <span className="font-mono bg-muted px-1 rounded">{item.sku}</span>}
@@ -262,9 +309,24 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                                                     {item.unit_cost ? `$${item.unit_cost.toFixed(2)}` : '-'}
                                                 </td>
                                                 <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
-                                                    <Button variant="ghost" size="sm" onClick={() => onDeleteItem(item.id)} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive">
-                                                        <TrashIcon className="w-4 h-4" />
-                                                    </Button>
+                                                    <DropdownMenu trigger={
+                                                        <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground rounded-full transition-colors">
+                                                            <MoreVerticalIcon className="w-5 h-5" />
+                                                        </Button>
+                                                    }>
+                                                        <DropdownItem onClick={() => onDuplicateItem(item)}>
+                                                            <div className="flex items-center gap-2">
+                                                                <CopyIcon className="w-4 h-4" />
+                                                                <span>Duplicate</span>
+                                                            </div>
+                                                        </DropdownItem>
+                                                        <DropdownItem onClick={() => onDeleteItem(item.id)} destructive>
+                                                            <div className="flex items-center gap-2">
+                                                                <TrashIcon className="w-4 h-4" />
+                                                                <span>Delete</span>
+                                                            </div>
+                                                        </DropdownItem>
+                                                    </DropdownMenu>
                                                 </td>
                                             </tr>
                                         ))}

@@ -120,7 +120,14 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
                                     <div className="flex flex-col space-y-1.5"><Label htmlFor="email">Company Email</Label><Input id="email" type="email" name="email" value={profile.email || ''} onChange={handleChange} /></div>
                                     <div className="flex flex-col space-y-1.5"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" name="phone" value={profile.phone || ''} onChange={handleChange} /></div>
                                     <div className="flex flex-col space-y-1.5"><Label htmlFor="website">Website</Label><Input id="website" name="website" value={profile.website || ''} onChange={handleChange} /></div>
-                                    <div className="md:col-span-2 flex flex-col space-y-1.5"><Label htmlFor="address">Address</Label><Input id="address" name="address" value={profile.address || ''} onChange={handleChange} /></div>
+                                    <div className="flex flex-col space-y-1.5"><Label htmlFor="address">Address</Label><Input id="address" name="address" value={profile.address || ''} onChange={handleChange} /></div>
+                                    <div className="flex flex-col space-y-1.5">
+                                        <Label htmlFor="defaultLaborRate">Default Labor Cost ($/hr)</Label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+                                            <Input id="defaultLaborRate" type="number" name="defaultLaborRate" value={profile.defaultLaborRate || ''} onChange={handleChange} className="pl-7" placeholder="e.g. 45" />
+                                        </div>
+                                    </div>
 
                                     {/* Company Logo Upload */}
                                     <div className="md:col-span-2 flex flex-col space-y-1.5">

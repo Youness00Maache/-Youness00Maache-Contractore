@@ -39,13 +39,14 @@ import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import TermsOfService from './components/TermsOfService.tsx';
 import Security from './components/Security.tsx';
 
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon, AlertTriangleIcon, StarIcon, CopyIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
 import { Input } from './components/ui/Input.tsx';
 import { JobCard } from './components/JobCard.tsx';
 import { DocumentCard } from './components/DocumentCard.tsx';
+import { DuplicateJobModal } from './components/DuplicateJobModal.tsx';
 import { translations } from './utils/translations.ts';
 import { dbApi } from './utils/db.ts';
 import { compressImage } from './utils/imageCompression.ts';
@@ -358,6 +359,261 @@ ALTER TABLE public.inventory_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can manage their own inventory history" ON public.inventory_history;
 CREATE POLICY "Users can manage their own inventory history" ON public.inventory_history FOR ALL USING (auth.uid() = user_id);
 
+-- 11B. RPC: Adjust inventory atomically (used by Invoices)
+DROP FUNCTION IF EXISTS public.adjust_inventory(uuid, integer, uuid, text);
+CREATE OR REPLACE FUNCTION public.adjust_inventory(
+  p_item_id uuid,
+  p_delta integer,
+  p_job_id uuid DEFAULT NULL,
+  p_context text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_prev_qty integer;
+  v_next_qty integer;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT quantity
+  INTO v_prev_qty
+  FROM public.inventory
+  WHERE id = p_item_id
+    AND user_id = v_user_id
+  FOR UPDATE;
+
+  IF v_prev_qty IS NULL THEN
+    RAISE EXCEPTION 'Inventory item not found';
+  END IF;
+
+  v_next_qty := v_prev_qty + COALESCE(p_delta, 0);
+  IF v_next_qty < 0 THEN
+    RAISE EXCEPTION 'Insufficient stock';
+  END IF;
+
+  UPDATE public.inventory
+  SET quantity = v_next_qty
+  WHERE id = p_item_id
+    AND user_id = v_user_id;
+
+  INSERT INTO public.inventory_history (
+    user_id,
+    item_id,
+    action,
+    quantity_change,
+    notes,
+    job_id
+  ) VALUES (
+    v_user_id,
+    p_item_id,
+    CASE WHEN p_delta < 0 THEN 'deduct' ELSE 'restock' END,
+    p_delta,
+    p_context,
+    p_job_id
+  );
+END;
+$$;
+
+-- 11C. Document-linked inventory automation (legacy JSON documents)
+DROP FUNCTION IF EXISTS public.apply_document_inventory_delta(uuid, uuid, jsonb, integer, uuid, text);
+CREATE OR REPLACE FUNCTION public.apply_document_inventory_delta(
+  p_user_id uuid,
+  p_doc_id uuid,
+  p_line_items jsonb,
+  p_direction integer,
+  p_job_id uuid DEFAULT NULL,
+  p_context text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  li jsonb;
+  v_item_id uuid;
+  v_qty integer;
+  v_prev integer;
+  v_next integer;
+BEGIN
+  IF p_line_items IS NULL OR jsonb_typeof(p_line_items) <> 'array' THEN
+    RETURN;
+  END IF;
+
+  FOR li IN SELECT * FROM jsonb_array_elements(p_line_items)
+  LOOP
+    IF li ? 'track_inventory' AND lower(COALESCE(li->>'track_inventory', 'true')) = 'false' THEN
+      CONTINUE;
+    END IF;
+
+    BEGIN
+      v_item_id := COALESCE(NULLIF(li->>'inventoryItemId', ''), NULLIF(li->>'item_id', ''))::uuid;
+    EXCEPTION WHEN others THEN
+      v_item_id := NULL;
+    END;
+
+    IF v_item_id IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    BEGIN
+      v_qty := CEIL(COALESCE(NULLIF(li->>'quantity','')::numeric, 0))::integer;
+    EXCEPTION WHEN others THEN
+      v_qty := 0;
+    END;
+    IF v_qty <= 0 THEN
+      CONTINUE;
+    END IF;
+
+    SELECT quantity
+    INTO v_prev
+    FROM public.inventory
+    WHERE id = v_item_id
+      AND user_id = p_user_id
+    FOR UPDATE;
+
+    IF v_prev IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    v_next := v_prev + (p_direction * v_qty);
+    IF v_next < 0 THEN
+      RAISE EXCEPTION 'Insufficient stock for item %', v_item_id;
+    END IF;
+
+    UPDATE public.inventory
+    SET quantity = v_next
+    WHERE id = v_item_id
+      AND user_id = p_user_id;
+
+    INSERT INTO public.inventory_history (
+      user_id,
+      item_id,
+      action,
+      quantity_change,
+      notes,
+      job_id
+    ) VALUES (
+      p_user_id,
+      v_item_id,
+      CASE WHEN (p_direction * v_qty) < 0 THEN 'deduct' ELSE 'restock' END,
+      (p_direction * v_qty),
+      COALESCE(p_context, '') || ' doc:' || p_doc_id::text,
+      p_job_id
+    );
+  END LOOP;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.trg_documents_invoice_inventory();
+CREATE OR REPLACE FUNCTION public.trg_documents_invoice_inventory()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  old_status text;
+  new_status text;
+  is_old_committed boolean;
+  is_new_committed boolean;
+  v_job_id uuid;
+  v_context text;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.type NOT IN ('Invoice', 'Estimate', 'Change Order') THEN
+      RETURN NEW;
+    END IF;
+
+    new_status := COALESCE(NEW.data->>'status', 'Draft');
+    is_new_committed := lower(new_status) IN ('approved','accepted','paid');
+    v_context := lower(NEW.type) || ':' || COALESCE(NEW.data->>'invoiceNumber', NEW.data->>'estimateNumber', NEW.data->>'changeOrderNumber', NEW.id::text);
+
+    IF is_new_committed THEN
+      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, NEW.data->'lineItems', -1, NEW.job_id, v_context);
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.type NOT IN ('Invoice', 'Estimate', 'Change Order') THEN
+      RETURN NEW;
+    END IF;
+
+    old_status := COALESCE(OLD.data->>'status', 'Draft');
+    new_status := COALESCE(NEW.data->>'status', 'Draft');
+
+    -- Define when inventory should be committed
+    is_old_committed := lower(old_status) IN ('approved','accepted','paid');
+    is_new_committed := lower(new_status) IN ('approved','accepted','paid');
+
+    v_job_id := NULL;
+    BEGIN
+      v_job_id := NEW.job_id;
+    EXCEPTION WHEN others THEN
+      v_job_id := NULL;
+    END;
+
+    v_context := lower(NEW.type) || ':' || COALESCE(NEW.data->>'invoiceNumber', NEW.data->>'estimateNumber', NEW.data->>'changeOrderNumber', NEW.id::text);
+
+    IF (NOT is_old_committed) AND is_new_committed THEN
+      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, NEW.data->'lineItems', -1, v_job_id, v_context);
+    END IF;
+
+    IF is_old_committed AND (NOT is_new_committed) THEN
+      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, OLD.data->'lineItems', +1, v_job_id, v_context);
+    END IF;
+
+    IF is_old_committed AND is_new_committed AND OLD.data->'lineItems' IS DISTINCT FROM NEW.data->'lineItems' THEN
+      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, OLD.data->'lineItems', +1, v_job_id, v_context);
+      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, NEW.data->'lineItems', -1, v_job_id, v_context);
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.type NOT IN ('Invoice', 'Estimate', 'Change Order') THEN
+      RETURN OLD;
+    END IF;
+
+    old_status := COALESCE(OLD.data->>'status', 'Draft');
+    is_old_committed := lower(old_status) IN ('approved','accepted','paid');
+    v_context := lower(OLD.type) || ':' || COALESCE(OLD.data->>'invoiceNumber', OLD.data->>'estimateNumber', OLD.data->>'changeOrderNumber', OLD.id::text);
+
+    IF is_old_committed THEN
+      PERFORM public.apply_document_inventory_delta(OLD.user_id, OLD.id, OLD.data->'lineItems', +1, OLD.job_id, v_context);
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_documents_invoice_inventory_update ON public.documents;
+CREATE TRIGGER trg_documents_invoice_inventory_update
+AFTER UPDATE OF data ON public.documents
+FOR EACH ROW
+EXECUTE FUNCTION public.trg_documents_invoice_inventory();
+
+DROP TRIGGER IF EXISTS trg_documents_invoice_inventory_insert ON public.documents;
+CREATE TRIGGER trg_documents_invoice_inventory_insert
+AFTER INSERT ON public.documents
+FOR EACH ROW
+EXECUTE FUNCTION public.trg_documents_invoice_inventory();
+
+DROP TRIGGER IF EXISTS trg_documents_invoice_inventory_delete ON public.documents;
+CREATE TRIGGER trg_documents_invoice_inventory_delete
+AFTER DELETE ON public.documents
+FOR EACH ROW
+EXECUTE FUNCTION public.trg_documents_invoice_inventory();
+
 NOTIFY pgrst, 'reload config';
 `;
 
@@ -478,12 +734,48 @@ const App: React.FC = () => {
     const [inventoryHistory, setInventoryHistory] = useState<InventoryHistoryItem[]>([]);
     const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
+    const [showJobFinancials, setShowJobFinancials] = useState<boolean>(false);
 
     // External Access State
     const [portalKey, setPortalKey] = useState<string | null>(null);
     const [approvalToken, setApprovalToken] = useState<string | null>(null);
 
     const [notificationCount, setNotificationCount] = useState(0);
+    const clientNotificationCount = React.useMemo(() => {
+        return forms.filter(f => {
+            const d = f.data as any;
+            return (d.status === 'Accepted' || d.clientSignatureUrl) && !d.viewedByProvider;
+        }).length;
+    }, [forms]);
+
+    const markDocumentsAsViewed = async (clientId: string) => {
+        const client = clients.find(c => c.id === clientId);
+        if (!client) return;
+
+        const docsToUpdate = forms.filter(f => {
+            const d = f.data as any;
+            return d.clientName === client.name && (d.status === 'Accepted' || d.clientSignatureUrl) && !d.viewedByProvider;
+        });
+
+        if (docsToUpdate.length === 0) return;
+
+        for (const doc of docsToUpdate) {
+            const updatedData = { ...doc.data, viewedByProvider: true };
+            await supabase
+                .from('documents')
+                .update({ data: updatedData })
+                .eq('id', doc.id);
+        }
+
+        // Update local state is faster than fetch
+        setForms(prev => prev.map(f => {
+            const d = f.data as any;
+            if (d.clientName === client.name && (d.status === 'Accepted' || d.clientSignatureUrl)) {
+                return { ...f, data: { ...d, viewedByProvider: true } };
+            }
+            return f;
+        }));
+    };
 
     const [dbSetupError, setDbSetupError] = useState<string | null>(null);
 
@@ -494,6 +786,9 @@ const App: React.FC = () => {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [docSearchQuery, setDocSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All');
+    const [clientFilter, setClientFilter] = useState('All');
+    const [docTypeFilter, setDocTypeFilter] = useState('All');
 
     const [showToolsMenu, setShowToolsMenu] = useState(false);
 
@@ -507,7 +802,11 @@ const App: React.FC = () => {
     const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
     const [docToDelete, setDocToDelete] = useState<string | null>(null);
 
-    const FREE_LIMITS = { jobs: 6, clients: 3, docs: 12 };
+    // Duplicate Job State
+    const [showDuplicateJobModal, setShowDuplicateJobModal] = useState(false);
+    const [jobToDuplicate, setJobToDuplicate] = useState<Job | null>(null);
+
+    const FREE_LIMITS = { jobs: 6, clients: 15, docs: 12 };
 
     const handleUpgradeSuccess = async () => {
         if (!session) return;
@@ -726,7 +1025,7 @@ const App: React.FC = () => {
         if (navigator.onLine) {
             const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
             if (jobsData) {
-                const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id }));
+                const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id, workerName: j.worker_name }));
                 setJobs(mappedJobs);
                 await dbApi.clear('jobs');
                 for (const j of mappedJobs) await dbApi.put('jobs', j);
@@ -915,15 +1214,51 @@ const App: React.FC = () => {
     };
 
     const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
-    const handleSaveJob = async (jobData: any): Promise<string> => {
+    const handleSaveJob = async (jobData: any, skipNavigation: boolean = false): Promise<string> => {
         if (!session) return '';
-        const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active' };
-        await supabase.from('jobs').insert(newJob);
+
+        // Conflict Detection
+        if (jobData.workerName && jobData.workerName.trim() !== '') {
+            const startDate = new Date(jobData.startDate);
+            const endDate = jobData.endDate ? new Date(jobData.endDate) : startDate;
+
+            const conflict = jobs.find(j => {
+                if (!j.workerName || j.workerName.toLowerCase() !== jobData.workerName.toLowerCase()) return false;
+                if (j.status !== 'active') return false;
+                const jStart = new Date(j.startDate);
+                const jEnd = j.endDate ? new Date(j.endDate) : jStart;
+
+                // Check for date overlap (inclusive)
+                return (jStart <= endDate && jEnd >= startDate);
+            });
+
+            if (conflict) {
+                alert(`Conflict Detected!\nWorker "${jobData.workerName}" is already scheduled for job "${conflict.name}" during these dates.`);
+                return ''; // Prevent saving
+            }
+        }
+
+        const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active', worker_name: jobData.workerName };
+        const { error } = await supabase.from('jobs').insert(newJob);
+
+        if (error) {
+            console.error('Failed to create job', error);
+            if (error.code === '42703' || error.message?.includes('worker_name')) {
+                // Fallback if missing column in schema
+                const fallbackJob = { ...newJob };
+                delete (fallbackJob as any).worker_name;
+                delete (fallbackJob as any).workerName;
+                await supabase.from('jobs').insert(fallbackJob);
+            }
+        }
+
         fetchData(); // Refresh
-        if (view.screen === 'createJob' && view.returnTo === 'calendar') {
-            setView({ screen: 'calendar' });
-        } else {
-            setView({ screen: 'dashboard' });
+        if (!skipNavigation) {
+            if (view.screen === 'createJob' && view.returnTo === 'calendar') {
+                setView({ screen: 'calendar' });
+            } else {
+                setView({ screen: 'dashboard' });
+            }
         }
         return newJob.id;
     };
@@ -959,13 +1294,27 @@ const App: React.FC = () => {
             formData.deductInventory = false;
         }
 
-        await supabase.from('documents').upsert(formRecord);
+        const { error: saveError } = await supabase.from('documents').upsert(formRecord);
+        if (saveError) {
+            const message = saveError.message || 'Document could not be saved.';
+            alert(message.includes('Insufficient stock')
+                ? 'Insufficient stock for one or more inventory-linked items. Please reduce the quantity and try again.'
+                : `Save failed: ${message}`);
+            return;
+        }
         await fetchData();
         setView({ screen: 'jobDetails', jobId: view.jobId });
     };
     const handleAddClient = async (clientData: any) => {
+        if (!session) return null;
+        const newClient = { id: crypto.randomUUID(), user_id: session.user.id, ...clientData };
+        await supabase.from('clients').insert(newClient);
+        fetchData();
+        return newClient;
+    };
+    const handleUpdateClient = async (updatedClient: any) => {
         if (!session) return;
-        await supabase.from('clients').insert({ id: crypto.randomUUID(), user_id: session.user.id, ...clientData });
+        await supabase.from('clients').update(updatedClient).eq('id', updatedClient.id);
         fetchData();
     };
     const handleDeleteClient = async (id: string) => {
@@ -980,6 +1329,102 @@ const App: React.FC = () => {
         fetchData();
         setJobToDelete(null);
         setShowDeleteJobModal(false);
+    };
+
+    const handleDuplicateDoc = async (form: FormDataType) => {
+        if (!session) return;
+        if (!checkLimit('docs', form.jobId)) return;
+
+        const d = form.data as any;
+        const newDocData = {
+            ...d,
+            status: 'Draft',
+            clientSignatureUrl: null,
+            viewedByProvider: false,
+            title: d.title ? `${d.title} (Copy)` : undefined,
+            invoiceNumber: d.invoiceNumber ? `${d.invoiceNumber}-COPY` : undefined,
+            estimateNumber: d.estimateNumber ? `${d.estimateNumber}-COPY` : undefined,
+            reportNumber: d.reportNumber ? `${d.reportNumber}-COPY` : undefined,
+            workOrderNumber: d.workOrderNumber ? `${d.workOrderNumber}-COPY` : undefined,
+            warrantyNumber: d.warrantyNumber ? `${d.warrantyNumber}-COPY` : undefined,
+            changeOrderNumber: d.changeOrderNumber ? `${d.changeOrderNumber}-COPY` : undefined,
+            poNumber: d.poNumber ? `${d.poNumber}-COPY` : undefined,
+            receiptNumber: d.receiptNumber ? `${d.receiptNumber}-COPY` : undefined,
+        };
+
+        const formRecord = {
+            id: crypto.randomUUID(),
+            user_id: session.user.id,
+            job_id: form.jobId,
+            type: form.type,
+            data: newDocData,
+            created_at: new Date().toISOString()
+        };
+
+        const { error } = await supabase.from('documents').insert(formRecord);
+        if (error) {
+            alert("Duplicate Failed: " + error.message);
+        } else {
+            fetchData();
+        }
+    };
+
+    const handleDuplicateJob = async (jobName: string, clientId: string | null, clientName: string, selectedDocIds: string[]) => {
+        if (!session || !jobToDuplicate) return;
+
+        const newJobData = {
+            name: jobName,
+            clientName: clientName,
+            clientAddress: clientId ? clients.find(c => c.id === clientId)?.address || '' : jobToDuplicate.clientAddress,
+            startDate: new Date().toISOString().split('T')[0],
+        };
+        const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
+
+        await supabase.from('jobs').insert({
+            id: newJob.id,
+            user_id: session.user.id,
+            name: newJob.name,
+            client_name: newJob.clientName,
+            client_address: newJob.clientAddress,
+            start_date: newJob.startDate
+        });
+
+        // Duplicate selected docs
+        const docsToDuplicate = forms.filter(f => selectedDocIds.includes(f.id));
+        for (const doc of docsToDuplicate) {
+            const newDocId = crypto.randomUUID();
+            const newDocData = { ...doc.data };
+
+            // Append (Copy) to title or reference numbers if applicable
+            if ((newDocData as any).title) (newDocData as any).title = `${(newDocData as any).title} (Copy)`;
+            if ((newDocData as any).invoiceNumber) (newDocData as any).invoiceNumber = `${(newDocData as any).invoiceNumber}-COPY`;
+            if ((newDocData as any).estimateNumber) (newDocData as any).estimateNumber = `${(newDocData as any).estimateNumber}-COPY`;
+
+            // Default status back to Draft so we don't accidentally double-commit inventory or financials
+            if ((newDocData as any).status) {
+                if (['sent', 'paid', 'approved', 'accepted'].includes((newDocData as any).status.toLowerCase())) {
+                    (newDocData as any).status = 'Draft';
+                }
+            }
+
+            // Override client and project details to match the new assignment
+            if ('clientName' in newDocData) (newDocData as any).clientName = newJobData.clientName;
+            if ('clientAddress' in newDocData) (newDocData as any).clientAddress = newJobData.clientAddress;
+            if ('projectName' in newDocData) (newDocData as any).projectName = newJobData.name;
+
+            const formRecord: any = {
+                id: newDocId,
+                user_id: session.user.id,
+                job_id: newJob.id,
+                type: doc.type,
+                data: newDocData
+            };
+            await supabase.from('documents').insert(formRecord);
+        }
+
+        fetchData();
+        setShowDuplicateJobModal(false);
+        setJobToDuplicate(null);
     };
 
     const handleDeleteDoc = async () => {
@@ -1111,6 +1556,25 @@ const App: React.FC = () => {
         setSavedItems(prev => prev.filter(i => i.id !== id));
     };
 
+    const handleDuplicateSavedItem = async (item: SavedItem) => {
+        if (!session) return;
+        const { id, created_at, user_id, ...rest } = item;
+        const { error } = await supabase.from('saved_items').insert({
+            ...rest,
+            name: `${item.name} (Copy)`,
+            user_id: session.user.id,
+            id: crypto.randomUUID(),
+        });
+
+        if (error) {
+            alert("Duplicate Failed: " + error.message);
+        } else {
+            // Refresh
+            const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
+            if (data) setSavedItems(data);
+        }
+    };
+
     // Inventory Handlers
     const handleLogInventoryAction = async (itemId: string, action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation', quantityChange: number, notes?: string, jobId?: string) => {
         if (!session) return;
@@ -1154,14 +1618,30 @@ const App: React.FC = () => {
         fetchData();
     };
 
-    const handleAllocateInventory = async (itemId: string, jobId: string, quantity: number) => {
+    const handleDuplicateInventoryItem = async (item: InventoryItem) => {
+        if (!session) return;
+        const { id, created_at, user_id, ...rest } = item;
+        const { error } = await supabase.from('inventory').insert({
+            ...rest,
+            name: `${item.name} (Copy)`,
+            user_id: session.user.id,
+            id: crypto.randomUUID(),
+        });
+        if (error) {
+            alert("Duplicate Failed: " + error.message);
+        } else {
+            fetchData();
+        }
+    };
+
+    const handleAllocateInventory = async (itemId: string, jobId: string | null, quantity: number, notes?: string) => {
         if (!session) return;
         const item = inventory.find(i => i.id === itemId);
         if (!item) return;
 
         const newQty = Math.max(0, item.quantity - quantity);
         await supabase.from('inventory').update({ quantity: newQty }).eq('id', itemId);
-        await handleLogInventoryAction(itemId, 'job_allocation', -quantity, 'Allocated to job', jobId);
+        await handleLogInventoryAction(itemId, 'job_allocation', -quantity, notes || 'Allocated', jobId || undefined);
         fetchData();
     };
 
@@ -1180,10 +1660,21 @@ const App: React.FC = () => {
     const renderDashboard = () => {
         if (!profile) return null;
         const t = getTranslation();
-        const filteredJobs = jobs.filter(j => j.name.toLowerCase().includes(searchQuery.toLowerCase()) || j.clientName.toLowerCase().includes(searchQuery.toLowerCase()));
+        const sq = searchQuery.toLowerCase();
+        const filteredJobs = jobs.filter(j => {
+            const matchesSearch = (j.name || '').toLowerCase().includes(sq) ||
+                (j.clientName || '').toLowerCase().includes(sq) ||
+                (j.clientAddress || '').toLowerCase().includes(sq) ||
+                (j.status || '').toLowerCase().includes(sq);
+            const matchesStatus = statusFilter === 'All' || j.status === statusFilter;
+            const matchesClient = clientFilter === 'All' || j.clientName === clientFilter;
+            return matchesSearch && matchesStatus && matchesClient;
+        });
+        const uniqueClients = Array.from(new Set(jobs.map(j => j.clientName))).filter(Boolean);
         const getStatusColor = (status: string) => {
             switch (status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
         }
+        const lowStockItems = inventory.filter(item => Number(item.quantity || 0) <= Number(item.low_stock_threshold ?? 5));
         return (
             <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
                 <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
@@ -1192,30 +1683,29 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-3 flex-wrap md:flex-nowrap justify-end">
 
                         {profile.subscriptionTier !== 'Premium' && (
-                            <div className="flex items-center gap-2 mr-2">
-                                <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
-                                    Jobs: {jobs.length}/{FREE_LIMITS.jobs}
-                                </span>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
-                                    onClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
-                                >
-                                    Upgrade
-                                </Button>
-                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs font-bold h-auto py-1.5 px-4 mr-2 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
+                                onClick={() => { setUpgradeFeature('Upgrade to Premium Plan'); setShowGlobalUpgrade(true); }}
+                            >
+                                <StarIcon className="w-3 h-3 mr-1.5 fill-current" /> Upgrade
+                            </Button>
                         )}
                         <div className="relative">
-                            <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border">
+                            <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border relative">
                                 Tools <ChevronDownIcon className="w-4 h-4 opacity-50" />
+                                {lowStockItems.length > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
                             </Button>
                             {showToolsMenu && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
-                                        <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                            <BoxIcon className="w-4 h-4 text-primary" /> Inventory
+                                        <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center justify-between w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                            <div className="flex items-center gap-3">
+                                                <BoxIcon className="w-4 h-4 text-primary" /> Inventory
+                                            </div>
+                                            {lowStockItems.length > 0 && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
                                         </button>
                                         <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
                                             <TagIcon className="w-4 h-4 text-primary" /> Price Book
@@ -1247,20 +1737,48 @@ const App: React.FC = () => {
                         <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border ml-1 shrink-0">
                             {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}
                         </Button>
+                    </div >
+                </header >
+
+                <div className="flex flex-col md:flex-row gap-4 mb-6">
+                    <div className="relative flex-1">
+                        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                        <Input placeholder="Search jobs..." className="pl-10 h-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                     </div>
-                </header>
-                <div className="relative mb-6"><SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" /><Input placeholder="Search jobs..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></div>
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer text-foreground"
+                    >
+                        <option value="All">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="paused">Paused</option>
+                        <option value="completed">Completed</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                    <select
+                        value={clientFilter}
+                        onChange={(e) => setClientFilter(e.target.value)}
+                        className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer max-w-[200px] truncate text-foreground"
+                    >
+                        <option value="All">All Clients</option>
+                        {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                </div>
                 <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
-                {filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (
-                    <JobCard
-                        key={job.id}
-                        job={job}
-                        onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}
-                        onDelete={() => { setJobToDelete(job.id); setShowDeleteJobModal(true); }}
-                        t={t}
-                    />
-                ))}</div>}
-            </div>
+                {
+                    filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (
+                        <JobCard
+                            key={job.id}
+                            job={job}
+                            onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}
+                            onDelete={() => { setJobToDelete(job.id); setShowDeleteJobModal(true); }}
+                            onDuplicate={() => { setJobToDuplicate(job); setShowDuplicateJobModal(true); }}
+                            t={t}
+                        />
+                    ))}</div>
+                }
+            </div >
         );
     };
 
@@ -1270,7 +1788,9 @@ const App: React.FC = () => {
         if (!job) return <div>Job not found!</div>;
         const t = getTranslation();
         const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type; };
-        const jobForms = forms.filter(f => f.jobId === job.id).filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase()));
+        const baseForms = forms.filter(f => f.jobId === job.id);
+        const jobForms = baseForms.filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase())).filter(f => docTypeFilter === 'All' || f.type === docTypeFilter);
+        const uniqueDocTypes = Array.from(new Set(baseForms.map(f => f.type))).filter(Boolean);
         const getDocIcon = (type: FormType) => { switch (type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; } };
         const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground border border-border">{status}</span> : null; };
 
@@ -1302,48 +1822,136 @@ const App: React.FC = () => {
                             <option value="paused">Paused</option>
                             <option value="completed">Completed</option>
                         </select>
+                        {profile.subscriptionTier !== 'Premium' && (
+                            <div className="flex items-center gap-1.5 ml-1">
+                                <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full font-bold border border-indigo-100 flex items-center gap-1.5 shadow-sm">
+                                    <BriefcaseIcon className="w-3.5 h-3.5" /> Docs: {jobForms.length}/{FREE_LIMITS.docs}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs font-bold h-auto py-1.5 px-4 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
+                                    onClick={() => { setUpgradeFeature(`Upgrade to create more than ${FREE_LIMITS.docs} documents per project.`); setShowGlobalUpgrade(true); }}
+                                >
+                                    Upgrade
+                                </Button>
+                            </div>
+                        )}
                         <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
                             <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
+                        </Button>
+                        <Button variant="outline" className="rounded-full shadow-sm bg-purple-500/10 text-purple-600 border border-purple-500/20 hover:bg-purple-500/20 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-800" onClick={() => setShowJobFinancials(true)}>
+                            <CalculatorIcon className="w-4 h-4 mr-2" /> Financials
                         </Button>
                     </div>
                 </header>
 
                 {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold animate-pulse">You are OFFLINE. Documents created will sync later.</div>}
 
+                {/* Job Financials Modal */}
+                {showJobFinancials && (() => {
+                    const revenueDocs = jobForms.filter(f => f.type === FormType.Invoice && ['paid', 'approved', 'sent'].includes(((f.data as any).status || '').toLowerCase()));
+                    const totalRevenue = revenueDocs.reduce((acc, f) => acc + ((f.data as any).total || 0), 0);
+
+                    const materialDocs = jobForms.filter(f => f.type === FormType.MaterialLog);
+                    const materialCost = materialDocs.reduce((acc, f) => {
+                        return acc + (((f.data as any).materials || []) as any[]).reduce((sum, item) => sum + (item.quantity * (item.unitCost || 0)), 0);
+                    }, 0);
+
+                    const laborDocs = jobForms.filter(f => f.type === FormType.TimeSheet);
+                    const laborRate = profile.defaultLaborRate || 45; // Default fallback
+                    const laborCost = laborDocs.reduce((acc, f) => {
+                        const h = (f.data as any).hoursWorked || 0;
+                        const ot = (f.data as any).overtimeHours || 0;
+                        return acc + (h * laborRate) + (ot * laborRate * 1.5);
+                    }, 0);
+
+                    const totalCost = materialCost + laborCost;
+                    const profit = totalRevenue - totalCost;
+                    const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+
+                    const isProfitGood = profitMargin >= 30;
+                    const isProfitWarning = profitMargin > 0 && profitMargin < 15;
+                    const isLoss = profitMargin <= 0;
+
+                    return (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <Card className="w-full max-w-4xl shadow-2xl overflow-hidden rounded-2xl border-border/60">
+                                <CardHeader className="bg-muted/30 border-b flex flex-row items-center justify-between pb-4">
+                                    <CardTitle className="text-xl font-bold flex items-center gap-2">
+                                        <CalculatorIcon className="w-5 h-5 text-primary" />
+                                        Job Financials
+                                    </CardTitle>
+                                    <button onClick={() => setShowJobFinancials(false)} className="text-muted-foreground hover:text-foreground">
+                                        <XCircleIcon className="w-6 h-6" />
+                                    </button>
+                                </CardHeader>
+                                <CardContent className="p-6">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <Card className="bg-gradient-to-br from-card to-card border-border shadow-sm p-4 rounded-xl flex flex-col justify-center">
+                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><InvoiceIcon className="w-4 h-4" /> Billed Revenue</span>
+                                            <span className="text-2xl font-bold mt-1">${totalRevenue.toFixed(2)}</span>
+                                        </Card>
+                                        <Card className="bg-gradient-to-br from-card to-card border-border shadow-sm p-4 rounded-xl flex flex-col justify-center">
+                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><BoxIcon className="w-4 h-4" /> Material Cost</span>
+                                            <span className="text-2xl font-bold mt-1">${materialCost.toFixed(2)}</span>
+                                        </Card>
+                                        <Card className="bg-gradient-to-br from-card to-card border-border shadow-sm p-4 rounded-xl flex flex-col justify-center">
+                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><ClockIcon className="w-4 h-4" /> Labor Cost</span>
+                                            <span className="text-xl font-bold mt-1">${laborCost.toFixed(2)}</span>
+                                            <span className="text-xs text-muted-foreground mt-0.5">Est. @ ${laborRate}/hr</span>
+                                        </Card>
+                                        <Card className={`shadow-sm p-4 rounded-xl flex flex-col justify-center border-2 ${isProfitGood ? 'border-green-500 bg-green-50/50 dark:bg-green-950/20' : (isLoss && totalRevenue > 0) ? 'border-red-500 bg-red-50/50 dark:bg-red-950/20' : isProfitWarning ? 'border-orange-500 bg-orange-50/50 dark:bg-orange-950/20' : 'border-border bg-card'}`}>
+                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><BarChartIcon className="w-4 h-4" /> Profit Margin</span>
+                                            <div className="flex items-baseline gap-2 mt-1">
+                                                <span className={`text-2xl font-bold ${isProfitGood ? 'text-green-600 dark:text-green-400' : (isLoss && totalRevenue > 0) ? 'text-red-600 dark:text-red-400' : isProfitWarning ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
+                                                    ${profit.toFixed(2)}
+                                                </span>
+                                                {totalRevenue > 0 && (
+                                                    <span className={`text-sm font-bold ${isProfitGood ? 'text-green-600 dark:text-green-400' : (isLoss && totalRevenue > 0) ? 'text-red-600 dark:text-red-400' : isProfitWarning ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
+                                                        ({profitMargin.toFixed(1)}%)
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </Card>
+                                    </div>
+                                    <div className="mt-6 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg flex items-start gap-2">
+                                        <CalculatorIcon className="w-4 h-4 text-blue-600 mt-0.5" />
+                                        <p>Profit relies on approved/paid Invoices, Time Sheets, and Material Logs logged to this project.</p>
+                                    </div>
+                                </CardContent>
+                                <CardFooter className="bg-muted/10 border-t p-4 flex justify-end">
+                                    <Button onClick={() => setShowJobFinancials(false)}>Close Summary</Button>
+                                </CardFooter>
+                            </Card>
+                        </div>
+                    );
+                })()}
+
                 <div className="space-y-6">
 
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            {profile.subscriptionTier !== 'Premium' && (
-                                <div className="flex items-center gap-2 mr-2">
-                                    <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
-                                        Jobs: {jobs.length}/{FREE_LIMITS.jobs}
-                                    </span>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
-                                        onClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
-                                    >
-                                        Upgrade
-                                    </Button>
-                                </div>
-                            )}
                             <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
-                            {profile.subscriptionTier !== 'Premium' && (
-                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
-                                    {jobForms.length}/{FREE_LIMITS.docs} Used (Project)
-                                </span>
-                            )}
                         </div>
-                        <div className="relative w-full max-w-xs">
-                            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
-                            <Input
-                                placeholder="Search docs..."
-                                className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
-                                value={docSearchQuery}
-                                onChange={(e) => setDocSearchQuery(e.target.value)}
-                            />
+                        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                            <div className="relative w-full max-w-xs">
+                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
+                                <Input
+                                    placeholder="Search docs..."
+                                    className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
+                                    value={docSearchQuery}
+                                    onChange={(e) => setDocSearchQuery(e.target.value)}
+                                />
+                            </div>
+                            <select
+                                value={docTypeFilter}
+                                onChange={(e) => setDocTypeFilter(e.target.value)}
+                                className="h-9 w-full sm:w-auto rounded-full border border-input bg-secondary/30 px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary/50 focus:bg-background focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer text-foreground"
+                            >
+                                <option value="All">All Types</option>
+                                {uniqueDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
                         </div>
                     </div>
 
@@ -1366,6 +1974,7 @@ const App: React.FC = () => {
                                     form={form}
                                     onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
                                     onDelete={() => { setDocToDelete(form.id); setShowDeleteDocModal(true); }}
+                                    onDuplicate={() => handleDuplicateDoc(form)}
                                 />
                             ))}
                         </div>
@@ -1389,19 +1998,19 @@ const App: React.FC = () => {
         const publicToken = form?.public_token;
 
         switch (formType) {
-            case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} />;
+            case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} inventoryItems={inventory} />;
             case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
             case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
             case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
             case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
 
             case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} inventory={inventory} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} publicToken={publicToken} />;
+            case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
 
             case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
             case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
             case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ChangeOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} publicToken={publicToken} />;
+            case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ChangeOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} publicToken={publicToken} savedItems={savedItems} inventoryItems={inventory} />;
             case FormType.PurchaseOrder: return <PurchaseOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as PurchaseOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
             default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
         }
@@ -1409,14 +2018,19 @@ const App: React.FC = () => {
 
     const getDockItems = () => {
         const t = getTranslation();
-        const items = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
+        const items: any[] = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
 
 
 
         if (view.screen === 'jobDetails') {
             items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as { jobId: string }).jobId) });
         }
-        else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({ icon: UsersIcon, label: 'Clients', onClick: navigateToClients });
+        else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({
+            icon: UsersIcon,
+            label: 'Clients',
+            onClick: navigateToClients,
+            badgeCount: clientNotificationCount
+        });
 
         items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
 
@@ -1457,29 +2071,40 @@ const App: React.FC = () => {
                     clients={clients}
                     forms={forms} // Pass forms for approval flow
                     jobs={jobs}
+                    userProfile={profile}
+                    onUpgradeClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
+                    freeLimit={FREE_LIMITS.clients}
                     onAddClient={async (data) => { if (checkLimit('clients')) await handleAddClient(data); }}
+                    onUpdateClient={async (data) => await handleUpdateClient(data)}
                     onDeleteClient={handleDeleteClient}
                     isOnline={isOnline}
                     onNavigateToNewDoc={handleNavigateToNewDoc}
                     onNavigateToJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
                     onNavigateToDoc={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType })}
+                    onMarkDocumentsAsViewed={markDocumentsAsViewed}
                 />;
             case 'inventory':
                 return <InventoryView
+                    userProfile={profile}
                     onBack={navigateToDashboard}
                     inventory={inventory}
                     history={inventoryHistory}
                     jobs={jobs}
+                    clients={clients}
                     onAddItem={handleAddInventoryItem}
+                    onDuplicateItem={handleDuplicateInventoryItem}
                     onUpdateItem={handleUpdateInventoryItem}
                     onDeleteItem={handleDeleteInventoryItem}
                     onAllocate={handleAllocateInventory}
+                    onAddClient={async (data) => { if (checkLimit('clients')) return await handleAddClient(data); return null; }}
+                    onAddJob={async (data) => { if (checkLimit('jobs')) { const jid = await handleSaveJob(data, true); return { id: jid } as Job; } return null; }}
                 />;
             case 'pricebook':
                 return <PriceBookView
                     onBack={navigateToDashboard}
                     savedItems={savedItems}
                     onAddItem={handleAddSavedItem}
+                    onDuplicateItem={handleDuplicateSavedItem}
                     onUpdateItem={handleUpdateSavedItem}
                     onDeleteItem={handleDeleteSavedItem}
                     onUploadImage={(file) => uploadFile('price-book-images', file, session!.user.id, true)}
@@ -1541,6 +2166,15 @@ const App: React.FC = () => {
                 message="Are you sure you want to permanently delete this document? This action cannot be undone."
                 confirmLabel="Delete"
                 isDestructive={true}
+            />
+
+            <DuplicateJobModal
+                isOpen={showDuplicateJobModal}
+                onClose={() => setShowDuplicateJobModal(false)}
+                onDuplicate={handleDuplicateJob}
+                job={jobToDuplicate}
+                forms={forms.filter(f => f.jobId === jobToDuplicate?.id)}
+                clients={clients}
             />
         </main>
     );

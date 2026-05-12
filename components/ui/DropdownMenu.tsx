@@ -4,6 +4,7 @@ interface DropdownMenuProps {
     trigger: React.ReactNode;
     children: React.ReactNode;
     align?: 'left' | 'right';
+    side?: 'top' | 'bottom';
 }
 
 interface DropdownItemProps {
@@ -13,7 +14,7 @@ interface DropdownItemProps {
     destructive?: boolean;
 }
 
-export const DropdownMenu: React.FC<DropdownMenuProps> = ({ trigger, children, align = 'right' }) => {
+export const DropdownMenu: React.FC<DropdownMenuProps> = ({ trigger, children, align = 'right', side = 'bottom' }) => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -35,10 +36,12 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({ trigger, children, a
 
             {isOpen && (
                 <div
-                    className={`absolute z-50 mt-2 w-48 rounded-md shadow-lg bg-popover border border-border ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in zoom-in-95 duration-100 ${align === 'right' ? 'right-0 origin-top-right' : 'left-0 origin-top-left'
-                        }`}
+                    className={`absolute z-[100] w-56 rounded-xl shadow-2xl bg-popover border border-border ring-1 ring-black/5 focus:outline-none animate-in fade-in zoom-in-95 duration-100 
+                        ${side === 'top' ? 'bottom-full mb-3' : 'top-full mt-2'}
+                        ${align === 'right' ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left'}
+                    `}
                 >
-                    <div className="py-1" role="menu" aria-orientation="vertical">
+                    <div className="py-2" role="menu" aria-orientation="vertical">
                         {children}
                     </div>
                 </div>

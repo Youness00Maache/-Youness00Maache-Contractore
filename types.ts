@@ -38,6 +38,7 @@ export interface UserProfile {
   theme?: 'light' | 'dark' | 'blue';
   gmailAccessToken?: string;
   gmailRefreshToken?: string;
+  defaultLaborRate?: number;
 }
 
 export interface Client {
@@ -64,13 +65,15 @@ export interface InventoryItem {
   location?: string;
   low_stock_threshold?: number;
   created_at?: string;
+  is_assembly?: boolean;
+  assembly_items?: AssemblyItem[];
 }
 
 export interface InventoryHistoryItem {
   id: string;
   item_id: string;
   user_id: string;
-  action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation';
+  action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation' | 'deduct';
   quantity_change: number;
   notes?: string;
   job_id?: string;
@@ -86,6 +89,7 @@ export interface Job {
   startDate: string;
   endDate: string | null;
   status: 'active' | 'completed' | 'inactive' | 'paused';
+  workerName?: string;
 }
 
 export interface LineItem {
@@ -93,11 +97,26 @@ export interface LineItem {
   description: string;
   quantity: number;
   rate: number;
+  inventoryItemId?: string;
+  item_id?: string;
+  currentStock?: number;
+  track_inventory?: boolean;
   unitCost?: number; // Internal cost for profit calculation
   percentComplete?: number; // For progress invoicing (0-100)
   progressValue?: number; // For progress invoicing (Scheduled Value)
   progressPercentage?: number; // For progress invoicing (% to bill)
   previouslyBilled?: number; // For progress invoicing tracking
+  itemSource?: 'pricebook' | 'inventory';
+  // Assemblies
+  isAssembly?: boolean;
+  hideComponentsOnPdf?: boolean;
+  isExpanded?: boolean;
+  assemblyComponents?: Array<{
+    item_id: string;
+    name: string;
+    quantity: number;
+    rate: number;
+  }>;
 }
 
 // Base interface for styling
@@ -420,8 +439,29 @@ export interface SavedItem {
   unit_cost?: number; // Renamed from cost to unit_cost to match DB, aliased where needed
   cost?: number;
   category?: string;
+  category_id?: string; // FK to price_book_categories
+  // Advanced Price Book Fields
+  type?: 'service' | 'material' | 'labor' | 'bundle';
+  images?: string[]; // Array of image URLs
+  taxable?: boolean;
+  sku?: string; // Stock Keeping Unit / Code
+  markup?: number; // Profit markup percentage
+  // Elite Features (Phase 1)
+  is_assembly?: boolean; // Is this a bundle/assembly?
+  assembly_items?: AssemblyItem[]; // Components of this assembly
+  is_favorite?: boolean; // Starred/favorited
+  last_used_at?: string; // Last time added to a document
+  use_count?: number; // How many times used
   created_at?: string;
   updated_at?: string;
+}
+
+export interface AssemblyItem {
+  item_id: string;
+  quantity: number;
+  override_price?: number | null; // Override component price
+  is_custom?: boolean;
+  custom_name?: string;
 }
 
 export interface RecurringInvoice {

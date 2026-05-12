@@ -3,23 +3,29 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/Card.
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import { Label } from './ui/Label.tsx';
-import { BackArrowIcon, PlusIcon, TrashIcon, BoxIcon, SearchIcon, AlertTriangleIcon, FilterIcon, TagIcon, DollarIcon, TruckIcon, MapPinIcon, ClockIcon, BriefcaseIcon, CalendarIcon } from './Icons.tsx';
-import { InventoryItem, InventoryHistoryItem, Job } from '../types.ts';
+import { BackArrowIcon, PlusIcon, TrashIcon, BoxIcon, SearchIcon, AlertTriangleIcon, FilterIcon, TagIcon, DollarIcon, TruckIcon, MapPinIcon, ClockIcon, BriefcaseIcon, CalendarIcon, CameraIcon, PrinterIcon } from './Icons.tsx';
+import { InventoryItem, InventoryHistoryItem, Job, UserProfile, Client } from '../types.ts';
+import PrintTagsModal from './PrintTagsModal.tsx';
+import QRScannerModal from './QRScannerModal.tsx';
 
 interface InventoryViewProps {
     onBack: () => void;
     inventory: InventoryItem[];
     history: InventoryHistoryItem[];
     jobs: Job[];
+    userProfile?: UserProfile;
     onUpdateItem: (item: InventoryItem) => Promise<void>;
     onAddItem: (item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at'>) => Promise<void>;
     onDeleteItem: (id: string) => Promise<void>;
-    onAllocate: (itemId: string, jobId: string, quantity: number) => Promise<void>;
+    onAllocate: (itemId: string, jobId: string | null, quantity: number, notes?: string) => Promise<void>;
+    clients: Client[];
+    onAddClient: (client: Partial<Client>) => Promise<Client | null>;
+    onAddJob: (job: Partial<Job>) => Promise<Job | null>;
 }
 
 const formatMoney = (amount: number) => `$${Number(amount || 0).toFixed(2)}`;
 
-const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, history, jobs, onUpdateItem, onAddItem, onDeleteItem, onAllocate }) => {
+const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, history, jobs, clients, userProfile, onUpdateItem, onAddItem, onDeleteItem, onAllocate, onAddClient, onAddJob }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
     const [sortBy, setSortBy] = useState<'name' | 'quantity' | 'value'>('name');
@@ -28,6 +34,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
     const [showAddModal, setShowAddModal] = useState(false);
     const [allocateModalItem, setAllocateModalItem] = useState<InventoryItem | null>(null);
     const [historyModalItem, setHistoryModalItem] = useState<InventoryItem | null>(null);
+    const [printModalItem, setPrintModalItem] = useState<InventoryItem | null>(null);
+    const [showScanModal, setShowScanModal] = useState(false);
 
     // Form Strings
     const [newItem, setNewItem] = useState<{
@@ -39,12 +47,22 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
         supplier: string;
         location: string;
         low_stock_threshold: number;
+        is_assembly?: boolean;
+        assembly_items?: any[];
     }>({
-        name: '', quantity: 0, category: '', unit: '', cost_price: 0, supplier: '', location: '', low_stock_threshold: 5
+        name: '', quantity: 0, category: '', unit: '', cost_price: 0, supplier: '', location: '', low_stock_threshold: 5, is_assembly: false, assembly_items: []
     });
 
-    const [allocateData, setAllocateData] = useState({ jobId: '', quantity: 1 });
+    const [customComponentForm, setCustomComponentForm] = useState({ name: '', cost: 0, quantity: 1 });
+
+    const [allocateData, setAllocateData] = useState({ jobId: '', quantity: 1, notes: '' });
     const [loading, setLoading] = useState(false);
+
+    // Quick creation states
+    const [quickClientMode, setQuickClientMode] = useState(false);
+    const [quickJobMode, setQuickJobMode] = useState(false);
+    const [newQuickClient, setNewQuickClient] = useState({ name: '', phone: '', email: '', isTemporary: false });
+    const [newQuickJob, setNewQuickJob] = useState({ name: '', clientId: '' });
 
     // Get unique categories for filter
     const categories = useMemo(() => {
@@ -71,11 +89,41 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
         return inventory.reduce((acc, item) => acc + ((item.cost_price || 0) * item.quantity), 0);
     }, [inventory]);
 
+    const handleAddCustomComponent = () => {
+        if (!customComponentForm.name) return;
+        const customId = crypto.randomUUID();
+        setNewItem(prev => ({
+            ...prev,
+            cost_price: prev.cost_price + (customComponentForm.cost * customComponentForm.quantity),
+            assembly_items: [...(prev.assembly_items || []), {
+                item_id: customId,
+                quantity: customComponentForm.quantity || 1,
+                is_custom: true,
+                custom_name: customComponentForm.name,
+                custom_cost: customComponentForm.cost
+            }]
+        }));
+        setCustomComponentForm({ name: '', cost: 0, quantity: 1 });
+    };
+
+    const handleRemoveCustomComponent = (id: string) => {
+        setNewItem(prev => {
+            const comps = prev.assembly_items || [];
+            const toRemove = comps.find(c => c.item_id === id);
+            if (!toRemove) return prev;
+            return {
+                ...prev,
+                cost_price: Math.max(0, prev.cost_price - ((toRemove.custom_cost || 0) * toRemove.quantity)),
+                assembly_items: comps.filter(c => c.item_id !== id)
+            };
+        });
+    };
+
     const handleAddItem = async () => {
         if (!newItem.name) return;
         setLoading(true);
         await onAddItem(newItem);
-        setNewItem({ name: '', quantity: 0, category: '', unit: '', cost_price: 0, supplier: '', location: '', low_stock_threshold: 5 });
+        setNewItem({ name: '', quantity: 0, category: '', unit: '', cost_price: 0, supplier: '', location: '', low_stock_threshold: 5, is_assembly: false, assembly_items: [] });
         setShowAddModal(false);
         setLoading(false);
     };
@@ -86,12 +134,64 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
     };
 
     const handleAllocate = async () => {
-        if (!allocateModalItem || !allocateData.jobId) return;
+        if (!allocateModalItem) return;
         setLoading(true);
-        await onAllocate(allocateModalItem.id, allocateData.jobId, allocateData.quantity);
+        // Allow jobId to be empty for independent scanning
+        const finalJobId = allocateData.jobId === 'none' || !allocateData.jobId ? null : allocateData.jobId;
+        await onAllocate(allocateModalItem.id, finalJobId, allocateData.quantity, allocateData.notes || 'Independent Scan');
         setAllocateModalItem(null);
-        setAllocateData({ jobId: '', quantity: 1 });
+        setAllocateData({ jobId: '', quantity: 1, notes: '' });
         setLoading(false);
+    };
+
+    const handleCreateQuickClient = async () => {
+        if (!newQuickClient.name) return alert('Client name is required');
+        setLoading(true);
+        const notes = newQuickClient.isTemporary ? '[TEMPORARY]' : '';
+        const created = await onAddClient({
+            name: newQuickClient.name,
+            phone: newQuickClient.phone,
+            email: newQuickClient.email,
+            notes
+        });
+        if (created) {
+            setQuickClientMode(false);
+            if (quickJobMode) {
+                setNewQuickJob(prev => ({ ...prev, clientId: created.id }));
+            }
+        }
+        setLoading(false);
+    };
+
+    const handleCreateQuickJob = async () => {
+        if (!newQuickJob.name || !newQuickJob.clientId) return alert('Job name and client are required');
+        setLoading(true);
+        const cl = clients.find(c => c.id === newQuickJob.clientId);
+        if (!cl) {
+            setLoading(false);
+            return;
+        }
+        const created = await onAddJob({
+            name: newQuickJob.name,
+            clientName: cl.name,
+            clientAddress: cl.address || '',
+            status: 'active'
+        });
+        if (created) {
+            setAllocateData(prev => ({ ...prev, jobId: created.id }));
+            setQuickJobMode(false);
+        }
+        setLoading(false);
+    };
+
+    const handleScanSuccess = (decodedId: string) => {
+        setShowScanModal(false);
+        const item = inventory.find(i => i.id === decodedId);
+        if (item) {
+            setAllocateModalItem(item);
+        } else {
+            alert(`Item not found in inventory. Scanned ID: ${decodedId}`);
+        }
     };
 
     const getItemHistory = (itemId: string) => {
@@ -113,9 +213,14 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                         <p className="text-sm text-muted-foreground mt-1 font-medium">Total Value: <span className="text-primary font-bold text-lg">{formatMoney(totalInventoryValue)}</span></p>
                     </div>
                 </div>
-                <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2">
-                    <PlusIcon className="w-5 h-5 mr-2" /> Add New Item
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setShowScanModal(true)} className="rounded-full shadow-md bg-card/80 px-4 md:px-6 py-2">
+                        <CameraIcon className="w-5 h-5 md:mr-2" /> <span className="hidden md:inline">Scan QR</span>
+                    </Button>
+                    <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground px-4 md:px-6 py-2">
+                        <PlusIcon className="w-5 h-5 md:mr-2" /> <span className="hidden md:inline">Add New Item</span>
+                    </Button>
+                </div>
             </header>
 
             {/* Controls */}
@@ -233,12 +338,17 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                                     </div>
 
                                     {/* Footer Actions */}
-                                    <div className="flex gap-2 pt-2">
-                                        <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => setHistoryModalItem(item)}>
-                                            <ClockIcon className="w-3 h-3 mr-1" /> History
-                                        </Button>
-                                        <Button size="sm" className="flex-1 text-xs bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setAllocateModalItem(item)}>
-                                            <BriefcaseIcon className="w-3 h-3 mr-1" /> Use on Job
+                                    <div className="flex flex-col gap-2 pt-2">
+                                        <div className="flex gap-2">
+                                            <Button variant="outline" size="sm" className="flex-1 text-[11px] px-1 md:text-xs" onClick={() => setPrintModalItem(item)}>
+                                                <PrinterIcon className="w-3 h-3 mr-1" /> Print Tags
+                                            </Button>
+                                            <Button variant="outline" size="sm" className="flex-1 text-[11px] px-1 md:text-xs" onClick={() => setHistoryModalItem(item)}>
+                                                <ClockIcon className="w-3 h-3 mr-1" /> History
+                                            </Button>
+                                        </div>
+                                        <Button size="sm" className="w-full text-xs bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setAllocateModalItem(item)}>
+                                            <BriefcaseIcon className="w-3 h-3 mr-1" /> Use / Check Out
                                         </Button>
                                     </div>
                                 </CardContent>
@@ -311,6 +421,63 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                                     <Input type="number" value={newItem.low_stock_threshold} onChange={e => setNewItem({ ...newItem, low_stock_threshold: parseInt(e.target.value) || 0 })} />
                                 </div>
                             </div>
+
+                            {/* Assembly Logic Toggle */}
+                            <div className="pt-4 border-t mt-4 col-span-full">
+                                <label className="flex items-center gap-2 cursor-pointer mb-4">
+                                    <input
+                                        type="checkbox"
+                                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        checked={newItem.is_assembly}
+                                        onChange={e => setNewItem({ ...newItem, is_assembly: e.target.checked })}
+                                    />
+                                    <span className="font-medium text-foreground">Make this an Assembly/Kit container</span>
+                                </label>
+
+                                {newItem.is_assembly && (
+                                    <div className="space-y-4 p-4 border rounded-xl bg-muted/20">
+                                        <Label className="text-primary font-semibold flex items-center gap-1.5"><BoxIcon className="w-4 h-4" /> Package Components</Label>
+
+                                        {(newItem.assembly_items || []).length > 0 && (
+                                            <div className="space-y-2 mb-4">
+                                                {(newItem.assembly_items || []).map((comp, idx) => (
+                                                    <div key={idx} className="flex items-center justify-between p-2 bg-background border rounded-lg text-sm shadow-sm">
+                                                        <div>
+                                                            <span className="font-medium font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] uppercase mr-2 tracking-wider">Custom</span>
+                                                            <span className="font-medium">{comp.custom_name}</span>
+                                                            <span className="text-muted-foreground ml-2">x{comp.quantity}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="font-semibold text-emerald-600">${(comp.custom_cost * comp.quantity).toFixed(2)}</span>
+                                                            <button onClick={() => handleRemoveCustomComponent(comp.item_id)} className="text-muted-foreground hover:text-red-500 hover:bg-red-50 p-1.5 rounded-full transition-colors">
+                                                                <TrashIcon className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        <div className="grid grid-cols-12 gap-2 items-end bg-background p-3 rounded-xl border shadow-sm">
+                                            <div className="col-span-12 sm:col-span-5">
+                                                <Label className="text-xs mb-1.5 text-muted-foreground font-bold uppercase tracking-wider">Sub-Item Name</Label>
+                                                <Input className="h-9 text-sm focus:ring-primary/20" value={customComponentForm.name} onChange={e => setCustomComponentForm({ ...customComponentForm, name: e.target.value })} placeholder="e.g. 100ft CAT6 Cable" />
+                                            </div>
+                                            <div className="col-span-5 sm:col-span-3">
+                                                <Label className="text-xs mb-1.5 text-muted-foreground font-bold uppercase tracking-wider">Unit Cost</Label>
+                                                <Input type="number" className="h-9 text-sm focus:ring-primary/20" value={customComponentForm.cost} onChange={e => setCustomComponentForm({ ...customComponentForm, cost: parseFloat(e.target.value) || 0 })} placeholder="$" />
+                                            </div>
+                                            <div className="col-span-3 sm:col-span-2">
+                                                <Label className="text-xs mb-1.5 text-muted-foreground font-bold uppercase tracking-wider">Qty</Label>
+                                                <Input type="number" className="h-9 text-sm focus:ring-primary/20" value={customComponentForm.quantity} onChange={e => setCustomComponentForm({ ...customComponentForm, quantity: parseInt(e.target.value) || 1 })} />
+                                            </div>
+                                            <div className="col-span-4 sm:col-span-2 flex justify-end">
+                                                <Button size="sm" onClick={handleAddCustomComponent} className="w-full h-9 shadow-md shadow-primary/20" disabled={!customComponentForm.name}><PlusIcon className="w-4 h-4 mr-1" /> Add</Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
                         <CardFooter className="flex justify-end gap-3 bg-muted/30 border-t p-4 rounded-b-xl">
                             <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
@@ -327,34 +494,110 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setAllocateModalItem(null)}>
                     <Card className="w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
                         <CardHeader>
-                            <CardTitle>Allocate Stock to Job</CardTitle>
+                            <CardTitle>Scan Out Item</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="space-y-4 max-h-[70vh] overflow-y-auto">
                             <p className="text-sm text-muted-foreground">
-                                You are removing stock from <strong>{allocateModalItem.name}</strong> to use on a job.
+                                You are removing stock from <strong>{allocateModalItem.name}</strong>.
                             </p>
                             <div>
                                 <Label>Quantity to Remove</Label>
                                 <Input type="number" value={allocateData.quantity} max={allocateModalItem.quantity} onChange={e => setAllocateData({ ...allocateData, quantity: parseInt(e.target.value) || 1 })} />
                                 <p className="text-xs text-muted-foreground mt-1">Available: {allocateModalItem.quantity}</p>
                             </div>
-                            <div>
-                                <Label>Select Job</Label>
-                                <select
-                                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    value={allocateData.jobId}
-                                    onChange={e => setAllocateData({ ...allocateData, jobId: e.target.value })}
-                                >
-                                    <option value="">-- Select Active Job --</option>
-                                    {jobs.filter(j => j.status === 'active').map(j => (
-                                        <option key={j.id} value={j.id}>{j.name} ({j.clientName})</option>
-                                    ))}
-                                </select>
-                            </div>
+
+                            {!quickJobMode && !quickClientMode && (
+                                <>
+                                    <div>
+                                        <Label>Select Job (Optional)</Label>
+                                        <div className="flex gap-2">
+                                            <select
+                                                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                value={allocateData.jobId}
+                                                onChange={e => setAllocateData({ ...allocateData, jobId: e.target.value })}
+                                            >
+                                                <option value="none">-- Independent Scan (No Job) --</option>
+                                                {jobs.filter(j => j.status === 'active').map(j => (
+                                                    <option key={j.id} value={j.id}>{j.name} ({j.clientName})</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <Label>Internal Notes (Visible in Audit Log)</Label>
+                                        <Input value={allocateData.notes} onChange={e => setAllocateData({ ...allocateData, notes: e.target.value })} placeholder="e.g. Taken for van stock" />
+                                    </div>
+                                </>
+                            )}
+
+                            {quickJobMode && !quickClientMode && (
+                                <div className="p-4 border rounded-lg bg-muted/20 space-y-3">
+                                    <h4 className="font-semibold text-sm">Quick Create Job</h4>
+                                    <div>
+                                        <Label>Job Name</Label>
+                                        <Input value={newQuickJob.name} onChange={e => setNewQuickJob({ ...newQuickJob, name: e.target.value })} placeholder="e.g. Main St Plumbing" />
+                                    </div>
+                                    <div>
+                                        <Label>Select Client</Label>
+                                        <div className="flex gap-2">
+                                            <select
+                                                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                value={newQuickJob.clientId}
+                                                onChange={e => setNewQuickJob({ ...newQuickJob, clientId: e.target.value })}
+                                            >
+                                                <option value="">-- Select Client --</option>
+                                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                            <Button variant="outline" size="sm" onClick={() => setQuickClientMode(true)} className="px-3">
+                                                <PlusIcon className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-2 pt-2">
+                                        <Button variant="ghost" size="sm" onClick={() => setQuickJobMode(false)}>Cancel</Button>
+                                        <Button size="sm" onClick={handleCreateQuickJob} disabled={loading}>Create Job</Button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {quickClientMode && (
+                                <div className="p-4 border border-primary/20 rounded-lg bg-primary/5 space-y-3">
+                                    <h4 className="font-semibold text-sm text-primary">Quick Create Client</h4>
+                                    <div>
+                                        <Label>Client Name *</Label>
+                                        <Input value={newQuickClient.name} onChange={e => setNewQuickClient({ ...newQuickClient, name: e.target.value })} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <Label>Phone</Label>
+                                            <Input value={newQuickClient.phone} onChange={e => setNewQuickClient({ ...newQuickClient, phone: e.target.value })} />
+                                        </div>
+                                        <div>
+                                            <Label>Email</Label>
+                                            <Input value={newQuickClient.email} onChange={e => setNewQuickClient({ ...newQuickClient, email: e.target.value })} />
+                                        </div>
+                                    </div>
+                                    <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                                        <input type="checkbox" checked={newQuickClient.isTemporary} onChange={e => setNewQuickClient({ ...newQuickClient, isTemporary: e.target.checked })} className="rounded text-primary" />
+                                        <span className="text-sm font-medium">Mark as Temporary Client</span>
+                                    </label>
+                                    <div className="flex justify-end gap-2 pt-2">
+                                        <Button variant="ghost" size="sm" onClick={() => setQuickClientMode(false)}>Cancel</Button>
+                                        <Button size="sm" onClick={handleCreateQuickClient} disabled={loading}>Create Client</Button>
+                                    </div>
+                                </div>
+                            )}
+
                         </CardContent>
                         <CardFooter className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setAllocateModalItem(null)}>Cancel</Button>
-                            <Button onClick={handleAllocate} disabled={!allocateData.jobId || loading}>Confirm Allocation</Button>
+                            <Button variant="outline" onClick={() => {
+                                setAllocateModalItem(null);
+                                setQuickJobMode(false);
+                                setQuickClientMode(false);
+                            }}>Cancel</Button>
+                            {!quickJobMode && !quickClientMode && (
+                                <Button onClick={handleAllocate} disabled={loading}>Confirm Scan Out</Button>
+                            )}
                         </CardFooter>
                     </Card>
                 </div>
@@ -410,6 +653,23 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                     </Card>
                 </div>
             )}
+
+            {/* Print Tags Modal */}
+            {printModalItem && (
+                <PrintTagsModal
+                    isOpen={!!printModalItem}
+                    onClose={() => setPrintModalItem(null)}
+                    item={printModalItem}
+                    userProfile={userProfile}
+                />
+            )}
+
+            {/* Scan QR Modal */}
+            <QRScannerModal
+                isOpen={showScanModal}
+                onClose={() => setShowScanModal(false)}
+                onScanSuccess={handleScanSuccess}
+            />
         </div>
     );
 };

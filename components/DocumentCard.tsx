@@ -2,13 +2,14 @@ import React from 'react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { DropdownMenu, DropdownItem } from './ui/DropdownMenu';
-import { MoreVerticalIcon, TrashIcon, InvoiceIcon, EstimateIcon, ChangeOrderIcon, TruckIcon } from './Icons';
+import { MoreVerticalIcon, TrashIcon, InvoiceIcon, EstimateIcon, ChangeOrderIcon, TruckIcon, CopyIcon } from './Icons';
 import { FormType, FormData as FormDataType } from '../types';
 
 interface DocumentCardProps {
     form: FormDataType;
     onClick: () => void;
     onDelete: () => void;
+    onDuplicate: () => void;
 }
 
 const getDocTitle = (form: FormDataType) => {
@@ -35,7 +36,7 @@ const getStatusBadge = (form: FormDataType) => {
     ) : null;
 };
 
-export const DocumentCard: React.FC<DocumentCardProps> = ({ form, onClick, onDelete }) => {
+export const DocumentCard: React.FC<DocumentCardProps> = ({ form, onClick, onDelete, onDuplicate }) => {
     return (
         <Card className="hover:shadow-md transition-all duration-200 group relative bg-card border-border overflow-visible">
             <div onClick={onClick} className="p-4 flex items-center justify-between gap-4 cursor-pointer">
@@ -64,6 +65,10 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({ form, onClick, onDel
                                 </Button>
                             }
                         >
+                            <DropdownItem onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
+                                <CopyIcon className="w-4 h-4 mr-2 text-primary" />
+                                Duplicate
+                            </DropdownItem>
                             <DropdownItem onClick={(e) => { e.stopPropagation(); onDelete(); }} destructive>
                                 <TrashIcon className="w-4 h-4 mr-2" />
                                 Delete

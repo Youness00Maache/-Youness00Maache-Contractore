@@ -1,0 +1,32 @@
+{
+  "name": "my-pdf-app",
+  "version": "1.0.0",
+  "description": "A PDF generation application that adapts templates based on document types.",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/my-pdf-app.git"
+  },
+  "keywords": [
+    "pdf",
+    "generation",
+    "templates",
+    "typescript"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "jspdf": "^2.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.5.0",
+    "jest": "^27.0.0",
+    "ts-jest": "^27.0.0",
+    "@types/jest": "^27.0.0"
+  }
+}

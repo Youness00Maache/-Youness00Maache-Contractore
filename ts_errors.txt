@@ -1,0 +1,148 @@
+my-pdf-app/services/pdfGenerator.ts(2,59): error TS2307: Cannot find module '../types' or its corresponding type declarations.
+my-pdf-app/services/pdfGenerator.ts(3,23): error TS2307: Cannot find module 'jspdf' or its corresponding type declarations.
+my-pdf-app/services/pdfGenerator.ts(4,78): error TS2307: Cannot find module './helpers' or its corresponding type declarations.
+my-pdf-app/services/pdfGenerator.ts(12,26): error TS2304: Cannot find name 'getAdvancedHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(13,60): error TS2304: Cannot find name 'getHighEndHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(14,64): error TS2304: Cannot find name 'getGlassmorphismModernHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(15,60): error TS2304: Cannot find name 'getPremiumMinimalistHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(16,60): error TS2304: Cannot find name 'getGradientBorderPremiumHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(17,58): error TS2304: Cannot find name 'getNeonCyberpunkHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(18,60): error TS2304: Cannot find name 'getLuxuryGoldNavyHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(19,60): error TS2304: Cannot find name 'getOrganicNatureHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(20,63): error TS2304: Cannot find name 'getGeometricBoldHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(21,60): error TS2304: Cannot find name 'getPastelSoftHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(22,61): error TS2304: Cannot find name 'getVintageCraftHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(23,63): error TS2304: Cannot find name 'getBlueprintTechHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(24,61): error TS2304: Cannot find name 'getAbstractMemphisHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(25,61): error TS2304: Cannot find name 'getCrimsonNoirHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(26,64): error TS2304: Cannot find name 'getWatercolorArtisticHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(27,59): error TS2304: Cannot find name 'getSwissGridHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(28,59): error TS2304: Cannot find name 'getSpaceOdysseyHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(29,59): error TS2304: Cannot find name 'getRetroTerminalHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(30,57): error TS2304: Cannot find name 'getPlayfulPopHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(31,59): error TS2304: Cannot find name 'getElegantSerifHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(53,22): error TS2304: Cannot find name 'templates'.
+my-pdf-app/services/pdfGenerator.ts(53,47): error TS2304: Cannot find name 'templates'.
+my-pdf-app/services/pdfGenerator.ts(56,24): error TS2304: Cannot find name 'drawDocumentHeader'.
+my-pdf-app/services/pdfGenerator.ts(98,66): error TS2304: Cannot find name 'Job'.
+my-pdf-app/services/pdfGenerator.ts(104,26): error TS2304: Cannot find name 'getAdvancedHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(105,60): error TS2304: Cannot find name 'getHighEndHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(106,64): error TS2304: Cannot find name 'getGlassmorphismModernHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(107,60): error TS2304: Cannot find name 'getPremiumMinimalistHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(108,60): error TS2304: Cannot find name 'getGradientBorderPremiumHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(109,58): error TS2304: Cannot find name 'getNeonCyberpunkHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(110,60): error TS2304: Cannot find name 'getLuxuryGoldNavyHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(111,60): error TS2304: Cannot find name 'getOrganicNatureHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(112,63): error TS2304: Cannot find name 'getGeometricBoldHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(113,60): error TS2304: Cannot find name 'getPastelSoftHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(114,61): error TS2304: Cannot find name 'getVintageCraftHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(115,63): error TS2304: Cannot find name 'getBlueprintTechHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(116,61): error TS2304: Cannot find name 'getAbstractMemphisHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(117,61): error TS2304: Cannot find name 'getCrimsonNoirHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(118,64): error TS2304: Cannot find name 'getWatercolorArtisticHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(119,59): error TS2304: Cannot find name 'getSwissGridHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(120,59): error TS2304: Cannot find name 'getSpaceOdysseyHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(121,59): error TS2304: Cannot find name 'getRetroTerminalHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(122,57): error TS2304: Cannot find name 'getPlayfulPopHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(123,59): error TS2304: Cannot find name 'getElegantSerifHtmlTemplate'.
+my-pdf-app/services/pdfGenerator.ts(145,22): error TS2304: Cannot find name 'templates'.
+my-pdf-app/services/pdfGenerator.ts(145,47): error TS2304: Cannot find name 'templates'.
+my-pdf-app/src/index.ts(12,37): error TS2345: Argument of type '{}' is not assignable to parameter of type 'UserProfile'.
+  Type '{}' is missing the following properties from type 'UserProfile': id, name, email
+my-pdf-app/src/index.ts(15,27): error TS2345: Argument of type '{}' is not assignable to parameter of type 'UserProfile'.
+  Type '{}' is missing the following properties from type 'UserProfile': id, name, email
+my-pdf-app/src/services/pdfGenerator.ts(3,23): error TS2307: Cannot find module 'jspdf' or its corresponding type declarations.
+my-pdf-app/src/services/pdfGenerator.ts(5,77): error TS2304: Cannot find name 'DailyJobReportData'.
+my-pdf-app/src/services/pdfGenerator.ts(11,26): error TS2304: Cannot find name 'getAdvancedHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(12,60): error TS2304: Cannot find name 'getHighEndHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(13,64): error TS2304: Cannot find name 'getGlassmorphismModernHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(14,60): error TS2304: Cannot find name 'getPremiumMinimalistHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(15,60): error TS2304: Cannot find name 'getGradientBorderPremiumHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(16,58): error TS2304: Cannot find name 'getNeonCyberpunkHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(17,60): error TS2304: Cannot find name 'getLuxuryGoldNavyHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(18,60): error TS2304: Cannot find name 'getOrganicNatureHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(19,63): error TS2304: Cannot find name 'getGeometricBoldHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(20,60): error TS2304: Cannot find name 'getPastelSoftHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(21,61): error TS2304: Cannot find name 'getVintageCraftHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(22,63): error TS2304: Cannot find name 'getBlueprintTechHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(23,61): error TS2304: Cannot find name 'getAbstractMemphisHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(24,61): error TS2304: Cannot find name 'getCrimsonNoirHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(25,64): error TS2304: Cannot find name 'getWatercolorArtisticHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(26,59): error TS2304: Cannot find name 'getSwissGridHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(27,59): error TS2304: Cannot find name 'getSpaceOdysseyHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(28,59): error TS2304: Cannot find name 'getRetroTerminalHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(29,57): error TS2304: Cannot find name 'getPlayfulPopHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(30,59): error TS2304: Cannot find name 'getElegantSerifHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(45,15): error TS2304: Cannot find name 'renderHtmlToPdf'.
+my-pdf-app/src/services/pdfGenerator.ts(52,22): error TS2304: Cannot find name 'templates'.
+my-pdf-app/src/services/pdfGenerator.ts(52,47): error TS2304: Cannot find name 'templates'.
+my-pdf-app/src/services/pdfGenerator.ts(53,24): error TS2304: Cannot find name 'hexToRgb'.
+my-pdf-app/src/services/pdfGenerator.ts(55,24): error TS2304: Cannot find name 'drawDocumentHeader'.
+my-pdf-app/src/services/pdfGenerator.ts(72,26): error TS2304: Cannot find name 'renderHtmlToPdf'.
+my-pdf-app/src/services/pdfGenerator.ts(73,13): error TS2304: Cannot find name 'drawTemplateBackground'.
+my-pdf-app/src/services/pdfGenerator.ts(79,27): error TS2304: Cannot find name 'loadImage'.
+my-pdf-app/src/services/pdfGenerator.ts(83,17): error TS2304: Cannot find name 'drawTemplateBackground'.
+my-pdf-app/src/services/pdfGenerator.ts(97,66): error TS2304: Cannot find name 'Job'.
+my-pdf-app/src/services/pdfGenerator.ts(97,77): error TS2304: Cannot find name 'NoteData'.
+my-pdf-app/src/services/pdfGenerator.ts(103,26): error TS2304: Cannot find name 'getAdvancedHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(104,60): error TS2304: Cannot find name 'getHighEndHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(105,64): error TS2304: Cannot find name 'getGlassmorphismModernHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(106,60): error TS2304: Cannot find name 'getPremiumMinimalistHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(107,60): error TS2304: Cannot find name 'getGradientBorderPremiumHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(108,58): error TS2304: Cannot find name 'getNeonCyberpunkHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(109,60): error TS2304: Cannot find name 'getLuxuryGoldNavyHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(110,60): error TS2304: Cannot find name 'getOrganicNatureHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(111,63): error TS2304: Cannot find name 'getGeometricBoldHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(112,60): error TS2304: Cannot find name 'getPastelSoftHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(113,61): error TS2304: Cannot find name 'getVintageCraftHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(114,63): error TS2304: Cannot find name 'getBlueprintTechHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(115,61): error TS2304: Cannot find name 'getAbstractMemphisHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(116,61): error TS2304: Cannot find name 'getCrimsonNoirHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(117,64): error TS2304: Cannot find name 'getWatercolorArtisticHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(118,59): error TS2304: Cannot find name 'getSwissGridHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(119,59): error TS2304: Cannot find name 'getSpaceOdysseyHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(120,59): error TS2304: Cannot find name 'getRetroTerminalHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(121,57): error TS2304: Cannot find name 'getPlayfulPopHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(122,59): error TS2304: Cannot find name 'getElegantSerifHtmlTemplate'.
+my-pdf-app/src/services/pdfGenerator.ts(137,15): error TS2304: Cannot find name 'renderHtmlToPdf'.
+my-pdf-app/src/services/pdfGenerator.ts(144,22): error TS2304: Cannot find name 'templates'.
+my-pdf-app/src/services/pdfGenerator.ts(144,47): error TS2304: Cannot find name 'templates'.
+my-pdf-app/src/services/pdfGenerator.ts(145,24): error TS2304: Cannot find name 'hexToRgb'.
+my-pdf-app/src/services/pdfGenerator.ts(147,5): error TS2304: Cannot find name 'drawTemplateBackground'.
+my-pdf-app/src/services/pdfGenerator.ts(153,11): error TS2304: Cannot find name 'renderHtmlToPdf'.
+my-pdf-app/src/services/pdfGenerator.ts(154,9): error TS2304: Cannot find name 'drawTemplateBackground'.
+my-pdf-app/src/templates/index.ts(1,616): error TS2307: Cannot find module './templates' or its corresponding type declarations.
+my-pdf-app/utils/templates/templateAdapters.ts(1,29): error TS2307: Cannot find module '../../types' or its corresponding type declarations.
+src/components/ChangeOrderForm.tsx(295,27): error TS2551: Property 'clientSignatureUrl' does not exist on type 'ChangeOrderData'. Did you mean 'signatureUrl'?
+src/components/ChangeOrderForm.tsx(302,48): error TS2551: Property 'clientSignatureUrl' does not exist on type 'ChangeOrderData'. Did you mean 'signatureUrl'?
+src/components/ChangeOrderForm.tsx(304,55): error TS2339: Property 'clientSignedBy' does not exist on type 'ChangeOrderData'.
+src/components/ChangeOrderForm.tsx(304,107): error TS2339: Property 'clientSignedAt' does not exist on type 'ChangeOrderData'.
+src/components/ChangeOrderForm.tsx(304,142): error TS2339: Property 'clientSignedAt' does not exist on type 'ChangeOrderData'.
+src/components/CommunicationView.tsx(40,75): error TS2339: Property 'gmailAccessToken' does not exist on type 'UserProfile'.
+src/components/CommunicationView.tsx(42,78): error TS2339: Property 'gmailAccessToken' does not exist on type 'UserProfile'.
+src/components/CommunicationView.tsx(57,48): error TS2339: Property 'gmailAccessToken' does not exist on type 'UserProfile'.
+src/components/CommunicationView.tsx(64,26): error TS2339: Property 'gmailAccessToken' does not exist on type 'UserProfile'.
+src/components/CommunicationView.tsx(240,89): error TS2339: Property 'gmailAccessToken' does not exist on type 'UserProfile'.
+src/components/InventoryView.tsx(6,86): error TS2724: '"./Icons.tsx"' has no exported member named 'FilterIcon'. Did you mean 'FileTextIcon'?
+src/components/InventoryView.tsx(6,107): error TS2305: Module '"./Icons.tsx"' has no exported member 'DollarIcon'.
+src/components/InventoryView.tsx(6,130): error TS2724: '"./Icons.tsx"' has no exported member named 'MapPinIcon'. Did you mean 'MailIcon'?
+src/components/MaterialLogForm.tsx(40,9): error TS2345: Argument of type 'MaterialLogData | { title: string; date: string; projectName: string; items: { id: `${string}-${string}-${string}-${string}-${string}`; name: string; supplier: string; quantity: number; unitCost: number; }[]; ... 10 more ...; deductInventory: boolean; }' is not assignable to parameter of type 'MaterialLogData | (() => MaterialLogData)'.
+  Object literal may only specify known properties, and 'deductInventory' does not exist in type 'MaterialLogData | (() => MaterialLogData)'.
+src/components/MaterialLogForm.tsx(209,35): error TS2339: Property 'inventoryItemId' does not exist on type 'MaterialLogItem'.
+src/components/MaterialLogForm.tsx(221,47): error TS2339: Property 'deductInventory' does not exist on type 'MaterialLogData'.
+src/components/TemplateSelector.tsx(12,8): error TS2307: Cannot find module '../utils/templates/documentHtmlTemplates.ts' or its corresponding type declarations.
+src/components/TemplateSelector.tsx(30,8): error TS2307: Cannot find module '../utils/templates/allNewTemplates.ts' or its corresponding type declarations.
+src/components/ui/Button.tsx(2,20): error TS2307: Cannot find module '../../lib/utils.ts' or its corresponding type declarations.
+src/components/ui/Card.tsx(3,20): error TS2307: Cannot find module '../../lib/utils.ts' or its corresponding type declarations.
+src/components/ui/Input.tsx(2,20): error TS2307: Cannot find module '../../lib/utils.ts' or its corresponding type declarations.
+src/components/ui/Label.tsx(2,20): error TS2307: Cannot find module '../../lib/utils.ts' or its corresponding type declarations.
+src/services/pdfGenerator.ts(1086,27): error TS2339: Property 'description' does not exist on type 'ExpenseLogData'.
+src/services/pdfGenerator.ts(1088,38): error TS2339: Property 'paymentMethod' does not exist on type 'ExpenseLogData'.
+src/services/pdfGenerator.ts(1347,14): error TS2551: Property 'clientSignatureUrl' does not exist on type 'ChangeOrderData'. Did you mean 'signatureUrl'?
+src/services/pdfGenerator.ts(1348,48): error TS2551: Property 'clientSignatureUrl' does not exist on type 'ChangeOrderData'. Did you mean 'signatureUrl'?
+src/services/pdfGenerator.ts(1355,18): error TS2339: Property 'clientSignedAt' does not exist on type 'ChangeOrderData'.
+src/services/pdfGenerator.ts(1357,47): error TS2339: Property 'clientSignedAt' does not exist on type 'ChangeOrderData'.
+supabase/functions/paypal-webhook/index.ts(1,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/paypal-webhook/index.ts(2,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/paypal-webhook/index.ts(21,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/paypal-webhook/index.ts(22,29): error TS2304: Cannot find name 'Deno'.

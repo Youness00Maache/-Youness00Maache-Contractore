@@ -2,13 +2,14 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/Card';
 import { Button } from './ui/Button';
 import { DropdownMenu, DropdownItem } from './ui/DropdownMenu';
-import { MoreVerticalIcon, TrashIcon } from './Icons';
+import { MoreVerticalIcon, TrashIcon, CopyIcon } from './Icons';
 import { Job } from '../types';
 
 interface JobCardProps {
     job: Job;
     onClick: () => void;
     onDelete: () => void;
+    onDuplicate: () => void;
     t: any; // Translation object
 }
 
@@ -21,7 +22,7 @@ const getStatusColor = (status: string) => {
     }
 }
 
-export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, t }) => {
+export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDuplicate, t }) => {
     return (
         <Card className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200 relative">
             <CardHeader className="flex flex-col space-y-0 pb-1 pr-10">
@@ -38,6 +39,10 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, t }) =
                         </Button>
                     }
                 >
+                    <DropdownItem onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
+                        <CopyIcon className="w-4 h-4 mr-2" />
+                        Duplicate
+                    </DropdownItem>
                     <DropdownItem onClick={(e) => { e.stopPropagation(); onDelete(); }} destructive>
                         <TrashIcon className="w-4 h-4 mr-2" />
                         Delete

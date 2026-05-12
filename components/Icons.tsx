@@ -91,30 +91,30 @@ export const InstagramIcon = (props: any) => <StrokeIcon {...props}><rect width=
 export const LinkedinIcon = (props: any) => <StrokeIcon {...props}><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" /><rect width="4" height="12" x="2" y="9" /><circle cx="4" cy="4" r="2" /></StrokeIcon>;
 
 // --- Editor Icons (Google Docs Style / Standard Library Look) ---
-export const BoldIcon = (props: any) => <IconBase {...props}><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" /><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" /></IconBase>;
-export const ItalicIcon = (props: any) => <StrokeIcon {...props}><line x1="19" y1="4" x2="10" y2="4" /><line x1="14" y1="20" x2="5" y2="20" /><line x1="15" y1="4" x2="9" y2="20" /></StrokeIcon>;
-export const UnderlineIcon = (props: any) => <StrokeIcon {...props}><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3" /><line x1="4" y1="21" x2="20" y2="21" /></StrokeIcon>;
-export const StrikethroughIcon = (props: any) => <StrokeIcon {...props}><path d="M16 4H9a3 3 0 0 0-2.83 2M14 12a4 4 0 0 1 0 8H6" /><line x1="4" y1="12" x2="20" y2="12" /></StrokeIcon>;
+export const BoldIcon = (props: any) => <StrokeIcon {...props}><path d="M14 12a4 4 0 0 0 0-8H6v8" /><path d="M15 20a4 4 0 0 0 0-8H6v8Z" /></StrokeIcon>;
+export const ItalicIcon = (props: any) => <StrokeIcon {...props}><line x1="19" x2="10" y1="4" y2="4" /><line x1="14" x2="5" y1="20" y2="20" /><line x1="15" x2="9" y1="4" y2="20" /></StrokeIcon>;
+export const UnderlineIcon = (props: any) => <StrokeIcon {...props}><path d="M6 4v6a6 6 0 0 0 12 0V4" /><line x1="4" x2="20" y1="20" y2="20" /></StrokeIcon>;
+export const StrikethroughIcon = (props: any) => <StrokeIcon {...props}><path d="M16 4H9a3 3 0 0 0-2.83 2" /><path d="M14 12a4 4 0 0 1 0 8H6" /><line x1="4" x2="20" y1="12" y2="12" /></StrokeIcon>;
 export const TextColorIcon = (props: any) => <StrokeIcon {...props}><path d="M4 20h16" /><path d="m6 16 6-14 6 14" /><path d="M8 12h8" /></StrokeIcon>;
-export const HighlighterIcon = (props: any) => <StrokeIcon {...props}><path d="m9 11-6 6v3h9l3-3" /><path d="m22 7-9.08 9.08a.6.6 0 0 0-.17.41V20h3.5a.6.6 0 0 0 .41-.17l8.77-8.76A2.62 2.62 0 0 0 22 7.38a2.62 2.62 0 0 0 0-3.71v0a2.62 2.62 0 0 0-3.71 0z" /></StrokeIcon>;
-export const RemoveFormatIcon = (props: any) => <StrokeIcon {...props}><path d="M2 12.5 L7 7.5 L12 12.5 L7 17.5 Z" fill="currentColor" className="text-muted-foreground" /><line x1="14" y1="4" x2="22" y2="4" /><line x1="18" y1="4" x2="18" y2="20" /><line x1="16" y1="20" x2="20" y2="20" /></StrokeIcon>;
+export const HighlighterIcon = (props: any) => <StrokeIcon {...props}><path d="m9 11-6 6v3h9l3-3" /><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" /></StrokeIcon>;
+export const RemoveFormatIcon = (props: any) => <StrokeIcon {...props}><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></StrokeIcon>;
 
 export const LinkIcon = (props: any) => <StrokeIcon {...props}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></StrokeIcon>;
 export const HeadingIcon = (props: any) => <StrokeIcon {...props}><path d="M6 4v16" /><path d="M18 4v16" /><path d="M6 12h12" /></StrokeIcon>;
-export const QuoteIcon = (props: any) => <StrokeIcon {...props}><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /></StrokeIcon>;
-export const AlignLeftIcon = (props: any) => <StrokeIcon {...props}><line x1="17" y1="10" x2="3" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="17" y1="18" x2="3" y2="18" /></StrokeIcon>;
-export const AlignCenterIcon = (props: any) => <StrokeIcon {...props}><line x1="21" y1="6" x2="3" y2="6" /><line x1="17" y1="12" x2="7" y2="12" /><line x1="19" y1="18" x2="5" y2="18" /></StrokeIcon>;
-export const AlignRightIcon = (props: any) => <StrokeIcon {...props}><line x1="21" y1="10" x2="7" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="21" y1="18" x2="7" y2="18" /></StrokeIcon>;
+export const QuoteIcon = (props: any) => <StrokeIcon {...props}><path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2" /><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H3" /></StrokeIcon>;
+export const AlignLeftIcon = (props: any) => <StrokeIcon {...props}><line x1="21" x2="3" y1="6" y2="6" /><line x1="15" x2="3" y1="12" y2="12" /><line x1="17" x2="3" y1="18" y2="18" /></StrokeIcon>;
+export const AlignCenterIcon = (props: any) => <StrokeIcon {...props}><line x1="21" x2="3" y1="6" y2="6" /><line x1="17" x2="7" y1="12" y2="12" /><line x1="19" x2="5" y1="18" y2="18" /></StrokeIcon>;
+export const AlignRightIcon = (props: any) => <StrokeIcon {...props}><line x1="21" x2="3" y1="6" y2="6" /><line x1="21" x2="9" y1="12" y2="12" /><line x1="21" x2="5" y1="18" y2="18" /></StrokeIcon>;
 export const ListIcon = (props: any) => <StrokeIcon {...props}><line x1="8" x2="21" y1="6" y2="6" /><line x1="8" x2="21" y1="12" y2="12" /><line x1="8" x2="21" y1="18" y2="18" /><line x1="3" x2="3.01" y1="6" y2="6" /><line x1="3" x2="3.01" y1="12" y2="12" /><line x1="3" x2="3.01" y1="18" y2="18" /></StrokeIcon>;
-export const ListOrderedIcon = (props: any) => <StrokeIcon {...props}><line x1="10" x2="21" y1="6" y2="6" /><line x1="10" x2="21" y1="12" y2="12" /><line x1="10" x2="21" y1="18" y2="18" /><path d="M4 6h1v4" /><path d="M4 10h2" /></StrokeIcon>;
+export const ListOrderedIcon = (props: any) => <StrokeIcon {...props}><line x1="10" x2="21" y1="6" y2="6" /><line x1="10" x2="21" y1="12" y2="12" /><line x1="10" x2="21" y1="18" y2="18" /><path d="M4 6h1v4" /><path d="M4 10h2" /><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" /></StrokeIcon>;
 export const IndentIcon = (props: any) => <StrokeIcon {...props}><polyline points="3 8 7 12 3 16" /><line x1="21" x2="11" y1="12" y2="12" /><line x1="21" x2="11" y1="6" y2="6" /><line x1="21" x2="11" y1="18" y2="18" /></StrokeIcon>;
 export const OutdentIcon = (props: any) => <StrokeIcon {...props}><polyline points="7 8 3 12 7 16" /><line x1="21" x2="11" y1="12" y2="12" /><line x1="21" x2="11" y1="6" y2="6" /><line x1="21" x2="11" y1="18" y2="18" /></StrokeIcon>;
-export const TableIcon = (props: any) => <IconBase {...props}><path d="M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM8 20H4v-4h4v4zm0-6H4v-4h4v4zm0-6H4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4zm6 12h-4v-4h4v4zm0-6h-4v-4h4v4zm0-6h-4V4h4v4z" /></IconBase>;
-export const TextSizeIcon = (props: any) => <IconBase {...props}><path d="M9 4v3h5v12h3V7h5V4H9zm-6 8h3v7h3v-7h3V9H3v3z" /></IconBase>;
-export const FontIcon = (props: any) => <IconBase {...props}><path d="M9 4v3h5v12h3V7h5V4H9zm-6 8h3v7h3v-7h3V9H3v3z" /></IconBase>;
-export const ColumnsIcon = (props: any) => <IconBase {...props}><path d="M10 18h5V5h-5v13zm-6 0h5V5H4v13zM16 5v13h5V5h-5z" /></IconBase>;
-export const UndoIcon = (props: any) => <IconBase {...props}><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" /></IconBase>;
-export const RedoIcon = (props: any) => <IconBase {...props}><path d="M18.4 10.6C16.55 9 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" /></IconBase>;
+export const TableIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><line x1="3" x2="21" y1="9" y2="9" /><line x1="3" x2="21" y1="15" y2="15" /><line x1="9" x2="9" y1="3" y2="21" /><line x1="15" x2="15" y1="3" y2="21" /></StrokeIcon>;
+export const TextSizeIcon = (props: any) => <StrokeIcon {...props}><polyline points="4 7 4 4 20 4 20 7" /><line x1="9" x2="15" y1="20" y2="20" /><line x1="12" x2="12" y1="4" y2="20" /></StrokeIcon>;
+export const FontIcon = (props: any) => <StrokeIcon {...props}><path d="M4 7V4h16v3" /><path d="M9 20h6" /><path d="M12 4v16" /></StrokeIcon>;
+export const ColumnsIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><line x1="12" x2="12" y1="3" y2="21" /></StrokeIcon>;
+export const UndoIcon = (props: any) => <StrokeIcon {...props}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11" /></StrokeIcon>;
+export const RedoIcon = (props: any) => <StrokeIcon {...props}><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13" /></StrokeIcon>;
 export const MinusIcon = (props: any) => <StrokeIcon {...props}><line x1="5" x2="19" y1="12" y2="12" /></StrokeIcon>;
 
 // --- Document Types ---
@@ -158,3 +158,5 @@ export const DownloadIcon = (props: any) => <StrokeIcon {...props}><path d="M21 
 export const SaveIcon = (props: any) => <StrokeIcon {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></StrokeIcon>;
 export const FolderIcon = (props: any) => <StrokeIcon {...props}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></StrokeIcon>;
 export const ImageIcon = (props: any) => <StrokeIcon {...props}><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></StrokeIcon>;
+export const PrinterIcon = (props: any) => <StrokeIcon {...props}><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></StrokeIcon>;
+export const ScanIcon = (props: any) => <StrokeIcon {...props}><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /></StrokeIcon>;

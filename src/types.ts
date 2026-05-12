@@ -11,7 +11,6 @@ export enum FormType {
   Note = "Note",
   Receipt = "Receipt",
   ChangeOrder = "Change Order",
-  ChangeOrder = "Change Order",
   PurchaseOrder = "Purchase Order",
   ProfitReport = "Profit Report",
 }
@@ -37,6 +36,7 @@ export interface UserProfile {
   emailTemplates?: Record<string, EmailTemplate>;
   emailUsage?: number; // Track number of emails sent
   theme?: 'light' | 'dark' | 'blue';
+  defaultLaborRate?: number; // Hourly labor cost rate for Job Costing
 }
 
 export interface Client {
@@ -58,6 +58,23 @@ export interface InventoryItem {
   quantity: number;
   category?: string;
   low_stock_threshold?: number;
+  unit?: string;
+  cost_price?: number;
+  supplier?: string;
+  location?: string;
+  is_assembly?: boolean;
+  assembly_items?: AssemblyItem[];
+  created_at?: string;
+}
+
+export interface InventoryHistoryItem {
+  id: string;
+  item_id: string;
+  user_id: string;
+  action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation' | 'deduct';
+  quantity_change: number;
+  notes?: string;
+  job_id?: string;
   created_at?: string;
 }
 
@@ -91,6 +108,10 @@ export interface AssemblyItem {
   item_id: string;
   quantity: number;
   override_price?: number | null; // Override component price
+  is_custom?: boolean; // Flag for ad-hoc custom items without matching ID
+  custom_name?: string;
+  custom_cost?: number;
+  custom_rate?: number;
 }
 
 export interface ItemVendor {
@@ -133,11 +154,23 @@ export interface LineItem {
   description: string;
   quantity: number;
   rate: number;
+  inventoryItemId?: string;
+  itemSource?: 'pricebook' | 'inventory';
   unitCost?: number; // Internal cost for profit calculation
   percentComplete?: number; // For progress invoicing (0-100)
   progressValue?: number; // For progress invoicing (Scheduled Value)
   progressPercentage?: number; // For progress invoicing (% to bill)
   previouslyBilled?: number; // For progress invoicing tracking
+  // Assemblies
+  isAssembly?: boolean;
+  hideComponentsOnPdf?: boolean;
+  isExpanded?: boolean;
+  assemblyComponents?: Array<{
+    item_id: string;
+    name: string;
+    quantity: number;
+    rate: number;
+  }>;
 }
 
 // Base interface for styling
@@ -277,6 +310,9 @@ export interface EstimateData extends DocumentStyle {
   clientAddress?: string;
   logoUrl?: string;
   signatureUrl?: string;
+  clientSignatureUrl?: string;
+  clientSignedAt?: string;
+  clientSignedBy?: string;
 }
 
 export interface ExpenseItem {
@@ -304,6 +340,8 @@ export interface ExpenseLogData extends DocumentStyle {
   signatureUrl?: string;
   // Compatibility with old type if needed in UI, though we prefer lineItems
   items?: ExpenseItem[];
+  description?: string;
+  paymentMethod?: string;
 }
 
 export interface WarrantyData extends DocumentStyle {
@@ -336,6 +374,8 @@ export interface ChangeOrderData extends DocumentStyle {
   clientAddress?: string;
   logoUrl?: string;
   signatureUrl?: string;
+  clientSignatureUrl?: string; // Client's signature from digital approval
+  clientSignedAt?: string; // Timestamp when client signed
 }
 
 export interface PurchaseOrderData extends DocumentStyle {
@@ -398,7 +438,7 @@ export interface FormData {
   jobId: string;
   type: FormType;
   createdAt: string;
-  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData | ProfitReportData;
+  data: InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ExpenseLogData | WarrantyData | NoteData | ReceiptData | ChangeOrderData | PurchaseOrderData;
   public_token?: string; // Add public_token for digital sign-offs
 }
 

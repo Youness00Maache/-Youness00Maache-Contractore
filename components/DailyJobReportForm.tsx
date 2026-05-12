@@ -634,6 +634,14 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
             .editor-content li { margin-bottom: 0.2em; }
             .editor-content blockquote { border-left: 4px solid #ccc; padding-left: 1em; margin-left: 0; color: #666; font-style: italic; }
             .editor-content a { color: blue; text-decoration: underline; cursor: pointer; }
+            /* Ensure highlight (background-color) spans grow to match text/font size changes */
+            .editor-content span[style*="background-color"],
+            .editor-content font[style*="background-color"] {
+                -webkit-box-decoration-break: clone;
+                box-decoration-break: clone;
+                padding-top: 0.1em;
+                padding-bottom: 0.1em;
+            }
         `}</style>
         <div className="flex flex-col h-full relative">
             <Toolbar 

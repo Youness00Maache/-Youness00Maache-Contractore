@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import type { EstimateData, LineItem, UserProfile, Job, Client, SavedItem } from '../types';
+import type { EstimateData, LineItem, UserProfile, Job, Client, SavedItem, InventoryItem } from '../types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon, EstimateIcon, TrendingUpIcon, EyeIcon, EyeOffIcon, TagIcon, SearchIcon, GlobeIcon, CheckIcon, CheckCircleIcon, SaveIcon } from './Icons.tsx';
+import { BackArrowIcon, ExportIcon, EstimateIcon, TrendingUpIcon, EyeIcon, EyeOffIcon, TagIcon, SearchIcon, GlobeIcon, CheckIcon, CheckCircleIcon, SaveIcon, BoxIcon } from './Icons.tsx';
 import { generateEstimatePDF } from '../services/pdfGenerator.ts';
 import TemplateSelector from './TemplateSelector.tsx';
 import SignaturePad from './SignaturePad.tsx';
@@ -16,6 +16,7 @@ interface Props {
     data: EstimateData | null;
     clients?: Client[];
     savedItems?: SavedItem[]; // New Prop
+    inventoryItems?: InventoryItem[];
     onSave: (data: EstimateData) => void;
     onBack: () => void;
     onUploadImage?: (file: File) => Promise<string>;
@@ -23,10 +24,11 @@ interface Props {
     onSaveToPriceBook?: (item: Partial<SavedItem>) => Promise<void>;
 }
 
-const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], savedItems = [], onSave, onBack, onUploadImage, publicToken, onSaveToPriceBook }) => {
+const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], savedItems = [], inventoryItems = [], onSave, onBack, onUploadImage, publicToken, onSaveToPriceBook }) => {
     const [page, setPage] = useState(1);
     const [showCosts, setShowCosts] = useState(false);
     const [showItemPicker, setShowItemPicker] = useState<string | null>(null); // Stores ID of line item being picked for
+    const [itemPickerTab, setItemPickerTab] = useState<'pricebook' | 'inventory'>('pricebook');
     const [itemSearch, setItemSearch] = useState('');
     const [copiedLink, setCopiedLink] = useState(false);
 
@@ -113,6 +115,21 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
     };
 
     const updateItem = (id: string, field: keyof LineItem, value: any) => {
+        const prevItem = formData.lineItems.find(i => i.id === id);
+        if (field === 'quantity' && prevItem?.itemSource === 'inventory' && prevItem.inventoryItemId) {
+            const inv = inventoryItems.find(i => i.id === prevItem.inventoryItemId);
+            const original = data && isCommittedStatus(data.status)
+                ? data.lineItems.find(li => li.id === id && (li.inventoryItemId || li.item_id) === prevItem.inventoryItemId)
+                : undefined;
+            const maxQty = Math.max(0, Number(inv?.quantity ?? prevItem.currentStock ?? 0) + Number(original?.quantity || 0));
+            const nextQty = Math.min(Math.max(0, Number(value || 0)), maxQty);
+            setFormData(prev => ({
+                ...prev,
+                lineItems: prev.lineItems.map(item => item.id === id ? { ...item, quantity: nextQty } : item)
+            }));
+            return;
+        }
+
         setFormData(prev => ({
             ...prev,
             lineItems: prev.lineItems.map(item => item.id === id ? { ...item, [field]: value } : item)
@@ -134,7 +151,39 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                         ...lineItem,
                         description: item.name + (item.description ? ` - ${item.description}` : ''),
                         rate: item.rate,
-                        unitCost: item.unit_cost || 0
+                        unitCost: item.unit_cost || 0,
+                        inventoryItemId: undefined,
+                        item_id: undefined,
+                        currentStock: undefined,
+                        track_inventory: false,
+                        itemSource: 'pricebook'
+                    }
+                    : lineItem
+            )
+        }));
+        setShowItemPicker(null);
+        setItemSearch('');
+    };
+
+    const handlePickInventoryItem = (invItem: InventoryItem) => {
+        if (!showItemPicker) return;
+        if (invItem.quantity <= 0) return;
+
+        setFormData(prev => ({
+            ...prev,
+            lineItems: prev.lineItems.map(lineItem =>
+                lineItem.id === showItemPicker
+                    ? {
+                        ...lineItem,
+                        description: invItem.name,
+                        rate: lineItem.rate || Number(invItem.cost_price || 0),
+                        unitCost: Number(invItem.cost_price || 0),
+                        quantity: Math.min(1, Math.max(0, invItem.quantity)),
+                        inventoryItemId: invItem.id,
+                        item_id: invItem.id,
+                        currentStock: invItem.quantity,
+                        track_inventory: true,
+                        itemSource: 'inventory'
                     }
                     : lineItem
             )
@@ -144,6 +193,20 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
     };
 
     const filteredSavedItems = savedItems.filter(i => i.name.toLowerCase().includes(itemSearch.toLowerCase()));
+    const filteredInventoryItems = inventoryItems.filter(i => i.name.toLowerCase().includes(itemSearch.toLowerCase()));
+    const isCommittedStatus = (status?: string) => ['approved', 'accepted', 'paid'].includes(String(status || '').toLowerCase());
+    const getOriginalCommittedQty = (item: LineItem) => {
+        if (!data || !isCommittedStatus(data.status)) return 0;
+        const itemId = item.inventoryItemId || item.item_id;
+        const original = data.lineItems.find(li => li.id === item.id && (li.inventoryItemId || li.item_id) === itemId);
+        return Number(original?.quantity || 0);
+    };
+    const getInventoryStock = (item: LineItem) => {
+        const inv = inventoryItems.find(i => i.id === item.inventoryItemId || i.id === item.item_id);
+        return Number(inv?.quantity ?? item.currentStock ?? 0) + getOriginalCommittedQty(item);
+    };
+    const isInventoryLinked = (item: LineItem) => Boolean(item.track_inventory || item.itemSource === 'inventory' || item.inventoryItemId || item.item_id);
+    const hasInvalidInventoryQty = isCommittedStatus(formData.status) && formData.lineItems.some(item => isInventoryLinked(item) && Number(item.quantity || 0) > getInventoryStock(item));
 
     // Profit Calculations
     const totalRevenue = formData.lineItems.reduce((acc, item) => acc + (item.quantity * item.rate), 0);
@@ -265,8 +328,8 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                                         variant="ghost"
                                         size="icon"
                                         className="h-10 w-10 shrink-0 text-muted-foreground hover:text-primary"
-                                        onClick={() => { setShowItemPicker(item.id); setItemSearch(''); }}
-                                        title="Pick from Price Book"
+                                        onClick={() => { setShowItemPicker(item.id); setItemPickerTab('pricebook'); setItemSearch(''); }}
+                                        title="Pick from Price Book or Inventory"
                                     >
                                         <TagIcon className="w-4 h-4" />
                                     </Button>
@@ -280,6 +343,13 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                                         <SaveIcon className="w-4 h-4" />
                                     </Button>
                                 </div>
+                                {isInventoryLinked(item) && (
+                                    <div className={`mt-1 flex items-center gap-1 text-xs ${Number(item.quantity || 0) > getInventoryStock(item) ? 'text-destructive' : 'text-green-600'}`}>
+                                        <BoxIcon className="w-3 h-3" />
+                                        Stock: {getInventoryStock(item)}
+                                        {Number(item.quantity || 0) > getInventoryStock(item) ? ' - reduce quantity' : ''}
+                                    </div>
+                                )}
                             </div>
                             <div className="col-span-2">
                                 <Input type="number" className="text-center" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', parseFloat(e.target.value))} />
@@ -398,24 +468,51 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
             <CardFooter className="flex flex-col sm:flex-row gap-2 w-full">
                 <Button variant="outline" onClick={() => setPage(1)} className="w-full sm:w-auto order-2 sm:order-1">Back</Button>
                 <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:order-2 sm:ml-auto sm:justify-end">
-                    <Button variant="outline" onClick={() => onSave(formData)} className="w-full sm:w-auto">Save Draft</Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            if (hasInvalidInventoryQty) {
+                                alert('One or more inventory-linked items exceed available stock. Please reduce the quantity before saving.');
+                                return;
+                            }
+                            onSave(formData);
+                        }}
+                        className="w-full sm:w-auto"
+                        disabled={hasInvalidInventoryQty}
+                    >
+                        Save Draft
+                    </Button>
                     <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full sm:w-auto"><ExportIcon className="h-4 w-4 mr-2" /> Download</Button>
-                    <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading} className="col-span-2 sm:col-span-1 w-full sm:w-auto">Save & Download</Button>
+                    <Button onClick={async () => { if (!hasInvalidInventoryQty) { onSave(formData); await handleDownload(); } }} disabled={isDownloading || hasInvalidInventoryQty} className="col-span-2 sm:col-span-1 w-full sm:w-auto">Save & Download</Button>
                 </div>
             </CardFooter>
 
-            {/* Price Book Picker Modal */}
+            {/* Combined Item Picker Modal */}
             {showItemPicker && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowItemPicker(null)}>
                     <Card className="w-full max-w-md animate-in zoom-in-95 shadow-2xl h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <CardHeader className="border-b border-border pb-4">
-                            <CardTitle className="flex items-center gap-2"><TagIcon className="w-5 h-5 text-primary" /> Select from Price Book</CardTitle>
+                            <CardTitle>Select Item</CardTitle>
+                            <div className="flex gap-2 -mx-6 px-6 -mb-4 mt-4">
+                                <button
+                                    onClick={() => { setItemPickerTab('pricebook'); setItemSearch(''); }}
+                                    className={`pb-3 px-2 text-sm font-medium border-b-2 transition-colors ${itemPickerTab === 'pricebook' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                                >
+                                    <span className="flex items-center gap-1"><TagIcon className="w-4 h-4" /> Price Book</span>
+                                </button>
+                                <button
+                                    onClick={() => { setItemPickerTab('inventory'); setItemSearch(''); }}
+                                    className={`pb-3 px-2 text-sm font-medium border-b-2 transition-colors ${itemPickerTab === 'inventory' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                                >
+                                    <span className="flex items-center gap-1"><BoxIcon className="w-4 h-4" /> Inventory</span>
+                                </button>
+                            </div>
                         </CardHeader>
                         <CardContent className="flex-1 overflow-hidden flex flex-col p-4 gap-4">
                             <div className="relative">
                                 <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                                 <Input
-                                    placeholder="Search items..."
+                                    placeholder={itemPickerTab === 'pricebook' ? 'Search price book...' : 'Search inventory...'}
                                     className="pl-9"
                                     value={itemSearch}
                                     onChange={e => setItemSearch(e.target.value)}
@@ -423,24 +520,51 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                                 />
                             </div>
                             <div className="flex-1 overflow-y-auto space-y-2">
-                                {filteredSavedItems.length === 0 ? (
-                                    <div className="text-center py-10 text-muted-foreground text-sm">
-                                        No items found. Add items in the Price Book from the dashboard.
-                                    </div>
+                                {itemPickerTab === 'pricebook' ? (
+                                    filteredSavedItems.length === 0 ? (
+                                        <div className="text-center py-10 text-muted-foreground text-sm">
+                                            No items found. Add items in the Price Book from the dashboard.
+                                        </div>
+                                    ) : (
+                                        filteredSavedItems.map(item => (
+                                            <button
+                                                key={item.id}
+                                                className="w-full text-left p-3 rounded-lg border border-border hover:bg-secondary transition-colors group"
+                                                onClick={() => handlePickItem(item)}
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <span className="font-semibold">{item.name}</span>
+                                                    <span className="font-mono text-primary font-bold">${item.rate}</span>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground mt-1 truncate">{item.description}</div>
+                                            </button>
+                                        ))
+                                    )
                                 ) : (
-                                    filteredSavedItems.map(item => (
-                                        <button
-                                            key={item.id}
-                                            className="w-full text-left p-3 rounded-lg border border-border hover:bg-secondary transition-colors group"
-                                            onClick={() => handlePickItem(item)}
-                                        >
-                                            <div className="flex justify-between items-start">
-                                                <span className="font-semibold">{item.name}</span>
-                                                <span className="font-mono text-primary font-bold">${item.rate}</span>
-                                            </div>
-                                            <div className="text-xs text-muted-foreground mt-1 truncate">{item.description}</div>
-                                        </button>
-                                    ))
+                                    filteredInventoryItems.length === 0 ? (
+                                        <div className="text-center py-10 text-muted-foreground text-sm">
+                                            No inventory items found. Add items in Inventory from the dashboard.
+                                        </div>
+                                    ) : (
+                                        filteredInventoryItems.map(inv => {
+                                            const price = Number(inv.cost_price || 0);
+                                            return (
+                                                <button
+                                                    key={inv.id}
+                                                    className={`w-full text-left p-3 rounded-lg border border-border transition-colors group ${inv.quantity <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                                                    onClick={() => { if (inv.quantity > 0) handlePickInventoryItem(inv); }}
+                                                    disabled={inv.quantity <= 0}
+                                                    title={inv.quantity <= 0 ? 'Out of stock' : 'Select inventory item'}
+                                                >
+                                                    <div className="flex justify-between items-start gap-3">
+                                                        <span className="font-semibold">{inv.name}</span>
+                                                        <span className="font-mono text-primary font-bold">${price.toFixed(2)} (Stock: {inv.quantity})</span>
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground mt-1 truncate">{inv.category || inv.unit || 'Inventory item'}</div>
+                                                </button>
+                                            );
+                                        })
+                                    )
                                 )}
                             </div>
                         </CardContent>

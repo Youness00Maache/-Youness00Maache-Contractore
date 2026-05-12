@@ -27,7 +27,7 @@ interface CommunicationViewProps {
 
 const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session, onConnectGmail, onEmailSent, onUpgrade }) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
-    const [selectedDocId, setSelectedDocId] = useState<string>('');
+    const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
 
     // Email Fields
     const [recipientEmail, setRecipientEmail] = useState('');
@@ -83,7 +83,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
             const client = clients.find(c => c.id === selectedClientId);
             if (client) {
                 setRecipientEmail(client.email || '');
-                setSelectedDocId('');
+                setSelectedDocIds([]);
                 setSubject('');
                 setBody('');
                 setSendSuccess(false);
@@ -92,36 +92,50 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     }, [selectedClientId, clients]);
 
     useEffect(() => {
-        if (selectedDocId && selectedClientId) {
-            const doc = forms.find(f => f.id === selectedDocId);
+        if (selectedDocIds.length > 0 && selectedClientId) {
+            const docs = forms.filter(f => selectedDocIds.includes(f.id));
             const client = clients.find(c => c.id === selectedClientId);
 
-            if (doc && client) {
-                applyTemplate(doc, client);
+            if (docs.length > 0 && client) {
+                applyTemplate(docs, client);
             }
         }
-    }, [selectedDocId]);
+    }, [selectedDocIds, forms, selectedClientId]);
 
-    const getJobName = (doc: FormDataType) => {
-        const job = jobs.find(j => j.id === doc.jobId);
-        if (job) return job.name;
-        const data = doc.data as any;
-        return data.projectName || data.title || 'Project';
+    const getJobName = (docs: FormDataType[]) => {
+        const jobNames = new Set(docs.map(doc => {
+            const job = jobs.find(j => j.id === doc.jobId);
+            if (job) return job.name;
+            const data = doc.data as any;
+            return data.projectName || data.title || 'Project';
+        }));
+        if (jobNames.size === 1) return Array.from(jobNames)[0];
+        return 'Multiple Projects';
     };
 
-    const applyTemplate = (doc: FormDataType, client: Client) => {
-        const docType = doc.type;
-        const data = doc.data as any;
+    const applyTemplate = (docs: FormDataType[], client: Client) => {
+        const firstDoc = docs[0];
+        const docType = firstDoc.type;
         const templateKey = `${docType.toLowerCase().replace(' ', '_')}_default`;
         const template = profile.emailTemplates?.[templateKey] || getDefaultTemplate(docType);
 
         const replacements: Record<string, string> = {
             '[Client Name]': client.name,
-            '[Job Name]': getJobName(doc),
+            '[Job Name]': getJobName(docs),
             '[My Company]': profile.companyName || 'Us',
             '[My Name]': profile.name || 'Me',
-            '[Document Number]': data.invoiceNumber || data.estimateNumber || data.workOrderNumber || data.poNumber || 'Doc',
-            '[Total Amount]': data.lineItems ? `$${data.lineItems.reduce((acc: number, item: any) => acc + (item.quantity * item.rate), 0).toFixed(2)}` : ''
+            '[Document Number]': docs.map(d => {
+                const data = d.data as any;
+                return data.invoiceNumber || data.estimateNumber || data.workOrderNumber || data.poNumber || 'Doc';
+            }).join(', '),
+            '[Total Amount]': docs.some(d => {
+                const data = d.data as any;
+                return data.lineItems || data.amount;
+            }) ? `$${docs.reduce((acc, d) => {
+                const data = d.data as any;
+                const docTotal = data.lineItems ? data.lineItems.reduce((sum: number, item: any) => sum + (item.quantity * item.rate), 0) : (data.amount || 0);
+                return acc + docTotal;
+            }, 0).toFixed(2)}` : ''
         };
 
         let subj = template.subject;
@@ -159,8 +173,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const insertVariable = (v: string) => {
         let valueToInsert = v;
         const client = clients.find(c => c.id === selectedClientId);
-        const doc = forms.find(f => f.id === selectedDocId);
-        const data = doc?.data as any;
+        const docs = forms.filter(f => selectedDocIds.includes(f.id));
 
         if (v === '[Client Name]' && client) {
             valueToInsert = client.name;
@@ -171,20 +184,23 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
         else if (v === '[My Name]') {
             valueToInsert = profile.name;
         }
-        else if (doc) {
+        else if (docs.length > 0) {
             if (v === '[Job Name]') {
-                valueToInsert = getJobName(doc);
+                valueToInsert = getJobName(docs);
             }
-            else if (data) {
-                if (v === '[Document Number]') {
-                    valueToInsert = data.invoiceNumber || data.estimateNumber || data.workOrderNumber || data.poNumber || data.receiptNumber || '';
-                }
-                else if (v === '[Total Amount]') {
-                    const total = data.lineItems
-                        ? data.lineItems.reduce((acc: number, item: any) => acc + (Number(item.quantity) * Number(item.rate)), 0)
-                        : (data.amount || 0);
-                    valueToInsert = `$${Number(total).toFixed(2)}`;
-                }
+            else if (v === '[Document Number]') {
+                valueToInsert = docs.map(d => {
+                    const data = d.data as any;
+                    return data.invoiceNumber || data.estimateNumber || data.workOrderNumber || data.poNumber || data.receiptNumber || '';
+                }).filter(Boolean).join(', ');
+            }
+            else if (v === '[Total Amount]') {
+                const total = docs.reduce((acc, d) => {
+                    const data = d.data as any;
+                    const docTotal = data.lineItems ? data.lineItems.reduce((sum: number, item: any) => sum + (Number(item.quantity) * Number(item.rate)), 0) : (data.amount || 0);
+                    return acc + docTotal;
+                }, 0);
+                valueToInsert = `$${Number(total).toFixed(2)}`;
             }
         }
 
@@ -215,21 +231,23 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
         setSendSuccess(false);
 
         try {
-            let attachment = undefined;
-            if (selectedDocId) {
-                const doc = forms.find(f => f.id === selectedDocId);
-                if (doc) {
-                    const job = jobs.find(j => j.id === doc.jobId);
-                    const base64Data = await generateDocumentBase64(doc.type, doc.data, profile, job!);
+            let attachments: any[] = [];
+            if (selectedDocIds.length > 0) {
+                for (const docId of selectedDocIds) {
+                    const doc = forms.find(f => f.id === docId);
+                    if (doc) {
+                        const job = jobs.find(j => j.id === doc.jobId);
+                        const base64Data = await generateDocumentBase64(doc.type, doc.data, profile, job!);
 
-                    if (base64Data) {
-                        const docData = doc.data as any;
-                        const filename = `${doc.type}-${docData.invoiceNumber || docData.estimateNumber || docData.poNumber || 'Doc'}.pdf`;
-                        attachment = {
-                            name: filename,
-                            data: base64Data,
-                            type: 'application/pdf'
-                        };
+                        if (base64Data) {
+                            const docData = doc.data as any;
+                            const filename = `${doc.type}-${docData.invoiceNumber || docData.estimateNumber || docData.poNumber || 'Doc'}.pdf`;
+                            attachments.push({
+                                name: filename,
+                                data: base64Data,
+                                type: 'application/pdf'
+                            });
+                        }
                     }
                 }
             }
@@ -237,7 +255,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
             // Generate HTML email if template is selected
             const htmlEmail = generateHtmlEmail();
 
-            await sendGmail(session, recipientEmail, subject, body, attachment, profile.gmailAccessToken, htmlEmail);
+            await sendGmail(session, recipientEmail, subject, body, attachments.length > 0 ? attachments : undefined, profile.gmailAccessToken, htmlEmail);
 
             setSendSuccess(true);
             if (onEmailSent) onEmailSent();
@@ -276,20 +294,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
             secondary_color: secondaryColor,
         };
 
-        // Simple template variable replacement (basic version)
-        let html = selectedTemplate.html;
-        for (const [key, value] of Object.entries(variables)) {
-            const placeholder = `{{${key}}}`;
-            html = html.split(placeholder).join(value);
-        }
-
-        // Handle conditional blocks (basic #if support)
-        const ifPattern = /\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
-        html = html.replace(ifPattern, (match, varName, content) => {
-            return variables[varName] ? content : '';
-        });
-
-        return html;
+        return applyTemplateVariables(selectedTemplate.html, variables);
     };
 
     return (
@@ -347,12 +352,19 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                                             const data = doc.data as any;
                                             const title = data.title || data.invoiceNumber || data.estimateNumber || doc.type;
                                             const date = new Date(doc.createdAt).toLocaleDateString();
-                                            const isSelected = selectedDocId === doc.id;
+                                            const isSelected = selectedDocIds.includes(doc.id);
+                                            const toggleDoc = () => {
+                                                if (isSelected) {
+                                                    setSelectedDocIds(prev => prev.filter(id => id !== doc.id));
+                                                } else {
+                                                    setSelectedDocIds(prev => [...prev, doc.id]);
+                                                }
+                                            };
 
                                             return (
                                                 <div
                                                     key={doc.id}
-                                                    onClick={() => setSelectedDocId(doc.id)}
+                                                    onClick={toggleDoc}
                                                     className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all hover:shadow-sm ${isSelected ? 'border-primary bg-background ring-1 ring-primary shadow-sm' : 'border-border hover:bg-secondary/50'}`}
                                                 >
                                                     <div className={`w-4 h-4 rounded-full border flex items-center justify-center mr-3 ${isSelected ? 'border-primary bg-primary' : 'border-muted-foreground'}`}>
@@ -575,6 +587,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                     }}
                     onClose={() => setShowTemplateSelector(false)}
                     selectedTemplateId={selectedTemplate?.id}
+                    logoUrl={profile.logoUrl}
                 />
             )}
 

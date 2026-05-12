@@ -12,13 +12,22 @@ export interface EmailTemplateDefinition {
  */
 export const applyTemplateVariables = (
   html: string,
-  variables: Record<string, string>
+  variables: Record<string, string | undefined>
 ): string => {
   let result = html;
+
+  // 1. Handle standard replacements
   for (const [key, value] of Object.entries(variables)) {
     const placeholder = `{{${key}}}`;
     result = result.split(placeholder).join(value || '');
   }
+
+  // 2. Handle conditional blocks (e.g. {{#if logo_url}}...{{/if}})
+  const ifPattern = /\{\{#if\s+(\w+)\s*\}\}([\s\S]*?)\{\{\/if\}\}/g;
+  result = result.replace(ifPattern, (match, varName, content) => {
+    return variables[varName] ? content : '';
+  });
+
   return result;
 };
 
@@ -31,7 +40,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'modern-gradient',
     name: 'Modern Gradient',
     category: 'modern',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -42,7 +51,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7fa; }
     .container { max-width: 600px; margin: 0 auto; background: white; }
     .header { background: linear-gradient(135deg, {{primary_color}} 0%, {{secondary_color}} 100%); padding: 40px 30px; text-align: center; }
-    .logo { max-width: 150px; height: auto; margin-bottom: 15px; }
+    .logo { max-width: 150px; max-height: 70px; width: auto; object-fit: contain; margin-bottom: 15px; }
     .header h1 { color: white; margin: 0; font-size: 24px; font-weight: 600; }
     .content { padding: 40px 30px; color: #333; line-height: 1.6; }
     .footer { background: #f8f9fa; padding: 30px; text-align: center; color: #6c757d; font-size: 13px; border-top: 1px solid #e9ecef; }
@@ -81,7 +90,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'modern-clean',
     name: 'Modern Clean',
     category: 'modern',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1614850523296-e8c041de83a4?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -92,7 +101,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #ffffff; }
     .container { max-width: 600px; margin: 0 auto; }
     .header { padding: 30px; border-bottom: 3px solid {{primary_color}}; }
-    .logo { max-width: 140px; height: auto; }
+    .logo { max-width: 140px; max-height: 60px; width: auto; object-fit: contain; }
     .content { padding: 40px 30px; color: #2d3748; line-height: 1.8; font-size: 15px; }
     .accent-bar { height: 4px; background: {{primary_color}}; margin: 30px 0; }
     .footer { padding: 30px; background: #f7fafc; margin-top: 40px; text-align: center; font-size: 13px; color: #718096; }
@@ -131,7 +140,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'modern-bold',
     name: 'Modern Bold',
     category: 'modern',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1636953056323-9c09fdd74fa6?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -143,7 +152,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .header { background: {{primary_color}}; padding: 50px 30px; text-align: center; position: relative; }
     .header::after { content: ''; position: absolute; bottom: -20px; left: 0; right: 0; height: 20px; background: white; border-radius: 20px 20px 0 0; }
-    .logo { max-width: 160px; }
+    .logo { max-width: 160px; max-height: 80px; width: auto; object-fit: contain; }
     .content { padding: 40px 40px 50px; color: #1e293b; line-height: 1.7; font-size: 15px; }
     .signature-card { background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); padding: 25px; border-radius: 10px; margin-top: 30px; border-left: 4px solid {{primary_color}}; }
     .signature-name { font-weight: 700; font-size: 18px; color: #0f172a; }
@@ -180,7 +189,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'corporate-classic',
     name: 'Corporate Classic',
     category: 'corporate',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -191,7 +200,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: Georgia, 'Times New Roman', serif; background-color: #f5f5f5; }
     .container { max-width: 650px; margin: 0 auto; background: white; border: 1px solid #ddd; }
     .header { background: #ffffff; padding: 25px 40px; border-bottom: 4px solid {{primary_color}}; }
-    .logo { max-width: 180px; }
+    .logo { max-width: 180px; max-height: 80px; width: auto; object-fit: contain; }
     .content { padding: 50px 40px; color: #333; line-height: 1.8; font-size: 15px; }
     .divider { border-top: 1px solid #e0e0e0; margin: 30px 0; }
     .signature-block { margin-top: 40px; }
@@ -233,7 +242,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'corporate-professional',
     name: 'Corporate Professional',
     category: 'corporate',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -245,7 +254,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .container { max-width: 600px; margin: 20px auto; background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
     .header-stripe { height: 8px; background: linear-gradient(90deg, {{primary_color}} 0%, {{secondary_color}} 100%); }
     .header { padding: 30px 40px; background: #f8f9fa; }
-    .logo { max-width: 150px; }
+    .logo { max-width: 150px; max-height: 70px; width: auto; object-fit: contain; }
     .content { padding: 40px; color: #212529; line-height: 1.7; font-size: 14px; }
     .signature-table { width: 100%; margin-top: 35px; border-top: 2px solid {{primary_color}}; padding-top: 20px; }
     .sig-label { color: #6c757d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
@@ -301,7 +310,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'corporate-executive',
     name: 'Corporate Executive',
     category: 'corporate',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -313,7 +322,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .container { max-width: 620px; margin: 30px auto; background: #ffffff; }
     .top-bar { height: 5px; background: {{primary_color}}; }
     .header { padding: 35px 45px; background: #fafafa; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; justify-content: space-between; }
-    .logo { max-width: 140px; }
+    .logo { max-width: 140px; max-height: 60px; width: auto; object-fit: contain; }
     .header-text { font-size: 11px; color: #888; text-align: right; text-transform: uppercase; letter-spacing: 1px; }
     .content { padding: 50px 45px; color: #2c2c2c; line-height: 1.9; font-size: 15px; }
     .vcard { margin-top: 45px; padding: 25px; background: #f8f8f8; border-left: 5px solid {{primary_color}}; }
@@ -356,7 +365,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'minimalist-simple',
     name: 'Minimalist Simple',
     category: 'minimalist',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1483058712412-4245e9b90334?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -366,7 +375,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   <style>
     body { margin: 0; padding: 0; font-family: 'Helvetica', 'Arial', sans-serif; background-color: #ffffff; }
     .container { max-width: 560px; margin: 60px auto; padding: 0 20px; }
-    .logo { max-width: 100px; margin-bottom: 40px; }
+    .logo { max-width: 100px; max-height: 50px; width: auto; object-fit: contain; margin-bottom: 40px; }
     .content { color: #000; line-height: 1.8; font-size: 15px; }
     .signature { margin-top: 50px; font-size: 14px; }
     .signature-name { font-weight: 600; }
@@ -399,7 +408,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'minimalist-elegant',
     name: 'Minimalist Elegant',
     category: 'minimalist',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1544256718-3bcf237f3974?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -410,7 +419,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: 'Lato', 'Helvetica Neue', sans-serif; background-color: #fefefe; }
     .container { max-width: 580px; margin: 80px auto; padding: 0 30px; }
     .header-minimal { margin-bottom: 50px; }
-    .logo-minimal { max-width: 90px; opacity: 0.9; }
+    .logo-minimal { max-width: 90px; max-height: 50px; width: auto; object-fit: contain; opacity: 0.9; }
     .content { color: #1a1a1a; line-height: 2; font-size: 15px; font-weight: 300; }
     .signature-minimal { margin-top: 60px; padding-top: 25px; border-top: 1px solid #e0e0e0; }
     .sig-name { font-weight: 400; font-size: 15px; letter-spacing: 0.5px; }
@@ -440,7 +449,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'minimalist-zen',
     name: 'Minimalist Zen',
     category: 'minimalist',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -450,7 +459,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   <style>
     body { margin: 0; padding: 0; font-family: 'Courier New', monospace; background: #f9f9f9; }
     .container { max-width: 500px; margin: 100px auto; background: white; padding: 60px 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-    .zen-logo { max-width: 70px; margin-bottom: 50px; filter: grayscale(100%); opacity: 0.7; }
+    .zen-logo { max-width: 70px; max-height: 40px; width: auto; object-fit: contain; margin-bottom: 50px; filter: grayscale(100%); opacity: 0.7; }
     .content { color: #333; line-height: 1.9; font-size: 14px; }
     .zen-divider { width: 30px; height: 1px; background: #ccc; margin: 50px 0; }
     .zen-signature { font-size: 13px; color: #666; }
@@ -478,7 +487,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'billing-structured',
     name: 'Billing Structured',
     category: 'billing',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -491,7 +500,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .header-billing { background: {{primary_color}}; padding: 25px 40px; color: white; }
     .header-billing h1 { margin: 0; font-size: 22px; font-weight: 700; }
     .header-billing .tagline { margin-top: 5px; font-size: 13px; opacity: 0.9; }
-    .logo-billing { max-width: 130px; margin-bottom: 15px; }
+    .logo-billing { max-width: 130px; max-height: 60px; width: auto; object-fit: contain; margin-bottom: 15px; }
     .content { padding: 35px 40px; color: #333; line-height: 1.7; font-size: 14px; }
     .info-grid { display: table; width: 100%; margin: 30px 0; border-top: 2px solid {{primary_color}}; padding-top: 20px; }
     .info-row { display: table-row; }
@@ -544,7 +553,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'billing-professional',
     name: 'Billing Professional',
     category: 'billing',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -555,7 +564,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; background: #e9ecef; }
     .invoice-container { max-width: 700px; margin: 30px auto; background: white; border: 1px solid #dee2e6; }
     .invoice-header { padding: 30px 40px; background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); border-bottom: 3px solid {{primary_color}}; }
-    .invoice-logo { max-width: 160px; margin-bottom: 20px; }
+    .invoice-logo { max-width: 160px; max-height: 70px; width: auto; object-fit: contain; margin-bottom: 20px; }
     .invoice-title { font-size: 28px; font-weight: 700; color: {{primary_color}}; margin: 0; }
     .invoice-subtitle { color: #6c757d; font-size: 14px; margin-top: 5px; }
     .invoice-body { padding: 40px; }
@@ -612,7 +621,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'creative-vibrant',
     name: 'Creative Vibrant',
     category: 'creative',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -625,7 +634,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .creative-card { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .creative-header { background: linear-gradient(135deg, {{primary_color}} 0%, {{secondary_color}} 100%); padding: 50px 35px; text-align: center; position: relative; }
     .creative-header::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120"><path fill="rgba(255,255,255,0.1)" d="M0,0V46.29c47.79,22.2,103.59,32.17,158,28,70.36-5.37,136.33-33.31,206.8-37.5C438.64,32.43,512.34,53.67,583,72.05c69.27,18,138.3,24.88,209.4,13.08,36.15-6,69.85-17.84,104.45-29.34C989.49,25,1113-14.29,1200,52.47V0Z" opacity=".25"/></svg>'); background-size: cover; opacity: 0.3; }
-    .creative-logo { max-width: 140px; position: relative; z-index: 1; }
+    .creative-logo { max-width: 140px; max-height: 70px; width: auto; object-fit: contain; position: relative; z-index: 1; }
     .creative-subtitle { color: rgba(255,255,255,0.9); margin-top: 15px; font-size: 16px; font-weight: 300; position: relative; z-index: 1; }
     .creative-content { padding: 45px 35px; color: #2d3748; line-height: 1.8; font-size: 15px; }
     .creative-sig { margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); border-radius: 15px; text-align: center; }
@@ -663,7 +672,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'creative-playful',
     name: 'Creative Playful',
     category: 'creative',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -673,7 +682,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
   <style>
     body { margin: 0; padding: 0; font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif; background: #fff5e6; }
     .playful-container { max-width: 580px; margin: 30px auto; background: white; border: 8px solid {{primary_color}}; border-radius: 30px; padding: 40px; box-shadow: 12px 12px 0 rgba(0,0,0,0.1); }
-    .playful-logo { max-width: 120px; margin-bottom: 25px; }
+    .playful-logo { max-width: 120px; max-height: 60px; width: auto; object-fit: contain; margin-bottom: 25px; }
     .playful-title { font-size: 26px; color: {{primary_color}}; font-weight: bold; transform: rotate(-2deg); transform-origin: left; display: inline-block; }
     .playful-content { color: #333; line-height: 1.9; font-size: 15px; margin-top: 30px; }
     .playful-sig { margin-top: 40px; padding: 20px; background: #fffacd; border-left: 6px solid {{primary_color}}; border-radius: 0 15px 15px 0; transform: rotate(1deg); }
@@ -703,7 +712,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'creative-artistic',
     name: 'Creative Artistic',
     category: 'creative',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1547826039-bfc35e0f1ea8?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -714,7 +723,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     body { margin: 0; padding: 0; font-family: 'Garamond', 'Georgia', serif; background: linear-gradient(to bottom, #fdfbfb 0%, #ebedee 100%); }
     .artistic-frame { max-width: 650px; margin: 50px auto; background: white; padding: 50px; box-shadow: 0 30px 60px rgba(0,0,0,0.12); border: 20px solid #f8f8f8; position: relative; }
     .artistic-frame::before { content: ''; position: absolute; top: 10px; right: 10px; bottom: 10px; left: 10px; border: 2px solid {{primary_color}}; pointer-events: none; }
-    .artistic-logo { max-width: 110px; margin-bottom: 30px; position: relative; z-index: 1; }
+    .artistic-logo { max-width: 110px; max-height: 60px; width: auto; object-fit: contain; margin-bottom: 30px; position: relative; z-index: 1; }
     .artistic-content { color: #2c2c2c; line-height: 2; font-size: 16px; position: relative; z-index: 1; }
     .artistic-divider { width: 60px; height: 3px; background: linear-gradient(90deg, {{primary_color}} 0%, transparent 100%); margin: 40px 0; }
     .artistic-sig { position: relative; z-index: 1; font-style: italic; }
@@ -747,7 +756,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     id: 'signature-focused',
     name: 'Signature Focused',
     category: 'minimalist',
-    thumbnail: '',
+    thumbnail: 'https://images.unsplash.com/photo-1512428559083-a400a3b84075?auto=format&fit=crop&q=80&w=400&h=300',
     html: `
 <!DOCTYPE html>
 <html>
@@ -766,7 +775,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDefinition[] = [
     .sig-title-large { font-size: 14px; color: #666; margin-bottom: 3px; }
     .sig-company-large { font-size: 14px; color: #333; font-weight: 600; margin-bottom: 10px; }
     .sig-contact-line { font-size: 13px; color: #555; margin: 3px 0; }
-    .sig-logo-small { max-width: 100px; margin-top: 15px; opacity: 0.7; }
+    .sig-logo-small { max-width: 100px; max-height: 50px; width: auto; object-fit: contain; margin-top: 15px; opacity: 0.7; }
   </style>
 </head>
 <body>

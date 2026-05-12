@@ -84,7 +84,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
     const handleColorChange = (color: string) => {
         if (showColorPicker === 'text') onCommand('foreColor', color);
-        else if (showColorPicker === 'background') onCommand('hiliteColor', color);
+        else if (showColorPicker === 'background') onCommand('backColor', color);
         setShowColorPicker(null);
     };
 

@@ -1,7 +1,7 @@
-
 import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData, ProfitReportData } from '../types.ts';
 import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate, getProfitReportHtmlTemplate } from '../utils/templates/documentHtmlTemplates.ts';
 import { getNeonCyberpunkHtmlTemplate, getLuxuryGoldNavyHtmlTemplate, getOrganicNatureHtmlTemplate, getGeometricBoldHtmlTemplate, getPastelSoftHtmlTemplate, getVintageCraftHtmlTemplate, getBlueprintTechHtmlTemplate, getAbstractMemphisHtmlTemplate, getCrimsonNoirHtmlTemplate, getWatercolorArtisticHtmlTemplate, getSwissGridHtmlTemplate, getSpaceOdysseyHtmlTemplate, getRetroTerminalHtmlTemplate, getPlayfulPopHtmlTemplate, getElegantSerifHtmlTemplate } from '../utils/templates/allNewTemplates.ts';
+import { adaptTemplateForContentDocument } from '../utils/templates/templateAdapters.ts';
 
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -144,7 +144,68 @@ const renderHtmlToPdf = async (
 
         /* Links */
         a { color: blue; text-decoration: underline; cursor: pointer; }
+        
+        /* Ensure highlight (background-color) spans grow to match text/font size changes */
+        span[style*="background-color"],
+        font[style*="background-color"] {
+            -webkit-box-decoration-break: clone;
+            box-decoration-break: clone;
+            padding-top: 0.1em;
+            padding-bottom: 0.1em;
+        }
     `;
+    // --- Preprocess HTML: convert legacy <font size="N"> to CSS font-size ---
+    // execCommand('fontSize') produces <font size="1-7"> which uses HTML4 size steps.
+    // html2canvas doesn't compute line-box height from these correctly, so highlight
+    // backgrounds don't expand to cover large text. Converting to px CSS sizes fixes this.
+    const fontSizePxMap: Record<string, string> = {
+        '1': '9px', '2': '11px', '3': '13px', '4': '16px',
+        '5': '20px', '6': '28px', '7': '36px',
+    };
+    const convertFontTags = (node: HTMLElement) => {
+        const fontEls = Array.from(node.querySelectorAll('font'));
+        fontEls.forEach(fontEl => {
+            const span = document.createElement('span');
+            // Preserve any inline styles (like color)
+            if (fontEl.hasAttribute('style')) {
+                span.setAttribute('style', fontEl.getAttribute('style')!);
+            }
+            // Convert size attribute to CSS font-size
+            const sizeAttr = fontEl.getAttribute('size');
+            if (sizeAttr && fontSizePxMap[sizeAttr]) {
+                span.style.fontSize = fontSizePxMap[sizeAttr];
+            }
+            // Convert color attribute to CSS color
+            const colorAttr = fontEl.getAttribute('color');
+            if (colorAttr) {
+                span.style.color = colorAttr;
+            }
+            // Move children
+            while (fontEl.firstChild) {
+                span.appendChild(fontEl.firstChild);
+            }
+            fontEl.parentNode?.replaceChild(span, fontEl);
+        });
+    };
+    convertFontTags(wrapper);
+
+    // After converting font tags, propagate background-color from highlight spans
+    // to all their children so html2canvas renders the fill at the correct text height.
+    const highlightElements = wrapper.querySelectorAll('span[style*="background-color"]');
+    highlightElements.forEach(el => {
+        const htmlEl = el as HTMLElement;
+        const bgColor = htmlEl.style.backgroundColor;
+        if (bgColor) {
+            // Ensure the span itself stretches to cover its tallest child
+            htmlEl.style.display = 'inline-block';
+            htmlEl.style.lineHeight = '1.2';
+            const children = htmlEl.querySelectorAll('*');
+            children.forEach(child => {
+                (child as HTMLElement).style.backgroundColor = bgColor;
+            });
+        }
+    });
+
     container.appendChild(style);
     container.appendChild(wrapper);
 
@@ -169,6 +230,44 @@ const renderHtmlToPdf = async (
         backgroundColor: '#ffffff'
     });
 
+    // --- Collect link positions BEFORE clearing the DOM ---
+    // We map each <a> element's bounding box from screen-space to PDF content-space
+    // so we can add clickable link annotations after rendering.
+    const containerRect = container.getBoundingClientRect();
+    const canvasToContentScale = width / canvas.width; // PDF units per canvas pixel
+    // canvas.width / renderWidth is the canvas pixel density (accounting for scale:2)
+    const canvasPixelScale = canvas.width / (width * 3.78);
+
+    interface LinkAnnotation {
+        href: string;
+        // In PDF content-space (mm), relative to the top of the entire rendered content
+        top: number;    // distance from content top
+        left: number;
+        linkWidth: number;
+        linkHeight: number;
+    }
+    const linkAnnotations: LinkAnnotation[] = [];
+    const anchors = container.querySelectorAll('a[href]');
+    anchors.forEach((anchor) => {
+        const a = anchor as HTMLAnchorElement;
+        const href = a.href;
+        if (!href) return;
+        const rects = a.getClientRects();
+        for (let i = 0; i < rects.length; i++) {
+            const rect = rects[i];
+            // Position relative to container top-left (in screen pixels)
+            const relTop = rect.top - containerRect.top;
+            const relLeft = rect.left - containerRect.left;
+            // Convert from screen pixels → canvas pixels → PDF mm
+            // canvasPixelScale: canvas pixels per screen pixel
+            const pdfTop = (relTop * canvasPixelScale) * canvasToContentScale;
+            const pdfLeft = x + (relLeft * canvasPixelScale) * canvasToContentScale;
+            const pdfWidth = (rect.width * canvasPixelScale) * canvasToContentScale;
+            const pdfHeight = (rect.height * canvasPixelScale) * canvasToContentScale;
+            linkAnnotations.push({ href, top: pdfTop, left: pdfLeft, linkWidth: pdfWidth, linkHeight: pdfHeight });
+        }
+    });
+
     // Clean up DOM
     container.innerHTML = '';
 
@@ -185,6 +284,11 @@ const renderHtmlToPdf = async (
 
     const pxScale = canvas.width / width; // Canvas pixels per PDF unit
 
+    // Track page boundaries for link annotation placement
+    // Each entry: { pageIndex (1-based), yStartInContent, yOffset (where content starts on that page) }
+    const pageSegments: Array<{ pageIndex: number; contentYStart: number; contentYEnd: number; pageYOffset: number }> = [];
+    let segmentPageIndex = doc.internal.getCurrentPageInfo().pageNumber;
+
     while (remainingContentHeight > 0) {
         // Calculate available space on the current page
         const spaceOnPage = pageHeight - pageMarginBottom - currentY;
@@ -194,12 +298,21 @@ const renderHtmlToPdf = async (
         if (spaceOnPage < 20 && remainingContentHeight > 15) {
             doc.addPage();
             if (onAddPage) onAddPage();
+            segmentPageIndex = doc.internal.getCurrentPageInfo().pageNumber;
             currentY = pageMarginTop;
             continue;
         }
 
         // Determine how much we can print on this page
         const sliceHeight = Math.min(remainingContentHeight, spaceOnPage);
+
+        // Record this page segment for link mapping
+        pageSegments.push({
+            pageIndex: segmentPageIndex,
+            contentYStart: sourceY,
+            contentYEnd: sourceY + sliceHeight,
+            pageYOffset: currentY,
+        });
 
         // Create a temporary canvas to hold the slice
         const sCanvas = document.createElement('canvas');
@@ -231,9 +344,37 @@ const renderHtmlToPdf = async (
         if (remainingContentHeight > 0) {
             doc.addPage();
             if (onAddPage) onAddPage();
+            segmentPageIndex = doc.internal.getCurrentPageInfo().pageNumber;
             currentY = pageMarginTop;
         }
     }
+
+    // --- Add clickable link annotations at the correct positions ---
+    const totalPages = doc.internal.getNumberOfPages();
+    for (const link of linkAnnotations) {
+        // Find which page segment this link's top falls in
+        for (const seg of pageSegments) {
+            const linkBottom = link.top + link.linkHeight;
+            // Check overlap with this segment
+            if (link.top < seg.contentYEnd && linkBottom > seg.contentYStart) {
+                // Clamp to segment bounds
+                const visibleTop = Math.max(link.top, seg.contentYStart);
+                const visibleBottom = Math.min(linkBottom, seg.contentYEnd);
+                // PDF Y coordinate on this page
+                const pdfY = seg.pageYOffset + (visibleTop - seg.contentYStart);
+                const pdfH = visibleBottom - visibleTop;
+                // Switch to the correct page to place the annotation
+                doc.setPage(seg.pageIndex);
+                try {
+                    doc.link(link.left, pdfY, link.linkWidth, pdfH, { url: link.href });
+                } catch (e) {
+                    // Silently ignore if link annotation fails
+                }
+            }
+        }
+    }
+    // Restore to last page
+    doc.setPage(totalPages);
 
     return currentY;
 };
@@ -367,9 +508,26 @@ const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number
     return maxH + 10;
 };
 
+// --- Formatter ---
+const formatLineItemsForPdf = (data: any) => {
+    if (!data || !data.lineItems) return data;
+    const formattedLineItems = data.lineItems.map((item: any) => {
+        if (item.isAssembly && !item.hideComponentsOnPdf && item.assemblyComponents && item.assemblyComponents.length > 0) {
+            const componentsText = item.assemblyComponents.map((c: any) => `  • ${c.name} (Qty: ${c.quantity * (item.quantity || 1)})`).join('\n');
+            return {
+                ...item,
+                description: `${item.description}\n${componentsText}`
+            };
+        }
+        return item;
+    });
+    return { ...data, lineItems: formattedLineItems };
+};
+
 // --- Generators ---
 
-export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice: InvoiceData, templateId: string, getBlob: boolean = false) => {
+export const generateInvoicePDF = async (profile: UserProfile, job: Job, rawInvoice: InvoiceData, templateId: string, getBlob: boolean = false) => {
+    const invoice = formatLineItemsForPdf(rawInvoice) as InvoiceData;
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
 
@@ -522,7 +680,8 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
     doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
 };
 
-export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string, getBlob: boolean = false) => {
+export const generateEstimatePDF = async (profile: UserProfile, job: Job, rawData: EstimateData, templateId: string, getBlob: boolean = false) => {
+    const data = formatLineItemsForPdf(rawData) as EstimateData;
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
 
@@ -742,7 +901,8 @@ export const generatePurchaseOrderPDF = async (profile: UserProfile, job: Job, d
     doc.save(`PO-${data.poNumber}.pdf`);
 };
 
-export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data: WorkOrderData, templateId: string, getBlob: boolean = false) => {
+export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, rawData: WorkOrderData, templateId: string, getBlob: boolean = false) => {
+    const data = formatLineItemsForPdf(rawData) as WorkOrderData;
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
     const template = templates[templateId] || templates.standard;
@@ -806,9 +966,8 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data:
         const sig = await loadImage(data.signatureUrl);
         if (sig) {
             doc.addImage(sig.data, sig.format, 20, currentY, 40, 15);
-            doc.setDrawColor(0);
             doc.line(20, currentY + 15, 80, currentY + 15);
-            doc.text('Authorized Signature', 20, currentY + 20);
+            doc.text('Worker Signature', 20, currentY + 20);
         }
     }
 
@@ -819,6 +978,53 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data:
 export const generateDailyJobReportPDF = async (profile: UserProfile, data: DailyJobReportData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
+
+    // --> Add HTML Template Logic (same as Invoice/Estimate)
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
+
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+        if (templateId === 'template_swiss') templateFn = getSwissGridHtmlTemplate;
+        if (templateId === 'template_space') templateFn = getSpaceOdysseyHtmlTemplate;
+        if (templateId === 'template_retro') templateFn = getRetroTerminalHtmlTemplate;
+        if (templateId === 'template_pop') templateFn = getPlayfulPopHtmlTemplate;
+        if (templateId === 'template_serif') templateFn = getElegantSerifHtmlTemplate;
+
+        const html = adaptTemplateForContentDocument(
+            templateFn,
+            data,
+            profile,
+            'DAILY REPORT',
+            {
+                date: 'Date',
+                dateValue: data.date,
+                id: 'Report #',
+                idValue: data.reportNumber
+            }
+        );
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210);
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`DailyReport-${data.date}.pdf`);
+        return;
+    }
+
+    // --> Keep existing basic template logic below
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -1076,6 +1282,52 @@ export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
+
+    // --> HTML Template Logic with Adapter
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
+
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+        if (templateId === 'template_swiss') templateFn = getSwissGridHtmlTemplate;
+        if (templateId === 'template_space') templateFn = getSpaceOdysseyHtmlTemplate;
+        if (templateId === 'template_retro') templateFn = getRetroTerminalHtmlTemplate;
+        if (templateId === 'template_pop') templateFn = getPlayfulPopHtmlTemplate;
+        if (templateId === 'template_serif') templateFn = getElegantSerifHtmlTemplate;
+
+        const html = adaptTemplateForContentDocument(
+            templateFn,
+            data,
+            profile,
+            data.title || 'NOTE',
+            {
+                date: 'Created',
+                dateValue: new Date().toLocaleDateString(),
+                id: 'Note',
+                idValue: data.title || 'Untitled'
+            }
+        );
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210);
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`${data.title || 'Note'}.pdf`);
+        return;
+    }
+
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 

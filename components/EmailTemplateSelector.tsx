@@ -1,18 +1,55 @@
-import React, { useState } from 'react';
-import { EMAIL_TEMPLATES, EmailTemplateDefinition } from '../utils/emailTemplates.ts';
+import React from 'react';
+import { EMAIL_TEMPLATES, EmailTemplateDefinition, applyTemplateVariables } from '../utils/emailTemplates.ts';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card.tsx';
 import { Button } from './ui/Button.tsx';
 import { XCircleIcon, CheckCircleIcon } from './Icons.tsx';
+
+const MOCK_VARS = (logoUrl?: string) => ({
+    company_name: 'Acme Contracting',
+    primary_color: '#2563eb',
+    secondary_color: '#1e40af',
+    user_name: 'Alex Johnson',
+    user_job_title: 'Project Lead',
+    body: `
+        <p>This is a preview of how your email will look to your clients. We use professional layouts and typography to ensure your business stands out.</p>
+        <p>All your documents, estimates, and invoices will be beautifully formatted and easy to read on any device.</p>
+    `,
+    company_address: '123 Construction Way, Suite 456',
+    company_phone: '(555) 123-4567',
+    company_website: 'www.acme-contracting.com',
+    logo_url: logoUrl || 'https://images.unsplash.com/photo-1541888946425-d81bb19480c5?auto=format&fit=crop&q=80&w=100&h=100'
+});
+
+const TemplatePreview: React.FC<{ template: EmailTemplateDefinition, logoUrl?: string }> = ({ template, logoUrl }) => {
+    const previewHtml = applyTemplateVariables(template.html, MOCK_VARS(logoUrl));
+
+    return (
+        <div className="w-full h-full bg-white relative overflow-hidden flex items-start justify-center">
+            <iframe
+                title={template.name}
+                srcDoc={previewHtml}
+                className="border-none origin-top pointer-events-none"
+                style={{
+                    width: '600px',
+                    height: '1000px',
+                    transform: 'scale(0.55)',
+                    marginTop: '0'
+                }}
+            />
+        </div>
+    );
+};
 
 interface TemplateSelectorProps {
     onSelect: (template: EmailTemplateDefinition) => void;
     onClose: () => void;
     selectedTemplateId?: string;
+    logoUrl?: string;
 }
 
-const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, onClose, selectedTemplateId }) => {
-    const [activeCategory, setActiveCategory] = useState<string>('all');
-    const [selectedId, setSelectedId] = useState<string | undefined>(selectedTemplateId);
+const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, onClose, selectedTemplateId, logoUrl }) => {
+    const [activeCategory, setActiveCategory] = React.useState<string>('all');
+    const [selectedId, setSelectedId] = React.useState<string | undefined>(selectedTemplateId);
 
     const categories = [
         { id: 'all', label: 'All Templates', count: EMAIL_TEMPLATES.length },
@@ -59,8 +96,8 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, onClose, 
                             key={cat.id}
                             onClick={() => setActiveCategory(cat.id)}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeCategory === cat.id
-                                    ? 'bg-primary text-primary-foreground shadow-sm'
-                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                                ? 'bg-primary text-primary-foreground shadow-sm'
+                                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                                 }`}
                         >
                             {cat.label} ({cat.count})
@@ -77,37 +114,34 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, onClose, 
                                     key={template.id}
                                     onClick={() => handleSelect(template)}
                                     className={`group relative cursor-pointer rounded-xl border-2 transition-all hover:shadow-lg ${isSelected
-                                            ? 'border-primary bg-primary/5 ring-2 ring-primary ring-offset-2'
-                                            : 'border-border hover:border-primary/50'
+                                        ? 'border-primary bg-primary/5 ring-2 ring-primary ring-offset-2'
+                                        : 'border-border hover:border-primary/50'
                                         }`}
                                 >
                                     {/* Preview Card */}
                                     <div className="p-4">
-                                        <div className="aspect-video bg-gradient-to-br from-secondary/30 to-secondary/10 rounded-lg mb-3 flex items-center justify-center overflow-hidden relative">
-                                            {/* Template Preview Mockup */}
-                                            <div className="w-full h-full p-2 overflow-hidden">
-                                                <div className="w-full h-full bg-white rounded shadow-inner flex flex-col text-[6px] leading-tight p-1 gap-1">
-                                                    <div className="h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-sm"></div>
-                                                    <div className="flex-1 space-y-0.5 p-1">
-                                                        <div className="h-1 w-3/4 bg-gray-300 rounded"></div>
-                                                        <div className="h-1 w-full bg-gray-200 rounded"></div>
-                                                        <div className="h-1 w-5/6 bg-gray-200 rounded"></div>
-                                                    </div>
-                                                    <div className="h-2 bg-gray-100 rounded-sm"></div>
-                                                </div>
-                                            </div>
+                                        <div className="aspect-[4/3] bg-white rounded-lg mb-4 flex items-start justify-center overflow-hidden relative border border-border/50 shadow-sm group-hover:shadow-md transition-all duration-300">
+                                            <TemplatePreview template={template} logoUrl={logoUrl} />
+
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
 
                                             {isSelected && (
-                                                <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-1">
+                                                <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-1 shadow-lg ring-2 ring-white">
                                                     <CheckCircleIcon className="w-4 h-4" />
                                                 </div>
                                             )}
                                         </div>
 
-                                        <h3 className="font-semibold text-sm mb-1">{template.name}</h3>
-                                        <p className="text-xs text-muted-foreground capitalize">
-                                            {template.category}
-                                        </p>
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h3 className="font-bold text-sm text-foreground">{template.name}</h3>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                                                        {template.category}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     {/* Hover Overlay */}

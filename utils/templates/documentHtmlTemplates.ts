@@ -119,6 +119,15 @@ export const getAdvancedHtmlTemplate = (
             <div style="font-size: 13px; color: #555;">${data.notes}</div>
         </div>` : ''}
         
+        ${data.signature ? `
+        <div style="margin-top: 50px; display: flex; justify-content: flex-start;">
+            <div>
+                <img src="${data.signature}" style="max-height: 60px; max-width: 200px;" />
+                <div style="border-top: 2px solid ${primaryColor}; width: 200px; margin-top: 8px;"></div>
+                <div style="font-size: 11px; color: #999; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Authorized Signature</div>
+            </div>
+        </div>` : ''}
+        
         <div style="margin-top: 60px; text-align: center; font-size: 12px; color: #ccc; padding-top: 20px; border-top: 1px dashed #eee;">
             Authorized Document • ${companyName}
         </div>
@@ -273,6 +282,15 @@ export const getGlassmorphismModernHtmlTemplate = (
             <div style="font-size: 12px; color: #000000;">Thank you for your business!</div>
             ${profile.website ? `<div style="font-size: 12px; color: ${primaryColor}; font-weight: 500; margin-top: 4px;">${profile.website}</div>` : ''}
         </div>
+        
+        ${data.signature ? `
+        <div style="padding: 30px 40px; border-top: 1px solid #E5E7EB;">
+            <div style="display: inline-block;">
+                <img src="${data.signature}" style="max-height: 60px; maxwidth: 200px;" />
+                <div style="border-top: 2px solid ${primaryColor}; width: 200px; margin-top: 8px;"></div>
+                <div style="font-size: 11px; color: ${primaryColor}; margin-top: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Authorized Signature</div>
+            </div>
+        </div>` : ''}
     </div>
     `;
 };
@@ -407,6 +425,13 @@ export const getHighEndHtmlTemplate = (
                 <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #999; letter-spacing: 2px; margin-bottom: 12px;">NOTES</div>
                 <div style="font-size: 14px; color: #555; line-height: 1.8;">${data.notes}</div>
             </div>` : ''}
+        
+        ${data.signature ? `
+        <div style=\"margin: 40px 40px 30px;\">
+            <img src=\"${data.signature}\" style=\"max-height: 60px; max-width: 200px;\" />
+            <div style=\"border-top: 2px solid ${primaryColor}; width: 200px; margin-top: 8px;\"></div>
+            <div style=\"font-size: 10px; color: #666; margin-top: 6px; text-transform: uppercase; letter-spacing: 1px;\">Authorized Signature</div>
+        </div>` : ''}
 
         </div>
     </div>
@@ -542,6 +567,13 @@ export const getPremiumMinimalistHtmlTemplate = (
         <div style="margin-top: 60px;">
             <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: ${primaryColor}; margin-bottom: 12px;">Notes</div>
             <div style="font-size: 14px; color: #000000; line-height: 1.8; padding-top: 10px; border-top: 1px solid #E5E7EB;">${data.notes}</div>
+        </div>` : ''}
+        
+        ${data.signature ? `
+        <div style=\"margin-top: 60px;\">
+            <img src=\"${data.signature}\" style=\"max-height: 60px; max-width: 200px;\" />
+            <div style=\"border-top: 1px solid #E5E7EB; width: 200px; margin-top: 8px;\"></div>
+            <div style=\"font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: ${primaryColor}; margin-top: 6px;\">Signature</div>
         </div>` : ''}
         
     </div>
@@ -698,6 +730,15 @@ export const getGradientBorderPremiumHtmlTemplate = (
                 <div style="font-size: 12px; color: #000000; opacity: 0.7;">Thank you for your business</div>
             </div>
         </div>
+        
+        ${data.signature ? `
+        <div style="padding: 30px 40px;">
+            <div style="display: inline-block;">
+                <img src="${data.signature}" style="max-height: 60px; max-width: 200px;" />
+                <div style="border-top: 2px solid ${primaryColor}; width: 200px; margin-top: 8px;"></div>
+                <div style="font-size: 11px; color: ${primaryColor}; margin-top: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Authorized Signature</div>
+            </div>
+        </div>` : ''}
     </div>
     `;
 };

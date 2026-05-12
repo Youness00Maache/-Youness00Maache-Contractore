@@ -25,6 +25,7 @@ END $$;
 -- ============================================
 -- Loads all documents for a client using their portal_key
 
+DROP FUNCTION IF EXISTS public.get_portal_data(text);
 CREATE OR REPLACE FUNCTION public.get_portal_data(p_key TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -96,6 +97,7 @@ $$;
 -- ============================================
 -- Allows clients to sign documents through the portal
 
+DROP FUNCTION IF EXISTS public.sign_document_via_portal(text, uuid, text);
 CREATE OR REPLACE FUNCTION public.sign_document_via_portal(
   p_key TEXT,
   p_doc_id UUID,
@@ -140,6 +142,7 @@ $$;
 -- ============================================
 -- Loads a single document for approval
 
+DROP FUNCTION IF EXISTS public.get_document_by_token(uuid);
 CREATE OR REPLACE FUNCTION public.get_document_by_token(doc_token UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -188,6 +191,7 @@ $$;
 -- Submits a signature for a specific document
 -- NOW SAVES CLIENT SIGNATURE SEPARATELY FROM CONTRACTOR SIGNATURE
 
+DROP FUNCTION IF EXISTS public.approve_document_by_token(uuid, text);
 CREATE OR REPLACE FUNCTION public.approve_document_by_token(
   doc_token UUID,
   p_signature TEXT

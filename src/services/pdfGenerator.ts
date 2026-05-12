@@ -1,7 +1,7 @@
-
 import { InvoiceData, Job, UserProfile, EstimateData, WorkOrderData, DailyJobReportData, TimeSheetData, MaterialLogData, ExpenseLogData, WarrantyData, NoteData, ReceiptData, ChangeOrderData, PurchaseOrderData } from '../types.ts';
-import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate } from '../utils/templates/documentHtmlTemplates.ts';
-import { getNeonCyberpunkHtmlTemplate, getLuxuryGoldNavyHtmlTemplate, getOrganicNatureHtmlTemplate, getGeometricBoldHtmlTemplate, getPastelSoftHtmlTemplate, getVintageCraftHtmlTemplate, getBlueprintTechHtmlTemplate, getAbstractMemphisHtmlTemplate, getCrimsonNoirHtmlTemplate, getWatercolorArtisticHtmlTemplate, getSwissGridHtmlTemplate, getSpaceOdysseyHtmlTemplate, getRetroTerminalHtmlTemplate, getPlayfulPopHtmlTemplate, getElegantSerifHtmlTemplate } from '../utils/templates/allNewTemplates.ts';
+import { getAdvancedHtmlTemplate, getGlassmorphismModernHtmlTemplate, getHighEndHtmlTemplate, getPremiumMinimalistHtmlTemplate, getGradientBorderPremiumHtmlTemplate } from '../../utils/templates/documentHtmlTemplates.ts';
+import { getNeonCyberpunkHtmlTemplate, getLuxuryGoldNavyHtmlTemplate, getOrganicNatureHtmlTemplate, getGeometricBoldHtmlTemplate, getPastelSoftHtmlTemplate, getVintageCraftHtmlTemplate, getBlueprintTechHtmlTemplate, getAbstractMemphisHtmlTemplate, getCrimsonNoirHtmlTemplate, getWatercolorArtisticHtmlTemplate, getSwissGridHtmlTemplate, getSpaceOdysseyHtmlTemplate, getRetroTerminalHtmlTemplate, getPlayfulPopHtmlTemplate, getElegantSerifHtmlTemplate } from '../../utils/templates/allNewTemplates.ts';
+import { adaptTemplateForContentDocument } from '../../utils/templates/templateAdapters.ts';
 
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -81,7 +81,13 @@ const renderHtmlToPdf = async (
     x: number,
     y: number,
     width: number,
-    onAddPage?: () => void
+    onAddPage?: () => void,
+    options: {
+        padding?: string;
+        backgroundColor?: string;
+        pageBackgroundColor?: string;
+        scale?: number;
+    } = {}
 ): Promise<number> => {
     const container = document.getElementById('pdf-render-content');
     if (!container) return y;
@@ -89,28 +95,56 @@ const renderHtmlToPdf = async (
     // Clean up previous content
     container.innerHTML = '';
 
+    const isFullPage = options.padding === '0';
+
+    // Strict A4 proportions at high-quality scale
+    // 210mm x 297mm -> approx 794px x 1123px at 96dpi
+    const a4WidthPx = 794;
+    const a4HeightPx = 1123;
+
     // Create a wrapper for styling matches
     const wrapper = document.createElement('div');
+    wrapper.id = 'pdf-wrapper-target';
     wrapper.innerHTML = html;
-    // Apply styles to mimic the editor
-    wrapper.style.fontFamily = 'Helvetica, Arial, sans-serif';
-    wrapper.style.fontSize = '12px'; // Base PDF readable size
-    wrapper.style.lineHeight = '1.5';
-    wrapper.style.color = '#000';
-    wrapper.style.padding = '0 15px'; // Padding inside the container
-    wrapper.style.boxSizing = 'border-box';
-    wrapper.style.backgroundColor = '#ffffff';
 
-    // Ensure lists and tables look right
+    // Apply strict A4 proportions to the wrapper
+    wrapper.style.width = `${a4WidthPx}px`;
+    if (isFullPage) {
+        wrapper.style.minHeight = `${a4HeightPx}px`;
+        wrapper.style.margin = '0';
+        wrapper.style.padding = '0';
+    } else {
+        wrapper.style.padding = options.padding !== undefined ? options.padding : '0 15px';
+    }
+
+    wrapper.style.boxSizing = 'border-box';
+    wrapper.style.backgroundColor = options.backgroundColor || '#ffffff';
+    wrapper.style.position = 'relative';
+    wrapper.style.overflow = 'hidden';
+
+    // Ensure all internal divs and backgrounds scale properly
     const style = document.createElement('style');
     style.innerHTML = `
+        #pdf-wrapper-target {
+            font-family: 'Inter', 'Helvetica', Arial, sans-serif;
+            line-height: 1.5;
+            color: #000;
+        }
+        
+        #pdf-wrapper-target > div {
+            min-height: ${isFullPage ? a4HeightPx + 'px' : 'auto'} !important;
+            width: 100% !important;
+            background-size: cover !important;
+            background-repeat: no-repeat !important;
+            background-position: center !important;
+            box-sizing: border-box !important;
+        }
+
         /* Headings */
         h1 { font-size: 2em; font-weight: bold; margin-top: 0.67em; margin-bottom: 0.67em; line-height: 1.2; }
         h2 { font-size: 1.5em; font-weight: bold; margin-top: 0.83em; margin-bottom: 0.83em; line-height: 1.25; }
         h3 { font-size: 1.17em; font-weight: bold; margin-top: 1em; margin-bottom: 1em; line-height: 1.3; }
         h4 { font-size: 1em; font-weight: bold; margin-top: 1.33em; margin-bottom: 1.33em; }
-        h5 { font-size: 0.83em; font-weight: bold; margin-top: 1.67em; margin-bottom: 1.67em; }
-        h6 { font-size: 0.67em; font-weight: bold; margin-top: 2.33em; margin-bottom: 2.33em; }
 
         /* Paragraphs */
         p { margin: 0 0 1em 0; line-height: 1.5; }
@@ -121,14 +155,13 @@ const renderHtmlToPdf = async (
         ol { list-style-type: decimal; }
         li { margin-bottom: 0.25em; line-height: 1.5; list-style-position: outside; margin-left: 0.2em; }
         
-        /* Fix vertical alignment for lists */
         li p, li div {
             margin: 0;
             padding: 0;
             display: inline-block;
             vertical-align: top;
             position: relative;
-            top: -15px; /* Lift text significantly */
+            top: -5px;
         }
         
         /* Tables */
@@ -136,21 +169,15 @@ const renderHtmlToPdf = async (
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
         th { background-color: #f2f2f2; font-weight: bold; }
 
-        /* Quotes */
-        blockquote { border-left: 4px solid #ccc; padding-left: 10px; color: #666; font-style: italic; margin: 10px 0; }
-
         /* Images */
         img { max-width: 100%; height: auto; margin: 8px 0; border-radius: 4px; display: block; }
-
-        /* Links */
-        a { color: blue; text-decoration: underline; cursor: pointer; }
     `;
+
     container.appendChild(style);
     container.appendChild(wrapper);
 
-    // Calculate width based on PDF width (approx 3.78 px per mm)
-    const renderWidth = width * 3.78;
-    container.style.width = `${renderWidth}px`;
+    // Force container width to match wrapper for html2canvas
+    container.style.width = `${a4WidthPx}px`;
 
     // Allow images to load
     const images = container.getElementsByTagName('img');
@@ -162,74 +189,93 @@ const renderHtmlToPdf = async (
     }
 
     // Use html2canvas to render the whole content
-    const canvas = await html2canvas(container, {
-        scale: 2,
+    const canvas = await html2canvas(wrapper, {
+        scale: options.scale || 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: options.backgroundColor || '#ffffff',
+        width: a4WidthPx,
+        windowWidth: a4WidthPx,
+        onclone: (clonedDoc) => {
+            const clonedWrapper = clonedDoc.getElementById('pdf-wrapper-target');
+            if (clonedWrapper) {
+                clonedWrapper.style.width = `${a4WidthPx}px`;
+            }
+        }
     });
 
     // Clean up DOM
     container.innerHTML = '';
 
-    const contentWidth = width;
-    const contentHeight = (canvas.height * width) / canvas.width; // Total height in PDF units
-
+    const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
-    const pageMarginBottom = 20;
-    const pageMarginTop = 20; // Margin for new pages
+
+    // Calculate scaling to fit the PDF page width exactly
+    // width is typically 210 for A4
+    const contentWidth = width;
+    const contentHeight = (canvas.height * contentWidth) / canvas.width;
+
+    const pageMarginBottom = isFullPage ? 0 : 20;
+    const pageMarginTop = isFullPage ? 0 : 20;
+
+    // Helper to paint page background at PDF level (root canvas)
+    const paintPageBackground = () => {
+        if (options.pageBackgroundColor) {
+            const rgb = hexToRgb(options.pageBackgroundColor);
+            if (rgb) {
+                doc.setFillColor(...rgb);
+                doc.rect(0, 0, pageWidth, pageHeight, 'F');
+            }
+        }
+    };
+
+    paintPageBackground();
 
     let currentY = y;
     let remainingContentHeight = contentHeight;
     let sourceY = 0; // Current read position in the source canvas (PDF units)
 
-    const pxScale = canvas.width / width; // Canvas pixels per PDF unit
+    const pxScale = canvas.width / contentWidth; // Canvas pixels per PDF unit
 
-    while (remainingContentHeight > 0) {
-        // Calculate available space on the current page
+    while (remainingContentHeight > 0.1) { // Use small tolerance
         const spaceOnPage = pageHeight - pageMarginBottom - currentY;
 
-        // If less than a minimal amount of space is left (e.g., 20mm), start a new page immediately
-        // unless the remaining content is tiny and fits.
-        if (spaceOnPage < 20 && remainingContentHeight > 15) {
+        if (spaceOnPage < 5 && remainingContentHeight > 5) {
             doc.addPage();
+            paintPageBackground();
             if (onAddPage) onAddPage();
             currentY = pageMarginTop;
             continue;
         }
 
-        // Determine how much we can print on this page
         const sliceHeight = Math.min(remainingContentHeight, spaceOnPage);
 
-        // Create a temporary canvas to hold the slice
         const sCanvas = document.createElement('canvas');
         sCanvas.width = canvas.width;
         sCanvas.height = sliceHeight * pxScale;
 
         const sCtx = sCanvas.getContext('2d');
         if (sCtx) {
-            sCtx.fillStyle = '#ffffff';
+            sCtx.fillStyle = options.backgroundColor || '#ffffff';
             sCtx.fillRect(0, 0, sCanvas.width, sCanvas.height);
 
-            // Draw the specific slice from the original canvas
             sCtx.drawImage(
                 canvas,
-                0, sourceY * pxScale, canvas.width, sliceHeight * pxScale, // Source x, y, w, h
-                0, 0, sCanvas.width, sCanvas.height // Dest x, y, w, h
+                0, sourceY * pxScale, canvas.width, sliceHeight * pxScale,
+                0, 0, sCanvas.width, sCanvas.height
             );
 
-            const imgData = sCanvas.toDataURL('image/jpeg', 0.95);
+            const imgData = sCanvas.toDataURL('image/jpeg', 0.98);
             doc.addImage(imgData, 'JPEG', x, currentY, contentWidth, sliceHeight);
         }
 
-        // Update counters
         currentY += sliceHeight;
         sourceY += sliceHeight;
         remainingContentHeight -= sliceHeight;
 
-        // If we still have content, add a new page
-        if (remainingContentHeight > 0) {
+        if (remainingContentHeight > 1) {
             doc.addPage();
+            paintPageBackground();
             if (onAddPage) onAddPage();
             currentY = pageMarginTop;
         }
@@ -367,11 +413,28 @@ const drawContactGrid = (doc: any, data: any, profile: UserProfile, yPos: number
     return maxH + 10;
 };
 
+// --- Formatter ---
+const formatLineItemsForPdf = (data: any) => {
+    if (!data || !data.lineItems) return data;
+    const formattedLineItems = data.lineItems.map((item: any) => {
+        if (item.isAssembly && !item.hideComponentsOnPdf && item.assemblyComponents && item.assemblyComponents.length > 0) {
+            const componentsText = item.assemblyComponents.map((c: any) => `  • ${c.name} (Qty: ${c.quantity * (item.quantity || 1)})`).join('\n');
+            return {
+                ...item,
+                description: `${item.description}\n${componentsText}`
+            };
+        }
+        return item;
+    });
+    return { ...data, lineItems: formattedLineItems };
+};
+
 // --- Generators ---
 
-export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice: InvoiceData, templateId: string, getBlob: boolean = false) => {
+export const generateInvoicePDF = async (profile: UserProfile, job: Job, rawInvoice: InvoiceData, templateId: string, getBlob: boolean = false) => {
+    const invoice = formatLineItemsForPdf(rawInvoice) as InvoiceData;
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
 
     // --> Advanced HTML Template Logic
     const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
@@ -404,8 +467,16 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
             idValue: invoice.invoiceNumber
         });
 
+        // Render all modern HTML templates borderless A4
+        const renderOptions = {
+            padding: '0',
+            backgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' : '#ffffff',
+            pageBackgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' :
+                templateId === 'template_luxury' ? '#F5F1E8' : '#ffffff'
+        };
+
         // Render full page HTML (A4 width approx 210mm)
-        await renderHtmlToPdf(doc, html, 0, 0, 210);
+        await renderHtmlToPdf(doc, html, 0, 0, 210, undefined, renderOptions);
 
         if (getBlob) return doc.output('datauristring');
         doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
@@ -522,9 +593,10 @@ export const generateInvoicePDF = async (profile: UserProfile, job: Job, invoice
     doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
 };
 
-export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: EstimateData, templateId: string, getBlob: boolean = false) => {
+export const generateEstimatePDF = async (profile: UserProfile, job: Job, rawData: EstimateData, templateId: string, getBlob: boolean = false) => {
+    const data = formatLineItemsForPdf(rawData) as EstimateData;
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
 
     // --> Advanced HTML Template Logic
     const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor'];
@@ -552,7 +624,14 @@ export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: 
             idValue: data.estimateNumber
         });
 
-        await renderHtmlToPdf(doc, html, 0, 0, 210);
+        // Render all modern HTML templates borderless A4
+        const renderOptions = {
+            padding: '0',
+            backgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' : '#ffffff',
+            pageBackgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' : '#ffffff'
+        };
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210, undefined, renderOptions);
 
         if (getBlob) return doc.output('datauristring');
         doc.save(`Estimate-${data.estimateNumber}.pdf`);
@@ -642,7 +721,7 @@ export const generateEstimatePDF = async (profile: UserProfile, job: Job, data: 
 
 export const generatePurchaseOrderPDF = async (profile: UserProfile, job: Job, data: PurchaseOrderData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -742,9 +821,10 @@ export const generatePurchaseOrderPDF = async (profile: UserProfile, job: Job, d
     doc.save(`PO-${data.poNumber}.pdf`);
 };
 
-export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data: WorkOrderData, templateId: string, getBlob: boolean = false) => {
+export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, rawData: WorkOrderData, templateId: string, getBlob: boolean = false) => {
+    const data = formatLineItemsForPdf(rawData) as WorkOrderData;
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -818,7 +898,59 @@ export const generateWorkOrderPDF = async (profile: UserProfile, job: Job, data:
 
 export const generateDailyJobReportPDF = async (profile: UserProfile, data: DailyJobReportData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+
+    // --> Add HTML Template Logic (same as Invoice/Estimate)
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
+
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+        if (templateId === 'template_swiss') templateFn = getSwissGridHtmlTemplate;
+        if (templateId === 'template_space') templateFn = getSpaceOdysseyHtmlTemplate;
+        if (templateId === 'template_retro') templateFn = getRetroTerminalHtmlTemplate;
+        if (templateId === 'template_pop') templateFn = getPlayfulPopHtmlTemplate;
+        if (templateId === 'template_serif') templateFn = getElegantSerifHtmlTemplate;
+
+        const html = adaptTemplateForContentDocument(
+            templateFn,
+            data,
+            profile,
+            'DAILY REPORT',
+            {
+                date: 'Date',
+                dateValue: data.date,
+                id: 'Report #',
+                idValue: data.reportNumber
+            }
+        );
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210, undefined, {
+            padding: '0',
+            backgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' : '#ffffff',
+            pageBackgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' :
+                templateId === 'template_luxury' ? '#F5F1E8' : '#ffffff'
+        });
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`DailyReport-${data.date}.pdf`);
+        return;
+    }
+
+    // --> Keep existing basic template logic below
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -870,7 +1002,7 @@ export const generateDailyJobReportPDF = async (profile: UserProfile, data: Dail
 
 export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data: TimeSheetData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -920,7 +1052,7 @@ export const generateTimeSheetPDF = async (profile: UserProfile, job: Job, data:
 
 export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, data: MaterialLogData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -957,7 +1089,7 @@ export const generateMaterialLogPDF = async (profile: UserProfile, job: Job, dat
 
 export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data: ExpenseLogData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -969,40 +1101,28 @@ export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data
     doc.setFontSize(10);
     doc.text(`Vendor: ${data.vendor}`, 20, currentY);
     currentY += 10;
+    doc.text(`Amount: $${data.amount.toFixed(2)}`, 20, currentY);
+    currentY += 10;
+    doc.text(`For: ${data.description}`, 20, currentY);
+    currentY += 10;
+    doc.text(`Payment Method: ${data.paymentMethod}`, 20, currentY);
 
-    // Support for multiple items in table using lineItems (preferred) or legacy items
-    const items = data.items || [];
-    // If lineItems is empty but we have data.item (legacy/single item mode), construct one - though type definition suggests items is array of ExpenseItem
-    // Check if items is populated correctly from ExpenseLogData which has 'items: ExpenseItem[]'
-
-    const tableColumn = ["Description", "Amount"];
-    const tableRows = items.map(item => [
-        item.description,
-        `$${(item.amount || 0).toFixed(2)}`
-    ]);
-
-    (doc as any).autoTable({
-        startY: currentY,
-        head: [tableColumn],
-        body: tableRows,
-        theme: 'striped',
-        headStyles: { fillColor: primaryRgb, textColor: [255, 255, 255] },
-        styles: { font: template.font, fontSize: 10 },
-        margin: { left: 20, right: 20 }
-    });
-
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-
+    currentY += 30;
+    doc.setFontSize(16);
     doc.setFont(template.font, 'bold');
-    doc.setFontSize(14);
-    doc.text(`Total Amount: $${(data.amount || 0).toFixed(2)}`, 190, finalY, { align: 'right' });
-    currentY = finalY + 15;
+    doc.setTextColor(...primaryRgb);
+    doc.text('PAID IN FULL', 105, currentY, { align: 'center' });
 
-    if (data.notes) {
-        doc.setFontSize(10);
-        doc.setFont(template.font, 'normal');
-        const notes = doc.splitTextToSize(`Notes: ${data.notes}`, 170);
-        doc.text(notes, 20, currentY);
+    if (data.signatureUrl) {
+        const sig = await loadImage(data.signatureUrl);
+        if (sig) {
+            doc.addImage(sig.data, sig.format, 20, currentY + 20, 40, 15);
+            doc.setDrawColor(0);
+            doc.line(20, currentY + 35, 80, currentY + 35);
+            doc.setFontSize(10);
+            doc.setTextColor(0);
+            doc.text('Received By', 20, currentY + 40);
+        }
     }
 
     if (getBlob) return doc.output('datauristring');
@@ -1011,7 +1131,7 @@ export const generateExpenseLogPDF = async (profile: UserProfile, job: Job, data
 
 export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: WarrantyData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -1075,9 +1195,58 @@ export const generateWarrantyPDF = async (profile: UserProfile, job: Job, data: 
 
 export const generateNotePDF = async (profile: UserProfile, job: Job, data: NoteData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
+
+    // --> HTML Template Logic with Adapter
+    const htmlTemplates = ['template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4', 'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel', 'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor', 'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif'];
+    if (htmlTemplates.includes(templateId)) {
+        let templateFn = getAdvancedHtmlTemplate;
+        if (templateId === 'template_html_2') templateFn = getHighEndHtmlTemplate;
+        if (templateId === 'template_html_2_new') templateFn = getGlassmorphismModernHtmlTemplate;
+        if (templateId === 'template_html_3') templateFn = getPremiumMinimalistHtmlTemplate;
+        if (templateId === 'template_html_4') templateFn = getGradientBorderPremiumHtmlTemplate;
+        if (templateId === 'template_neon') templateFn = getNeonCyberpunkHtmlTemplate;
+        if (templateId === 'template_luxury') templateFn = getLuxuryGoldNavyHtmlTemplate;
+        if (templateId === 'template_nature') templateFn = getOrganicNatureHtmlTemplate;
+        if (templateId === 'template_geometric') templateFn = getGeometricBoldHtmlTemplate;
+        if (templateId === 'template_pastel') templateFn = getPastelSoftHtmlTemplate;
+        if (templateId === 'template_vintage') templateFn = getVintageCraftHtmlTemplate;
+        if (templateId === 'template_blueprint') templateFn = getBlueprintTechHtmlTemplate;
+        if (templateId === 'template_memphis') templateFn = getAbstractMemphisHtmlTemplate;
+        if (templateId === 'template_crimson') templateFn = getCrimsonNoirHtmlTemplate;
+        if (templateId === 'template_watercolor') templateFn = getWatercolorArtisticHtmlTemplate;
+        if (templateId === 'template_swiss') templateFn = getSwissGridHtmlTemplate;
+        if (templateId === 'template_space') templateFn = getSpaceOdysseyHtmlTemplate;
+        if (templateId === 'template_retro') templateFn = getRetroTerminalHtmlTemplate;
+        if (templateId === 'template_pop') templateFn = getPlayfulPopHtmlTemplate;
+        if (templateId === 'template_serif') templateFn = getElegantSerifHtmlTemplate;
+
+        const html = adaptTemplateForContentDocument(
+            templateFn,
+            data,
+            profile,
+            data.title || 'NOTE',
+            {
+                date: 'Created',
+                dateValue: new Date().toLocaleDateString(),
+                id: 'Note',
+                idValue: data.title || 'Untitled'
+            }
+        );
+
+        await renderHtmlToPdf(doc, html, 0, 0, 210, undefined, {
+            padding: '0',
+            backgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' : '#ffffff',
+            pageBackgroundColor: (templateId === 'template_neon' || templateId === 'template_space') ? '#0D0D0D' :
+                templateId === 'template_luxury' ? '#F5F1E8' : '#ffffff'
+        });
+
+        if (getBlob) return doc.output('datauristring');
+        doc.save(`${data.title || 'Note'}.pdf`);
+        return;
+    }
 
     drawTemplateBackground(doc, template, primaryRgb);
 
@@ -1095,7 +1264,7 @@ export const generateNotePDF = async (profile: UserProfile, job: Job, data: Note
 
 export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: ReceiptData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 
@@ -1138,7 +1307,7 @@ export const generateReceiptPDF = async (profile: UserProfile, job: Job, data: R
 
 export const generateChangeOrderPDF = async (profile: UserProfile, job: Job, data: ChangeOrderData, templateId: string, getBlob: boolean = false) => {
     const { jsPDF } = jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
     const template = templates[templateId] || templates.standard;
     const primaryRgb = hexToRgb(data.themeColors?.primary || template.primaryColor) || [0, 0, 0];
 

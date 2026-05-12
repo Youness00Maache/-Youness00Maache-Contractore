@@ -84,6 +84,12 @@ export const getVintageCraftHtmlTemplate = (
             <div style="position: absolute; bottom: 40px; left: 0; right: 0; text-align: center; font-size: 12px; font-style: italic;">
                 Thank you for your business.
             </div>
+            ${data.signature ? `
+            <div style="position: absolute; bottom: 120px; right: 80px; transform: rotate(-2deg);">
+                <div style="font-family: 'Courier New', monospace; font-weight: bold; margin-bottom: 5px; color: ${inkColor};">Authorized Signature:</div>
+                <img src="${data.signature}" style="max-height: 60px; max-width: 200px; filter: sepia(100%);" />
+                <div style="border-bottom: 2px solid ${inkColor}; width: 220px; margin-top: -10px;"></div>
+            </div>` : ''}
         </div>
         <!-- Stamp Effect -->
         <div style="position: absolute; bottom: 100px; left: 80px; border: 3px double #8B0000; color: #8B0000; padding: 10px 20px; font-weight: bold; font-size: 24px; text-transform: uppercase; transform: rotate(-15deg); opacity: 0.8; letter-spacing: 2px; mask-image: url('data:image/png;base64,...');">
@@ -109,11 +115,11 @@ export const getBlueprintTechHtmlTemplate = (
     const total = subtotal + (data.tax || 0);
 
     const rows = items.map((item: any) => `
-        <tr style="border-bottom: 1px solid ${gridColor};">
-            <td style="padding: 12px; color: ${white}; font-family: 'Consolas', monospace; border-right: 1px solid ${gridColor};">${item.description}</td>
-            <td style="padding: 12px; text-align: center; color: ${white}; font-family: 'Consolas', monospace; border-right: 1px solid ${gridColor};">${item.quantity}</td>
-            <td style="padding: 12px; text-align: right; color: ${white}; font-family: 'Consolas', monospace; border-right: 1px solid ${gridColor};">${formatMoney(item.rate)}</td>
-            <td style="padding: 12px; text-align: right; color: ${white}; font-family: 'Consolas', monospace;">${formatMoney(item.quantity * item.rate)}</td>
+        <tr style="border-bottom: 1px solid ${gridColor}; background: ${white};">
+            <td style="padding: 12px; color: ${blueprintBlue}; font-family: 'Consolas', monospace; border-right: 1px solid ${blueprintBlue}22;">${item.description}</td>
+            <td style="padding: 12px; text-align: center; color: ${blueprintBlue}; font-family: 'Consolas', monospace; border-right: 1px solid ${blueprintBlue}22;">${item.quantity}</td>
+            <td style="padding: 12px; text-align: right; color: ${blueprintBlue}; font-family: 'Consolas', monospace; border-right: 1px solid ${blueprintBlue}22;">${formatMoney(item.rate)}</td>
+            <td style="padding: 12px; text-align: right; color: ${blueprintBlue}; font-family: 'Consolas', monospace;">${formatMoney(item.quantity * item.rate)}</td>
         </tr>
     `).join('');
 
@@ -127,6 +133,7 @@ export const getBlueprintTechHtmlTemplate = (
                 <div style="border: 2px solid ${white}; padding: 30px;">
                     <div style="display: flex; border-bottom: 4px double ${white}; padding-bottom: 20px; margin-bottom: 30px;">
                         <div style="flex: 2; border-right: 2px solid ${white}; padding-right: 20px;">
+                             ${data.logoUrl ? `<div style="margin-bottom: 20px;"><img src="${data.logoUrl}" style="max-height: 80px; max-width: 100%; object-fit: contain;" /></div>` : ''}
                              <h1 style="margin: 0; font-size: 42px; text-transform: uppercase;">${title}</h1>
                              <div style="font-size: 14px; margin-top: 5px;">SPECIFICATION DOC: ${labels.idValue}</div>
                         </div>
@@ -139,8 +146,7 @@ export const getBlueprintTechHtmlTemplate = (
                     </div>
 
                     <div style="display: flex; margin-bottom: 40px;">
-                        <div style="flex: 1; border: 1px solid ${white}; padding: 15px; margin-right: 20px;">
-                            <div style="font-size: 10px; background: ${white}; color: ${blueprintBlue}; display: inline-block; padding: 2px 5px; margin-bottom: 10px;">SOURCE</div>
+                        <div style="flex: 1; padding: 15px; margin-right: 20px;">
                              <div style="font-size: 16px;">${companyName}</div>
                              <div style="font-size: 12px; margin-top: 5px;">${data.companyAddress || ''}</div>
                         </div>
@@ -153,11 +159,11 @@ export const getBlueprintTechHtmlTemplate = (
 
                     <table style="width: 100%; border: 2px solid ${white}; border-collapse: collapse;">
                         <thead>
-                            <tr style="background: rgba(255,255,255,0.1); border-bottom: 2px solid ${white};">
-                                <th style="padding: 10px; text-align: left; border-right: 1px solid ${white};">ITEM NO. / DESC</th>
-                                <th style="padding: 10px; text-align: center; border-right: 1px solid ${white}; width: 80px;">QTY</th>
-                                <th style="padding: 10px; text-align: right; border-right: 1px solid ${white}; width: 100px;">UNIT</th>
-                                <th style="padding: 10px; text-align: right; width: 120px;">TOTAL</th>
+                            <tr style="background: ${white}; border-bottom: 2px solid ${blueprintBlue};">
+                                <th style="padding: 10px; text-align: left; border-right: 1px solid ${blueprintBlue}; color: ${blueprintBlue}; font-weight: bold;">ITEM NO. / DESC</th>
+                                <th style="padding: 10px; text-align: center; border-right: 1px solid ${blueprintBlue}; width: 80px; color: ${blueprintBlue}; font-weight: bold;">QTY</th>
+                                <th style="padding: 10px; text-align: right; border-right: 1px solid ${blueprintBlue}; width: 100px; color: ${blueprintBlue}; font-weight: bold;">UNIT</th>
+                                <th style="padding: 10px; text-align: right; width: 120px; color: ${blueprintBlue}; font-weight: bold;">TOTAL</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
@@ -178,10 +184,12 @@ export const getBlueprintTechHtmlTemplate = (
                 </div>
             </div>
             
-            <div style="position: absolute; bottom: 20px; right: 20px; border: 2px solid ${white}; padding: 10px;">
+            <div style="position: absolute; bottom: 50px; left: 50px; border: 2px solid ${white}; padding: 10px; background: ${blueprintBlue};">
                 <div style="font-size: 10px;">APPROVED BY</div>
-                <div style="height: 40px;"></div>
-                <div style="border-top: 1px solid ${white}; font-size: 10px; text-align: center; width: 150px;">SIGNATURE</div>
+                <div style="height: 40px; display: flex; align-items: center; justify-content: center;">
+                    ${data.signature ? `<img src="${data.signature}" style="max-height: 35px; max-width: 180px; filter: invert(1);" />` : ''}
+                </div>
+                <div style="border-top: 1px solid ${white}; font-size: 10px; text-align: center; width: 200px;">SIGNATURE</div>
             </div>
         </div>
     </div>`;
@@ -266,6 +274,14 @@ export const getAbstractMemphisHtmlTemplate = (
                  </div>
             </div>
             
+            ${data.signature ? `
+            <div style="margin-top: 40px; margin-left: 20px;">
+                <div style="background: ${white}; padding: 10px; display: inline-block; border: 4px solid ${black}; box-shadow: 5px 5px 0 ${purple}; transform: rotate(1deg);">
+                    <div style="font-weight: 900; font-size: 10px; text-transform: uppercase;">Signature</div>
+                    <img src="${data.signature}" style="max-height: 50px; max-width: 180px;" />
+                </div>
+            </div>` : ''}
+
              <div style="margin-top: 60px; text-align: center; font-weight: 900; letter-spacing: 2px;">
                 ${companyName.toUpperCase()}
             </div>
@@ -350,6 +366,13 @@ export const getCrimsonNoirHtmlTemplate = (
                 <div>PAYMENT DUE WITHIN 30 DAYS</div>
                 <div>${data.companyAddress || ''}</div>
             </div>
+            
+            ${data.signature ? `
+            <div style="position: absolute; bottom: 100px; left: 60px;">
+                <div style="color: ${crimson}; font-size: 10px; letter-spacing: 2px; margin-bottom: 10px;">AUTHORIZED SIGNATURE</div>
+                <img src="${data.signature}" style="max-height: 60px; max-width: 200px; filter: grayscale(100%) invert(100%);" /> 
+                <div style="border-bottom: 1px solid ${crimson}; width: 200px; margin-top: 5px;"></div>
+            </div>` : ''}
         </div>
     </div>`;
 };
@@ -430,6 +453,11 @@ export const getWatercolorArtisticHtmlTemplate = (
             <div style="margin-top: 60px; text-align: center; font-size: 12px; color: #AAA;">
                 ~ Created with art & soul ~
             </div>
+            ${data.signature ? `
+            <div style="position: absolute; bottom: 80px; right: 50px; text-align: center;">
+                <img src="${data.signature}" style="max-height: 60px; max-width: 180px; opacity: 0.8; mix-blend-mode: multiply;" />
+                <div style="font-family: 'Brush Script MT', cursive; color: #555; margin-top: -10px;">Authorized Signature</div>
+            </div>` : ''}
         </div>
     </div>`;
 };

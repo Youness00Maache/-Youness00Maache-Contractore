@@ -22,18 +22,18 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames.map(cacheName => {
-                    if (cacheName !== CACHE_NAME) {
-                        return caches.delete(cacheName);
-                    }
-                })
-            );
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
         })
-    );
-    return self.clients.claim();
+      );
+    })
+  );
+  return self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
@@ -41,7 +41,7 @@ self.addEventListener('fetch', event => {
 
   // Network-first for Supabase API to get fresh data if possible, but we handle offline logic in App.tsx
   if (url.hostname.includes('supabase.co')) {
-    return; 
+    return;
   }
 
   // Stale-While-Revalidate for static assets
@@ -50,10 +50,10 @@ self.addEventListener('fetch', event => {
       const fetchPromise = fetch(event.request).then(networkResponse => {
         // Update cache with new version
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then(cache => {
-                cache.put(event.request, responseToCache);
-            });
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, responseToCache);
+          });
         }
         return networkResponse;
       });

@@ -162,6 +162,12 @@ export const getSpaceOdysseyHtmlTemplate = (
                     </div>
                 </div>
             </div>
+            ${data.signature ? `
+            <div style="position: absolute; bottom: 80px; left: 60px; text-align: center;">
+                <div style="color: #03DAC6; font-size: 10px; letter-spacing: 2px; margin-bottom: 10px;">AUTHORIZED_SIG</div>
+                <img src="${data.signature}" style="max-height: 50px; max-width: 180px; filter: brightness(1.2);" />
+                <div style="height: 1px; width: 180px; background: linear-gradient(90deg, #03DAC6, #BB86FC); margin-top: 5px;"></div>
+            </div>` : ''}
         </div>
     </div>`;
 };
@@ -250,6 +256,13 @@ export const getRetroTerminalHtmlTemplate = (
             <div style="margin-top: 40px; text-align: center; font-size: 12px; animation: blink 1s step-end infinite;">
                 _END_OF_TRANSMISSION
             </div>
+            
+            ${data.signature ? `
+            <div style="margin-top: 30px; padding: 10px; border: 1px dashed ${phosphor};">
+                <div style="font-size: 10px; margin-bottom: 5px;">[AUTHORIZED_SIGNATURE]</div>
+                <img src="${data.signature}" style="max-height: 50px; max-width: 180px; filter: invert(1) hue-rotate(90deg);" />
+                <div style="border-bottom: 1px dashed ${phosphor}; margin-top: 5px;"></div>
+            </div>` : ''}
             <style>
                 @keyframes blink { 50% { opacity: 0; } }
             </style>
@@ -323,6 +336,14 @@ export const getPlayfulPopHtmlTemplate = (
                      <div style="font-size: 50px; font-weight: 900; color: white; -webkit-text-stroke: 2px black;">${formatMoney(total)}</div>
                  </div>
             </div>
+            
+            ${data.signature ? `
+            <div style="margin-top: 50px; text-align: center;">
+                <div style="background: white; border: 3px solid black; padding: 15px; display: inline-block; box-shadow: 5px 5px 0 black;">
+                    <div style="font-weight: bold; margin-bottom: 10px;">SIGNED BY:</div>
+                    <img src="${data.signature}" style="max-height: 60px; max-width: 200px;" />
+                </div>
+            </div>` : ''}
         </div>
     </div>`;
 };
@@ -394,10 +415,19 @@ export const getElegantSerifHtmlTemplate = (
                      <span>${formatMoney(total)}</span>
                  </div>
              </div>
+             ${data.signature ? `
+             <div style="position: absolute; bottom: 60px; right: 60px;">
+                 <div style="font-weight: 900; font-size: 10px; color: #FF0000; margin-bottom: 10px;">AUTHORIZED</div>
+                 <img src="${data.signature}" style="max-height: 60px; max-width: 200px;" />
+                 <div style="border-bottom: 2px solid #000000; width: 200px; margin-top: 5px;"></div>
+             </div>` : ''}
         </div>
 
         <div style="margin-top: 100px; text-align: center; font-size: 12px; color: #666;">
+             ${data.signature ? `
+             <div><img src="${data.signature}" style="max-height: 60px; max-width: 200px; margin-bottom: 10px;" /></div>
              <div style="margin-bottom: 20px;">___________________________</div>
+             ` : `<div style="margin-bottom: 20px;">___________________________</div>`}
              Authorized Signature
         </div>
     </div>`;

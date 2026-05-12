@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/Card.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, PlusIcon, TrashIcon, SearchIcon, TagIcon, FolderIcon, MoreVerticalIcon, CheckIcon } from './Icons.tsx';
-import { SavedItem } from '../types.ts';
+import { BackArrowIcon, PlusIcon, TrashIcon, SearchIcon, TagIcon, FolderIcon, MoreVerticalIcon, CheckIcon, BoxIcon } from './Icons.tsx';
+import { DropdownMenu, DropdownItem } from './ui/DropdownMenu.tsx';
+import { SavedItem, InventoryItem } from '../types.ts';
 import PriceBookItemDetails from './PriceBookItemDetails.tsx';
 
 interface PriceBookViewProps {
@@ -47,13 +48,13 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
         setShowItemDetails(true);
     };
 
-    const handleAddNewClick = () => {
-        setEditingItem(null);
+    const handleAddNewClick = (isAssembly = false) => {
+        setEditingItem({ is_assembly: isAssembly } as any);
         setShowItemDetails(true);
     };
 
     const handleSaveItem = async (itemData: any) => {
-        if (editingItem) {
+        if (editingItem && editingItem.id) {
             await onUpdateItem({ ...editingItem, ...itemData });
         } else {
             await onAddItem(itemData);
@@ -107,9 +108,20 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                 </div>
 
                 <div className="p-4 border-t border-border/50 bg-gradient-to-b from-transparent to-muted/30">
-                    <Button onClick={handleAddNewClick} className="w-full bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:scale-[1.02] transition-all duration-200">
-                        <PlusIcon className="w-4 h-4 mr-2" /> Add Item
-                    </Button>
+                    <DropdownMenu
+                        trigger={
+                            <Button className="w-full bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:scale-[1.02] transition-all duration-200">
+                                <PlusIcon className="w-4 h-4 mr-2" /> Add Item
+                            </Button>
+                        }
+                    >
+                        <DropdownItem onClick={() => handleAddNewClick(false)}>
+                            <PlusIcon className="w-4 h-4 mr-2" /> Add Standard Item
+                        </DropdownItem>
+                        <DropdownItem onClick={() => handleAddNewClick(true)}>
+                            <BoxIcon className="w-4 h-4 mr-2" /> Create Assembly/Kit
+                        </DropdownItem>
+                    </DropdownMenu>
                 </div>
             </div>
 
@@ -121,9 +133,20 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                         <BackArrowIcon className="w-5 h-5" />
                     </Button>
                     <h1 className="font-bold text-lg">Price Book</h1>
-                    <Button size="sm" onClick={handleAddNewClick} className="rounded-full w-8 h-8 p-0">
-                        <PlusIcon className="w-5 h-5" />
-                    </Button>
+                    <DropdownMenu
+                        trigger={
+                            <Button size="sm" className="rounded-full w-8 h-8 p-0">
+                                <PlusIcon className="w-5 h-5" />
+                            </Button>
+                        }
+                    >
+                        <DropdownItem onClick={() => handleAddNewClick(false)}>
+                            <PlusIcon className="w-4 h-4 mr-2" /> Add Standard Item
+                        </DropdownItem>
+                        <DropdownItem onClick={() => handleAddNewClick(true)}>
+                            <BoxIcon className="w-4 h-4 mr-2" /> Create Assembly/Kit
+                        </DropdownItem>
+                    </DropdownMenu>
                 </div>
 
                 {/* Filter Bar */}
@@ -171,9 +194,10 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                             <p className="text-muted-foreground max-w-sm mt-2">
                                 Try adjusting your search query or select a different category.
                             </p>
-                            <Button variant="outline" className="mt-6" onClick={handleAddNewClick}>
-                                Create New Item
-                            </Button>
+                            <DropdownMenu trigger={<Button variant="outline" className="mt-6">Create New Item</Button>} align="left">
+                                <DropdownItem onClick={() => handleAddNewClick(false)}>Add Standard Item</DropdownItem>
+                                <DropdownItem onClick={() => handleAddNewClick(true)}>Create Assembly/Kit</DropdownItem>
+                            </DropdownMenu>
                         </div>
                     ) : (
                         viewMode === 'grid' ? (
@@ -280,6 +304,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                 onSave={handleSaveItem}
                 item={editingItem}
                 categories={categories.length > 0 ? categories : ['General', 'Plumbing', 'Electrical', 'HVAC', 'Materials', 'Labor']}
+                savedItems={savedItems}
             />
         </div>
     );

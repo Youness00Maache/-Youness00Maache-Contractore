@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, SearchIcon, PlusIcon, TrashIcon, UsersIcon, GlobeIcon, CheckIcon, PenIcon, EstimateIcon, ChangeOrderIcon, CopyIcon, CheckCircleIcon } from './Icons.tsx';
+import { BackArrowIcon, SearchIcon, PlusIcon, TrashIcon, UsersIcon, GlobeIcon, CheckIcon, PenIcon, EstimateIcon, ChangeOrderIcon, CopyIcon, CheckCircleIcon, MoreVerticalIcon, ClockIcon } from './Icons.tsx';
+import { DropdownMenu, DropdownItem } from './ui/DropdownMenu.tsx';
+import ConfirmationModal from './ConfirmationModal.tsx';
+import { UserProfile } from '../types';
 
 interface ClientsViewProps {
     onBack: () => void;
@@ -20,6 +23,11 @@ interface ClientsViewProps {
     onNavigateToNewDoc?: (type: FormType, clientId: string) => void;
     onNavigateToJob?: (jobId: string) => void;
     onNavigateToDoc?: (formId: string, jobId: string, type: FormType) => void;
+    userProfile?: UserProfile;
+    onUpgradeClick?: () => void;
+    freeLimit?: number;
+    onUpdateClient?: (client: any) => Promise<void>;
+    onMarkDocumentsAsViewed?: (clientId: string) => Promise<void>;
 }
 
 const ClientsView: React.FC<ClientsViewProps> = ({
@@ -34,7 +42,12 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     isOnline,
     onNavigateToNewDoc,
     onNavigateToJob,
-    onNavigateToDoc
+    onNavigateToDoc,
+    userProfile,
+    onUpgradeClick,
+    freeLimit = 15,
+    onUpdateClient,
+    onMarkDocumentsAsViewed
 }) => {
     const [selectedDetailsClient, setSelectedDetailsClient] = useState<Client | null>(null);
     const [localClients, setLocalClients] = useState<Client[]>([]);
@@ -49,6 +62,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     const [approvalCopiedDocId, setApprovalCopiedDocId] = useState<string | null>(null);
     const [showSignedDocsModal, setShowSignedDocsModal] = useState(false); // NEW: Modal for signed documents
     const [selectedClientForSignedDocs, setSelectedClientForSignedDocs] = useState<Client | null>(null); // NEW
+    const [showHistoryModal, setShowHistoryModal] = useState(false); // NEW: Global history
+    const [clientToDelete, setClientToDelete] = useState<string | null>(null);
 
     const [newClient, setNewClient] = useState<Partial<Client>>({
         name: '',
@@ -57,6 +72,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         address: '',
         notes: ''
     });
+
+    const [showTemporaryClientsModal, setShowTemporaryClientsModal] = useState(false);
 
     const activeClients = propClients || localClients;
 
@@ -104,29 +121,48 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this client?')) return;
+        setClientToDelete(id);
+    };
 
+    const confirmDelete = async () => {
+        if (!clientToDelete) return;
+
+        setLoading(true);
         if (onDeleteClient) {
-            await onDeleteClient(id);
+            await onDeleteClient(clientToDelete);
         } else {
             const { error } = await supabase
                 .from('clients')
                 .delete()
-                .eq('id', id);
+                .eq('id', clientToDelete);
 
             if (error) {
                 alert(`Failed to delete client: ${error.message}`);
             }
             else fetchClients();
         }
+        setClientToDelete(null);
+        setLoading(false);
+    };
+
+    const handleConvertClient = async (client: Client, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!onUpdateClient) return;
+        const newNotes = (client.notes || '').replace('[TEMPORARY]', '').trim();
+        await onUpdateClient({ ...client, notes: newNotes });
+        if (activeClients === localClients) {
+            // refresh manually if no parents are doing it
+            fetchClients();
+        }
     };
 
     // Helper to get signed documents for a client
-    const getClientSignedDocs = (clientName: string) => {
+    const getClientSignedDocs = (clientName: string, onlyUnseen = false) => {
         return forms.filter(f =>
             (f.type === FormType.Estimate || f.type === FormType.ChangeOrder) &&
             (f.data as any).clientName === clientName &&
-            (f.data as any).clientSignatureUrl // Has client signature from digital approval
+            (f.data as any).clientSignatureUrl &&
+            (!onlyUnseen || !(f.data as any).viewedByProvider)
         );
     };
 
@@ -179,7 +215,15 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         }
     };
 
-    const filteredClients = activeClients.filter(c =>
+    const regularClients = activeClients.filter(c => !c.notes?.includes('[TEMPORARY]'));
+    const temporaryClients = activeClients.filter(c => c.notes?.includes('[TEMPORARY]'));
+
+    const filteredClients = regularClients.filter(c =>
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+
+    const filteredTempClients = temporaryClients.filter(c =>
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
     );
@@ -220,6 +264,29 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 </div>
                 <div className="flex items-center gap-3">
                     {isOnline === false && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold animate-pulse">Offline</div>}
+
+                    {userProfile?.subscriptionTier !== 'Premium' && (
+                        <div className="flex items-center gap-2 mr-1">
+                            <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
+                                Clients: {activeClients.length}/{freeLimit}
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
+                                onClick={onUpgradeClick}
+                            >
+                                Upgrade
+                            </Button>
+                        </div>
+                    )}
+
+                    <Button variant="outline" onClick={() => setShowHistoryModal(true)} className="rounded-full shadow-md hover:bg-secondary hidden sm:flex">
+                        <ClockIcon className="w-4 h-4 mr-2" /> History
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowTemporaryClientsModal(true)} className="rounded-full shadow-md bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100 hidden sm:flex">
+                        <UsersIcon className="w-4 h-4 mr-2" /> Temporary ({temporaryClients.length})
+                    </Button>
                     <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20"><PlusIcon className="w-4 h-4 mr-2" /> Add Client</Button>
                 </div>
             </header>
@@ -255,18 +322,19 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                             <CardHeader className="pb-3 flex flex-row gap-4 items-center border-b border-blue-100 dark:border-border bg-white/50 dark:bg-secondary/20">
                                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-lg relative">
                                     {client.name.charAt(0).toUpperCase()}
-                                    {/* Notification Badge for Signed Documents */}
-                                    {getClientSignedDocs(client.name).length > 0 && (
+                                    {/* Notification Badge for Signed Documents (Unseen only) */}
+                                    {getClientSignedDocs(client.name, true).length > 0 && (
                                         <div
-                                            className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-xs font-bold cursor-pointer hover:scale-110 transition-transform"
+                                            className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-xs font-bold ring-2 ring-white shadow-sm animate-bounce"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setSelectedClientForSignedDocs(client);
                                                 setShowSignedDocsModal(true);
+                                                if (onMarkDocumentsAsViewed) onMarkDocumentsAsViewed(client.id);
                                             }}
-                                            title="View signed documents"
+                                            title="View new signed documents"
                                         >
-                                            {getClientSignedDocs(client.name).length}
+                                            {getClientSignedDocs(client.name, true).length}
                                         </div>
                                     )}
                                 </div>
@@ -303,7 +371,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                         variant="outline"
                                         size="sm"
                                         onClick={(e) => { e.stopPropagation(); copyPortalLink(client); }}
-                                        className="text-xs h-9 bg-white/50 hover:bg-white text-blue-700 border-blue-200"
+                                        className="text-xs h-9 bg-white text-blue-700 border-blue-100 hover:bg-blue-50 dark:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-700 shadow-sm"
                                         title="Copy Magic Portal Link"
                                     >
                                         {copiedId === client.id ? <CheckIcon className="w-3 h-3 mr-1" /> : <GlobeIcon className="w-3 h-3 mr-1" />}
@@ -320,10 +388,26 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                     </Button>
                                 </div>
                             </CardContent>
-                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleDelete(client.id); }} className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0 rounded-full">
-                                    <TrashIcon className="w-4 h-4" />
-                                </Button>
+                            <div
+                                className="absolute top-4 right-4 group-hover:bg-white/80 dark:group-hover:bg-zinc-800/80 rounded-full transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <DropdownMenu
+                                    align="right"
+                                    trigger={
+                                        <Button variant="ghost" size="sm" className="h-10 w-10 p-0 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                                            <MoreVerticalIcon className="w-6 h-6" />
+                                        </Button>
+                                    }
+                                >
+                                    <DropdownItem
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(client.id); }}
+                                        destructive
+                                    >
+                                        <TrashIcon className="w-4 h-4 mr-2" />
+                                        Delete Client
+                                    </DropdownItem>
+                                </DropdownMenu>
                             </div>
                         </Card>
                     ))}
@@ -468,6 +552,134 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                     </Card>
                 </div>
             )}
+
+            {/* NEW: Temporary Clients Modal */}
+            {showTemporaryClientsModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowTemporaryClientsModal(false)}>
+                    <Card className="w-full max-w-4xl animate-in zoom-in-95 shadow-2xl h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <CardHeader className="border-b border-border pb-4 bg-orange-50 dark:bg-orange-950/20">
+                            <CardTitle className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+                                <UsersIcon className="w-5 h-5" />
+                                Temporary Clients
+                            </CardTitle>
+                            <CardDescription>Walk-ins and temporary jobs created via QR scanner.</CardDescription>
+                            <div className="relative mt-2">
+                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                                <Input
+                                    placeholder="Search temporary clients..."
+                                    className="pl-10 h-9 rounded-full bg-background border-border shadow-sm text-sm"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </div>
+                        </CardHeader>
+                        <CardContent className="flex-1 overflow-y-auto p-4 bg-muted/10">
+                            {filteredTempClients.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                                    <UsersIcon className="w-8 h-8 mb-2 opacity-20" />
+                                    <p>No temporary clients found.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {filteredTempClients.map(client => (
+                                        <div key={client.id} className="bg-card p-4 rounded-xl border border-orange-200 dark:border-orange-900/30 flex flex-col gap-2 relative">
+                                            <div className="flex justify-between items-start">
+                                                <h3 className="font-bold text-base truncate pr-6">{client.name}</h3>
+                                                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleDelete(client.id); }} className="absolute top-2 right-2 text-destructive hover:bg-destructive/10 h-7 w-7 p-0 rounded-full">
+                                                    <TrashIcon className="w-3.5 h-3.5" />
+                                                </Button>
+                                            </div>
+                                            <div className="text-xs text-muted-foreground space-y-1 mt-1">
+                                                {client.email && <div className="truncate">📧 {client.email}</div>}
+                                                {client.phone && <div>📞 {client.phone}</div>}
+                                            </div>
+                                            <div className="flex gap-2 mt-2 border-t pt-2 border-orange-100 dark:border-orange-900/20">
+                                                <Button size="sm" variant="outline" className="flex-1 h-8 text-[11px] border-orange-200 text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900/50" onClick={(e) => handleConvertClient(client, e)}>
+                                                    Convert to Regular
+                                                </Button>
+                                                <Button size="sm" className="flex-1 h-8 text-[11px] bg-orange-500 hover:bg-orange-600 text-white" onClick={() => { setSelectedDetailsClient(client); setShowTemporaryClientsModal(false); }}>
+                                                    View Details
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                        <CardFooter className="border-t pt-4 flex justify-between bg-card">
+                            <span className="text-xs text-muted-foreground">{filteredTempClients.length} temporary client(s)</span>
+                            <Button variant="outline" onClick={() => setShowTemporaryClientsModal(false)}>Close</Button>
+                        </CardFooter>
+                    </Card>
+                </div>
+            )}
+
+            {/* Global History Modal */}
+            {showHistoryModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowHistoryModal(false)}>
+                    <Card className="w-full max-w-2xl animate-in zoom-in-95 shadow-2xl h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <CardHeader className="border-b border-border pb-4 bg-muted/20">
+                            <CardTitle className="flex items-center gap-2">
+                                <ClockIcon className="w-5 h-5 text-primary" />
+                                Portal Activity History
+                            </CardTitle>
+                            <CardDescription>View all recent document approvals and signatures from the client portal.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex-1 overflow-y-auto p-0">
+                            {forms.filter(f => (f.data as any).clientSignatureUrl || (f.data as any).status === 'Accepted').length === 0 ? (
+                                <div className="text-center py-12 text-muted-foreground">
+                                    <ClockIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
+                                    <p>No activity recorded yet.</p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-border">
+                                    {forms
+                                        .filter(f => (f.data as any).clientSignatureUrl || (f.data as any).status === 'Accepted' || (f.data as any).status === 'Rejected')
+                                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                                        .map(doc => {
+                                            const d = doc.data as any;
+                                            const status = d.status || 'Draft';
+                                            return (
+                                                <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-muted/30 transition-colors">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={`p-3 rounded-xl ${status === 'Accepted' ? 'bg-green-100 text-green-700' : status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                            {doc.type === FormType.Estimate ? <EstimateIcon className="w-5 h-5" /> : <ChangeOrderIcon className="w-5 h-5" />}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-bold text-sm">
+                                                                {d.clientName} {status === 'Accepted' ? 'accepted' : status === 'Rejected' ? 'rejected' : 'signed'} {d.title || doc.type}
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                                {new Date(doc.createdAt).toLocaleString()} • {d.estimateNumber || d.changeOrderNumber || '---'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${status === 'Accepted' ? 'bg-green-100 text-green-700' : status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                        {status}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    }
+                                </div>
+                            )}
+                        </CardContent>
+                        <CardFooter className="border-t pt-4 flex justify-end">
+                            <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
+                        </CardFooter>
+                    </Card>
+                </div>
+            )}
+
+            <ConfirmationModal
+                isOpen={!!clientToDelete}
+                onClose={() => setClientToDelete(null)}
+                onConfirm={confirmDelete}
+                title="Delete Client"
+                message="Are you sure you want to delete this client? This action cannot be undone and will remove all associated data."
+                confirmLabel="Delete"
+                isDestructive={true}
+            />
         </div>
     );
 };
