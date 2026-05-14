@@ -57,8 +57,10 @@ import { compressImage } from './utils/imageCompression.ts';
 const supabaseUrl = 'https://iauteblvljppwzsxloyd.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdXRlYmx2bGpwcHd6c3hsb3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1OTk0MTIsImV4cCI6MjA3NjE3NTQxMn0.W2Xu9TuO6odsnF5eK7iLPqV4KB0wVWXzmM2ofnKZw70';
 
-// Use window.supabase for legacy script tag support as requested previously
-const supabase: SupabaseClient = (window as any).supabase ? (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
+// Create Supabase client with provided credentials
+const supabase: SupabaseClient = (window as any).supabase
+    ? (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey)
+    : null;
 
 const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Run this script in your Supabase SQL Editor.
@@ -736,7 +738,7 @@ const App: React.FC = () => {
 
         // Root path handler
         if (path === '' || path === '/') {
-            return session ? { screen: 'dashboard' } : { screen: 'welcome' };
+            return (session && session.user) ? { screen: 'dashboard' } : { screen: 'welcome' };
         }
         if (path === '/settings') return { screen: 'settings' };
         if (path === '/profile') return { screen: 'profile' };
