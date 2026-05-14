@@ -733,6 +733,11 @@ const App: React.FC = () => {
         if (path === '/security') return { screen: 'security' };
         if (path === '/update-password') return { screen: 'updatePassword' };
         if (path === '/dashboard') return { screen: 'dashboard' };
+
+        // Root path handler
+        if (path === '/') {
+            return session ? { screen: 'dashboard' } : { screen: 'welcome' };
+        }
         if (path === '/settings') return { screen: 'settings' };
         if (path === '/profile') return { screen: 'profile' };
         if (path === '/clients') return { screen: 'clients' };
@@ -772,8 +777,8 @@ const App: React.FC = () => {
 
         if (path === '/welcome') return { screen: 'welcome' };
 
-        return { screen: 'dashboard' }; // default fallback instead of welcome
-    }, [location.pathname, location.search]);
+        return { screen: 'welcome' };
+    }, [location.pathname, location.search, !!session]);
 
     const setView = (newView: AppView) => {
         switch (newView.screen) {
