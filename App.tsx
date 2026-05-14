@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
+import { createClient } from '@supabase/supabase-js';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import UpgradeModal from './components/UpgradeModal.tsx';
@@ -57,10 +58,8 @@ import { compressImage } from './utils/imageCompression.ts';
 const supabaseUrl = 'https://iauteblvljppwzsxloyd.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdXRlYmx2bGpwcHd6c3hsb3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1OTk0MTIsImV4cCI6MjA3NjE3NTQxMn0.W2Xu9TuO6odsnF5eK7iLPqV4KB0wVWXzmM2ofnKZw70';
 
-// Create Supabase client with provided credentials
-const supabase: SupabaseClient = (window as any).supabase
-    ? (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey)
-    : null;
+// Create Supabase client using the bundled npm package (not CDN global)
+const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
 const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Run this script in your Supabase SQL Editor.
