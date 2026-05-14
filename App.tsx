@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
-import { createClient } from '@supabase/supabase-js';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import UpgradeModal from './components/UpgradeModal.tsx';
@@ -58,8 +57,8 @@ import { compressImage } from './utils/imageCompression.ts';
 const supabaseUrl = 'https://iauteblvljppwzsxloyd.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdXRlYmx2bGpwcHd6c3hsb3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1OTk0MTIsImV4cCI6MjA3NjE3NTQxMn0.W2Xu9TuO6odsnF5eK7iLPqV4KB0wVWXzmM2ofnKZw70';
 
-// Create Supabase client using the bundled npm package (not CDN global)
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+// Use window.supabase for legacy script tag support as requested previously
+const supabase: SupabaseClient = (window as any).supabase ? (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
 
 const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
 -- Run this script in your Supabase SQL Editor.
@@ -723,22 +722,13 @@ const App: React.FC = () => {
             return { screen: 'welcome' };
         }
 
-        const path = location.pathname.replace(/\/$/, '');
-
-        // Check for recovery state in hash before anything else
-        const isRecovery = window.location.hash.includes('type=recovery');
-        if (isRecovery || path === '/update-password') return { screen: 'updatePassword' };
+        const path = location.pathname.replace(/\/$/, '') || '/dashboard';
 
         if (path === '/privacy') return { screen: 'privacy' };
         if (path === '/terms') return { screen: 'terms' };
         if (path === '/security') return { screen: 'security' };
         if (path === '/update-password') return { screen: 'updatePassword' };
         if (path === '/dashboard') return { screen: 'dashboard' };
-
-        // Root path handler
-        if (path === '' || path === '/') {
-            return (session && session.user) ? { screen: 'dashboard' } : { screen: 'welcome' };
-        }
         if (path === '/settings') return { screen: 'settings' };
         if (path === '/profile') return { screen: 'profile' };
         if (path === '/clients') return { screen: 'clients' };
@@ -778,8 +768,8 @@ const App: React.FC = () => {
 
         if (path === '/welcome') return { screen: 'welcome' };
 
-        return { screen: 'welcome' };
-    }, [location.pathname, location.search, !!session]);
+        return { screen: 'dashboard' }; // default fallback instead of welcome
+    }, [location.pathname, location.search]);
 
     const setView = (newView: AppView) => {
         switch (newView.screen) {
@@ -977,8 +967,7 @@ const App: React.FC = () => {
                         localStorage.setItem('google_provider_token', session.provider_token);
                     }
                     if (isRecovery || window.location.pathname === '/update-password') {
-                        // Ensure we stay on update-password if it's a recovery session
-                        setView({ screen: 'updatePassword' });
+                        navigate('/update-password');
                     } else {
                         setView({ screen: 'dashboard' });
                     }
@@ -990,8 +979,8 @@ const App: React.FC = () => {
             const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
                 setSession(session);
                 const isRecoveryEvent = _event === 'PASSWORD_RECOVERY' || window.location.hash.includes('type=recovery');
-                if (isRecoveryEvent || window.location.pathname === '/update-password') {
-                    setView({ screen: 'updatePassword' });
+                if (isRecoveryEvent) {
+                    navigate('/update-password');
                     setLoading(false);
                     return;
                 }
@@ -1007,7 +996,7 @@ const App: React.FC = () => {
                             if (!error) fetchData(); // Refresh profile state
                         });
                     }
-                    if (window.location.pathname !== '/update-password' && !window.location.hash.includes('type=recovery')) {
+                    if (window.location.pathname !== '/update-password') {
                         setView({ screen: 'dashboard' });
                     }
                 } else {
@@ -1219,7 +1208,7 @@ const App: React.FC = () => {
 
     const handleResetPassword = async (email: string) => {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/update-password`,
+            redirectTo: window.location.origin,
         });
         if (error) throw error;
     };
