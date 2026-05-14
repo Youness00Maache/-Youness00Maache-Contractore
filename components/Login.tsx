@@ -9,14 +9,17 @@ interface LoginProps {
   onLogin: (email: string, pass: string) => Promise<void>;
   onLoginWithGoogle: () => Promise<void>;
   onSwitchToSignup: () => void;
+  onResetPassword: (email: string) => Promise<void>;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSignup }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSignup, onResetPassword }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +50,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
       }
       setError(errorMessage);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -55,84 +58,157 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
       <div className="flex flex-col items-center text-center w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
-            <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
-            <h1 className="text-4xl font-bold mb-2 tracking-tight">ContractorDocs</h1>
-            <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
+          <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
+          <h1 className="text-4xl font-bold mb-2 tracking-tight">ContractorDocs</h1>
+          <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
         </div>
-        <Card className="w-full">
-          <form onSubmit={handleLogin}>
-            <CardHeader>
-              <CardTitle>Login</CardTitle>
-              <CardDescription>Enter your credentials to access your account.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col space-y-1.5 text-left">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
-                  autoComplete="email"
-                />
-              </div>
-              <div className="flex flex-col space-y-1.5 text-left">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
+        {isResettingPassword ? (
+          <Card className="w-full relative">
+            <button
+              type="button"
+              onClick={() => {
+                setIsResettingPassword(false);
+                setError('');
+                setResetSuccess('');
+              }}
+              className="absolute left-4 top-4 text-muted-foreground hover:text-foreground inline-flex items-center text-sm"
+            >
+              ← Back
+            </button>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setError('');
+              setResetSuccess('');
+              if (!email) {
+                setError('Please enter your email address.');
+                return;
+              }
+              setLoading(true);
+              try {
+                await onResetPassword(email);
+                setResetSuccess('Check your email for the recovery link.');
+              } catch (err: any) {
+                setError(err.message || 'Failed to send reset link.');
+              } finally {
+                setLoading(false);
+              }
+            }}>
+              <CardHeader className="pt-10">
+                <CardTitle>Reset Password</CardTitle>
+                <CardDescription>Enter your email to receive a recovery link.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-1.5 text-left">
+                  <Label htmlFor="reset-email">Email</Label>
                   <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    id="reset-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
-                    autoComplete="current-password"
-                    className="pr-10"
+                    autoComplete="email"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                  </button>
                 </div>
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-            </CardContent>
-            <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Logging in...' : 'Login'}
-              </Button>
-              
-              <div className="relative w-full">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-
-              <Button variant="outline" type="button" className="w-full flex items-center gap-2" onClick={handleGoogleLogin} disabled={loading}>
-                <GoogleIcon className="h-4 w-4" />
-                Sign in with Google
-              </Button>
-
-              <p className="text-sm text-center text-muted-foreground">
-                Don't have an account?{' '}
-                <Button variant="link" type="button" onClick={onSwitchToSignup} className="p-0 h-auto">
-                  Sign up
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                {resetSuccess && <p className="text-sm text-green-600 dark:text-green-400 font-medium">{resetSuccess}</p>}
+              </CardContent>
+              <CardFooter>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? 'Sending...' : 'Send Reset Link'}
                 </Button>
-              </p>
-            </CardFooter>
-          </form>
-        </Card>
+              </CardFooter>
+            </form>
+          </Card>
+        ) : (
+          <Card className="w-full">
+            <form onSubmit={handleLogin}>
+              <CardHeader>
+                <CardTitle>Login</CardTitle>
+                <CardDescription>Enter your credentials to access your account.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-1.5 text-left">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={loading}
+                    autoComplete="email"
+                  />
+                </div>
+                <div className="flex flex-col space-y-1.5 text-left">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsResettingPassword(true);
+                        setError('');
+                      }}
+                      className="text-xs text-primary hover:underline"
+                      tabIndex={-1}
+                    >
+                      Forgot Password?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={loading}
+                      autoComplete="current-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+              </CardContent>
+              <CardFooter className="flex flex-col gap-4">
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? 'Logging in...' : 'Login'}
+                </Button>
+
+                <div className="relative w-full">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">
+                      Or continue with
+                    </span>
+                  </div>
+                </div>
+
+                <Button variant="outline" type="button" className="w-full flex items-center gap-2" onClick={handleGoogleLogin} disabled={loading}>
+                  <GoogleIcon className="h-4 w-4" />
+                  Sign in with Google
+                </Button>
+
+                <p className="text-sm text-center text-muted-foreground">
+                  Don't have an account?{' '}
+                  <Button variant="link" type="button" onClick={onSwitchToSignup} className="p-0 h-auto">
+                    Sign up
+                  </Button>
+                </p>
+              </CardFooter>
+            </form>
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { FormType } from './types.ts';
 import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
@@ -7,6 +8,7 @@ import UpgradeModal from './components/UpgradeModal.tsx';
 import ConfirmationModal from './components/ConfirmationModal.tsx';
 import SignaturePad from './components/SignaturePad.tsx';
 import Signup from './components/Signup.tsx';
+import UpdatePassword from './components/UpdatePassword.tsx';
 import SelectDocType from './components/SelectDocType.tsx';
 import InvoiceForm from './components/InvoiceForm.tsx';
 import DailyJobReportForm from './components/DailyJobReportForm.tsx';
@@ -685,6 +687,7 @@ const App: React.FC = () => {
     type AppView =
         | { screen: 'welcome' }
         | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
+        | { screen: 'updatePassword' }
         | { screen: 'dashboard' }
         | { screen: 'jobDetails'; jobId: string }
         | { screen: 'createJob'; returnTo?: 'dashboard' | 'calendar' }
@@ -707,24 +710,96 @@ const App: React.FC = () => {
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-    const [view, setView] = useState<AppView>(() => {
-        const params = new URLSearchParams(window.location.search);
-        // Check for Portal URL param
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    const view: AppView = React.useMemo(() => {
+        const params = new URLSearchParams(location.search);
         const portalKey = params.get('portal');
-        // Check for Approval Token
         const approvalToken = params.get('approval_token');
 
         if (portalKey || approvalToken) {
-            // If external link exists, we don't need app state, we'll render portal view directly
-            return { screen: 'welcome' }; // Placeholder, logic handled below
+            return { screen: 'welcome' };
         }
 
-        const path = window.location.pathname.replace(/\/$/, ''); // remove trailing slash
+        const path = location.pathname.replace(/\/$/, '') || '/dashboard';
+
+        // Check for recovery state in hash before anything else
+        const isRecovery = window.location.hash.includes('type=recovery');
+        if (isRecovery || path === '/update-password') return { screen: 'updatePassword' };
+
         if (path === '/privacy') return { screen: 'privacy' };
         if (path === '/terms') return { screen: 'terms' };
         if (path === '/security') return { screen: 'security' };
-        return { screen: 'welcome' };
-    });
+        if (path === '/update-password') return { screen: 'updatePassword' };
+        if (path === '/dashboard') return { screen: 'dashboard' };
+        if (path === '/settings') return { screen: 'settings' };
+        if (path === '/profile') return { screen: 'profile' };
+        if (path === '/clients') return { screen: 'clients' };
+        if (path === '/analytics') return { screen: 'analytics' };
+        if (path === '/calendar') return { screen: 'calendar' };
+        if (path === '/communication') return { screen: 'communication' };
+        if (path === '/inventory') return { screen: 'inventory' };
+        if (path === '/pricebook') return { screen: 'pricebook' };
+        if (path === '/calculator') return { screen: 'profitCalculator' };
+        if (path === '/forum') return { screen: 'forum' };
+
+        if (path.startsWith('/auth/')) {
+            const authScreen = path.split('/')[2];
+            return { screen: 'auth', authScreen: authScreen as any };
+        }
+
+        if (path.startsWith('/forum/')) {
+            return { screen: 'forum', postId: path.split('/')[2] };
+        }
+
+        if (path.startsWith('/jobs')) {
+            const parts = path.split('/');
+            if (parts[2] === 'create') {
+                const rt = params.get('returnTo') as 'dashboard' | 'calendar' | undefined;
+                return { screen: 'createJob', returnTo: rt };
+            }
+            if (parts[3] === 'select-doc') {
+                return { screen: 'selectDocType', jobId: parts[2] };
+            }
+            if (parts[3] === 'forms') {
+                return { screen: 'form', jobId: parts[2], formType: parts[4] as FormType, formId: parts[5] || null };
+            }
+            if (parts[2]) {
+                return { screen: 'jobDetails', jobId: parts[2] };
+            }
+        }
+
+        if (path === '/welcome') return { screen: 'welcome' };
+
+        return { screen: 'dashboard' }; // default fallback instead of welcome
+    }, [location.pathname, location.search]);
+
+    const setView = (newView: AppView) => {
+        switch (newView.screen) {
+            case 'welcome': navigate('/welcome'); break;
+            case 'privacy': navigate('/privacy'); break;
+            case 'terms': navigate('/terms'); break;
+            case 'security': navigate('/security'); break;
+            case 'updatePassword': navigate('/update-password'); break;
+            case 'auth': navigate(`/auth/${newView.authScreen}`); break;
+            case 'dashboard': navigate('/dashboard'); break;
+            case 'settings': navigate('/settings'); break;
+            case 'profile': navigate('/profile'); break;
+            case 'clients': navigate('/clients'); break;
+            case 'analytics': navigate('/analytics'); break;
+            case 'calendar': navigate('/calendar'); break;
+            case 'communication': navigate('/communication'); break;
+            case 'inventory': navigate('/inventory'); break;
+            case 'pricebook': navigate('/pricebook'); break;
+            case 'profitCalculator': navigate('/calculator'); break;
+            case 'forum': navigate(newView.postId ? `/forum/${newView.postId}` : '/forum'); break;
+            case 'createJob': navigate(`/jobs/create${newView.returnTo ? `?returnTo=${newView.returnTo}` : ''}`); break;
+            case 'selectDocType': navigate(`/jobs/${newView.jobId}/select-doc`); break;
+            case 'form': navigate(`/jobs/${newView.jobId}/forms/${newView.formType}${newView.formId ? `/${newView.formId}` : ''}`); break;
+            case 'jobDetails': navigate(`/jobs/${newView.jobId}`); break;
+        }
+    };
 
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
@@ -887,13 +962,20 @@ const App: React.FC = () => {
             return;
         }
         if (!portalKey && !approvalToken) {
+            const isRecovery = window.location.hash.includes('type=recovery');
+
             supabase.auth.getSession().then(({ data: { session } }) => {
                 setSession(session);
                 if (session) {
                     if (session.provider_token) {
                         localStorage.setItem('google_provider_token', session.provider_token);
                     }
-                    setView({ screen: 'dashboard' });
+                    if (isRecovery || window.location.pathname === '/update-password') {
+                        // Ensure we stay on update-password if it's a recovery session
+                        setView({ screen: 'updatePassword' });
+                    } else {
+                        setView({ screen: 'dashboard' });
+                    }
                 } else {
                     setLoading(false);
                 }
@@ -901,6 +983,13 @@ const App: React.FC = () => {
 
             const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
                 setSession(session);
+                const isRecoveryEvent = _event === 'PASSWORD_RECOVERY' || window.location.hash.includes('type=recovery');
+                if (isRecoveryEvent || window.location.pathname === '/update-password') {
+                    setView({ screen: 'updatePassword' });
+                    setLoading(false);
+                    return;
+                }
+
                 if (session) {
                     if (session.provider_token) {
                         localStorage.setItem('google_provider_token', session.provider_token);
@@ -912,7 +1001,9 @@ const App: React.FC = () => {
                             if (!error) fetchData(); // Refresh profile state
                         });
                     }
-                    setView({ screen: 'dashboard' });
+                    if (window.location.pathname !== '/update-password' && !window.location.hash.includes('type=recovery')) {
+                        setView({ screen: 'dashboard' });
+                    }
                 } else {
                     setProfile(null);
                     setJobs([]);
@@ -1119,6 +1210,20 @@ const App: React.FC = () => {
         if (error) throw error;
         setView({ screen: 'auth', authScreen: 'checkEmail' });
     };
+
+    const handleResetPassword = async (email: string) => {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/update-password`,
+        });
+        if (error) throw error;
+    };
+
+    const handleUpdatePassword = async (password: string) => {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        setView({ screen: 'dashboard' });
+    };
+
     const handleLoginWithGoogle = async () => {
         await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
     };
@@ -1651,7 +1756,7 @@ const App: React.FC = () => {
     const renderAuth = () => {
         if (view.screen !== 'auth') return null;
         switch (view.authScreen) {
-            case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} />;
+            case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} onResetPassword={handleResetPassword} />;
             case 'signup': return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
             case 'checkEmail': return <div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>;
         }
@@ -2056,6 +2161,7 @@ const App: React.FC = () => {
             return renderAuth();
         }
         switch (view.screen) {
+            case 'updatePassword': return <UpdatePassword onUpdatePassword={handleUpdatePassword} />;
             case 'dashboard': return renderDashboard();
             case 'jobDetails': return renderJobDetails();
             case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} jobCount={jobs.filter(j => j.status === 'active').length} profile={profile} />;
