@@ -722,7 +722,7 @@ const App: React.FC = () => {
             return { screen: 'welcome' };
         }
 
-        const path = location.pathname.replace(/\/$/, '') || '/dashboard';
+        const path = location.pathname.replace(/\/$/, '');
 
         // Check for recovery state in hash before anything else
         const isRecovery = window.location.hash.includes('type=recovery');
@@ -735,7 +735,7 @@ const App: React.FC = () => {
         if (path === '/dashboard') return { screen: 'dashboard' };
 
         // Root path handler
-        if (path === '/') {
+        if (path === '' || path === '/') {
             return session ? { screen: 'dashboard' } : { screen: 'welcome' };
         }
         if (path === '/settings') return { screen: 'settings' };
