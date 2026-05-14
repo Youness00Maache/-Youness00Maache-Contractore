@@ -101,6 +101,21 @@ BEGIN
     END IF;
 END $$;
 
+-- 1.5 USER CREDENTIALS (NEW: Gmail Persistence)
+CREATE TABLE IF NOT EXISTS public.user_credentials (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, provider)
+);
+ALTER TABLE public.user_credentials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage their own credentials" ON public.user_credentials;
+CREATE POLICY "Users can manage their own credentials" ON public.user_credentials FOR ALL USING (auth.uid() = user_id);
+
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view all profiles" ON public.profiles;
 CREATE POLICY "Users can view all profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
@@ -968,8 +983,8 @@ const App: React.FC = () => {
                     }
                     // HARDENED GUARD: If we are on update-password or in a recovery flow, STAY PUT.
                     if (isRecovery || window.location.pathname === '/update-password') {
-                        navigate('/update-password');
-                    } else {
+                        if (window.location.pathname !== '/update-password') navigate('/update-password');
+                    } else if (window.location.pathname === '/' || window.location.pathname === '/welcome' || window.location.pathname.startsWith('/auth/')) {
                         setView({ screen: 'dashboard' });
                     }
                 } else {
@@ -984,7 +999,7 @@ const App: React.FC = () => {
                 // PRIORITIZE RECOVERY: If this is a recovery event OR we are already on the update-password page, 
                 // do not allow other auth events (like SIGNED_IN) to redirect us to the dashboard.
                 if (isRecoveryEvent || window.location.pathname === '/update-password') {
-                    navigate('/update-password');
+                    if (window.location.pathname !== '/update-password') navigate('/update-password');
                     setLoading(false);
                     return;
                 }
@@ -992,17 +1007,30 @@ const App: React.FC = () => {
                 if (session) {
                     if (session.provider_token) {
                         localStorage.setItem('google_provider_token', session.provider_token);
-                        // PERSIST TOKEN TO DB
-                        supabase.from('profiles').update({
+
+                        // PERSIST TOKENS (Profile for Legacy, user_credentials for Persistence)
+                        const tokenData = {
                             gmail_access_token: session.provider_token,
                             gmail_refresh_token: session.provider_refresh_token
-                        }).eq('id', session.user.id).then(({ error }) => {
-                            if (!error) fetchData(); // Refresh profile state
+                        };
+
+                        // Update Profiles
+                        supabase.from('profiles').update(tokenData).eq('id', session.user.id);
+
+                        // Update User Credentials Table
+                        supabase.from('user_credentials').upsert({
+                            user_id: session.user.id,
+                            provider: 'google',
+                            access_token: session.provider_token,
+                            refresh_token: session.provider_refresh_token,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'user_id,provider' }).then(({ error }) => {
+                            if (!error) fetchData(); // Refresh profile state to reflect linked status
                         });
                     }
 
-                    // Normal authenticated routing
-                    if (window.location.pathname !== '/update-password') {
+                    // Normal authenticated routing - ONLY redirect if on a guest page
+                    if (window.location.pathname === '/' || window.location.pathname === '/welcome' || window.location.pathname.startsWith('/auth/')) {
                         setView({ screen: 'dashboard' });
                     }
                 } else {
@@ -1072,6 +1100,22 @@ const App: React.FC = () => {
                     gmailAccessToken: profileData.gmail_access_token,
                     gmailRefreshToken: profileData.gmail_refresh_token
                 };
+
+                // Fallback: Check user_credentials if profile tokens are missing
+                if (!currentProfile.gmailAccessToken) {
+                    const { data: creds } = await supabase
+                        .from('user_credentials')
+                        .select('access_token, refresh_token')
+                        .eq('user_id', user.id)
+                        .eq('provider', 'google')
+                        .maybeSingle();
+
+                    if (creds) {
+                        currentProfile.gmailAccessToken = creds.access_token;
+                        currentProfile.gmailRefreshToken = creds.refresh_token;
+                    }
+                }
+
                 if (profileData.theme) {
                     setTheme(profileData.theme as 'light' | 'dark' | 'blue');
                 }
@@ -1232,9 +1276,12 @@ const App: React.FC = () => {
         await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin,
+                redirectTo: `${window.location.origin}/communication`,
                 scopes: 'https://www.googleapis.com/auth/gmail.send',
-                queryParams: { access_type: 'offline', prompt: 'consent' }
+                queryParams: {
+                    access_type: 'offline',
+                    prompt: 'consent'
+                }
             }
         });
     };
