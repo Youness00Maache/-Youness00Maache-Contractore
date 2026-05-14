@@ -966,6 +966,7 @@ const App: React.FC = () => {
                     if (session.provider_token) {
                         localStorage.setItem('google_provider_token', session.provider_token);
                     }
+                    // HARDENED GUARD: If we are on update-password or in a recovery flow, STAY PUT.
                     if (isRecovery || window.location.pathname === '/update-password') {
                         navigate('/update-password');
                     } else {
@@ -979,7 +980,10 @@ const App: React.FC = () => {
             const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
                 setSession(session);
                 const isRecoveryEvent = _event === 'PASSWORD_RECOVERY' || window.location.hash.includes('type=recovery');
-                if (isRecoveryEvent) {
+
+                // PRIORITIZE RECOVERY: If this is a recovery event OR we are already on the update-password page, 
+                // do not allow other auth events (like SIGNED_IN) to redirect us to the dashboard.
+                if (isRecoveryEvent || window.location.pathname === '/update-password') {
                     navigate('/update-password');
                     setLoading(false);
                     return;
@@ -996,6 +1000,8 @@ const App: React.FC = () => {
                             if (!error) fetchData(); // Refresh profile state
                         });
                     }
+
+                    // Normal authenticated routing
                     if (window.location.pathname !== '/update-password') {
                         setView({ screen: 'dashboard' });
                     }
@@ -1208,7 +1214,7 @@ const App: React.FC = () => {
 
     const handleResetPassword = async (email: string) => {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: window.location.origin,
+            redirectTo: `${window.location.origin}/update-password`,
         });
         if (error) throw error;
     };
