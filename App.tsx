@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormType } from './types.ts';
-import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
+import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem, UserGmailAccount } from './types.ts';
 import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import Login from './components/Login.tsx';
 import UpgradeModal from './components/UpgradeModal.tsx';
@@ -41,7 +41,7 @@ import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import TermsOfService from './components/TermsOfService.tsx';
 import Security from './components/Security.tsx';
 
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon, AlertTriangleIcon, StarIcon, CopyIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon, AlertTriangleIcon, StarIcon, CopyIcon, GoogleIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
@@ -698,6 +698,88 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
     return data.publicUrl;
 };
 
+// --- GMAIL AUTH CONFIG ---
+// NOTE: These should ideally be in env vars. VITE_ prefix is common for frontend.
+const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+
+const GmailCallback: React.FC<{ session: Session | null }> = ({ session }) => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const handleCallback = async () => {
+            const params = new URLSearchParams(location.search);
+            const code = params.get('code');
+            if (!code) {
+                setError('No authorization code received');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${supabaseUrl}/functions/v1/gmail-auth`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`
+                    },
+                    body: JSON.stringify({
+                        action: 'exchange',
+                        code,
+                        redirect_uri: `${window.location.origin}/auth/google/callback/gmail`
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to exchange token');
+
+                // Token saved on backend/DB. Redirect home.
+                navigate('/communication');
+            } catch (err: any) {
+                console.error('Gmail callback error:', err);
+                setError(err.message);
+            }
+        };
+
+        if (session) {
+            handleCallback();
+        }
+    }, [location, session, navigate]);
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-background">
+                <Card className="w-full max-w-md border-destructive/50">
+                    <CardHeader>
+                        <CardTitle className="text-destructive">Gmail Connection Failed</CardTitle>
+                        <CardDescription>We couldn't link your Google account.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="p-3 bg-destructive/10 rounded-lg text-sm text-destructive font-medium border border-destructive/20">
+                            {error}
+                        </div>
+                    </CardContent>
+                    <CardFooter>
+                        <Button onClick={() => navigate('/communication')} className="w-full">Back to Communication</Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-background">
+            <div className="relative">
+                <div className="w-16 h-16 rounded-full border-4 border-primary/20 animate-pulse"></div>
+                <div className="absolute inset-0 w-16 h-16 rounded-full border-t-4 border-primary animate-spin"></div>
+            </div>
+            <p className="mt-6 text-lg font-medium animate-pulse">Authorizing Gmail...</p>
+            <p className="text-sm text-muted-foreground mt-2">Connecting your account securely</p>
+        </div>
+    );
+};
+
+
 const App: React.FC = () => {
     type AppView =
         | { screen: 'welcome' }
@@ -720,7 +802,8 @@ const App: React.FC = () => {
         | { screen: 'forum'; postId?: string }
         | { screen: 'privacy' }
         | { screen: 'terms' }
-        | { screen: 'security' };
+        | { screen: 'security' }
+        | { screen: 'gmailCallback' };
 
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
@@ -754,6 +837,7 @@ const App: React.FC = () => {
         if (path === '/pricebook') return { screen: 'pricebook' };
         if (path === '/calculator') return { screen: 'profitCalculator' };
         if (path === '/forum') return { screen: 'forum' };
+        if (path === '/auth/google/callback/gmail') return { screen: 'gmailCallback' };
 
         if (path.startsWith('/auth/')) {
             const authScreen = path.split('/')[2];
@@ -809,6 +893,7 @@ const App: React.FC = () => {
             case 'selectDocType': navigate(`/jobs/${newView.jobId}/select-doc`); break;
             case 'form': navigate(`/jobs/${newView.jobId}/forms/${newView.formType}${newView.formId ? `/${newView.formId}` : ''}`); break;
             case 'jobDetails': navigate(`/jobs/${newView.jobId}`); break;
+            case 'gmailCallback': navigate('/auth/google/callback/gmail'); break;
         }
     };
 
@@ -819,6 +904,7 @@ const App: React.FC = () => {
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
     const [inventoryHistory, setInventoryHistory] = useState<InventoryHistoryItem[]>([]);
     const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+    const [gmailAccounts, setGmailAccounts] = useState<UserGmailAccount[]>([]);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [showJobFinancials, setShowJobFinancials] = useState<boolean>(false);
 
@@ -1237,6 +1323,12 @@ const App: React.FC = () => {
             }
         }
 
+        // Gmail Accounts
+        if (navigator.onLine) {
+            const { data: gmailData } = await supabase.from('user_gmail_accounts').select('*').eq('user_id', user.id);
+            if (gmailData) setGmailAccounts(gmailData);
+        }
+
         setLoading(false);
     };
 
@@ -1273,39 +1365,30 @@ const App: React.FC = () => {
         await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
     };
     const handleConnectGmail = async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: `${window.location.origin}/communication`,
-                scopes: 'https://www.googleapis.com/auth/gmail.send email profile',
-                queryParams: {
-                    access_type: 'offline',
-                    prompt: 'select_account'
-                }
-            }
-        });
+        const redirectUri = `${window.location.origin}/auth/google/callback/gmail`;
+        const scope = 'https://www.googleapis.com/auth/gmail.send email profile';
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+        window.location.href = authUrl;
     };
-    const handleDisconnectGmail = async () => {
+    const handleDisconnectGmail = async (address?: string) => {
         if (!session) return;
 
-        // 1. Clear from profiles table
-        const { error: profileError } = await supabase.from('profiles').update({
-            gmail_access_token: null,
-            gmail_refresh_token: null
-        }).eq('id', session.user.id);
-
-        // 2. Also clear from user_credentials if it exists
-        try {
-            await supabase.from('user_credentials').delete().eq('user_id', session.user.id).eq('provider', 'google');
-        } catch (e) {
-            // Table might not exist yet, which is fine
-        }
-
-        if (profileError) {
-            console.error("Error disconnecting Gmail:", profileError);
+        if (address) {
+            // New multi-account disconnect
+            await supabase.from('user_gmail_accounts').delete().eq('user_id', session.user.id).eq('gmail_address', address);
+            setGmailAccounts(prev => prev.filter(acc => acc.gmail_address !== address));
         } else {
+            // Legacy disconnect (keep for compatibility if needed, but we're moving to multi-account)
+            await supabase.from('profiles').update({
+                gmail_access_token: null,
+                gmail_refresh_token: null
+            }).eq('id', session.user.id);
             setProfile(prev => prev ? { ...prev, gmailAccessToken: undefined, gmailRefreshToken: undefined } : null);
         }
+
+        try {
+            await supabase.from('user_credentials').delete().eq('user_id', session.user.id).eq('provider', 'google');
+        } catch (e) { }
     };
     const handleLogout = async () => {
         if (navigator.onLine) await supabase.auth.signOut();
@@ -2290,7 +2373,8 @@ const App: React.FC = () => {
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
             case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
             case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-            case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onDisconnectGmail={handleDisconnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} />;
+            case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onDisconnectGmail={handleDisconnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} gmailAccounts={gmailAccounts} />;
+            case 'gmailCallback': return <GmailCallback session={session} />;
             case 'forum':
                 return (
                     <ForumView

@@ -498,9 +498,20 @@ export interface DocumentApproval {
   created_at?: string;
 }
 
+
 export interface ProfitMarginData {
   totalCost: number;
   totalRevenue: number;
   totalProfit: number;
   marginPercentage: number;
 }
+
+export interface UserGmailAccount {
+  id: string;
+  user_id: string;
+  gmail_address: string;
+  refresh_token: string;
+  created_at: string;
+  updated_at: string;
+}
+
