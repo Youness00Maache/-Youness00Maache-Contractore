@@ -698,6 +698,94 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
     return data.publicUrl;
 };
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+// --- GMAIL AUTH CONFIG ---
+// NOTE: These should ideally be in env vars. VITE_ prefix is common for frontend.
+const GOOGLE_CLIENT_ID = '292965678575-p8smva2vfeguocsppjr45r05jsvhggjo.apps.googleusercontent.com';
+
+const GmailCallback: React.FC<{ session: Session | null }> = ({ session }) => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const handleCallback = async () => {
+            const params = new URLSearchParams(location.search);
+            const code = params.get('code');
+            if (!code) {
+                setError('No authorization code received');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${supabaseUrl}/functions/v1/gmail-auth`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`
+                    },
+                    body: JSON.stringify({
+                        action: 'exchange',
+                        code,
+                        redirect_uri: `${window.location.origin}/auth/google/callback/gmail`
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to exchange token');
+
+                // Token saved on backend/DB. Redirect home.
+                navigate('/communication');
+            } catch (err: any) {
+                console.error('Gmail callback error:', err);
+                setError(err.message);
+            }
+        };
+
+        if (session) {
+            handleCallback();
+        }
+    }, [location, session, navigate]);
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-background">
+                <Card className="w-full max-w-md border-destructive/50">
+                    <CardHeader>
+                        <CardTitle className="text-destructive">Gmail Connection Failed</CardTitle>
+                        <CardDescription>We couldn't link your Google account.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="p-3 bg-destructive/10 rounded-lg text-sm text-destructive font-medium border border-destructive/20">
+                            {error}
+                        </div>
+                    </CardContent>
+                    <CardFooter>
+                        <Button onClick={() => navigate('/communication')} className="w-full">Back to Communication</Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-background">
+            <div className="relative">
+                <div className="w-16 h-16 rounded-full border-4 border-primary/20 animate-pulse"></div>
+                <div className="absolute inset-0 w-16 h-16 rounded-full border-t-4 border-primary animate-spin"></div>
+            </div>
+            <p className="mt-6 text-lg font-medium animate-pulse">Authorizing Gmail...</p>
+            <p className="text-sm text-muted-foreground mt-2">Connecting your account securely</p>
+        </div>
+    );
+};
+
+
+=======
+>>>>>>> 2aad7f4 (fixing the google managment button in the Communication page UNDO FIX)
+>>>>>>> f3849b960a4d32d8886b4b0472bb050a25f4651c
 const App: React.FC = () => {
     type AppView =
         | { screen: 'welcome' }
