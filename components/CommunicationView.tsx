@@ -7,7 +7,7 @@ import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
 import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon, GoogleIcon, StarIcon, XCircleIcon } from './Icons.tsx';
 import { Session } from '@supabase/supabase-js';
-import { sendGmail } from '../services/gmailService.ts';
+import { sendGmail, getGmailProfile } from '../services/gmailService.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 import UpgradeModal from './UpgradeModal.tsx';
 import EmailTemplateSelector from './EmailTemplateSelector.tsx';
@@ -21,11 +21,12 @@ interface CommunicationViewProps {
     onBack: () => void;
     session: Session;
     onConnectGmail?: () => void;
+    onDisconnectGmail?: () => void;
     onEmailSent?: () => void;
     onUpgrade?: () => void;
 }
 
-const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session, onConnectGmail, onEmailSent, onUpgrade }) => {
+const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session, onConnectGmail, onDisconnectGmail, onEmailSent, onUpgrade }) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
 
@@ -44,6 +45,8 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [showUpgrade, setShowUpgrade] = useState(false);
     const [limitMessage, setLimitMessage] = useState('');
     const [copySuccess, setCopySuccess] = useState(false);
+    const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
+    const [isFetchingProfile, setIsFetchingProfile] = useState(false);
 
     // Template System State
     const [showTemplateSelector, setShowTemplateSelector] = useState(false);
@@ -52,16 +55,41 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [secondaryColor, setSecondaryColor] = useState('#8b5cf6'); // Default purple
     const [showPreview, setShowPreview] = useState(false);
 
-    // Watch for session/profile updates
     useEffect(() => {
-        if (session?.provider_token || profile.gmailAccessToken) {
+        if (session?.provider_token || profile.gmailAccessToken || localStorage.getItem('google_provider_token')) {
             setHasGoogleToken(true);
             setShowConnectModal(false);
+            fetchProfile();
         } else {
-            const hasToken = !!localStorage.getItem('google_provider_token');
-            setHasGoogleToken(hasToken);
+            setHasGoogleToken(false);
+            setConnectedEmail(null);
         }
     }, [session, profile.gmailAccessToken]);
+
+    const fetchProfile = async () => {
+        if (isFetchingProfile) return;
+        setIsFetchingProfile(true);
+        try {
+            const data = await getGmailProfile(session, profile.gmailAccessToken);
+            if (data && data.emailAddress) {
+                setConnectedEmail(data.emailAddress);
+            }
+        } catch (error) {
+            console.error("Failed to fetch Gmail profile:", error);
+            // Don't necessarily clear hasGoogleToken here, as the token might still work for sending
+            // but just doesn't have the profile scope.
+        } finally {
+            setIsFetchingProfile(false);
+        }
+    };
+
+    const handleDisconnectGmail = () => {
+        // Clear tokens from local storage and state
+        localStorage.removeItem('google_provider_token');
+        setHasGoogleToken(false);
+        setConnectedEmail(null);
+        if (onDisconnectGmail) onDisconnectGmail();
+    };
 
     const isPro = profile.subscriptionTier === 'Premium';
     const emailLimit = 10;
@@ -315,6 +343,50 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
                             </span>
                         )}
                     </div>
+                </div>
+
+                {/* Gmail Account Indicator */}
+                <div className="ml-auto flex items-center gap-3">
+                    {hasGoogleToken ? (
+                        <div className="flex items-center gap-2 bg-secondary/50 border border-border px-3 py-1.5 rounded-full shadow-sm animate-in fade-in slide-in-from-right-4">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            <div className="flex flex-col">
+                                <span className="text-[10px] text-muted-foreground leading-none font-bold uppercase tracking-wider">Connected Gmail</span>
+                                <span className="text-xs font-medium truncate max-w-[150px] md:max-w-[200px]">
+                                    {connectedEmail || 'Gmail Active'}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1 ml-2 border-l border-border pl-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={handleDisconnectGmail}
+                                    title="Disconnect Account"
+                                >
+                                    <XCircleIcon className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 rounded-full"
+                                    onClick={onConnectGmail}
+                                    title="Switch Account"
+                                >
+                                    <GoogleIcon className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </div>
+                    ) : (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full flex gap-2 border-primary/20 hover:border-primary transition-all"
+                            onClick={() => setShowConnectModal(true)}
+                        >
+                            <GoogleIcon className="w-4 h-4" /> Connect Gmail
+                        </Button>
+                    )}
                 </div>
             </header>
 

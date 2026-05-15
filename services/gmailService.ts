@@ -61,6 +61,34 @@ export const sendGmail = async (
   return response.json();
 };
 
+export const getGmailProfile = async (
+  session: Session,
+  accessToken?: string
+) => {
+  const providerToken = accessToken || session.provider_token || localStorage.getItem('google_provider_token');
+
+  if (!providerToken) {
+    throw new Error("No provider token found.");
+  }
+
+  const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+    headers: {
+      'Authorization': `Bearer ${providerToken}`,
+    }
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem('google_provider_token');
+      throw new Error("GMAIL_AUTH_ERROR: Session expired");
+    }
+    const errorData = await response.json();
+    throw new Error(errorData.error?.message || 'Failed to fetch Gmail profile');
+  }
+
+  return response.json() as Promise<{ emailAddress: string }>;
+};
+
 const createMimeMessage = (to: string, subject: string, body: string, attachments?: { name: string; data: string; type: string }[], htmlBody?: string) => {
   const boundary = "foo_bar_baz";
   const nl = "\r\n";

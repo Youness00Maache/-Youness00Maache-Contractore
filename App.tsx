@@ -1277,13 +1277,35 @@ const App: React.FC = () => {
             provider: 'google',
             options: {
                 redirectTo: `${window.location.origin}/communication`,
-                scopes: 'https://www.googleapis.com/auth/gmail.send',
+                scopes: 'https://www.googleapis.com/auth/gmail.send email profile',
                 queryParams: {
                     access_type: 'offline',
-                    prompt: 'consent'
+                    prompt: 'select_account'
                 }
             }
         });
+    };
+    const handleDisconnectGmail = async () => {
+        if (!session) return;
+
+        // 1. Clear from profiles table
+        const { error: profileError } = await supabase.from('profiles').update({
+            gmail_access_token: null,
+            gmail_refresh_token: null
+        }).eq('id', session.user.id);
+
+        // 2. Also clear from user_credentials if it exists
+        try {
+            await supabase.from('user_credentials').delete().eq('user_id', session.user.id).eq('provider', 'google');
+        } catch (e) {
+            // Table might not exist yet, which is fine
+        }
+
+        if (profileError) {
+            console.error("Error disconnecting Gmail:", profileError);
+        } else {
+            setProfile(prev => prev ? { ...prev, gmailAccessToken: undefined, gmailRefreshToken: undefined } : null);
+        }
     };
     const handleLogout = async () => {
         if (navigator.onLine) await supabase.auth.signOut();
@@ -2268,7 +2290,7 @@ const App: React.FC = () => {
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
             case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
             case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-            case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} />;
+            case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onDisconnectGmail={handleDisconnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} />;
             case 'forum':
                 return (
                     <ForumView
