@@ -700,7 +700,7 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
 
 // --- GMAIL AUTH CONFIG ---
 // NOTE: These should ideally be in env vars. VITE_ prefix is common for frontend.
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '292965678575-p8smva2vfeguocsppjr45r05jsvhggjo.apps.googleusercontent.com';
 
 const GmailCallback: React.FC<{ session: Session | null }> = ({ session }) => {
     const location = useLocation();
