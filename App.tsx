@@ -2438,3 +2438,5 @@ const App: React.FC = () => {
 };
 
 export default App;
+
+// Build Trigger: 2026-05-16 - Deployment fix for merge conflicts.
