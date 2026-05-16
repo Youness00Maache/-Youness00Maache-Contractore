@@ -5,15 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon, GoogleIcon, StarIcon, XCircleIcon } from './Icons.tsx';
-import { Session } from '@supabase/supabase-js';
-import { sendGmail, getGmailProfile } from '../services/gmailService.ts';
+import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon, GoogleIcon, StarIcon, XCircleIcon, PlusIcon, ChevronDownIcon } from './Icons.tsx';
+import { Session, SupabaseClient } from '@supabase/supabase-js';
+import { sendGmail } from '../services/gmailService.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 import UpgradeModal from './UpgradeModal.tsx';
 import EmailTemplateSelector from './EmailTemplateSelector.tsx';
 import { EMAIL_TEMPLATES, EmailTemplateDefinition, applyTemplateVariables } from '../utils/emailTemplates.ts';
 
 interface CommunicationViewProps {
+    supabase: SupabaseClient;
     clients: Client[];
     forms: FormDataType[];
     jobs: Job[];
@@ -26,7 +27,7 @@ interface CommunicationViewProps {
     onUpgrade?: () => void;
 }
 
-const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, jobs, profile, onBack, session, onConnectGmail, onDisconnectGmail, onEmailSent, onUpgrade }) => {
+const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients, forms, jobs, profile, onBack, session, onConnectGmail, onDisconnectGmail, onEmailSent, onUpgrade }) => {
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
 
@@ -38,15 +39,14 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [sendSuccess, setSendSuccess] = useState(false);
 
     // Initialize hasGoogleToken from profile or localStorage
-    const [hasGoogleToken, setHasGoogleToken] = useState(() => !!(profile.gmailAccessToken || localStorage.getItem('google_provider_token')));
-    // Only show connect modal on mount if we definitively don't have a token
-    const [showConnectModal, setShowConnectModal] = useState(() => !(profile.gmailAccessToken || localStorage.getItem('google_provider_token')));
+    const [gmailAccounts, setGmailAccounts] = useState<{ gmail_address: string }[]>([]);
+    const [selectedGmailAccount, setSelectedGmailAccount] = useState<string | null>(null);
+    const [showConnectModal, setShowConnectModal] = useState(false);
+    const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
 
     const [showUpgrade, setShowUpgrade] = useState(false);
     const [limitMessage, setLimitMessage] = useState('');
     const [copySuccess, setCopySuccess] = useState(false);
-    const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
-    const [isFetchingProfile, setIsFetchingProfile] = useState(false);
 
     // Template System State
     const [showTemplateSelector, setShowTemplateSelector] = useState(false);
@@ -56,38 +56,42 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
     const [showPreview, setShowPreview] = useState(false);
 
     useEffect(() => {
-        if (session?.provider_token || profile.gmailAccessToken || localStorage.getItem('google_provider_token')) {
-            setHasGoogleToken(true);
-            setShowConnectModal(false);
-            fetchProfile();
-        } else {
-            setHasGoogleToken(false);
-            setConnectedEmail(null);
-        }
-    }, [session, profile.gmailAccessToken]);
+        const fetchAccounts = async () => {
+            if (!session?.user?.id) return;
+            const { data, error } = await supabase
+                .from('user_gmail_accounts')
+                .select('gmail_address')
+                .eq('user_id', session.user.id);
 
-    const fetchProfile = async () => {
-        if (isFetchingProfile) return;
-        setIsFetchingProfile(true);
-        try {
-            const data = await getGmailProfile(session, profile.gmailAccessToken);
-            if (data && data.emailAddress) {
-                setConnectedEmail(data.emailAddress);
+            if (data && data.length > 0) {
+                setGmailAccounts(data);
+                // If the selected account is not set or not in the retrieved array, pick the first one
+                if (!selectedGmailAccount || !data.some(d => d.gmail_address === selectedGmailAccount)) {
+                    setSelectedGmailAccount(data[0].gmail_address);
+                }
+            } else {
+                setGmailAccounts([]);
+                setSelectedGmailAccount(null);
             }
-        } catch (error) {
-            console.error("Failed to fetch Gmail profile:", error);
-            // Don't necessarily clear hasGoogleToken here, as the token might still work for sending
-            // but just doesn't have the profile scope.
-        } finally {
-            setIsFetchingProfile(false);
-        }
-    };
+        };
 
-    const handleDisconnectGmail = () => {
-        // Clear tokens from local storage and state
-        localStorage.removeItem('google_provider_token');
-        setHasGoogleToken(false);
-        setConnectedEmail(null);
+        fetchAccounts();
+    }, [session, supabase, selectedGmailAccount]);
+
+    const handleDisconnectGmail = async () => {
+        if (!selectedGmailAccount) return;
+
+        // Remove the selected account from DB
+        await supabase
+            .from('user_gmail_accounts')
+            .delete()
+            .eq('user_id', session.user.id)
+            .eq('gmail_address', selectedGmailAccount);
+
+        // Let the useEffect refetch or locally update
+        setGmailAccounts(prev => prev.filter(a => a.gmail_address !== selectedGmailAccount));
+        // Reset selected if deleted
+        setSelectedGmailAccount(null);
         if (onDisconnectGmail) onDisconnectGmail();
     };
 
@@ -244,7 +248,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
 
     const handleSendEmail = async () => {
         // Check for Gmail connection first
-        if (!hasGoogleToken) {
+        if (gmailAccounts.length === 0 || !selectedGmailAccount) {
             setShowConnectModal(true);
             return;
         }
@@ -283,7 +287,18 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
             // Generate HTML email if template is selected
             const htmlEmail = generateHtmlEmail();
 
-            await sendGmail(session, recipientEmail, subject, body, attachments.length > 0 ? attachments : undefined, profile.gmailAccessToken, htmlEmail);
+            // Refresh token immediately via edge function to securely request fresh access token
+            const { data: authData, error: authError } = await supabase.functions.invoke('gmail-auth', {
+                body: { action: 'refresh', gmail_address: selectedGmailAccount }
+            });
+
+            if (authError || !authData?.access_token) {
+                throw new Error("Failed to authenticate with Google. You may need to reconnect your account.");
+            }
+
+            const accessToken = authData.access_token;
+
+            await sendGmail(session, recipientEmail, subject, body, attachments.length > 0 ? attachments : undefined, accessToken, htmlEmail);
 
             setSendSuccess(true);
             if (onEmailSent) onEmailSent();
@@ -292,8 +307,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
 
         } catch (error: any) {
             console.error("Email send failed", error);
-            if (error.message.includes("GMAIL_AUTH_ERROR") || error.message.includes("provider token found")) {
-                setHasGoogleToken(false);
+            if (error.message.includes("GMAIL_AUTH_ERROR") || error.message.includes("authenticate with Google")) {
                 setShowConnectModal(true); // Prompt to reconnect if token is invalid
             } else {
                 alert(`Failed to send email: ${error.message}`);
@@ -347,35 +361,74 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients, forms, j
 
                 {/* Gmail Account Indicator */}
                 <div className="ml-auto flex items-center gap-3">
-                    {hasGoogleToken ? (
-                        <div className="flex items-center gap-2 bg-secondary/50 border border-border px-3 py-1.5 rounded-full shadow-sm animate-in fade-in slide-in-from-right-4">
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                            <div className="flex flex-col">
-                                <span className="text-[10px] text-muted-foreground leading-none font-bold uppercase tracking-wider">Connected Gmail</span>
-                                <span className="text-xs font-medium truncate max-w-[150px] md:max-w-[200px]">
-                                    {connectedEmail || 'Gmail Active'}
-                                </span>
+                    {gmailAccounts.length > 0 ? (
+                        <div className="relative group">
+                            <div className="flex items-center gap-2 bg-secondary/40 hover:bg-secondary/60 border border-border px-3 py-1.5 rounded-full shadow-sm animate-in fade-in slide-in-from-right-4 transition-all duration-300">
+                                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+
+                                <div className="flex flex-col min-w-[140px] max-w-[180px] cursor-pointer" onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[9px] text-muted-foreground leading-none font-bold uppercase tracking-wider">Connected Gmail</span>
+                                        <ChevronDownIcon className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </div>
+                                    <span className="text-xs font-bold text-foreground truncate mt-0.5 leading-tight">
+                                        {selectedGmailAccount || 'Gmail Active'}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center gap-2 ml-1 border-l border-border/50 pl-2">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-9 w-9 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDisconnectGmail();
+                                        }}
+                                        title={`Disconnect ${selectedGmailAccount}`}
+                                    >
+                                        <XCircleIcon className="w-6 h-6" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-9 w-9 p-0 rounded-full bg-blue-50 text-blue-600 hover:text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:text-blue-300 transition-colors shadow-sm"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onConnectGmail?.();
+                                        }}
+                                        title="Link Another Account"
+                                    >
+                                        <PlusIcon className="w-6 h-6" />
+                                    </Button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-1 ml-2 border-l border-border pl-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive"
-                                    onClick={handleDisconnectGmail}
-                                    title="Disconnect Account"
-                                >
-                                    <XCircleIcon className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 rounded-full"
-                                    onClick={onConnectGmail}
-                                    title="Switch Account"
-                                >
-                                    <GoogleIcon className="w-4 h-4" />
-                                </Button>
-                            </div>
+
+                            {/* Custom Modern Dropdown Menu */}
+                            {isAccountDropdownOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setIsAccountDropdownOpen(false)} />
+                                    <div className="absolute top-full right-0 mt-2 w-full min-w-[200px] bg-card border border-border rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                        <div className="py-1">
+                                            {gmailAccounts.map(acc => (
+                                                <button
+                                                    key={acc.gmail_address}
+                                                    className={`w-full text-left px-4 py-2.5 text-xs font-semibold transition-colors flex items-center justify-between group/item ${acc.gmail_address === selectedGmailAccount ? 'bg-primary/10 text-primary' : 'hover:bg-secondary text-foreground'}`}
+                                                    onClick={() => {
+                                                        setSelectedGmailAccount(acc.gmail_address);
+                                                        setIsAccountDropdownOpen(false);
+                                                    }}
+                                                >
+                                                    <span className="truncate flex-1">{acc.gmail_address}</span>
+                                                    {acc.gmail_address === selectedGmailAccount && (
+                                                        <CheckCircleIcon className="w-3.5 h-3.5 ml-2 text-primary" />
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     ) : (
                         <Button

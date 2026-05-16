@@ -29,6 +29,7 @@ import AnalyticsView from './components/AnalyticsView.tsx';
 import ForumView from './components/ForumView.tsx';
 import CalendarView from './components/CalendarView.tsx';
 import CommunicationView from './components/CommunicationView.tsx';
+import GmailCallback from './components/GmailCallback.tsx';
 import InventoryView from './components/InventoryView.tsx';
 import PriceBookView from './components/PriceBookView.tsx';
 import ProfitCalculatorView from './components/ProfitCalculatorView.tsx';
@@ -98,6 +99,9 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_usage') THEN
         ALTER TABLE public.profiles ADD COLUMN email_usage INTEGER DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_usage_month') THEN
+        ALTER TABLE public.profiles ADD COLUMN email_usage_month TEXT;
     END IF;
 END $$;
 
@@ -720,7 +724,8 @@ const App: React.FC = () => {
         | { screen: 'forum'; postId?: string }
         | { screen: 'privacy' }
         | { screen: 'terms' }
-        | { screen: 'security' };
+        | { screen: 'security' }
+        | { screen: 'gmailCallback' };
 
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
@@ -754,6 +759,7 @@ const App: React.FC = () => {
         if (path === '/pricebook') return { screen: 'pricebook' };
         if (path === '/calculator') return { screen: 'profitCalculator' };
         if (path === '/forum') return { screen: 'forum' };
+        if (path === '/gmail-callback') return { screen: 'gmailCallback' };
 
         if (path.startsWith('/auth/')) {
             const authScreen = path.split('/')[2];
@@ -905,21 +911,27 @@ const App: React.FC = () => {
     const checkLimit = (type: 'jobs' | 'clients' | 'docs', contextId?: string): boolean => {
         if (profile?.subscriptionTier === 'Premium') return true;
         let count = 0;
-        if (type === 'jobs') count = jobs.length;
-        else if (type === 'clients') count = clients.length;
+
+        const currentMonth = new Date().getMonth();
+        const currentYear = new Date().getFullYear();
+
+        const isCurrentMonth = (dateStr?: string) => {
+            if (!dateStr) return true;
+            const d = new Date(dateStr);
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        };
+
+        if (type === 'jobs') count = jobs.filter(j => isCurrentMonth(j.createdAt || j.startDate)).length;
+        else if (type === 'clients') count = clients.filter(c => isCurrentMonth(c.created_at)).length;
         else if (type === 'docs') {
-            if (contextId) {
-                count = forms.filter(f => f.jobId === contextId).length;
-            } else {
-                // Fallback if no context ID (should not happen for doc creation)
-                count = forms.length;
-            }
+            const contextForms = contextId ? forms.filter(f => f.jobId === contextId) : forms;
+            count = contextForms.filter(f => isCurrentMonth(f.createdAt)).length;
         }
 
-        console.log(`[DEBUG] Checking limit for ${type}: count=${count}, limit=${FREE_LIMITS[type]}`);
+        console.log(`[DEBUG] Checking monthly limit for ${type}: count=${count}, limit=${FREE_LIMITS[type]}`);
 
         if (count >= FREE_LIMITS[type]) {
-            setUpgradeFeature(`${FREE_LIMITS[type]} ${type} limit per project (Free Plan). You have ${count}.`);
+            setUpgradeFeature(`${FREE_LIMITS[type]} ${type} limit per month (Free Plan). You have created ${count} this month.`);
             setShowGlobalUpgrade(true);
             return false;
         }
@@ -1081,6 +1093,19 @@ const App: React.FC = () => {
             }
 
             if (profileData) {
+                const currentMonthStr = new Date().toISOString().substring(0, 7);
+                let newEmailUsage = profileData.email_usage || 0;
+                let newEmailUsageMonth = profileData.email_usage_month || currentMonthStr;
+
+                if (newEmailUsageMonth !== currentMonthStr) {
+                    newEmailUsage = 0;
+                    newEmailUsageMonth = currentMonthStr;
+                    supabase.from('profiles').update({
+                        email_usage: 0,
+                        email_usage_month: currentMonthStr
+                    }).eq('id', user.id).then(() => { });
+                }
+
                 currentProfile = {
                     id: profileData.id,
                     email: profileData.email,
@@ -1096,7 +1121,7 @@ const App: React.FC = () => {
                     language: profileData.language,
                     emailTemplates: profileData.email_templates,
                     theme: profileData.theme,
-                    emailUsage: profileData.email_usage || 0,
+                    emailUsage: newEmailUsage,
                     gmailAccessToken: profileData.gmail_access_token,
                     gmailRefreshToken: profileData.gmail_refresh_token
                 };
@@ -1161,7 +1186,7 @@ const App: React.FC = () => {
         if (navigator.onLine) {
             const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
             if (jobsData) {
-                const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id, workerName: j.worker_name }));
+                const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id, workerName: j.worker_name, createdAt: j.created_at }));
                 setJobs(mappedJobs);
                 await dbApi.clear('jobs');
                 for (const j of mappedJobs) await dbApi.put('jobs', j);
@@ -1273,17 +1298,23 @@ const App: React.FC = () => {
         await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
     };
     const handleConnectGmail = async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: `${window.location.origin}/communication`,
-                scopes: 'https://www.googleapis.com/auth/gmail.send email profile',
-                queryParams: {
-                    access_type: 'offline',
-                    prompt: 'select_account'
-                }
-            }
-        });
+        // Step 2: Build a Direct Google OAuth URL
+        const GOOGLE_CLIENT_ID = '292965678575-p8smva2vfeguocsppjr45r05jsvhggjo.apps.googleusercontent.com';
+        const REDIRECT_URI = `${window.location.origin}/gmail-callback`;
+        const SCOPE = 'https://www.googleapis.com/auth/gmail.send email profile';
+
+        const rootUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+        const options = {
+            redirect_uri: REDIRECT_URI,
+            client_id: GOOGLE_CLIENT_ID,
+            access_type: 'offline',
+            response_type: 'code',
+            prompt: 'consent select_account',
+            scope: SCOPE,
+        };
+
+        const qs = new URLSearchParams(options);
+        window.location.assign(`${rootUrl}?${qs.toString()}`);
     };
     const handleDisconnectGmail = async () => {
         if (!session) return;
@@ -1383,9 +1414,10 @@ const App: React.FC = () => {
 
     const handleEmailSent = async () => {
         if (!session || !profile) return;
+        const currentMonthStr = new Date().toISOString().substring(0, 7);
         const newCount = (profile.emailUsage || 0) + 1;
         setProfile({ ...profile, emailUsage: newCount });
-        await supabase.from('profiles').update({ email_usage: newCount }).eq('id', session.user.id);
+        await supabase.from('profiles').update({ email_usage: newCount, email_usage_month: currentMonthStr }).eq('id', session.user.id);
     };
 
     const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
@@ -1999,16 +2031,14 @@ const App: React.FC = () => {
                         </select>
                         {profile.subscriptionTier !== 'Premium' && (
                             <div className="flex items-center gap-1.5 ml-1">
-                                <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full font-bold border border-indigo-100 flex items-center gap-1.5 shadow-sm">
-                                    <BriefcaseIcon className="w-3.5 h-3.5" /> Docs: {jobForms.length}/{FREE_LIMITS.docs}
-                                </span>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-xs font-bold h-auto py-1.5 px-4 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
-                                    onClick={() => { setUpgradeFeature(`Upgrade to create more than ${FREE_LIMITS.docs} documents per project.`); setShowGlobalUpgrade(true); }}
+                                <Button variant="ghost" size="sm" className="h-8 text-[11px] text-amber-600 bg-amber-50 hover:bg-amber-100 font-medium px-2.5 rounded-full"
+                                    onClick={() => { setUpgradeFeature(`Upgrade to create more than ${FREE_LIMITS.docs} documents per project per month.`); setShowGlobalUpgrade(true); }}
                                 >
-                                    Upgrade
+                                    <BriefcaseIcon className="w-3.5 h-3.5" /> Docs This Month: {jobForms.filter(f => {
+                                        if (!f.createdAt) return true;
+                                        const d = new Date(f.createdAt);
+                                        return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                                    }).length}/{FREE_LIMITS.docs}
                                 </Button>
                             </div>
                         )}
@@ -2234,7 +2264,13 @@ const App: React.FC = () => {
             case 'updatePassword': return <UpdatePassword onUpdatePassword={handleUpdatePassword} />;
             case 'dashboard': return renderDashboard();
             case 'jobDetails': return renderJobDetails();
-            case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} jobCount={jobs.filter(j => j.status === 'active').length} profile={profile} />;
+            case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} jobCount={jobs.filter(j => {
+                const currentMonth = new Date().getMonth();
+                const currentYear = new Date().getFullYear();
+                if (!j.createdAt && !j.startDate) return true;
+                const d = new Date(j.createdAt || j.startDate);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            }).length} profile={profile} />;
             case 'selectDocType': { const activeJob = jobs.find(j => j.id === view.jobId); if (!activeJob) return <div>Error</div>; return <SelectDocType onSelect={(type) => setView({ screen: 'form', formType: type, jobId: activeJob.id, formId: null })} onBack={() => setView({ screen: 'jobDetails', jobId: view.jobId })} profile={profile} docCount={forms.length} />; }
             case 'form': return renderForm();
             case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
@@ -2290,7 +2326,8 @@ const App: React.FC = () => {
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
             case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
             case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-            case 'communication': if (!profile) return null; return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} onBack={navigateToDashboard} session={session} onConnectGmail={handleConnectGmail} onDisconnectGmail={handleDisconnectGmail} onEmailSent={handleEmailSent} onUpgrade={handleUpgradeSuccess} />;
+            case 'communication': return <CommunicationView supabase={supabase} clients={clients} forms={forms} jobs={jobs} profile={profile} session={session} onConnectGmail={handleConnectGmail} onDisconnectGmail={handleDisconnectGmail} onBack={navigateToDashboard} onEmailSent={handleEmailSent} onUpgrade={() => { setUpgradeFeature('Upgrade to Premium to send more emails.'); setShowGlobalUpgrade(true); }} />;
+            case 'gmailCallback': return <GmailCallback supabase={supabase} />;
             case 'forum':
                 return (
                     <ForumView

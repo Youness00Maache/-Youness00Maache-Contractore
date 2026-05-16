@@ -268,7 +268,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                     {userProfile?.subscriptionTier !== 'Premium' && (
                         <div className="flex items-center gap-2 mr-1">
                             <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
-                                Clients: {activeClients.length}/{freeLimit}
+                                Clients this month: {activeClients.filter(c => {
+                                    if (!c.created_at) return true;
+                                    const d = new Date(c.created_at);
+                                    return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                                }).length}/{freeLimit}
                             </span>
                             <Button
                                 variant="ghost"

@@ -100,7 +100,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
             {/* Limit Warning */}
             {profile?.subscriptionTier !== 'Premium' && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex justify-between items-center">
-                <span>Active Jobs: {jobCount} / 6 (Free Plan Limit)</span>
+                <span>Jobs This Month: {jobCount} / 6 (Free Plan Limit)</span>
                 {jobCount >= 6 && <span className="font-bold text-red-600">Limit Reached</span>}
               </div>
             )}

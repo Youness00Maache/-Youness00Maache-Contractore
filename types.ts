@@ -90,6 +90,7 @@ export interface Job {
   endDate: string | null;
   status: 'active' | 'completed' | 'inactive' | 'paused';
   workerName?: string;
+  createdAt?: string;
 }
 
 export interface LineItem {

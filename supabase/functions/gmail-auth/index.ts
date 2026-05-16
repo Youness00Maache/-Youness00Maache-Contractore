@@ -5,18 +5,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 serve(async (req) => {
     if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders })
+        return new Response('ok', { headers: corsHeaders, status: 200 })
     }
 
     try {
         const { action, code, redirect_uri, gmail_address } = await req.json()
 
-        const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
-        const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET')
+        const clientId = Deno.env.get('GOOGLE_CLIENT_ID')?.trim()
+        const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET')?.trim()
         const supabaseUrl = Deno.env.get('SUPABASE_URL')
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
@@ -36,6 +37,10 @@ serve(async (req) => {
         if (action === 'exchange') {
             if (!code) throw new Error('Authorization code is required')
 
+            // Log what we're sending so we can compare with Google Cloud Console
+            console.log('Exchanging code with redirect_uri:', redirect_uri)
+            console.log('Using client_id:', clientId)
+
             // 1. Exchange code for tokens
             const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
                 method: 'POST',
@@ -46,19 +51,27 @@ serve(async (req) => {
                     client_secret: clientSecret,
                     redirect_uri,
                     grant_type: 'authorization_code',
-                }),
+                }).toString(),
             })
 
             const tokens = await tokenResponse.json()
-            if (tokens.error) throw new Error(`Google Token Error: ${tokens.error_description || tokens.error}`)
+            if (tokens.error) {
+                console.error('Google Token Exchange Error Body:', JSON.stringify(tokens))
+                // Reveal the exact error name and body from Google
+                throw new Error(`Google Error [${tokens.error}]: ${JSON.stringify(tokens)} | redirect_uri: ${redirect_uri}`)
+            }
 
             // 2. Get Gmail address
-            const profileResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+            const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: { Authorization: `Bearer ${tokens.access_token}` },
             })
-            if (!profileResponse.ok) throw new Error('Failed to fetch Gmail profile')
+
+            if (!profileResponse.ok) {
+                const errBody = await profileResponse.text()
+                throw new Error(`Failed to fetch Google profile: ${errBody}`)
+            }
             const profile = await profileResponse.json()
-            const email = profile.emailAddress
+            const email = profile.email
 
             // 3. Save to database
             const upsertData: any = {
