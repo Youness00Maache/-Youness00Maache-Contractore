@@ -698,9 +698,6 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
     return data.publicUrl;
 };
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
 // --- GMAIL AUTH CONFIG ---
 // NOTE: These should ideally be in env vars. VITE_ prefix is common for frontend.
 const GOOGLE_CLIENT_ID = '292965678575-p8smva2vfeguocsppjr45r05jsvhggjo.apps.googleusercontent.com';
@@ -782,10 +779,6 @@ const GmailCallback: React.FC<{ session: Session | null }> = ({ session }) => {
     );
 };
 
-
-=======
->>>>>>> 2aad7f4 (fixing the google managment button in the Communication page UNDO FIX)
->>>>>>> f3849b960a4d32d8886b4b0472bb050a25f4651c
 const App: React.FC = () => {
     type AppView =
         | { screen: 'welcome' }
