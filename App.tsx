@@ -702,6 +702,7 @@ const uploadFile = async (bucket: string, file: File, userId: string, isPublicUp
     return data.publicUrl;
 };
 
+
 const App: React.FC = () => {
     type AppView =
         | { screen: 'welcome' }
@@ -2394,3 +2395,5 @@ const App: React.FC = () => {
 };
 
 export default App;
+
+// Build Trigger: 2026-05-16 - Deployment fix for merge conflicts.
