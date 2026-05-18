@@ -37,8 +37,8 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px] flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
-            <div className="w-full max-w-3xl bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl overflow-hidden relative animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px] flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200" onClick={onClose}>
+            <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl relative animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
 
                 {/* Close Button */}
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors z-20 bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full">

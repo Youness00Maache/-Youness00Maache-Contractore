@@ -391,7 +391,7 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
               e.target.value = '';
             }}
           />
-          <CardFooter className="flex flex-col sm:flex-row gap-2 w-full justify-end bg-muted/20 p-6">
+          <CardFooter className="flex flex-col-reverse sm:flex-row gap-3 w-full sm:justify-end bg-muted/20 p-6">
             <Button variant="outline" onClick={() => onSave(formData)} className="w-full sm:w-auto">Save Only</Button>
             <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full sm:w-auto"><ExportIcon className="h-4 w-4 mr-2" /> Download</Button>
             <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading} className="w-full sm:w-auto">Save & Download</Button>

@@ -412,17 +412,17 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
         </div>
 
       </CardContent>
-      <CardFooter className="flex justify-between">
-        <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={() => setPage(2)}>Next</Button>
+      <CardFooter className="flex flex-col-reverse md:flex-row justify-between gap-3">
+        <Button variant="outline" onClick={onClose} className="w-full md:w-auto">Cancel</Button>
+        <Button onClick={() => setPage(2)} className="w-full md:w-auto">Next</Button>
       </CardFooter>
     </Card>
   );
 
   const renderPageTwo = () => (
     <Card className="w-full max-w-4xl animate-fade-in-down my-4 flex flex-col">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="w-full sm:w-auto">
           <CardTitle>Invoice Items</CardTitle>
           <CardDescription>
             {invoiceData.isProgressBilling ? "Progress Billing (AIA Style)" : "Standard Invoice"}
@@ -432,7 +432,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
           variant="outline"
           size="sm"
           onClick={toggleBillingMode}
-          className={`text-xs ${invoiceData.isProgressBilling ? 'bg-blue-100 text-blue-700 border-blue-200' : ''}`}
+          className={`w-full sm:w-auto text-xs mt-4 sm:mt-0 ${invoiceData.isProgressBilling ? 'bg-blue-100 text-blue-700 border-blue-200' : ''}`}
         >
           <PercentIcon className="w-3 h-3 mr-1" />
           {invoiceData.isProgressBilling ? "Switch to Standard" : "Switch to Progress Billing"}
@@ -738,18 +738,18 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, on
         </div>
 
       </CardContent>
-      <CardFooter className="flex justify-between">
-        <Button variant="outline" onClick={() => setPage(1)}>Back</Button>
-        <div className="flex gap-2 flex-wrap justify-end">
-          <Button variant="outline" onClick={() => handleSave()} disabled={hasInvalidInventoryQty}>Save Only</Button>
+      <CardFooter className="flex flex-col-reverse md:flex-row justify-between gap-4">
+        <Button variant="outline" onClick={() => setPage(1)} className="w-full md:w-auto">Back</Button>
+        <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto md:flex-wrap md:justify-end">
+          <Button variant="outline" onClick={() => handleSave()} disabled={hasInvalidInventoryQty} className="w-full md:w-auto">Save Only</Button>
           {/* Share Button */}
-          <Button variant="outline" onClick={() => { handleSave(); if (!hasInvalidInventoryQty) setShowShareModal(true); }} disabled={hasInvalidInventoryQty}>
+          <Button variant="outline" onClick={() => { handleSave(); if (!hasInvalidInventoryQty) setShowShareModal(true); }} disabled={hasInvalidInventoryQty} className="w-full md:w-auto">
             <ShareIcon className="h-4 w-4 mr-2" /> Share
           </Button>
-          <Button variant="secondary" onClick={handleDownload} disabled={isDownloading}>
+          <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full md:w-auto">
             <ExportIcon className="h-4 w-4 mr-2" /> {isDownloading ? 'Downloading...' : 'Download PDF'}
           </Button>
-          <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading || hasInvalidInventoryQty}>
+          <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading || hasInvalidInventoryQty} className="w-full md:w-auto">
             {isDownloading ? 'Saving...' : 'Save & Download'}
           </Button>
         </div>

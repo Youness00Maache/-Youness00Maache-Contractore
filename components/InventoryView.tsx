@@ -179,34 +179,34 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
 
     return (
         <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            {/* Header */}
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
-                <div className="flex items-center">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                        <BackArrowIcon className="h-9 w-9" />
+            {/* Single-row header */}
+            <header className="flex items-center justify-between mb-8 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 md:w-9 md:h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
+                        <BackArrowIcon className="h-6 w-6 md:h-5 md:w-5" />
                     </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                            <BoxIcon className="w-8 h-8 text-primary" /> Inventory Manager
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-2xl font-bold flex items-center gap-2 tracking-tight truncate">
+                            <BoxIcon className="w-5 h-5 md:w-7 md:h-7 text-primary shrink-0" /> Inventory
                         </h1>
-                        <p className="text-sm text-muted-foreground mt-1 font-medium">Total Value: <span className="text-primary font-bold text-lg">{formatMoney(totalInventoryValue)}</span></p>
+                        <p className="text-xs text-muted-foreground font-medium">Value: <span className="text-primary font-bold">{formatMoney(totalInventoryValue)}</span></p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setShowScanModal(true)} className="rounded-full shadow-md bg-card/80 px-4 md:px-6 py-2">
-                        <CameraIcon className="w-5 h-5 md:mr-2" /> <span className="hidden md:inline">Scan QR</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <Button variant="outline" onClick={() => setShowScanModal(true)} className="rounded-full shadow-md bg-card/80 h-12 w-12 md:h-9 md:w-auto md:px-4 p-0 flex items-center gap-1.5 justify-center">
+                        <CameraIcon className="w-7 h-7 md:w-4 md:h-4" /> <span className="hidden md:inline">Scan QR</span>
                     </Button>
-                    <Button variant="outline" onClick={() => setShowGeneralHistory(true)} className="rounded-full shadow-md bg-card/80 px-4 md:px-6 py-2">
-                        <ClockIcon className="w-5 h-5 md:mr-2" /> <span className="hidden md:inline">History</span>
+                    <Button variant="outline" onClick={() => setShowGeneralHistory(true)} className="rounded-full shadow-md bg-card/80 h-12 w-12 md:h-9 md:w-auto md:px-4 p-0 flex items-center gap-1.5 justify-center">
+                        <ClockIcon className="w-7 h-7 md:w-4 md:h-4" /> <span className="hidden md:inline">History</span>
                     </Button>
-                    <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground px-4 md:px-6 py-2">
-                        <PlusIcon className="w-5 h-5 md:mr-2" /> <span className="hidden md:inline">Add New Item</span>
+                    <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground h-12 w-12 md:h-9 md:w-auto md:px-4 p-0 flex items-center gap-1.5 justify-center">
+                        <PlusIcon className="w-7 h-7 md:w-4 md:h-4" /> <span className="hidden md:inline">Add New Item</span>
                     </Button>
                 </div>
             </header>
 
             {/* Controls */}
-            <div className="bg-card/50 p-4 rounded-xl border border-border/50 mb-6 flex flex-col md:flex-row gap-4">
+            <div className="bg-card/50 p-4 rounded-xl border border-border/50 mb-6 flex flex-col gap-3">
                 <div className="relative flex-1">
                     <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                     <Input
@@ -216,8 +216,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
-                <div className="flex gap-4">
-                    <div className="relative min-w-[150px]">
+                <div className="flex gap-3">
+                    <div className="relative flex-1">
                         <FilterIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                         <select
                             className="w-full h-11 pl-10 pr-4 rounded-lg bg-background border border-input text-sm focus:ring-2 focus:ring-primary/20"
@@ -228,15 +228,15 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory, histor
                             {categories.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
-                    <div className="relative min-w-[150px]">
+                    <div className="relative flex-1">
                         <select
                             className="w-full h-11 px-4 rounded-lg bg-background border border-input text-sm focus:ring-2 focus:ring-primary/20"
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value as any)}
                         >
-                            <option value="name">Sort by Name</option>
-                            <option value="quantity">Sort by Quantity</option>
-                            <option value="value">Sort by Value ($)</option>
+                            <option value="name">Sort: Name</option>
+                            <option value="quantity">Sort: Qty</option>
+                            <option value="value">Sort: Value</option>
                         </select>
                     </div>
                 </div>

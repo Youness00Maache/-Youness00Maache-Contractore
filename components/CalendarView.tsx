@@ -154,8 +154,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs, onBack, onNavigateJob
                         </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-                        <div className="grid grid-cols-3 gap-3 mr-2">
+                    <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                        <div className="grid grid-cols-3 gap-2">
                             <StatBadge icon={BriefcaseIcon} label="Active" value={stats.active} />
                             <StatBadge icon={ClockIcon} label="Upcoming" value={stats.upcoming} />
                             <StatBadge icon={CheckCircleIcon} label="Done" value={stats.complete} />
@@ -164,7 +164,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs, onBack, onNavigateJob
                             onClick={onNewJob}
                             className="bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-800 shadow-xl border-none font-bold px-6 py-0 h-14 rounded-xl transition-all transform hover:scale-105 flex items-center justify-center gap-2"
                         >
-                            <PlusIcon className="w-5 h-5" /> New Job
+                            <PlusIcon className="w-5 h-5" />
+                            <span className="hidden md:inline">New Job</span>
                         </Button>
                     </div>
                 </div>
@@ -175,29 +176,29 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs, onBack, onNavigateJob
                 <Card className="border-0 shadow-2xl ring-1 ring-black/5 overflow-hidden flex flex-col min-h-[650px] bg-card rounded-3xl">
 
                     {/* --- Custom Toolbar --- */}
-                    <div className="p-4 md:p-6 border-b flex flex-col md:flex-row justify-between items-center gap-4 bg-muted/5 backdrop-blur-sm">
+                    <div className="p-3 md:p-6 border-b flex flex-col md:flex-row justify-between items-center gap-3 bg-muted/5 backdrop-blur-sm">
                         <div className="flex items-center bg-muted/50 p-1 rounded-xl border shadow-sm">
                             <button
                                 onClick={() => handleNavigate('PREV')}
-                                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary"
+                                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary"
                             >
                                 <ChevronDownIcon className="w-5 h-5 rotate-90" />
                             </button>
                             <button
                                 onClick={() => handleNavigate('TODAY')}
-                                className="px-5 h-10 text-sm font-bold hover:bg-background hover:shadow-sm rounded-lg transition-all text-muted-foreground hover:text-primary"
+                                className="px-3 h-9 text-sm font-bold hover:bg-background hover:shadow-sm rounded-lg transition-all text-muted-foreground hover:text-primary"
                             >
                                 Today
                             </button>
                             <button
                                 onClick={() => handleNavigate('NEXT')}
-                                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary"
+                                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary"
                             >
                                 <ChevronDownIcon className="w-5 h-5 -rotate-90" />
                             </button>
                         </div>
 
-                        <span className="text-2xl font-bold text-foreground tracking-tight ml-2">
+                        <span className="text-xl font-bold text-foreground tracking-tight">
                             {format(currentDate, 'MMMM yyyy')}
                         </span>
 
@@ -206,7 +207,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs, onBack, onNavigateJob
                                 <button
                                     key={view}
                                     onClick={() => handleViewChange(view)}
-                                    className={`px-5 py-2 text-sm font-bold rounded-lg transition-all ${currentView === view
+                                    className={`px-3 py-1.5 text-sm font-bold rounded-lg transition-all ${currentView === view
                                         ? 'bg-background text-primary shadow-sm ring-1 ring-black/5'
                                         : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
                                         }`}

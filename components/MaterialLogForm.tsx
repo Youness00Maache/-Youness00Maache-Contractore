@@ -167,7 +167,10 @@ const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], in
                 </div>
                 <div className="w-full md:w-1/2"><Label>Log Date</Label><Input type="date" name="date" value={formData.date} onChange={handleChange} /></div>
             </CardContent>
-            <CardFooter className="flex justify-end gap-2"><Button variant="outline" onClick={onBack}>Cancel</Button><Button onClick={() => setPage(2)}>Next: Items</Button></CardFooter>
+            <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                <Button variant="outline" onClick={onBack} className="w-full sm:w-auto">Cancel</Button>
+                <Button onClick={() => setPage(2)} className="w-full sm:w-auto">Next: Items</Button>
+            </CardFooter>
         </Card>
     );
 

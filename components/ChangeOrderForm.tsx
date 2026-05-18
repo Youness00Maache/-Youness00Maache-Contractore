@@ -300,9 +300,9 @@ const ChangeOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], sa
                     </div>
                 </div>
             </CardContent>
-            <CardFooter className="flex justify-end gap-2">
-                <Button variant="outline" onClick={onBack}>Cancel</Button>
-                <Button onClick={() => setPage(2)}>Next: Financials</Button>
+            <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
+                <Button variant="outline" onClick={onBack} className="w-full sm:w-auto">Cancel</Button>
+                <Button onClick={() => setPage(2)} className="w-full sm:w-auto">Next: Financials</Button>
             </CardFooter>
         </Card>
     );
