@@ -200,39 +200,45 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
 
     return (
         <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
-                <div className="flex items-center">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                        <BackArrowIcon className="h-9 w-9" />
+            {/* Single-row header */}
+            <header className="flex items-center justify-between mb-8 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 md:w-9 md:h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
+                        <BackArrowIcon className="h-6 w-6 md:h-5 md:w-5" />
                     </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                            <CalculatorIcon className="w-8 h-8 text-primary" /> Profit Calculator
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-2xl font-bold flex items-center gap-2 tracking-tight truncate">
+                            <CalculatorIcon className="w-5 h-5 md:w-6 md:h-6 text-primary shrink-0" /> Profit Calculator
                         </h1>
-                        <p className="text-sm text-muted-foreground">Quickly estimate job profitability.</p>
+                        <p className="text-xs text-muted-foreground hidden md:block">Estimate job profitability.</p>
                     </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1.5 shrink-0">
                     <Button
                         variant={isAdvanced ? "default" : "outline"}
                         onClick={() => setIsAdvanced(!isAdvanced)}
-                        className={`rounded-full transition-all ${isAdvanced ? 'bg-primary text-primary-foreground' : ''}`}
+                        className={`rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center transition-all ${isAdvanced ? 'bg-primary text-primary-foreground' : ''}`}
+                        title={isAdvanced ? 'Advanced Mode' : 'Simple Mode'}
                     >
-                        <SettingsIcon className="w-4 h-4 mr-2" /> {isAdvanced ? 'Advanced Mode' : 'Simple Mode'}
+                        <SettingsIcon className="w-7 h-7 md:w-4 md:h-4 md:mr-2" />
+                        <span className="hidden md:inline">{isAdvanced ? 'Advanced' : 'Simple'}</span>
                     </Button>
-
-                    <Button variant="outline" onClick={() => setShowLoadModal(true)} className="rounded-full hidden sm:flex">
-                        <FolderIcon className="w-4 h-4 mr-2" /> Load
+                    <Button variant="outline" onClick={() => setShowLoadModal(true)} className="rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center" title="Load">
+                        <FolderIcon className="w-7 h-7 md:w-4 md:h-4" />
+                        <span className="hidden md:inline">Load</span>
                     </Button>
-                    <Button variant="outline" onClick={() => setShowSaveModal(true)} className="rounded-full hidden sm:flex">
-                        <SaveIcon className="w-4 h-4 mr-2" /> Save
+                    <Button variant="outline" onClick={() => setShowSaveModal(true)} className="rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center" title="Save">
+                        <SaveIcon className="w-7 h-7 md:w-4 md:h-4" />
+                        <span className="hidden md:inline">Save</span>
                     </Button>
-                    <Button variant="outline" onClick={handleExportPdf} className="rounded-full text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100 hidden sm:flex">
-                        <DownloadIcon className="w-4 h-4 mr-2" /> Export
+                    <Button variant="outline" onClick={handleExportPdf} className="rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100" title="Export PDF">
+                        <DownloadIcon className="w-7 h-7 md:w-4 md:h-4" />
+                        <span className="hidden md:inline">Export</span>
                     </Button>
-                    <Button variant="outline" onClick={reset} className="rounded-full">
-                        <RefreshCwIcon className="w-4 h-4 mr-2" /> Reset
+                    <Button variant="outline" onClick={reset} className="hidden md:flex rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 items-center justify-center" title="Reset">
+                        <RefreshCwIcon className="w-7 h-7 md:w-4 md:h-4" />
+                        <span className="hidden md:inline">Reset</span>
                     </Button>
                 </div>
             </header>
@@ -297,11 +303,19 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
                 {/* Input Section */}
                 <Card className="flex-1 border-gray-400 dark:border-gray-600 flex flex-col">
                     <CardHeader>
-                        <CardTitle>Line Items</CardTitle>
-                        <CardDescription>Enter your costs {isAdvanced ? 'and let us calculate the price, or enter manually' : 'and charges'}.</CardDescription>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle>Line Items</CardTitle>
+                                <CardDescription>Enter your costs {isAdvanced ? 'and let us calculate the price, or enter manually' : 'and charges'}.</CardDescription>
+                            </div>
+                            {/* Mobile-only Reset button relocated here for breathing room */}
+                            <Button variant="outline" onClick={reset} className="md:hidden rounded-full h-12 w-12 p-0 flex items-center justify-center shrink-0 shadow-sm" title="Reset">
+                                <RefreshCwIcon className="w-7 h-7" />
+                            </Button>
+                        </div>
                     </CardHeader>
                     <CardContent className="space-y-4 flex-1 overflow-y-auto">
-                        <div className="grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground px-1">
+                        <div className="hidden sm:grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground px-1">
                             <div className="col-span-5">Description</div>
                             <div className="col-span-3">Your Cost</div>
                             <div className="col-span-3">Client Charge</div>
@@ -310,29 +324,29 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
 
                         {items.map((item) => (
                             <div key={item.id} className="grid grid-cols-12 gap-2 items-center animate-in slide-in-from-left-1">
-                                <div className="col-span-5">
+                                <div className="col-span-12 sm:col-span-5">
                                     <Input
                                         value={item.description}
                                         onChange={(e) => updateItem(item.id, 'description', e.target.value)}
                                         placeholder="Item name"
                                     />
                                 </div>
-                                <div className="col-span-3">
+                                <div className="col-span-5 sm:col-span-3">
                                     <Input
                                         type="number"
                                         value={item.cost || ''}
                                         onChange={(e) => updateItem(item.id, 'cost', parseFloat(e.target.value))}
                                         className="bg-red-50/50 dark:bg-red-950/10 border-red-100 dark:border-red-900/30 text-red-700 dark:text-red-400"
-                                        placeholder="0.00"
+                                        placeholder="Cost"
                                     />
                                 </div>
-                                <div className="col-span-3">
+                                <div className="col-span-6 sm:col-span-3">
                                     <Input
                                         type="number"
                                         value={item.charge || ''}
                                         onChange={(e) => updateItem(item.id, 'charge', parseFloat(e.target.value))}
                                         className="bg-green-50/50 dark:bg-green-950/10 border-green-100 dark:border-green-900/30 text-green-700 dark:text-green-400"
-                                        placeholder="0.00"
+                                        placeholder="Charge"
                                     />
                                 </div>
                                 <div className="col-span-1 flex justify-center">

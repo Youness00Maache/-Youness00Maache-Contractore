@@ -287,22 +287,24 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                     <div className="space-y-1.5"><Label>Expiry Date</Label><Input type="date" name="expiryDate" value={formData.expiryDate} onChange={handleChange} /></div>
                 </div>
             </CardContent>
-            <CardFooter className="flex justify-end gap-2">
-                <Button variant="outline" onClick={onBack}>Cancel</Button>
-                <Button onClick={() => setPage(2)}>Next: Items</Button>
+            <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                <Button variant="outline" onClick={onBack} className="w-full sm:w-auto">Cancel</Button>
+                <Button onClick={() => setPage(2)} className="w-full sm:w-auto">Next: Items</Button>
             </CardFooter>
         </Card>
     );
 
     const renderPageTwo = () => (
         <Card className="max-w-3xl mx-auto w-full animate-fade-in-down flex flex-col">
-            <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Line Items & Profitability</CardTitle>
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="w-full sm:w-auto">
+                    <CardTitle>Line Items & Profitability</CardTitle>
+                </div>
                 <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setShowCosts(!showCosts)}
-                    className={`text-xs ${showCosts ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
+                    className={`w-full sm:w-auto text-xs sm:mt-0 ${showCosts ? 'bg-primary/10 text-primary border-primary/30' : ''}`}
                 >
                     {showCosts ? <EyeOffIcon className="w-3 h-3 mr-1" /> : <EyeIcon className="w-3 h-3 mr-1" />}
                     {showCosts ? 'Hide Internal Costs' : 'Show Profit Tools'}
@@ -569,7 +571,7 @@ const EstimateForm: React.FC<Props> = ({ job, profile, data, clients = [], saved
                             </div>
                         </CardContent>
                         <CardFooter className="border-t border-border pt-4 justify-end">
-                            <Button variant="ghost" onClick={() => setShowItemPicker(null)}>Cancel</Button>
+                            <Button variant="ghost" onClick={() => setShowItemPicker(null)} className="w-full sm:w-auto">Cancel</Button>
                         </CardFooter>
                     </Card>
                 </div>

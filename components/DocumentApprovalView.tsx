@@ -20,10 +20,10 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ supabase, a
     const fetchData = async () => {
         try {
             const { data: result, error: rpcError } = await supabase.rpc('get_document_by_token', { doc_token: approvalToken });
-            
+
             if (rpcError) throw rpcError;
             if (result.error) throw new Error(result.error);
-            
+
             setData(result);
         } catch (err: any) {
             console.error("Approval Error:", err);
@@ -56,7 +56,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ supabase, a
     };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
-    
+
     if (error) return <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4"><Card className="max-w-md w-full text-center p-8"><h2 className="text-xl font-bold mb-2 text-red-600">Document Unavailable</h2><p className="text-muted-foreground">{error}</p></Card></div>;
 
     if (success) {
@@ -76,7 +76,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ supabase, a
     const { document: doc, contractor } = data;
     const docData = doc.data;
     const type = doc.type;
-    const total = docData.lineItems 
+    const total = docData.lineItems
         ? docData.lineItems.reduce((acc: number, item: any) => acc + (Number(item.quantity) * Number(item.rate)), 0)
         : (docData.amount || 0);
 
@@ -130,7 +130,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ supabase, a
                         {/* Line Items */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-900 mb-4">Line Items</h3>
-                            <div className="border rounded-lg overflow-hidden">
+                            <div className="border rounded-lg overflow-x-auto">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-50 text-slate-500 font-medium">
                                         <tr>
@@ -180,8 +180,8 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ supabase, a
                         </div>
                     </CardContent>
                     <CardFooter className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
-                        <Button 
-                            onClick={handleApprove} 
+                        <Button
+                            onClick={handleApprove}
                             disabled={!signature || isSubmitting}
                             size="lg"
                             className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-900/20"

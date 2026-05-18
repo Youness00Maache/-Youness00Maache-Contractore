@@ -227,19 +227,19 @@ const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSa
                         <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card border-blue-200 dark:border-border">
                             <CardHeader><CardTitle className="text-blue-950 dark:text-foreground">Subscription Plan</CardTitle></CardHeader>
                             <CardContent>
-                                <div className="flex items-center justify-between p-4 border border-blue-200 dark:border-border rounded-lg bg-white/30 dark:bg-card">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-blue-200 dark:border-border rounded-lg bg-white/30 dark:bg-card">
                                     <div className="flex items-center gap-4">
-                                        <div className={`p-3 rounded-full ${profile.subscriptionTier === 'Premium' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600 dark:bg-gray-100 dark:text-gray-600'}`}><CreditCardIcon className="h-6 w-6" /></div>
+                                        <div className={`p-3 rounded-full shrink-0 ${profile.subscriptionTier === 'Premium' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600 dark:bg-gray-100 dark:text-gray-600'}`}><CreditCardIcon className="h-6 w-6" /></div>
                                         <div><h3 className="font-bold text-lg text-blue-900 dark:text-foreground">{profile.subscriptionTier || 'Basic'} Plan</h3><p className="text-sm text-blue-700/70 dark:text-muted-foreground">{profile.subscriptionTier === 'Premium' ? 'You have access to all premium features.' : 'Upgrade to Premium to unlock all features.'}</p></div>
                                     </div>
-                                    {profile.subscriptionTier !== 'Premium' && <Button variant="default" onClick={onUpgradeClick}>Upgrade</Button>}
+                                    {profile.subscriptionTier !== 'Premium' && <Button variant="default" onClick={onUpgradeClick} className="w-full sm:w-auto">Upgrade</Button>}
                                 </div>
                             </CardContent>
                         </Card>
 
                         <Card className="border-destructive/50 bg-red-50/50 dark:bg-card">
                             <CardHeader><CardTitle className="text-destructive flex items-center gap-2"><LogoutIcon className="h-5 w-5" /> Account Actions</CardTitle></CardHeader>
-                            <CardContent><div className="flex justify-between items-center"><p className="text-sm text-muted-foreground">Sign out of your account on this device.</p><Button variant="destructive" onClick={onLogout}>Log Out</Button></div></CardContent>
+                            <CardContent><div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4"><p className="text-sm text-muted-foreground">Sign out of your account on this device.</p><Button variant="destructive" onClick={onLogout} className="w-full sm:w-auto">Log Out</Button></div></CardContent>
                         </Card>
                     </>
                 )}

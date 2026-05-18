@@ -145,9 +145,9 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex justify-end gap-3 bg-white/40 dark:bg-muted/20 border-t border-blue-200 dark:border-border p-6">
-            <Button variant="outline" onClick={onCancel} className="h-11 px-6">Cancel</Button>
-            <Button onClick={handleSave} disabled={!jobName || !clientName || loading} className="h-11 px-8 shadow-lg shadow-primary/20">
+          <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 bg-white/40 dark:bg-muted/20 border-t border-blue-200 dark:border-border p-6">
+            <Button variant="outline" onClick={onCancel} className="w-full sm:w-auto h-11 px-6">Cancel</Button>
+            <Button onClick={handleSave} disabled={!jobName || !clientName || loading} className="w-full sm:w-auto h-11 px-8 shadow-lg shadow-primary/20">
               {loading ? 'Saving...' : 'Create Job'}
             </Button>
           </CardFooter>

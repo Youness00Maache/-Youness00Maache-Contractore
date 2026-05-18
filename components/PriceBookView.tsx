@@ -133,15 +133,15 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
             {/* Main Content */}
             <div className="flex-1 flex flex-col h-full overflow-hidden">
                 {/* Mobile Header (visible only on small screens) */}
-                <div className="md:hidden p-4 border-b flex items-center justify-between bg-white">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="mr-2">
-                        <BackArrowIcon className="w-5 h-5" />
+                <div className="md:hidden p-4 border-b flex items-center justify-between bg-background">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="mr-2 w-10 h-10 p-0 rounded-full flex items-center justify-center">
+                        <BackArrowIcon className="w-6 h-6" />
                     </Button>
                     <h1 className="font-bold text-lg">Price Book</h1>
                     <DropdownMenu
                         trigger={
-                            <Button size="sm" className="rounded-full w-8 h-8 p-0">
-                                <PlusIcon className="w-5 h-5" />
+                            <Button size="sm" className="rounded-full w-10 h-10 p-0">
+                                <PlusIcon className="w-6 h-6" />
                             </Button>
                         }
                     >
@@ -155,7 +155,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                 </div>
 
                 {/* Filter Bar */}
-                <div className="p-4 md:p-6 border-b border-border/50 flex flex-col sm:flex-row gap-4 items-center justify-between bg-white/80 dark:bg-card/80 backdrop-blur-xl sticky top-0 z-10 shadow-sm">
+                <div className="p-4 md:p-6 border-b border-border/50 flex flex-col sm:flex-row gap-4 items-center justify-between bg-background/80 dark:bg-card/80 backdrop-blur-xl sticky top-0 z-10 shadow-sm">
                     <div className="relative w-full sm:w-80">
                         <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                         <Input
@@ -271,7 +271,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpd
                                 ))}
                             </div>
                         ) : (
-                            <div className="bg-white dark:bg-card border rounded-xl overflow-hidden">
+                            <div className="bg-white dark:bg-card border rounded-xl overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead className="bg-muted/50 border-b">
                                         <tr>

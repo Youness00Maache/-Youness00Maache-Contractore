@@ -158,7 +158,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
                     </h1>
                 </div>
 
-                <div className="flex items-center gap-2 bg-card p-1.5 rounded-lg border shadow-sm">
+                <div className="flex flex-wrap items-center gap-2 bg-card p-1.5 rounded-lg border shadow-sm w-full md:w-auto">
                     <div className="px-2 text-muted-foreground"><CalendarIcon className="w-4 h-4" /></div>
                     <div className="flex items-center gap-2">
                         <input
@@ -266,7 +266,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs, forms, onBack }) =>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
-                            <div className="overflow-hidden">
+                            <div className="overflow-x-auto">
                                 <table className="w-full text-sm text-left">
                                     <thead className="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
                                         <tr>

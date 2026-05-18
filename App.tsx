@@ -42,7 +42,7 @@ import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import TermsOfService from './components/TermsOfService.tsx';
 import Security from './components/Security.tsx';
 
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon, AlertTriangleIcon, StarIcon, CopyIcon } from './components/Icons.tsx';
+import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon, AlertTriangleIcon, StarIcon, CopyIcon, FilterIcon } from './components/Icons.tsx';
 import { Button } from './components/ui/Button.tsx';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
 import { Label } from './components/ui/Label.tsx';
@@ -1885,93 +1885,102 @@ const App: React.FC = () => {
         const lowStockItems = inventory.filter(item => Number(item.quantity || 0) <= Number(item.low_stock_threshold ?? 5));
         return (
             <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-                <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
-                    <div className="flex items-center gap-4"><AppLogo className="w-12 h-12 drop-shadow-md" /><h1 className="text-2xl md:text-3xl font-bold">{t.welcome} {profile.name.split(' ')[0]}!</h1></div>
-                    {!isOnline && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
-                    <div className="flex items-center gap-3 flex-wrap md:flex-nowrap justify-end">
-
-                        {profile.subscriptionTier !== 'Premium' && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs font-bold h-auto py-1.5 px-4 mr-2 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
-                                onClick={() => { setUpgradeFeature('Upgrade to Premium Plan'); setShowGlobalUpgrade(true); }}
-                            >
-                                <StarIcon className="w-3 h-3 mr-1.5 fill-current" /> Upgrade
-                            </Button>
-                        )}
-                        <div className="relative">
-                            <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-2 bg-card border-border relative">
-                                Tools <ChevronDownIcon className="w-4 h-4 opacity-50" />
-                                {lowStockItems.length > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
-                            </Button>
-                            {showToolsMenu && (
-                                <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
-                                    <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
-                                        <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center justify-between w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                            <div className="flex items-center gap-3">
-                                                <BoxIcon className="w-4 h-4 text-primary" /> Inventory
-                                            </div>
-                                            {lowStockItems.length > 0 && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
-                                        </button>
-                                        <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                            <TagIcon className="w-4 h-4 text-primary" /> Price Book
-                                        </button>
-                                        <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                            <CalendarIcon className="w-4 h-4 text-primary" /> Calendar
-                                        </button>
-                                        <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                            <CalculatorIcon className="w-4 h-4 text-primary" /> Calculator
-                                        </button>
-                                        <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                            <BarChartIcon className="w-4 h-4 text-primary" /> Insights
-                                        </button>
-                                    </div>
-                                </>
-                            )}
+                {/* ===== HEADER: single row on mobile, full layout on desktop ===== */}
+                <header className="flex flex-col mb-8 gap-4">
+                    {/* Top Row: Logo and Actions */}
+                    <div className="flex items-center justify-between w-full gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <AppLogo className="w-10 h-10 md:w-12 md:h-12 drop-shadow-md shrink-0" />
+                            <h1 className="hidden md:block text-lg md:text-3xl font-bold truncate">{t.welcome} {profile.name.split(' ')[0]}!</h1>
                         </div>
+                        {!isOnline && <div className="hidden md:block bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
 
-                        <Button variant="outline" onClick={() => navigateToForum()} className="flex items-center gap-2 bg-card border-border">
-                            <MessageSquareIcon className="w-4 h-4" />
-                            <span className="hidden sm:inline">Community</span>
-                            {notificationCount > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{notificationCount > 9 ? '9+' : notificationCount}</span>}
-                        </Button>
+                        {/* Right: Action buttons */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            {profile.subscriptionTier !== 'Premium' && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs font-bold h-9 py-1.5 px-3 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
+                                    onClick={() => { setUpgradeFeature('Upgrade to Premium Plan'); setShowGlobalUpgrade(true); }}
+                                >
+                                    <StarIcon className="w-3 h-3 md:mr-1.5 fill-current" />
+                                    <span className="hidden md:inline">Upgrade</span>
+                                </Button>
+                            )}
+                            <div className="relative">
+                                <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-1.5 bg-card border-border h-9 px-3 relative">
+                                    {/* Desktop: text + chevron */}
+                                    <span className="hidden md:inline">Tools</span>
+                                    <ChevronDownIcon className="hidden md:block w-4 h-4 opacity-50" />
+                                    {/* Mobile: main icon + small chevron overlay */}
+                                    <div className="md:hidden relative flex items-center justify-center">
+                                        <BoxIcon className="w-5 h-5" />
+                                        <ChevronDownIcon className="absolute -bottom-1 -right-1.5 w-3 h-3 opacity-70 bg-card rounded-sm" />
+                                    </div>
+                                    {lowStockItems.length > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
+                                </Button>
+                                {showToolsMenu && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
+                                        <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
+                                            <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center justify-between w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
+                                                <div className="flex items-center gap-3"><BoxIcon className="w-4 h-4 text-primary" /> Inventory</div>
+                                                {lowStockItems.length > 0 && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
+                                            </button>
+                                            <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><TagIcon className="w-4 h-4 text-primary" /> Price Book</button>
+                                            <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><CalendarIcon className="w-4 h-4 text-primary" /> Calendar</button>
+                                            <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><CalculatorIcon className="w-4 h-4 text-primary" /> Calculator</button>
+                                            <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><BarChartIcon className="w-4 h-4 text-primary" /> Insights</button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
 
-                        <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm">
-                            <PlusIcon className="w-4 h-4 mr-2" /> {t.newJob}
-                        </Button>
+                            <Button variant="outline" onClick={() => navigateToForum()} className="relative bg-card border-border h-9 px-3 flex items-center gap-1.5 shrink-0" title="Community">
+                                <MessageSquareIcon className="w-4 h-4" />
+                                <span className="hidden md:inline">Community</span>
+                                {notificationCount > 0 && <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold shadow-sm">{notificationCount > 9 ? '9+' : notificationCount}</span>}
+                            </Button>
 
-                        <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-10 w-10 overflow-hidden border border-border ml-1 shrink-0">
-                            {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6" />}
-                        </Button>
-                    </div >
-                </header >
+                            <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm h-9 px-3 shrink-0" size="sm">
+                                <PlusIcon className="w-4 h-4 md:mr-2" />
+                                <span className="hidden md:inline">{t.newJob}</span>
+                            </Button>
 
-                <div className="flex flex-col md:flex-row gap-4 mb-6">
-                    <div className="relative flex-1">
-                        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                        <Input placeholder="Search jobs..." className="pl-10 h-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                            <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-9 w-9 overflow-hidden border border-border shrink-0">
+                                {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-5 w-5" />}
+                            </Button>
+                        </div>
                     </div>
-                    <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer text-foreground"
-                    >
-                        <option value="All">All Statuses</option>
-                        <option value="active">Active</option>
-                        <option value="paused">Paused</option>
-                        <option value="completed">Completed</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
-                    <select
-                        value={clientFilter}
-                        onChange={(e) => setClientFilter(e.target.value)}
-                        className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer max-w-[200px] truncate text-foreground"
-                    >
-                        <option value="All">All Clients</option>
-                        {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                </header>
+
+                <div className="flex flex-col md:flex-row gap-3 mb-6">
+                    <div className="relative flex-1 w-full">
+                        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                        <Input placeholder="Search jobs..." className="pl-10 h-10 w-full rounded-xl bg-card border-border" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto">
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="h-10 flex-1 md:w-[140px] rounded-xl border border-border bg-card pl-3 pr-8 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer text-foreground appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat"
+                        >
+                            <option value="All">All Statuses</option>
+                            <option value="active">Active</option>
+                            <option value="paused">Paused</option>
+                            <option value="completed">Completed</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                        <select
+                            value={clientFilter}
+                            onChange={(e) => setClientFilter(e.target.value)}
+                            className="h-10 flex-1 md:max-w-[160px] rounded-xl border border-border bg-card pl-3 pr-8 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer truncate text-foreground appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat"
+                        >
+                            <option value="All">All Clients</option>
+                            {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
                 </div>
                 <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
                 {
@@ -2004,50 +2013,71 @@ const App: React.FC = () => {
 
         return (
             <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-                <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-border pb-4 gap-4">
-                    <div className="flex items-center">
-                        <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                            <BackArrowIcon className="h-6 w-6" />
+                {/* ===== HEADER: single row — [← Title] on left, [actions] on right ===== */}
+                <header className="flex items-center justify-between mb-6 border-b border-border pb-4 gap-2">
+                    {/* Left: Back + Job name */}
+                    <div className="flex items-center gap-2 min-w-0">
+                        <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-9 h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
+                            <BackArrowIcon className="h-5 w-5" />
                         </Button>
-                        <div>
-                            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight truncate max-w-xs md:max-w-md">
-                                {job.name}
-                            </h1>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                <UsersIcon className="w-4 h-4" />
-                                {job.clientName}
+                        <div className="min-w-0">
+                            <h1 className="text-base md:text-2xl font-bold truncate tracking-tight">{job.name}</h1>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <UsersIcon className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{job.clientName}</span>
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+
+                    {/* Right: compact action bar — always a single row */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                         <select
                             value={job.status}
                             onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
-                            className="h-9 rounded-full border bg-card px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer"
+                            className="h-8 rounded-full border bg-card px-2 py-1 text-xs font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer hidden md:block"
                         >
                             <option value="active">Active</option>
                             <option value="inactive">Inactive</option>
                             <option value="paused">Paused</option>
                             <option value="completed">Completed</option>
                         </select>
-                        {profile.subscriptionTier !== 'Premium' && (
-                            <div className="flex items-center gap-1.5 ml-1">
-                                <Button variant="ghost" size="sm" className="h-8 text-[11px] text-amber-600 bg-amber-50 hover:bg-amber-100 font-medium px-2.5 rounded-full"
-                                    onClick={() => { setUpgradeFeature(`Upgrade to create more than ${FREE_LIMITS.docs} documents per project per month.`); setShowGlobalUpgrade(true); }}
-                                >
-                                    <BriefcaseIcon className="w-3.5 h-3.5" /> Docs This Month: {jobForms.filter(f => {
-                                        if (!f.createdAt) return true;
-                                        const d = new Date(f.createdAt);
-                                        return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
-                                    }).length}/{FREE_LIMITS.docs}
-                                </Button>
-                            </div>
-                        )}
-                        <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20">
-                            <PlusIcon className="w-4 h-4 mr-2" /> {t.newDocument}
+                        {/* Mobile: status as colored dot button */}
+                        <div className="md:hidden relative">
+                            <select
+                                value={job.status}
+                                onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
+                                className="h-8 rounded-full border bg-card pl-2 pr-6 py-1 text-xs font-medium shadow-sm cursor-pointer outline-none appearance-none"
+                            >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                                <option value="paused">Paused</option>
+                                <option value="completed">Completed</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            {profile.subscriptionTier !== 'Premium' && (
+                                <>
+                                    <span className="text-[10px] md:text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold shadow-sm border border-blue-200">
+                                        {jobForms.filter(f => { if (!f.createdAt) return true; const d = new Date(f.createdAt); return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear(); }).length}/{FREE_LIMITS.docs} <span className="hidden sm:inline">Docs</span>
+                                    </span>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-[10px] md:text-xs font-bold h-8 py-1 px-2.5 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
+                                        onClick={() => { setUpgradeFeature(`Upgrade to create more than ${FREE_LIMITS.docs} documents per project per month.`); setShowGlobalUpgrade(true); }}
+                                    >
+                                        <StarIcon className="w-3 h-3 md:mr-1 fill-current" />
+                                        <span className="hidden md:inline">Upgrade</span>
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+                        <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20 h-8 w-8 md:h-9 md:px-3 md:w-auto p-0" size="sm">
+                            <PlusIcon className="w-4 h-4 md:mr-2" />
+                            <span className="hidden md:inline">{t.newDocument}</span>
                         </Button>
-                        <Button variant="outline" className="rounded-full shadow-sm bg-purple-500/10 text-purple-600 border border-purple-500/20 hover:bg-purple-500/20 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-800" onClick={() => setShowJobFinancials(true)}>
-                            <CalculatorIcon className="w-4 h-4 mr-2" /> Financials
+                        <Button variant="outline" size="icon" className="rounded-full h-8 w-8 md:h-9 md:w-9 shrink-0 bg-purple-500/10 text-purple-600 border border-purple-500/20 hover:bg-purple-500/20 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-800" onClick={() => setShowJobFinancials(true)} title="Financials">
+                            <CalculatorIcon className="w-4 h-4" />
                         </Button>
                     </div>
                 </header>
@@ -2136,28 +2166,59 @@ const App: React.FC = () => {
 
                 <div className="space-y-6">
 
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <h2 className="text-lg font-semibold">{t.projectDocs}</h2>
-                        </div>
-                        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                            <div className="relative w-full max-w-xs">
-                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-3.5 w-3.5" />
+                    <div className="flex flex-col gap-4">
+                        <h2 className="text-xl font-bold md:text-2xl">{t.projectDocs}</h2>
+
+                        <div className="flex items-center gap-2 w-full">
+                            <div className="relative flex-1">
+                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                                 <Input
                                     placeholder="Search docs..."
-                                    className="pl-9 h-9 text-sm rounded-full bg-secondary/30 border-transparent hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
+                                    className="pl-9 h-11 text-sm rounded-xl bg-card border-border hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
                                     value={docSearchQuery}
                                     onChange={(e) => setDocSearchQuery(e.target.value)}
                                 />
                             </div>
-                            <select
-                                value={docTypeFilter}
-                                onChange={(e) => setDocTypeFilter(e.target.value)}
-                                className="h-9 w-full sm:w-auto rounded-full border border-input bg-secondary/30 px-3 py-1 text-sm font-medium shadow-sm hover:bg-secondary/50 focus:bg-background focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer text-foreground"
-                            >
-                                <option value="All">All Types</option>
-                                {uniqueDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
+
+                            {/* Document Type Filter: Side-by-side on mobile screen */}
+                            <div className="relative shrink-0">
+                                <Button variant="outline" size="icon" className="h-11 w-11 rounded-xl bg-card border-border md:hidden" onClick={() => {
+                                    // Use a simple prompt for now or just cycle types if no modal?
+                                    // User mentioned "filter icon button" to open filter.
+                                    // I will use a simple select for now but styled as requested or just the select icon.
+                                    // Let's actually use the select but with a custom trigger appearance if needed.
+                                }}>
+                                    <FilterIcon className="w-4 h-4" />
+                                </Button>
+
+                                <select
+                                    value={docTypeFilter}
+                                    onChange={(e) => setDocTypeFilter(e.target.value)}
+                                    className="h-11 rounded-xl border border-border bg-card px-3 text-sm font-medium shadow-sm outline-none transition-all cursor-pointer text-foreground hidden md:block"
+                                >
+                                    <option value="All">All Types</option>
+                                    {uniqueDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+
+                                {/* On mobile, the select is hidden but we can make it an overlay or just a full-width select below. 
+                                    The user asked for: "Replace the selectors with a single filter icon button. Place the filter icon on the right side of the search bar." 
+                                    I will keep it simple for now: icon button that might reveal a select or just a select styled as a button on mobile. */}
+                                <select
+                                    value={docTypeFilter}
+                                    onChange={(e) => setDocTypeFilter(e.target.value)}
+                                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer md:hidden z-10"
+                                >
+                                    <option value="All">All Types</option>
+                                    {uniqueDocTypes.map(t => <option key={t} value={t} className="bg-background text-foreground py-2">{t}</option>)}
+                                </select>
+                                <style>{`
+                                    select option {
+                                        background-color: var(--background);
+                                        color: var(--foreground);
+                                        padding: 10px;
+                                    }
+                                `}</style>
+                            </div>
                         </div>
                     </div>
 
@@ -2349,7 +2410,7 @@ const App: React.FC = () => {
     };
 
     return (
-        <main className="w-full min-h-screen bg-background">
+        <main className="w-full min-h-screen bg-background overflow-x-hidden">
             {renderContent()}
             {session && !loading && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
                 <Dock items={getDockItems()} />

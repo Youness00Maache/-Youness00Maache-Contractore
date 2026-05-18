@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Label } from './ui/Label.tsx';
 import { Input } from './ui/Input.tsx';
 import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon, GoogleIcon, StarIcon, XCircleIcon, PlusIcon, ChevronDownIcon } from './Icons.tsx';
+import { BackArrowIcon, MailIcon, PaperclipIcon, SearchIcon, CheckCircleIcon, CopyIcon, SendIcon, GoogleIcon, StarIcon, XCircleIcon, PlusIcon, ChevronDownIcon, TrashIcon } from './Icons.tsx';
 import { Session, SupabaseClient } from '@supabase/supabase-js';
 import { sendGmail } from '../services/gmailService.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
@@ -43,6 +43,8 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
     const [selectedGmailAccount, setSelectedGmailAccount] = useState<string | null>(null);
     const [showConnectModal, setShowConnectModal] = useState(false);
     const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
+    const [emailToDisconnect, setEmailToDisconnect] = useState<string | null>(null);
+    const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
     const [showUpgrade, setShowUpgrade] = useState(false);
     const [limitMessage, setLimitMessage] = useState('');
@@ -78,20 +80,25 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
         fetchAccounts();
     }, [session, supabase, selectedGmailAccount]);
 
-    const handleDisconnectGmail = async () => {
-        if (!selectedGmailAccount) return;
+    const handleDisconnectGmail = async (emailToDisconnect?: string) => {
+        const email = emailToDisconnect || selectedGmailAccount;
+        if (!email) return;
 
-        // Remove the selected account from DB
+        // Remove the account from DB
         await supabase
             .from('user_gmail_accounts')
             .delete()
             .eq('user_id', session.user.id)
-            .eq('gmail_address', selectedGmailAccount);
+            .eq('gmail_address', email);
 
-        // Let the useEffect refetch or locally update
-        setGmailAccounts(prev => prev.filter(a => a.gmail_address !== selectedGmailAccount));
-        // Reset selected if deleted
-        setSelectedGmailAccount(null);
+        // Update local state
+        setGmailAccounts(prev => prev.filter(a => a.gmail_address !== email));
+
+        // Reset selected if it was the one deleted
+        if (selectedGmailAccount === email) {
+            setSelectedGmailAccount(null);
+        }
+
         if (onDisconnectGmail) onDisconnectGmail();
     };
 
@@ -341,90 +348,100 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
 
     return (
         <div className="w-full min-h-screen bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            <header className="flex items-center mb-8 gap-4">
-                <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center mr-2 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
-                </Button>
-                <div>
-                    <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3 tracking-tight">
-                        <MailIcon className="w-8 h-8 text-primary" /> Communication
-                    </h1>
-                    <div className="flex gap-2 items-center">
-                        <p className="text-muted-foreground text-sm">Compose emails via Gmail.</p>
-                        {!isPro && (
-                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
-                                {emailsSent}/{emailLimit} Free Emails Used
-                            </span>
-                        )}
+            {/* Single-row header */}
+            <header className="flex items-center justify-between mb-8 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 md:w-9 md:h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
+                        <BackArrowIcon className="h-6 w-6 md:h-5 md:w-5" />
+                    </Button>
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-3xl font-bold flex items-center gap-2 tracking-tight truncate">
+                            <MailIcon className="w-5 h-5 md:w-8 md:h-8 text-primary shrink-0" /> Communication
+                        </h1>
+                        <div className="flex gap-2 items-center">
+                            {!isPro && (
+                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                                    {emailsSent}/{emailLimit} emails
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
 
-                {/* Gmail Account Indicator */}
-                <div className="ml-auto flex items-center gap-3">
+                {/* Gmail Account Indicator — moves to a new row on mobile */}
+                <div className="flex items-center gap-2 shrink-0">
                     {gmailAccounts.length > 0 ? (
-                        <div className="relative group">
-                            <div className="flex items-center gap-2 bg-secondary/40 hover:bg-secondary/60 border border-border px-3 py-1.5 rounded-full shadow-sm animate-in fade-in slide-in-from-right-4 transition-all duration-300">
-                                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-
-                                <div className="flex flex-col min-w-[140px] max-w-[180px] cursor-pointer" onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-[9px] text-muted-foreground leading-none font-bold uppercase tracking-wider">Connected Gmail</span>
-                                        <ChevronDownIcon className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
-                                    </div>
-                                    <span className="text-xs font-bold text-foreground truncate mt-0.5 leading-tight">
-                                        {selectedGmailAccount || 'Gmail Active'}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center gap-2 ml-1 border-l border-border/50 pl-2">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-9 w-9 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDisconnectGmail();
-                                        }}
-                                        title={`Disconnect ${selectedGmailAccount}`}
-                                    >
-                                        <XCircleIcon className="w-6 h-6" />
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-9 w-9 p-0 rounded-full bg-blue-50 text-blue-600 hover:text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:text-blue-300 transition-colors shadow-sm"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onConnectGmail?.();
-                                        }}
-                                        title="Link Another Account"
-                                    >
-                                        <PlusIcon className="w-6 h-6" />
-                                    </Button>
-                                </div>
+                        <div className="relative">
+                            <div
+                                onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+                                className="flex items-center gap-2.5 bg-card hover:bg-secondary/40 border border-border pl-3 pr-3 py-2 rounded-full shadow-md cursor-pointer transition-all duration-300 animate-in fade-in slide-in-from-right-4"
+                            >
+                                <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.7)] shrink-0" />
+                                <GoogleIcon className="w-4 h-4 shrink-0" />
+                                <span className="text-xs md:text-sm font-bold text-foreground truncate max-w-[80px] md:max-w-none">
+                                    {(selectedGmailAccount || 'Gmail').split('@')[0]}
+                                </span>
+                                <ChevronDownIcon className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
                             </div>
 
                             {/* Custom Modern Dropdown Menu */}
                             {isAccountDropdownOpen && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setIsAccountDropdownOpen(false)} />
-                                    <div className="absolute top-full right-0 mt-2 w-full min-w-[200px] bg-card border border-border rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
-                                        <div className="py-1">
+                                    <div className="absolute top-full right-0 mt-3 w-64 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                        <div className="p-2 border-b border-border bg-secondary/10">
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-2 py-1">Connected Accounts</p>
+                                        </div>
+                                        <div className="max-h-[240px] overflow-y-auto py-1">
                                             {gmailAccounts.map(acc => (
-                                                <button
+                                                <div
                                                     key={acc.gmail_address}
-                                                    className={`w-full text-left px-4 py-2.5 text-xs font-semibold transition-colors flex items-center justify-between group/item ${acc.gmail_address === selectedGmailAccount ? 'bg-primary/10 text-primary' : 'hover:bg-secondary text-foreground'}`}
-                                                    onClick={() => {
-                                                        setSelectedGmailAccount(acc.gmail_address);
-                                                        setIsAccountDropdownOpen(false);
-                                                    }}
+                                                    className={`group w-full flex items-center justify-between px-3 py-2.5 transition-all ${acc.gmail_address === selectedGmailAccount ? 'bg-primary/5' : 'hover:bg-secondary/50'}`}
                                                 >
-                                                    <span className="truncate flex-1">{acc.gmail_address}</span>
-                                                    {acc.gmail_address === selectedGmailAccount && (
-                                                        <CheckCircleIcon className="w-3.5 h-3.5 ml-2 text-primary" />
-                                                    )}
-                                                </button>
+                                                    <button
+                                                        className="flex-1 text-left min-w-0"
+                                                        onClick={() => {
+                                                            setSelectedGmailAccount(acc.gmail_address);
+                                                            setIsAccountDropdownOpen(false);
+                                                        }}
+                                                    >
+                                                        <div className="flex flex-col">
+                                                            <span className={`text-xs font-bold truncate ${acc.gmail_address === selectedGmailAccount ? 'text-primary' : 'text-foreground'}`}>
+                                                                {acc.gmail_address.split('@')[0]}
+                                                            </span>
+                                                            <span className="text-[9px] text-muted-foreground truncate">{acc.gmail_address}</span>
+                                                        </div>
+                                                    </button>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEmailToDisconnect(acc.gmail_address);
+                                                                setShowDisconnectConfirm(true);
+                                                                setIsAccountDropdownOpen(false);
+                                                            }}
+                                                        >
+                                                            <TrashIcon className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
                                             ))}
+                                        </div>
+                                        <div className="p-2 border-t border-border bg-secondary/5">
+                                            <Button
+                                                onClick={() => {
+                                                    onConnectGmail?.();
+                                                    setIsAccountDropdownOpen(false);
+                                                }}
+                                                className="w-full h-10 rounded-xl flex items-center justify-center gap-2 shadow-sm"
+                                                variant="outline"
+                                            >
+                                                <PlusIcon className="w-4 h-4" />
+                                                <span className="text-xs font-bold">Add Account</span>
+                                            </Button>
                                         </div>
                                     </div>
                                 </>
@@ -433,11 +450,11 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
                     ) : (
                         <Button
                             variant="outline"
-                            size="sm"
-                            className="rounded-full flex gap-2 border-primary/20 hover:border-primary transition-all"
                             onClick={() => setShowConnectModal(true)}
+                            className="rounded-full shadow-md bg-card border-primary/20 h-11 px-5 flex items-center gap-2.5 transition-all hover:border-primary group"
                         >
-                            <GoogleIcon className="w-4 h-4" /> Connect Gmail
+                            <GoogleIcon className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                            <span className="text-sm font-bold">Connect Gmail</span>
                         </Button>
                     )}
                 </div>
@@ -531,10 +548,10 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setShowTemplateSelector(true)}
-                                    className="hover:bg-primary hover:text-primary-foreground"
+                                    className="hover:bg-primary hover:text-primary-foreground text-[10px] md:text-sm h-8 md:h-9"
                                 >
-                                    <StarIcon className="w-4 h-4 mr-2" />
-                                    {selectedTemplate ? 'Change Template' : 'Browse Templates'}
+                                    <StarIcon className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2" />
+                                    {selectedTemplate ? (window.innerWidth < 640 ? 'Change' : 'Change Template') : (window.innerWidth < 640 ? 'Browse' : 'Browse Templates')}
                                 </Button>
                             </div>
 
@@ -654,19 +671,19 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
                             </div>
                         </div>
                     </CardContent>
-                    <CardFooter className="border-t border-border p-4 flex justify-end items-center gap-3">
-                        <Button variant="ghost" size="sm" onClick={handleCopyEmail} className="h-10" title="Copy subject and body">
+                    <CardFooter className="border-t border-border p-4 flex flex-col-reverse sm:flex-row sm:justify-end items-stretch sm:items-center gap-3">
+                        <Button variant="ghost" size="sm" onClick={handleCopyEmail} className="h-10 w-full sm:w-auto" title="Copy subject and body">
                             <CopyIcon className="w-4 h-4 mr-2" /> {copySuccess ? 'Copied!' : 'Copy Email'}
                         </Button>
                         {sendSuccess ? (
-                            <div className="flex items-center text-green-600 font-bold animate-in fade-in slide-in-from-right-2">
+                            <div className="flex items-center justify-center text-green-600 font-bold animate-in fade-in slide-in-from-right-2">
                                 <CheckCircleIcon className="w-5 h-5 mr-2" /> Sent successfully!
                             </div>
                         ) : (
                             <Button
                                 onClick={handleSendEmail}
                                 disabled={!recipientEmail || isSending}
-                                className="px-8 shadow-md bg-primary hover:bg-primary/90"
+                                className="px-8 shadow-md bg-primary hover:bg-primary/90 w-full sm:w-auto"
                             >
                                 {isSending ? 'Sending...' : (
                                     <>
@@ -734,6 +751,45 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ supabase, clients
                                     title="Email Preview"
                                     sandbox="allow-same-origin"
                                 />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Disconnect Confirmation Modal */}
+            {showDisconnectConfirm && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+                    <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                        <div className="p-6 text-center">
+                            <div className="w-16 h-16 bg-destructive/10 text-destructive rounded-full flex items-center justify-center mx-auto mb-4">
+                                <TrashIcon className="w-8 h-8" />
+                            </div>
+                            <h3 className="text-lg font-bold mb-2">Disconnect Account?</h3>
+                            <p className="text-sm text-muted-foreground mb-6">
+                                Are you sure you want to disconnect <span className="font-bold text-foreground">{emailToDisconnect}</span>? You will need to re-authorize to use this account again.
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    variant="destructive"
+                                    className="w-full h-11 rounded-xl font-bold"
+                                    onClick={() => {
+                                        handleDisconnectGmail(emailToDisconnect || undefined);
+                                        setShowDisconnectConfirm(false);
+                                        setEmailToDisconnect(null);
+                                    }}
+                                >
+                                    Yes, Disconnect
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    className="w-full h-11 rounded-xl font-bold"
+                                    onClick={() => {
+                                        setShowDisconnectConfirm(false);
+                                        setEmailToDisconnect(null);
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
                             </div>
                         </div>
                     </div>

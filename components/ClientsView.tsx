@@ -251,47 +251,37 @@ const ClientsView: React.FC<ClientsViewProps> = ({
 
     return (
         <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
-                <div className="flex items-center">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                        <BackArrowIcon className="h-6 w-6" />
+            {/* Single-row header: [← Title] left | [actions] right */}
+            <header className="flex items-center justify-between mb-8 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="w-9 h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
+                        <BackArrowIcon className="h-5 w-5" />
                     </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                            Client Directory
-                        </h1>
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-2xl font-bold tracking-tight truncate">Client Directory</h1>
+                        {userProfile?.subscriptionTier !== 'Premium' && (
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[10px] md:text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold shadow-sm border border-blue-200">
+                                    {activeClients.filter(c => { if (!c.created_at) return true; const d = new Date(c.created_at); return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear(); }).length}/{freeLimit} <span className="hidden sm:inline">Clients</span>
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    {isOnline === false && <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold animate-pulse">Offline</div>}
-
-                    {userProfile?.subscriptionTier !== 'Premium' && (
-                        <div className="flex items-center gap-2 mr-1">
-                            <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-semibold border border-blue-200">
-                                Clients this month: {activeClients.filter(c => {
-                                    if (!c.created_at) return true;
-                                    const d = new Date(c.created_at);
-                                    return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
-                                }).length}/{freeLimit}
-                            </span>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs text-blue-600 hover:text-blue-800 h-auto py-1"
-                                onClick={onUpgradeClick}
-                            >
-                                Upgrade
-                            </Button>
-                        </div>
-                    )}
-
-                    <Button variant="outline" onClick={() => setShowHistoryModal(true)} className="rounded-full shadow-md hover:bg-secondary hidden sm:flex">
-                        <ClockIcon className="w-4 h-4 mr-2" /> History
+                <div className="flex items-center gap-1.5 shrink-0">
+                    {isOnline === false && <div className="hidden md:block bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold animate-pulse">Offline</div>}
+                    <Button variant="outline" onClick={() => setShowHistoryModal(true)} className="rounded-full shadow-md hover:bg-secondary h-12 w-12 md:h-9 md:w-auto md:px-3 flex items-center justify-center p-0 md:p-2" title="History">
+                        <ClockIcon className="w-7 h-7 md:w-4 md:h-4" />
+                        <span className="hidden md:inline ml-1.5">History</span>
                     </Button>
-                    <Button variant="outline" onClick={() => setShowTemporaryClientsModal(true)} className="rounded-full shadow-md bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100 hidden sm:flex">
-                        <UsersIcon className="w-4 h-4 mr-2" /> Temporary ({temporaryClients.length})
+                    <Button variant="outline" onClick={() => setShowTemporaryClientsModal(true)} className="rounded-full shadow-md h-12 w-12 md:h-9 md:w-auto md:px-3 flex items-center justify-center bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100 p-0 md:p-2" title={`Temporary (${temporaryClients.length})`}>
+                        <UsersIcon className="w-7 h-7 md:w-4 md:h-4" />
+                        <span className="hidden md:inline ml-1.5">Temporary ({temporaryClients.length})</span>
                     </Button>
-                    <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20"><PlusIcon className="w-4 h-4 mr-2" /> Add Client</Button>
+                    <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20 h-12 w-12 md:h-9 md:w-auto md:px-3 flex items-center justify-center p-0 md:p-2">
+                        <PlusIcon className="w-7 h-7 md:w-4 md:h-4 md:mr-2" />
+                        <span className="hidden md:inline">Add Client</span>
+                    </Button>
                 </div>
             </header>
 
@@ -432,9 +422,9 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                             <div><Label>Address</Label><Input value={newClient.address} onChange={e => setNewClient({ ...newClient, address: e.target.value })} placeholder="Street Address" /></div>
                             <div><Label>Notes</Label><Input value={newClient.notes} onChange={e => setNewClient({ ...newClient, notes: e.target.value })} placeholder="Additional details..." /></div>
                         </CardContent>
-                        <CardFooter className="flex justify-end gap-2 bg-muted/20 rounded-b-lg">
-                            <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
-                            <Button onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Add Client'}</Button>
+                        <CardFooter className="flex flex-col-reverse sm:flex-row gap-3 sm:justify-end bg-muted/20 rounded-b-lg p-4">
+                            <Button variant="outline" onClick={() => setShowAddModal(false)} className="w-full sm:w-auto">Cancel</Button>
+                            <Button onClick={handleAdd} disabled={loading} className="w-full sm:w-auto">{loading ? 'Saving...' : 'Add Client'}</Button>
                         </CardFooter>
                     </Card>
                 </div>
