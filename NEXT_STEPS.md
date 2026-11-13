@@ -128,6 +128,20 @@ code is tested: 20261113000200_pay_review_financing.sql, 20261113000300_reminder
 20261113000400_requests_and_job_photos.sql. Started 16:45 with 3 helpers: pay (#1, #4, #5, #6), reminders (#2),
 requests + photos (#3, #8). Still to do after them: #7 export everything + bookkeeper CSV + price promise.
 
+**PAUSED 2026-11-13 16:56 at 77% of the 5-hour limit (owner's 80% rule). Feature wave 1 is UNFINISHED and UNCOMMITTED in
+the working tree** (do not commit it as-is; it was stopped mid-edit):
+- pay (#1/#4/#5/#6), last step "type-check": Settings, Invoice/Estimate forms, ShareModal, PortalView,
+  DocumentApprovalView, utils/emailTemplates + templates (QR), lib/payments.ts, lib/paymentsApi.ts, lib/qrcode.ts,
+  lib/messaging.ts, components/payments/, components/MessageAppButtons.tsx, migration 20261113000200 (NOT applied).
+- reminders (#2), last step "test script": supabase/functions/gmail/core.ts + index.ts (shared code, live function
+  NOT redeployed), supabase/functions/reminders/, lib/reminders.ts, scripts/reminders-check.ts, migration
+  20261113000300 (NOT applied).
+- requests + photos (#3/#8), last step "JobPhotos timeline component": components/requests/, components/photos/,
+  App.tsx/Dashboard/JobDetails mounts, migration 20261113000400 (NOT applied).
+To resume: SendMessage the three helpers (they keep their context), let them finish, then type-check + all tests,
+review, commit, apply the three additive migrations (owner chose all four additions), deploy reminders + gmail
+functions, and test in the app (needs the owner signed in).
+
 **NOW (in this order; the payment webhook unlocks the rest):**
 1. "Pay now" WITHOUT Stripe (owner: Stripe can't be used; Kelviq is only for selling our own subscriptions, so
    don't route client payments through it). Build on the existing invoice "Pay-now link" field (the
