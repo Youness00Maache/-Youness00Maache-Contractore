@@ -89,7 +89,7 @@ const LandingPage: React.FC = () => {
             <div className="max-w-xl">
               <p className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white/80 px-3 py-1.5 text-[13px] font-semibold text-brand-700 shadow-soft">
                 <MarkerTick className="h-4 w-4 text-amber-500" />
-                Built for contractors · Free plan available
+                One job. Every document. Signed online.
               </p>
               <h1 className="mt-6 font-display text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-foreground sm:text-6xl">
                 Professional contractor paperwork{' '}

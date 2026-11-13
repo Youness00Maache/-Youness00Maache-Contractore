@@ -26,10 +26,10 @@ All in `pages/LandingPage.tsx` unless noted. Reload the page first: some screens
    around line 348, the "Change Order #3 / Approved & signed" screen). Make it look like a real modern phone:
    realistic frame/bezel, rounded screen, dynamic-island notch, status bar (time, signal, battery), side
    buttons, depth/shadow. Keep the screen content.
-5. **Hero badge "Built for contractors · Free plan available"** (around line 100): owner wrote "change this".
+5. ~~DONE: now "One job. Every document. Signed online."~~ **Hero badge "Built for contractors · Free plan available"** (around line 100): owner wrote "change this".
    Replace it with something less generic (e.g. a specific, true line about who it's for or a concrete
    benefit), or remove the pill. No invented claims (no fake user counts).
-6. **Login/sign-up page, blue left panel** (`pages/components/AuthShell.tsx` line 50): the
+6. ~~DONE: footer moved under the form (right column)~~ **Login/sign-up page, blue left panel** (`pages/components/AuthShell.tsx` line 50): the
    "© 2026 ContractorDocs · Privacy · Terms" line collides with the bottom of the invoice picture (owner
    circled it). Remove that line from the panel, or move it so it never touches the card at any height.
 

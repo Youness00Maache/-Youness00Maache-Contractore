@@ -47,7 +47,6 @@ export const AuthShell: React.FC<{
             <InvoicePaper compact />
           </div>
         </div>
-        <p className="relative text-sm text-brand-200">© 2026 ContractorDocs · <Link to="/privacy" className="underline-offset-4 hover:underline">Privacy</Link> · <Link to="/terms" className="underline-offset-4 hover:underline">Terms</Link></p>
       </aside>
 
       <main className="flex flex-1 flex-col">
@@ -67,6 +66,7 @@ export const AuthShell: React.FC<{
             {footer ? <div className="mt-6 text-center text-sm text-muted-foreground">{footer}</div> : null}
           </div>
         </div>
+        <p className="px-4 pb-6 text-center text-xs text-muted-foreground sm:px-8">© 2026 ContractorDocs · <Link to="/privacy" className="underline-offset-4 hover:underline">Privacy</Link> · <Link to="/terms" className="underline-offset-4 hover:underline">Terms</Link></p>
       </main>
     </div>
   );
