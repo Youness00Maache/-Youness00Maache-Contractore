@@ -1,5 +1,5 @@
 /**
- * master-ai-router request handler (runtime-agnostic: only web-standard APIs, so it runs in
+ * ai-assistant request handler (runtime-agnostic: only web-standard APIs, so it runs in
  * Deno and can be exercised from Node tests with a fake fetch).
  *
  * Pipeline: CORS → JWT (real signed-in user only) → input limits → plan limit + rate limit
@@ -26,7 +26,10 @@ export const AI_MONTHLY_LIMITS: Record<'free' | 'premium' | 'ai', number> = { fr
 
 const DEFAULT_MODEL = 'gemini-flash-latest';
 const FALLBACK_MODEL = 'gemini-2.5-flash';
-const MODEL_TIMEOUT_MS = 30_000;
+// Big requests (a job + clients + several documents) can take the model a minute; the edge runtime allows 150 s.
+const MODEL_TIMEOUT_MS = 100_000;
+/** Small thinking budget: enough for planning multi-step requests, keeps answers fast. */
+const THINKING_BUDGET = 1024;
 
 class HttpError extends Error {
     constructor(public status: number, public code: string, message: string) { super(message); }
@@ -73,7 +76,7 @@ async function fetchWithTimeout(f: typeof fetch, url: string, init: RequestInit,
 export function createHandler(env: RouterEnv, deps: HandlerDeps) {
     const f = deps.fetch;
     const now = deps.now || (() => new Date());
-    const log = deps.log || ((...a: unknown[]) => console.error('[master-ai-router]', ...a));
+    const log = deps.log || ((...a: unknown[]) => console.error('[ai-assistant]', ...a));
 
     // Per-isolate burst guard (the usage_events check below is the real limit).
     const burst = new Map<string, number[]>();
@@ -177,30 +180,46 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         if (contents.length && contents[contents.length - 1].role === 'user') contents.pop();
         contents.push({ role: 'user', parts: userParts });
 
-        const body = JSON.stringify({
+        const makeBody = (withThinking: boolean) => JSON.stringify({
             systemInstruction: { parts: [{ text: buildSystemPrompt(request) }] },
             contents,
             generationConfig: {
                 responseMimeType: 'application/json',
                 responseSchema: buildResponseSchema(request.scope),
                 temperature: 0.2,
-                maxOutputTokens: 8192,
+                maxOutputTokens: 16384,
+                ...(withThinking ? { thinkingConfig: { thinkingBudget: THINKING_BUDGET } } : {}),
             },
         });
+        const startedAt = Date.now();
 
         let lastError = '';
         for (const model of models) {
             let res: Response;
-            try {
-                res = await fetchWithTimeout(f, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+            let withThinking = true;
+            const post = () => {
+                // Never let two attempts together exceed the runtime limit.
+                const remaining = Math.max(10_000, MODEL_TIMEOUT_MS - (Date.now() - startedAt));
+                return fetchWithTimeout(f, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-                    body,
-                }, MODEL_TIMEOUT_MS);
+                    body: makeBody(withThinking),
+                }, remaining);
+            };
+            try {
+                res = await post();
+                if (res.status === 400) {
+                    const peek = await res.clone().text().catch(() => '');
+                    if (/thinking/i.test(peek)) {
+                        // This model doesn't accept a thinking budget: ask again without it.
+                        withThinking = false;
+                        res = await post();
+                    }
+                }
             } catch (err) {
                 const aborted = err instanceof Error && err.name === 'AbortError';
                 log('model request failed', model, aborted ? 'timeout' : String(err));
-                if (aborted) throw new HttpError(504, 'AI_TIMEOUT', 'The AI took too long to answer. Please try again.');
+                if (aborted) throw new HttpError(504, 'AI_TIMEOUT', 'The AI took too long to answer. Please try again, or ask for fewer things at once.');
                 lastError = 'network';
                 continue;
             }

@@ -926,7 +926,7 @@ const App: React.FC = () => {
     };
 
     const handleEmailSent = () => {
-        // The gmail-auth function records email usage server-side; just refresh the meters.
+        // The gmail function records email usage server-side; just refresh the meters.
         refreshUsage();
     };
 

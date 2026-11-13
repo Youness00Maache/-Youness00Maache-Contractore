@@ -1,5 +1,5 @@
 /**
- * Checks for the gmail-auth MIME builder and token crypto (pure logic, no network).
+ * Checks for the gmail MIME builder and token crypto (pure logic, no network).
  * Run: npx tsx scripts/comms-mime-check.ts
  */
 import {
@@ -9,9 +9,9 @@ import {
   MimeError,
   parseAddressList,
   sanitizeFilename,
-} from '../supabase/functions/gmail-auth/mime.ts';
-import { decryptString, encryptString, importKeys, signState, verifyState } from '../supabase/functions/gmail-auth/crypto.ts';
-import { base64ToBytes, bytesToBase64, td, te } from '../supabase/functions/gmail-auth/encoding.ts';
+} from '../supabase/functions/gmail/mime.ts';
+import { decryptString, encryptString, importKeys, signState, verifyState } from '../supabase/functions/gmail/crypto.ts';
+import { base64ToBytes, bytesToBase64, td, te } from '../supabase/functions/gmail/encoding.ts';
 
 let failures = 0;
 let passes = 0;

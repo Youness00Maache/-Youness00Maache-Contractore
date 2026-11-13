@@ -1,7 +1,7 @@
 # Gmail sending: setup guide (owner actions)
 
 ContractorDocs sends email **from the contractor's own Gmail address**. Everything runs in the
-`gmail-auth` Supabase edge function:
+`gmail` Supabase edge function:
 
 - the browser asks the function for a Google sign-in URL (`auth_url`); the URL carries a signed, 10-minute,
   user-bound `state` value (CSRF protection);
@@ -117,7 +117,7 @@ The last paragraph must appear essentially verbatim and link to the policy.
 
 ## 4. Supabase secrets
 
-Set these for the `gmail-auth` function (Dashboard → Edge Functions → Secrets, or the CLI):
+Set these for the `gmail` function (Dashboard → Edge Functions → Secrets, or the CLI):
 
 | Secret | Value |
 |---|---|
@@ -133,7 +133,7 @@ Set these for the `gmail-auth` function (Dashboard → Edge Functions → Secret
 npx supabase secrets set --project-ref <project-ref> \
   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
   SITE_URL=https://contractordocs.app TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-npx supabase functions deploy gmail-auth --project-ref <project-ref>   # keep JWT verification ON (default)
+npx supabase functions deploy gmail --project-ref <project-ref>   # keep JWT verification ON (default)
 ```
 
 **Local development:** put the same keys in `supabase/functions/.env` (git-ignored) with

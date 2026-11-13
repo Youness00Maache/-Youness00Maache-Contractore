@@ -104,8 +104,8 @@ Frontend (Vercel env vars): see `.env.example` (`VITE_SUPABASE_URL`, `VITE_SUPAB
 npx supabase functions deploy kelviq-webhook --no-verify-jwt
 npx supabase functions deploy kelviq-checkout
 npx supabase functions deploy delete-account
-npx supabase functions deploy gmail-auth           # COMMS
-npx supabase functions deploy master-ai-router     # AI
+npx supabase functions deploy gmail           # COMMS
+npx supabase functions deploy ai-assistant     # AI
 ```
 
 `supabase/config.toml` also records `verify_jwt` per function (`kelviq-webhook = false`, all others `true`), so a plain `npx supabase functions deploy` uses the same settings. `paypal-webhook` was removed: if it is deployed on the old project, delete it (`npx supabase functions delete paypal-webhook`).
@@ -114,7 +114,7 @@ npx supabase functions deploy master-ai-router     # AI
 
 - **URL Configuration**: Site URL `https://www.contractordocs.app`. Redirect URLs:
   `https://www.contractordocs.app/**`, `https://contractordocs.app/**`, `https://www.contractordocs.app/update-password`, `https://www.contractordocs.app/gmail-callback`, `https://www.contractordocs.app/auth/login`, `https://www.contractordocs.app/billing/success`, plus Vercel preview URLs if used (`https://*-<team>.vercel.app/**`) and `http://localhost:3010/**` for local testing against production (optional).
-- **Providers -> Google**: enable, set the Google OAuth client id/secret; in Google Cloud Console add the authorized redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`. (Gmail sending uses a separate OAuth flow through `gmail-auth` with redirect `https://www.contractordocs.app/gmail-callback`; add that to the Google client's authorized redirect URIs too and publish the consent screen "In production".)
+- **Providers -> Google**: enable, set the Google OAuth client id/secret; in Google Cloud Console add the authorized redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`. (Gmail sending uses a separate OAuth flow through `gmail` with redirect `https://www.contractordocs.app/gmail-callback`; add that to the Google client's authorized redirect URIs too and publish the consent screen "In production".)
 - **Email**: confirm email on; set a custom SMTP sender for production (the built-in sender is rate limited).
 - A profile row is created automatically for every new auth user (trigger `on_auth_user_created`).
 

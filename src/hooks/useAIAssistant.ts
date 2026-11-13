@@ -21,7 +21,7 @@ import { getFormLabel, resolveMentionsInText, stripSystemContext, type ResolvedM
 import {
     DOC_LABELS, getMissingAskFields, resolveDocKey, toLocalYmd, type DocKey,
 } from '../config/documentFieldRequirements.ts';
-import type { RouterProposal, RouterRequestContext } from '../../supabase/functions/master-ai-router/shared/routerContract.ts';
+import type { RouterProposal, RouterRequestContext } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { useMasterAIRouter, resolveJobForDocumentRequest, type ChatMessage } from './useMasterAIRouter.ts';
 import { imagesToHtml, toRouterImages, type PendingImage } from '../ai/attachments.ts';
 import { toEmailBatchItems, type AIEmailDraft } from '../ai/emailBatch.ts';

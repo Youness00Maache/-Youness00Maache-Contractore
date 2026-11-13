@@ -9,10 +9,10 @@ import {
 } from '../src/config/documentFieldRequirements.ts';
 import {
     buildProposal, isSendOnlyRequest, parseModelJson, sanitizeRequest, type ModelOutput, type RouterRequestContext,
-} from '../supabase/functions/master-ai-router/shared/routerContract.ts';
-import { mockModelOutput } from '../supabase/functions/master-ai-router/shared/mockModel.ts';
-import { buildSystemPrompt, buildUserTurn } from '../supabase/functions/master-ai-router/shared/prompt.ts';
-import { createHandler } from '../supabase/functions/master-ai-router/handler.ts';
+} from '../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { mockModelOutput } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
+import { buildSystemPrompt, buildUserTurn } from '../supabase/functions/ai-assistant/shared/prompt.ts';
+import { createHandler } from '../supabase/functions/ai-assistant/handler.ts';
 import { finalizeDraft, toFormPrefill } from '../utils/documentDraft.ts';
 import { normalizeDocumentSetupPayload, inferSingleMissingFieldSetup, getSetupFieldSpecsForDocument } from '../utils/documentSetupPayload.ts';
 import { userAllowsEmptyOrProceed, buildGatherInfoReply } from '../utils/documentMetadata.ts';
@@ -410,7 +410,7 @@ function makeFetch(opts: { used?: number; tier?: string; rpc?: 'ok' | 'missing' 
     return { f, calls };
 }
 const envOf = (extra: Record<string, string> = {}) => ({ get: (k: string) => ({ SUPABASE_URL: 'http://sb.test', SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service', SITE_URL: 'https://contractordocs.app', ...extra } as Record<string, string>)[k] });
-const post = (body: unknown, auth?: string, origin = 'https://contractordocs.app') => new Request('http://fn.test/master-ai-router', {
+const post = (body: unknown, auth?: string, origin = 'https://contractordocs.app') => new Request('http://fn.test/ai-assistant', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, ...(auth ? { Authorization: auth } : {}) }, body: JSON.stringify(body),
 });
 const quiet = () => undefined;

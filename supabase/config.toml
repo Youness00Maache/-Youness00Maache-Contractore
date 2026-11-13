@@ -417,10 +417,10 @@ verify_jwt = false
 [functions.kelviq-checkout]
 verify_jwt = true
 
-[functions.gmail-auth]
+[functions.gmail]
 verify_jwt = true
 
-[functions.master-ai-router]
+[functions.ai-assistant]
 verify_jwt = true
 
 [functions.delete-account]

@@ -1,4 +1,4 @@
-// gmail-auth: everything Gmail, server-side. The browser NEVER receives a Google token.
+// gmail: everything Gmail, server-side. The browser NEVER receives a Google token.
 //
 // Actions (POST JSON, caller's Supabase JWT required):
 //   auth_url    { return_to?, origin?, login_hint? }        -> { url, redirect_uri }
@@ -45,7 +45,7 @@ class HttpError extends Error {
 }
 
 const notConfigured = (missing: string[]) => {
-  console.error(`[gmail-auth] missing secrets: ${missing.join(', ')}`);
+  console.error(`[gmail] missing secrets: ${missing.join(', ')}`);
   return new HttpError(503, 'NOT_CONFIGURED', 'Gmail is not set up on the server yet. Please contact support.');
 };
 
@@ -76,7 +76,7 @@ function tokenKeys(): Promise<TokenKeys> {
   if (!keysPromise) {
     keysPromise = importKeys(secret).catch((e) => {
       keysPromise = null;
-      console.error('[gmail-auth] invalid TOKEN_ENCRYPTION_KEY:', (e as Error).message);
+      console.error('[gmail] invalid TOKEN_ENCRYPTION_KEY:', (e as Error).message);
       throw new HttpError(503, 'NOT_CONFIGURED', 'Gmail is not set up on the server yet. Please contact support.');
     });
   }
@@ -175,7 +175,7 @@ async function listAccounts(admin: SupabaseClient, userId: string): Promise<Acco
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
   if (error) {
-    console.error('[gmail-auth] list accounts failed:', error.code, error.message);
+    console.error('[gmail] list accounts failed:', error.code, error.message);
     throw new HttpError(500, 'DB_ERROR', 'Could not load your Gmail accounts.');
   }
   return (data ?? []) as AccountRow[];
@@ -201,7 +201,7 @@ async function markNeedsReconnect(admin: SupabaseClient, accountId: string) {
     .from('user_gmail_accounts')
     .update({ status: 'needs_reconnect', updated_at: new Date().toISOString() })
     .eq('id', accountId);
-  if (error) console.error('[gmail-auth] could not flag account:', error.code, error.message);
+  if (error) console.error('[gmail] could not flag account:', error.code, error.message);
 }
 
 async function loadTokens(admin: SupabaseClient, accountId: string): Promise<TokenRow | null> {
@@ -211,7 +211,7 @@ async function loadTokens(admin: SupabaseClient, accountId: string): Promise<Tok
     .eq('account_id', accountId)
     .maybeSingle();
   if (error) {
-    console.error('[gmail-auth] load tokens failed:', error.code, error.message);
+    console.error('[gmail] load tokens failed:', error.code, error.message);
     throw new HttpError(500, 'DB_ERROR', 'Could not load the Gmail connection.');
   }
   return (data as TokenRow | null) ?? null;
@@ -220,7 +220,7 @@ async function loadTokens(admin: SupabaseClient, accountId: string): Promise<Tok
 async function saveTokens(admin: SupabaseClient, row: Partial<TokenRow> & { account_id: string }) {
   const { error } = await admin.from('gmail_tokens').upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: 'account_id' });
   if (error) {
-    console.error('[gmail-auth] save tokens failed:', error.code, error.message);
+    console.error('[gmail] save tokens failed:', error.code, error.message);
     throw new HttpError(500, 'DB_ERROR', 'Could not save the Gmail connection.');
   }
 }
@@ -256,7 +256,7 @@ async function getAccessToken(admin: SupabaseClient, keys: TokenKeys, account: A
   try {
     refreshToken = await decryptString(keys, tokens.refresh_token_encrypted);
   } catch (e) {
-    console.error('[gmail-auth] cannot decrypt refresh token (key rotated?):', (e as Error).message);
+    console.error('[gmail] cannot decrypt refresh token (key rotated?):', (e as Error).message);
     await markNeedsReconnect(admin, account.id);
     throw new HttpError(409, 'RECONNECT_REQUIRED', `Please reconnect ${account.gmail_address} to keep sending email.`);
   }
@@ -274,7 +274,7 @@ async function getAccessToken(admin: SupabaseClient, keys: TokenKeys, account: A
       await markNeedsReconnect(admin, account.id);
       throw new HttpError(409, 'RECONNECT_REQUIRED', `Google access for ${account.gmail_address} was revoked or expired. Please reconnect this account.`);
     }
-    console.error('[gmail-auth] refresh failed:', err);
+    console.error('[gmail] refresh failed:', err);
     throw new HttpError(502, 'REFRESH_FAILED', 'Google did not respond as expected. Please try again in a minute.');
   }
 
@@ -312,7 +312,7 @@ async function getUsage(admin: SupabaseClient, userId: string): Promise<Usage & 
     .select('subscription_tier, company_name, name')
     .eq('id', userId)
     .maybeSingle();
-  if (pErr) console.error('[gmail-auth] profile read failed:', pErr.code, pErr.message);
+  if (pErr) console.error('[gmail] profile read failed:', pErr.code, pErr.message);
   const tier = String((profile as { subscription_tier?: string } | null)?.subscription_tier ?? 'free').toLowerCase();
   const paid = PAID_TIERS.has(tier);
 
@@ -323,7 +323,7 @@ async function getUsage(admin: SupabaseClient, userId: string): Promise<Usage & 
     .eq('user_id', userId)
     .eq('kind', 'email')
     .gte('created_at', monthStartIso());
-  if (error) console.error('[gmail-auth] usage count failed:', error.code, error.message);
+  if (error) console.error('[gmail] usage count failed:', error.code, error.message);
   else count = c ?? 0;
 
   return {
@@ -337,7 +337,7 @@ async function getUsage(admin: SupabaseClient, userId: string): Promise<Usage & 
 
 async function recordEmailUsage(admin: SupabaseClient, userId: string) {
   const { error } = await admin.from('usage_events').insert({ user_id: userId, kind: 'email' });
-  if (error) console.error('[gmail-auth] usage insert failed:', error.code, error.message);
+  if (error) console.error('[gmail] usage insert failed:', error.code, error.message);
 }
 
 /* ------------------------------------------------------------------------------------- actions */
@@ -395,7 +395,7 @@ async function actionExchange(admin: SupabaseClient, body: Record<string, unknow
   });
   if (!res.ok || typeof res.body.access_token !== 'string') {
     const err = String(res.body.error ?? res.status);
-    console.error('[gmail-auth] code exchange failed:', err);
+    console.error('[gmail] code exchange failed:', err);
     if (err === 'invalid_grant') throw new HttpError(400, 'CODE_EXPIRED', 'This Google authorization was already used or has expired. Please connect Gmail again.');
     if (err === 'redirect_uri_mismatch') throw new HttpError(500, 'REDIRECT_MISMATCH', 'Gmail is not set up correctly on the server (redirect URI). Please contact support.');
     throw new HttpError(502, 'EXCHANGE_FAILED', 'Google rejected the connection. Please try again.');
@@ -439,7 +439,7 @@ async function actionExchange(admin: SupabaseClient, body: Record<string, unknow
       .update({ status: 'active', display_name: displayName ?? account.display_name, granted_scopes: granted.join(' '), updated_at: now })
       .eq('id', account.id);
     if (error) {
-      console.error('[gmail-auth] account update failed:', error.code, error.message);
+      console.error('[gmail] account update failed:', error.code, error.message);
       throw new HttpError(500, 'DB_ERROR', 'Could not save the Gmail account.');
     }
   } else {
@@ -449,7 +449,7 @@ async function actionExchange(admin: SupabaseClient, body: Record<string, unknow
       .select(ACCOUNT_COLUMNS)
       .single();
     if (error || !data) {
-      console.error('[gmail-auth] account insert failed:', error?.code, error?.message);
+      console.error('[gmail] account insert failed:', error?.code, error?.message);
       throw new HttpError(500, 'DB_ERROR', 'Could not save the Gmail account.');
     }
     account = data as AccountRow;
@@ -488,7 +488,7 @@ async function actionSetDefault(admin: SupabaseClient, body: Record<string, unkn
   const off = await admin.from('user_gmail_accounts').update({ is_default: false, updated_at: now }).eq('user_id', userId).neq('id', id);
   const on = await admin.from('user_gmail_accounts').update({ is_default: true, updated_at: now }).eq('user_id', userId).eq('id', id);
   if (off.error || on.error) {
-    console.error('[gmail-auth] set default failed:', off.error?.message, on.error?.message);
+    console.error('[gmail] set default failed:', off.error?.message, on.error?.message);
     throw new HttpError(500, 'DB_ERROR', 'Could not change the default sender.');
   }
   return { success: true };
@@ -508,17 +508,17 @@ async function actionDisconnect(admin: SupabaseClient, body: Record<string, unkn
       const keys = await tokenKeys();
       const token = await decryptString(keys, encrypted);
       const r = await postForm(GOOGLE_REVOKE_URL, { token });
-      if (!r.ok && r.body.error !== 'invalid_token') console.error('[gmail-auth] revoke failed:', r.status, r.body.error);
+      if (!r.ok && r.body.error !== 'invalid_token') console.error('[gmail] revoke failed:', r.status, r.body.error);
     } catch (e) {
-      console.error('[gmail-auth] revoke skipped:', (e as Error).message);
+      console.error('[gmail] revoke skipped:', (e as Error).message);
     }
   }
 
   const delTokens = await admin.from('gmail_tokens').delete().eq('account_id', account.id);
-  if (delTokens.error) console.error('[gmail-auth] delete tokens failed:', delTokens.error.message);
+  if (delTokens.error) console.error('[gmail] delete tokens failed:', delTokens.error.message);
   const del = await admin.from('user_gmail_accounts').delete().eq('id', account.id).eq('user_id', userId);
   if (del.error) {
-    console.error('[gmail-auth] delete account failed:', del.error.code, del.error.message);
+    console.error('[gmail] delete account failed:', del.error.code, del.error.message);
     throw new HttpError(500, 'DB_ERROR', 'Could not disconnect this account. Please try again.');
   }
 
@@ -598,7 +598,7 @@ async function actionSend(admin: SupabaseClient, body: Record<string, unknown>, 
     const gErr = result?.error ?? {};
     const reason = String(gErr?.errors?.[0]?.reason ?? gErr?.status ?? '');
     const message = String(gErr?.message ?? '');
-    console.error('[gmail-auth] gmail send failed:', res.status, reason);
+    console.error('[gmail] gmail send failed:', res.status, reason);
     if (res.status === 401) {
       await markNeedsReconnect(admin, account.id);
       throw new HttpError(409, 'RECONNECT_REQUIRED', `Please reconnect ${account.gmail_address} before sending.`);
@@ -665,7 +665,7 @@ Deno.serve(async (req: Request) => {
     }
   } catch (e) {
     if (e instanceof HttpError) return json(e.status, { error: e.message, code: e.code }, cors);
-    console.error(`[gmail-auth] ${action || 'request'} failed:`, (e as Error)?.message ?? e);
+    console.error(`[gmail] ${action || 'request'} failed:`, (e as Error)?.message ?? e);
     return json(500, { error: 'Something went wrong. Please try again.', code: 'INTERNAL' }, cors);
   }
 });

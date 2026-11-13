@@ -110,23 +110,21 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                     <XCircleIcon className="h-6 w-6" />
                 </button>
 
-                <div className="overflow-y-auto px-4 pb-6 pt-8 sm:px-8">
+                {/* Sized to fit a laptop screen without scrolling; only small phones scroll. */}
+                <div className="overflow-y-auto px-4 pb-4 pt-6 [scrollbar-width:thin] sm:px-6">
                     <div className="mx-auto max-w-2xl text-center">
-                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                            <StarIcon className="h-6 w-6" />
-                        </div>
-                        <h2 id="upgrade-title" className="text-2xl font-bold tracking-tight sm:text-3xl">
+                        <h2 id="upgrade-title" className="text-xl font-bold tracking-tight sm:text-2xl">
                             {isPaid ? 'Your plan' : 'Upgrade ContractorDocs'}
                         </h2>
                         {featureName ? (
-                            <p className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full bg-warning/15 px-3 py-1 text-sm font-medium text-foreground">
+                            <p className="mx-auto mt-2 inline-flex items-center gap-2 rounded-full bg-warning/15 px-3 py-1 text-sm font-medium text-foreground">
                                 <LockIcon className="h-4 w-4 text-warning" /> {featureName}
                             </p>
                         ) : (
-                            <p className="mt-2 text-sm text-muted-foreground">Unlimited jobs, clients and documents. Cancel anytime.</p>
+                            <p className="mt-1 text-sm text-muted-foreground">Unlimited jobs, clients and documents. Cancel anytime.</p>
                         )}
 
-                        <div className="mt-6 inline-flex items-center rounded-full border border-border bg-muted p-1" role="radiogroup" aria-label="Billing period">
+                        <div className="mt-3 inline-flex items-center rounded-full border border-border bg-muted p-1" role="radiogroup" aria-label="Billing period">
                             {(['MONTHLY', 'YEARLY'] as BillingPeriod[]).map(p => (
                                 <button
                                     key={p}
@@ -134,7 +132,7 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                                     role="radio"
                                     aria-checked={period === p}
                                     onClick={() => setPeriod(p)}
-                                    className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${period === p ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                                    className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold transition ${period === p ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                                 >
                                     {p === 'MONTHLY' ? 'Monthly' : 'Yearly'}
                                     {p === 'YEARLY' && yearlySavingsPercent > 0 && (
@@ -145,7 +143,7 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                         </div>
                     </div>
 
-                    <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
                         {ORDER.map(tier => {
                             const plan = PLANS[tier];
                             const isCurrent = tier === resolvedTier;
@@ -190,7 +188,7 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                             return (
                                 <div
                                     key={tier}
-                                    className={`relative flex flex-col rounded-2xl border p-5 ${highlighted ? 'border-primary bg-primary/[0.04] shadow-card' : 'border-border bg-card'} ${isCurrent ? 'ring-2 ring-primary/30' : ''}`}
+                                    className={`relative flex flex-col rounded-2xl border p-4 ${highlighted ? 'border-primary bg-primary/[0.04] shadow-card' : 'border-border bg-card'} ${isCurrent ? 'ring-2 ring-primary/30' : ''}`}
                                 >
                                     {highlighted && (
                                         <span className="badge badge-primary absolute -top-3 left-5 bg-primary text-primary-foreground">Most popular</span>
@@ -201,22 +199,22 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                                         {isCurrent && <span className="badge badge-success ml-auto">Current</span>}
                                     </div>
                                     <p className="mt-1 text-sm text-muted-foreground">{plan.tagline}</p>
-                                    <div className="mt-4 flex items-baseline gap-1">
-                                        <span className="text-3xl font-bold tracking-tight">{formatPrice(price)}</span>
+                                    <div className="mt-3 flex items-baseline gap-1">
+                                        <span className="text-2xl font-bold tracking-tight">{formatPrice(price)}</span>
                                         <span className="text-sm text-muted-foreground">{tier === 'free' ? '' : period === 'YEARLY' ? '/year' : '/month'}</span>
                                     </div>
                                     <p className="mt-1 h-4 text-xs text-muted-foreground">
                                         {perMonth ? `About ${formatPrice(Math.round(perMonth * 100) / 100)}/month, billed yearly` : tier === 'free' ? 'No credit card needed' : 'Billed monthly'}
                                     </p>
-                                    <ul className="mt-4 flex-1 space-y-2.5">
+                                    <ul className="mt-3 flex-1 space-y-1.5">
                                         {plan.features.map(f => (
-                                            <li key={f} className="flex items-start gap-2 text-sm text-foreground/90">
+                                            <li key={f} className="flex items-start gap-2 text-[13px] leading-snug text-foreground/90">
                                                 <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-success" />
                                                 <span>{f}</span>
                                             </li>
                                         ))}
                                     </ul>
-                                    <div className="mt-5">{button}</div>
+                                    <div className="mt-4">{button}</div>
                                 </div>
                             );
                         })}
@@ -228,11 +226,11 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                         </p>
                     )}
 
-                    <p className="mt-5 text-center text-xs text-muted-foreground">
-                        Secure checkout by Kelviq. Prices in USD; taxes may apply. Cancel anytime from Settings → Plan &amp; billing.
-                    </p>
-                    <div className="mt-3 text-center">
-                        <button type="button" onClick={onClose} disabled={!!busyTier} className="text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-40">
+                    <div className="mt-4 flex flex-col items-center justify-between gap-2 text-center sm:flex-row sm:text-left">
+                        <p className="text-xs text-muted-foreground">
+                            Secure checkout by Kelviq. Prices in USD; taxes may apply. Cancel anytime from Settings → Plan &amp; billing.
+                        </p>
+                        <button type="button" onClick={onClose} disabled={!!busyTier} className="shrink-0 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-40">
                             Maybe later
                         </button>
                     </div>

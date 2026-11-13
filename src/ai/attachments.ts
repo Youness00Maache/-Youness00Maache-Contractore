@@ -4,8 +4,8 @@
  * Storage URLs (never as base64 inside the saved document).
  */
 import { compressImage, describeImageError, fileToDataUrl } from '../../utils/imageCompression.ts';
-import type { RouterImage } from '../../supabase/functions/master-ai-router/shared/routerContract.ts';
-import { escapeHtml } from '../../supabase/functions/master-ai-router/shared/documentSchema.ts';
+import type { RouterImage } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { escapeHtml } from '../../supabase/functions/ai-assistant/shared/documentSchema.ts';
 
 export const MAX_AI_IMAGES = 3;
 

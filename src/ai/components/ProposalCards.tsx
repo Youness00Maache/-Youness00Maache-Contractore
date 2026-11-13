@@ -12,7 +12,7 @@ import {
 import type { ChatMessage } from '../../hooks/useMasterAIRouter.ts';
 import type { AIAssistant } from '../../hooks/useAIAssistant.ts';
 import { buildEmailDrafts, type AIEmailDraft } from '../emailBatch.ts';
-import type { RouterProposal } from '../../../supabase/functions/master-ai-router/shared/routerContract.ts';
+import type { RouterProposal } from '../../../supabase/functions/ai-assistant/shared/routerContract.ts';
 
 type IconType = React.ComponentType<{ className?: string }>;
 

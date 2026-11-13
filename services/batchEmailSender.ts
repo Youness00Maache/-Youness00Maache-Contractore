@@ -1,5 +1,5 @@
 /**
- * Sends a reviewed batch of emails (AI "email my clients their invoices" flow) through `gmail-auth`.
+ * Sends a reviewed batch of emails (AI "email my clients their invoices" flow) through `gmail`.
  * - uses the sender the user picked in Communication (or the default account),
  * - attaches PDFs built from the FULL saved documents (COMM-007),
  * - respects the free-plan monthly limit (server-enforced, pre-checked here) (COMM-016/037),

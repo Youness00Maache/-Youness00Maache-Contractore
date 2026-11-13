@@ -1,5 +1,5 @@
 /**
- * In-form "Fill with AI" (AI-012 / DOC-003). Uses the same `master-ai-router` function as the chat
+ * In-form "Fill with AI" (AI-012 / DOC-003). Uses the same `ai-assistant` function as the chat
  * (scope "form"): one provider, one auth check, one usage meter. The legacy
  * `process-contractor-ai` function was removed.
  */
@@ -10,7 +10,7 @@ import type { FormType } from '../../types.ts';
 import { resolveFormType, resolveMasterDocumentType } from '../config/docTypeMap.ts';
 import { normalizePrefill, toLocalYmd, type DocKey } from '../config/documentFieldRequirements.ts';
 import { inferTemplateIdFromIntent } from '../utils/aiTemplateUtils.ts';
-import type { RouterResponse } from '../../supabase/functions/master-ai-router/shared/routerContract.ts';
+import type { RouterResponse } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { dispatchUpgradeEvent } from '../ai/events.ts';
 
 export { TEMPLATE_STYLE_MAP, resolveTemplateId, RICH_TEXT_FIELDS, extractRichTextField } from '../utils/aiTemplateUtils.ts';
@@ -54,14 +54,14 @@ export const useContractorAI = () => {
         setErrorCode(null);
         setGeneratedDocs([]);
         try {
-            const { data, error: fnError } = await supabase.functions.invoke<RouterResponse>('master-ai-router', {
+            const { data, error: fnError } = await supabase.functions.invoke<RouterResponse>('ai-assistant', {
                 body: {
                     message: inputData.trim().slice(0, 4000),
                     scope: 'form',
                     context: { today: toLocalYmd(), form_document_type: docType, active_job_id: jobId },
                 },
                 signal: controller.signal,
-                timeout: 60_000,
+                timeout: 130_000,
             });
             if (controller.signal.aborted) return null;
             if (fnError) {

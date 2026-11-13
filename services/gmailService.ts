@@ -1,5 +1,5 @@
 /**
- * Browser client for the `gmail-auth` edge function.
+ * Browser client for the `gmail` edge function.
  * Google tokens never reach the browser: connecting, sending, refreshing and revoking all happen server-side.
  */
 import { supabase } from '../lib/supabase.ts';
@@ -50,7 +50,7 @@ export interface SendEmailResult {
     from: string;
 }
 
-/** Machine-readable error from gmail-auth (see `code`). */
+/** Machine-readable error from gmail (see `code`). */
 export class GmailError extends Error {
     code: string;
     status?: number;
@@ -91,7 +91,7 @@ async function callGmail<T>(action: string, payload: Record<string, unknown> = {
     let data: unknown;
     let error: any;
     try {
-        ({ data, error } = await supabase.functions.invoke('gmail-auth', { body: { action, ...payload } }));
+        ({ data, error } = await supabase.functions.invoke('gmail', { body: { action, ...payload } }));
     } catch (e) {
         throw new GmailError('Network error. Check your connection and try again.', 'NETWORK');
     }

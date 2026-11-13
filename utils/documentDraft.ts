@@ -17,7 +17,7 @@ import {
 } from '../src/config/documentFieldRequirements.ts';
 import { DOC_TYPE_TO_FORM_TYPE } from '../src/config/docTypeMap.ts';
 import { inferTemplateIdFromIntent } from '../src/utils/aiTemplateUtils.ts';
-import { detectDocTypeFromText } from '../supabase/functions/master-ai-router/shared/mockModel.ts';
+import { detectDocTypeFromText } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
 import type { MasterDocumentType } from '../src/config/docTypeMap.ts';
 
 export { flattenPayloadWithMetadata, splitDraftToStructuredPayload, type DocumentMetadata } from './documentMetadata.ts';

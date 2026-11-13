@@ -31,7 +31,8 @@ Vercel-managed Supabase organization "Maach's projects". It holds all real data 
 ## Switchover (done together, once push works)
 1. Run the upgrade SQL on the original database (old tables are moved intact into `legacy_backup`, data copied into
    the new tables).
-2. Replace the old `master-ai-router` and `gmail-auth` functions with the new versions; remove `paypal-webhook`.
+2. Done: the new site uses new functions `ai-assistant` and `gmail` (deployed 2026-11-13). The old `master-ai-router`,
+   `gmail-auth` and `paypal-webhook` are left untouched for the old site; remove them only after the new site is live.
 3. Push `my-branch`, merge into `main` → Vercel deploys the new site.
 4. Verify the live site, then verify Search Console and submit the sitemap.
 

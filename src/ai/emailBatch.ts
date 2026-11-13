@@ -6,8 +6,8 @@
 import type { Client, FormData, Job, UserProfile } from '../../types.ts';
 import type { EmailBatchItem } from '../../services/batchEmailSender.ts';
 import { getFormLabel } from '../../utils/aiMentionUtils.ts';
-import { escapeHtml } from '../../supabase/functions/master-ai-router/shared/documentSchema.ts';
-import type { RouterProposal } from '../../supabase/functions/master-ai-router/shared/routerContract.ts';
+import { escapeHtml } from '../../supabase/functions/ai-assistant/shared/documentSchema.ts';
+import type { RouterProposal } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 
 export interface AIEmailDraft {
     key: string;

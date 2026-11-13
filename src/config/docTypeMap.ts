@@ -1,5 +1,5 @@
 import { FormType } from '../../types.ts';
-import { DOC_LABELS, resolveDocKey, type DocKey } from '../../supabase/functions/master-ai-router/shared/documentSchema.ts';
+import { DOC_LABELS, resolveDocKey, type DocKey } from '../../supabase/functions/ai-assistant/shared/documentSchema.ts';
 
 /** Router document type (DAILY_REPORT, INVOICE, ...) or null. */
 export type MasterDocumentType = DocKey | null;

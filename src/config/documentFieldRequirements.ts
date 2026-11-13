@@ -9,9 +9,9 @@ import type {
 } from '../../types.ts';
 import {
     DOCUMENT_SCHEMAS, getSchema, type DocKey, type FieldKind, type SchemaFieldKey,
-} from '../../supabase/functions/master-ai-router/shared/documentSchema.ts';
+} from '../../supabase/functions/ai-assistant/shared/documentSchema.ts';
 
-export * from '../../supabase/functions/master-ai-router/shared/documentSchema.ts';
+export * from '../../supabase/functions/ai-assistant/shared/documentSchema.ts';
 
 // ── Compile-time alignment with types.ts: every schema key must be a real field of that type. ──
 type Assert<T extends true> = T;

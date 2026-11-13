@@ -14,7 +14,7 @@ export const AuthMessage: React.FC<{
     return (
         <div className="flex min-h-screen items-center justify-center bg-background p-4">
             <div className="card card-pad w-full max-w-md text-center animate-fade-in-up">
-                <AppLogo className="mx-auto mb-6 h-10 w-10 rounded-lg" />
+                <AppLogo className="mx-auto mb-6 h-10 w-10" />
                 <div className={`mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${icon === 'mail' ? 'bg-primary/10 text-primary' : 'bg-warning/15 text-warning'}`}>
                     <Icon className="h-6 w-6" />
                 </div>
@@ -32,7 +32,7 @@ export const AuthMessage: React.FC<{
 /** First paint while the session is being restored. */
 export const AppSplash: React.FC<{ label?: string }> = ({ label = 'Loading ContractorDocs' }) => (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background" role="status" aria-live="polite">
-        <AppLogo className="h-12 w-12 animate-pulse-slow rounded-xl" />
+        <AppLogo className="h-12 w-12 animate-pulse-slow" />
         <span className="h-1 w-24 overflow-hidden rounded-full bg-muted">
             <span className="block h-full w-1/2 animate-shimmer rounded-full bg-primary/60" />
         </span>

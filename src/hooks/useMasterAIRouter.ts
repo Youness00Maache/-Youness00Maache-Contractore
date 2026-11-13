@@ -1,5 +1,5 @@
 /**
- * One AI chat session (dashboard or one job): message list, request to `master-ai-router`,
+ * One AI chat session (dashboard or one job): message list, request to `ai-assistant`,
  * cancellation, chat history persistence. It never executes actions — see useAIAssistant.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,15 +7,15 @@ import { FunctionsFetchError, FunctionsHttpError, FunctionsRelayError } from '@s
 import { supabase } from '../../lib/supabase.ts';
 import type { Client, Job } from '../../types.ts';
 import { parseSetupFieldsFromPrompt } from '../../utils/parseDocumentSetup.ts';
-import { detectNavigation, mockModelOutput } from '../../supabase/functions/master-ai-router/shared/mockModel.ts';
+import { detectNavigation, mockModelOutput } from '../../supabase/functions/ai-assistant/shared/mockModel.ts';
 import {
     buildProposal, sanitizeRequest,
     type RouterImage, type RouterProposal, type RouterRequestContext, type RouterResponse,
-} from '../../supabase/functions/master-ai-router/shared/routerContract.ts';
+} from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 
 export { DOC_TYPE_TO_FORM_TYPE } from '../config/docTypeMap.ts';
 export type { MasterDocumentType } from '../config/docTypeMap.ts';
-export type { RouterProposal } from '../../supabase/functions/master-ai-router/shared/routerContract.ts';
+export type { RouterProposal } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 
 export type ProposalStatus = 'pending' | 'working' | 'done' | 'dismissed';
 
@@ -260,10 +260,10 @@ export function useMasterAIRouter({ scope, scopeId = null, userId = null }: UseM
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-            const { data, error: fnError } = await supabase.functions.invoke<RouterResponse>('master-ai-router', {
+            const { data, error: fnError } = await supabase.functions.invoke<RouterResponse>('ai-assistant', {
                 body: { message: text, scope, history, context: options.context, images: options.images || [] },
                 signal: controller.signal,
-                timeout: 60_000,
+                timeout: 130_000,
             });
             if (controller.signal.aborted) return { proposal: null, userMessageId };
             if (fnError) throw fnError;

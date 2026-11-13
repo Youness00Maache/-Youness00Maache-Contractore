@@ -120,7 +120,7 @@ const AppNav: React.FC<AppNavProps> = ({
             <header className="no-print sticky top-0 z-40 border-b border-border bg-card/85 backdrop-blur-lg">
                 <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 sm:px-6 md:h-16 lg:px-8">
                     <button type="button" onClick={() => onNavigate('dashboard')} className="flex shrink-0 items-center gap-2 rounded-xl pr-2" aria-label="ContractorDocs home">
-                        <AppLogo className="h-8 w-8 rounded-lg" />
+                        <AppLogo className="h-8 w-8" />
                         <span className="hidden text-base font-bold tracking-tight text-foreground sm:inline">ContractorDocs</span>
                     </button>
 

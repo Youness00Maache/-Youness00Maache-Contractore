@@ -5,7 +5,7 @@ export {
     TEMPLATE_STYLE_MAP,
     inferTemplateIdFromIntent,
     resolveTemplateId,
-} from '../../supabase/functions/master-ai-router/shared/templates.ts';
+} from '../../supabase/functions/ai-assistant/shared/templates.ts';
 
 export const RICH_TEXT_FIELDS: Record<string, string[]> = {
     [FormType.DailyJobReport]: ['content'],
