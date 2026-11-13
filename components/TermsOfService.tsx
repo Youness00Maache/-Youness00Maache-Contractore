@@ -53,7 +53,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
       <>
         <p>
           <strong>Free plan.</strong> The Free plan is free of charge and includes monthly usage limits (currently {FREE_LIMITS.jobs} new jobs per month,
-          {' '}{FREE_LIMITS.clients} saved clients, {FREE_LIMITS.docs} documents per job per month, {FREE_LIMITS.emails} emails per month and {FREE_LIMITS.ai} AI
+          {' '}{FREE_LIMITS.clients} new clients per month, {FREE_LIMITS.docs} documents per job per month, {FREE_LIMITS.emails} emails per month and {FREE_LIMITS.ai} AI
           requests per month). Limits are shown on the <Link to="/pricing">pricing page</Link> and may change with notice.
         </p>
         <p>

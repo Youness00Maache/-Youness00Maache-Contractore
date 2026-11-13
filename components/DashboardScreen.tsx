@@ -150,8 +150,9 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
     const activeCount = useMemo(() => jobs.filter(j => j.status === 'active').length, [jobs]);
     const jobsThisMonth = usage?.jobsThisMonth ?? jobs.filter(j => isThisMonth(j.createdAt)).length;
     const jobLimit = paid ? null : (usage?.limits.jobs ?? null);
-    const clientTotal = usage?.clientsTotal ?? clientsCount;
     const clientLimit = paid ? null : (usage?.limits.clients ?? null);
+    // Free plan: the limit is per month (new clients this month), like the old app; paid plans show the total.
+    const clientTotal = clientLimit ? (usage?.clientsThisMonth ?? 0) : (usage?.clientsTotal ?? clientsCount);
     const unseenSigned = useMemo(() => forms.filter(isUnseenClientSignedDocument).length, [forms]);
     const recentDocs = useMemo(() => forms.slice(0, 5), [forms]);
     const jobNameById = useMemo(() => new Map(jobs.map(j => [j.id, j.name])), [jobs]);
@@ -210,7 +211,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                         <StatCard
                             label="Clients"
                             value={clientLimit ? <>{clientTotal}<span className="text-base font-medium text-muted-foreground"> / {clientLimit}</span></> : clientTotal}
-                            hint={unseenSigned > 0 ? <span className="font-medium text-success">{unseenSigned} new signed {unseenSigned === 1 ? 'document' : 'documents'}</span> : 'Manage contacts and portals'}
+                            hint={unseenSigned > 0 ? <span className="font-medium text-success">{unseenSigned} new signed {unseenSigned === 1 ? 'document' : 'documents'}</span> : clientLimit ? 'New clients this month' : 'Manage contacts and portals'}
                             meter={clientLimit ? { used: clientTotal, limit: clientLimit } : null}
                             icon={UsersIcon}
                             tone="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"

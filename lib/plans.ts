@@ -21,7 +21,7 @@ export interface PlanDefinition {
 export const FREE_LIMITS = {
   /** new jobs per calendar month */
   jobs: 6,
-  /** total saved clients */
+  /** new clients per calendar month */
   clients: 15,
   /** new documents per job per calendar month */
   docs: 12,
@@ -45,7 +45,7 @@ export const PLANS: Record<PlanTier, PlanDefinition> = {
     yearlyPrice: 0,
     features: [
       `${FREE_LIMITS.jobs} new jobs per month`,
-      `${FREE_LIMITS.clients} saved clients`,
+      `${FREE_LIMITS.clients} new clients per month`,
       `${FREE_LIMITS.docs} documents per job each month`,
       'All 12 document types & PDF export',
       `${FREE_LIMITS.ai} AI assistant requests per month`,

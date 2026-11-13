@@ -12,7 +12,7 @@ const ROWS: { group: string; rows: { label: string; free: Cell; premium: Cell; a
     group: 'Jobs & documents',
     rows: [
       { label: 'New jobs per month', free: String(FREE_LIMITS.jobs), premium: 'Unlimited', ai: 'Unlimited' },
-      { label: 'Saved clients', free: String(FREE_LIMITS.clients), premium: 'Unlimited', ai: 'Unlimited' },
+      { label: 'New clients per month', free: String(FREE_LIMITS.clients), premium: 'Unlimited', ai: 'Unlimited' },
       { label: 'Documents per job each month', free: String(FREE_LIMITS.docs), premium: 'Unlimited', ai: 'Unlimited' },
       { label: 'All 12 document types', free: true, premium: true, ai: true },
       { label: 'PDF export with your logo', free: true, premium: true, ai: true },

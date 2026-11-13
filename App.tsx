@@ -304,6 +304,7 @@ const App: React.FC = () => {
             status: profile?.subscriptionStatus ?? 'none',
             jobsThisMonth: jobs.filter(j => isThisMonth(j.createdAt)).length,
             clientsTotal: clients.length,
+            clientsThisMonth: clients.filter(c => isThisMonth((c as any).created_at)).length,
             emailsThisMonth: profile?.emailUsage ?? 0,
             aiThisMonth: 0,
             limits: limitsForTier(plan),
@@ -328,9 +329,9 @@ const App: React.FC = () => {
             limit = limits.jobs;
             message = `You've created ${count} of ${limit} jobs this month on the Free plan.`;
         } else if (type === 'clients') {
-            count = effectiveUsage.clientsTotal;
+            count = effectiveUsage.clientsThisMonth;
             limit = limits.clients;
-            message = `You've saved ${count} of ${limit} clients on the Free plan.`;
+            message = `You've added ${count} of ${limit} new clients this month on the Free plan.`;
         } else {
             count = forms.filter(f => (!contextId || f.jobId === contextId) && isThisMonth(f.createdAt)).length;
             limit = limits.docs;
@@ -1600,7 +1601,7 @@ const App: React.FC = () => {
                     userProfile={profile}
                     openCreateModal={view.openCreateModal}
                     prefillData={view.prefillData}
-                    onUpgradeClick={() => openUpgrade(`Free plan: up to ${effectiveUsage.limits.clients} saved clients.`)}
+                    onUpgradeClick={() => openUpgrade(`Free plan: ${effectiveUsage.limits.clients} new clients per month.`)}
                     freeLimit={effectiveUsage.limits.clients ?? undefined}
                     isOnline={isOnline}
                     onNavigateToNewDoc={handleNavigateToNewDoc}

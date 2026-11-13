@@ -1,9 +1,11 @@
 import React from 'react';
 import { LogoMark } from './Logo.tsx';
 import {
-  Briefcase, Users, FileText, Package, BarChart, CalendarIcon, Mail, Sparkles, Mic, Check, PenLine, QrCode,
-  ClipboardList, Send, DocIcon, TrendingUp, Clock,
+  Briefcase, Users, FileText, Package, BarChart, CalendarIcon, Mail, Sparkles, Mic, Check, QrCode,
+  ClipboardList, Send, DocIcon, TrendingUp,
 } from './icons.tsx';
+import { DocPaper } from './DocPapers.tsx';
+import { Waveform } from './Waveform.tsx';
 import type { DocIconName } from '../../content/site.ts';
 
 /* All mockups are decorative illustrations of the product UI built in HTML/CSS (sample data). */
@@ -139,23 +141,24 @@ export const AppMockup: React.FC = () => (
     </div>
 
     <div className="absolute -top-12 right-4 hidden w-56 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xl sm:block lg:-right-6">
-      <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"><PenLine className="h-3.5 w-3.5" /></span>
-        <div>
-          <p className="text-[11px] font-bold text-slate-800">Estimate #1038 approved</p>
-          <p className="text-[10px] text-slate-500">Signed in the client portal</p>
-        </div>
-      </div>
-      <div className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1">
+      <p className="text-[11px] font-bold text-slate-800">Estimate #1038 approved</p>
+      <p className="text-[10px] text-slate-500">Signed in the client portal</p>
+      <div className="relative mt-2.5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1">
         <Signature className="h-7 w-full" />
+        <span className="absolute -top-2.5 right-1.5 -rotate-[8deg] rounded-[3px] border-2 border-emerald-600 bg-white/90 px-1.5 py-px text-[9px] font-black uppercase tracking-[0.14em] text-emerald-600">
+          Approved
+        </span>
       </div>
       <p className="mt-1.5 text-[10px] text-slate-500">Dana Whitfield · Today, 2:14 PM</p>
     </div>
 
     <div className="relative mx-auto mt-4 w-full max-w-xs rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xl sm:absolute sm:-bottom-6 sm:-left-6 sm:mx-0 sm:mt-0 sm:w-64 lg:-left-10">
-      <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-violet-600"><Sparkles className="h-3.5 w-3.5" /></span>
+      <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-bold text-slate-800">AI drafted your daily report</p>
+        <span className="flex items-center gap-1.5 rounded-full bg-violet-50 px-2 py-1">
+          <Waveform className="h-3 text-violet-500" bars={9} scale={0.6} />
+          <span className="font-mono text-[9px] text-violet-700">0:42</span>
+        </span>
       </div>
       <p className="mt-2 text-[10.5px] leading-relaxed text-slate-600">
         Crew of 3 · 7.5 h each · Upper cabinets set, sink rough-in inspected and passed. Rain after 2 PM.
@@ -169,10 +172,14 @@ export const AppMockup: React.FC = () => (
 );
 
 /** AI assistant illustration. */
-export const AiMockup: React.FC = () => (
+export const AiMockup: React.FC<{ variant?: 'default' | 'paper' }> = ({ variant = 'default' }) => (
   <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card sm:p-5" aria-hidden="true">
     <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-brand-600 text-white"><Sparkles className="h-4 w-4" /></span>
+      {variant === 'paper' ? (
+        <span className="flex h-8 items-center rounded-full bg-violet-50 px-2.5"><Waveform className="h-4 text-violet-500" bars={10} scale={0.75} /></span>
+      ) : (
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-brand-600 text-white"><Sparkles className="h-4 w-4" /></span>
+      )}
       <p className="text-sm font-bold text-slate-800">AI assistant</p>
       <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Maple St. kitchen</span>
     </div>
@@ -183,7 +190,9 @@ export const AiMockup: React.FC = () => (
       </div>
     </div>
     <div className="mt-3 rounded-2xl rounded-bl-md border border-slate-200 bg-slate-50 p-3.5">
-      <p className="flex items-center gap-1.5 text-[12px] font-bold text-slate-800"><FileText className="h-3.5 w-3.5 text-brand-600" /> Draft estimate ready for review</p>
+      <p className="flex items-center gap-1.5 text-[12px] font-bold text-slate-800">
+        {variant === 'paper' ? <DocPaper id="estimate" className="mr-0.5 h-5 w-4 flex-none drop-shadow-sm" /> : <FileText className="h-3.5 w-3.5 text-brand-600" />} Draft estimate ready for review
+      </p>
       <ul className="mt-2 space-y-1.5 text-[12px] text-slate-600">
         {[
           ['Remove & dispose of 2 vanities', 'Labor'],
@@ -367,18 +376,24 @@ export const PhoneMockup: React.FC = () => (
   </div>
 );
 
-/** Small portal status strip used in feature rows. */
+/** Small portal status track used in the landing page feature rows. */
 export const StatusStrip: React.FC = () => (
-  <div className="flex flex-wrap gap-2" aria-hidden="true">
+  <ol className="flex flex-wrap items-center gap-y-2 text-xs font-semibold" aria-hidden="true">
     {[
-      { icon: Send, t: 'Sent', c: 'bg-brand-50 text-brand-700' },
-      { icon: Check, t: 'Approved', c: 'bg-sky-50 text-sky-700' },
-      { icon: PenLine, t: 'Signed', c: 'bg-emerald-50 text-emerald-700' },
-      { icon: Clock, t: 'Due in 14 days', c: 'bg-amber-50 text-amber-800' },
-    ].map(({ icon: Icon, t, c }) => (
-      <span key={t} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${c}`}><Icon className="h-3.5 w-3.5" /> {t}</span>
+      { t: 'Sent', dot: 'bg-brand-500', c: 'text-brand-700' },
+      { t: 'Approved', dot: 'bg-sky-500', c: 'text-sky-700' },
+      { t: 'Signed', dot: 'bg-emerald-500', c: 'text-emerald-700' },
+      { t: 'Due in 14 days', dot: 'bg-amber-400', c: 'text-amber-800' },
+    ].map((step, i, all) => (
+      <li key={step.t} className="flex items-center">
+        <span className={`inline-flex items-center gap-1.5 rounded-full bg-card px-2.5 py-1 ring-1 ring-border ${step.c}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${step.dot}`} />
+          {step.t}
+        </span>
+        {i < all.length - 1 ? <span className="mx-1.5 h-px w-4 bg-border" /> : null}
+      </li>
     ))}
-  </div>
+  </ol>
 );
 
 /* ---------- Document thumbnails for the templates gallery ---------- */

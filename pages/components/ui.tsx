@@ -65,13 +65,29 @@ export const ButtonLink: React.FC<ButtonLinkProps> = ({ to, variant = 'primary',
   </Link>
 );
 
-export const CheckList: React.FC<{ items: React.ReactNode[]; className?: string; tone?: 'brand' | 'success' }> = ({ items, className = '', tone = 'brand' }) => (
+/** A hand-drawn marker tick (like checking items off a job list), used on the landing page instead of icon badges. */
+export const MarkerTick: React.FC<{ className?: string }> = ({ className = 'h-5 w-5 text-amber-500' }) => (
+  <svg viewBox="0 0 20 20" className={className} aria-hidden="true" focusable="false">
+    <path d="M3.2 10.9c1.5 1 2.9 2.4 4.1 4.3C9.6 10.3 12.6 6.4 17.2 3.4" fill="none" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+export const CheckList: React.FC<{ items: React.ReactNode[]; className?: string; tone?: 'brand' | 'success'; variant?: 'badge' | 'tick' }> = ({
+  items,
+  className = '',
+  tone = 'brand',
+  variant = 'badge',
+}) => (
   <ul className={`space-y-3 ${className}`}>
     {items.map((item, i) => (
       <li key={i} className="flex items-start gap-3 text-[15px] leading-relaxed text-foreground/85">
-        <span className={`mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full ${tone === 'success' ? 'bg-success/15 text-success' : 'bg-brand-100 text-brand-700'}`}>
-          <Check className="h-3.5 w-3.5" strokeWidth={2.6} />
-        </span>
+        {variant === 'tick' ? (
+          <MarkerTick className="mt-0.5 h-5 w-5 flex-none text-amber-500" />
+        ) : (
+          <span className={`mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded-full ${tone === 'success' ? 'bg-success/15 text-success' : 'bg-brand-100 text-brand-700'}`}>
+            <Check className="h-3.5 w-3.5" strokeWidth={2.6} />
+          </span>
+        )}
         <span>{item}</span>
       </li>
     ))}

@@ -149,7 +149,7 @@ Its limits: it doesn't process card or ACH payments, it isn't accounting, bookke
     },
     {
       q: 'Is free invoicing software good enough?',
-      a: 'For low volume, often yes. Check the limits on jobs, clients, documents, templates and sending. The ContractorDocs free plan, for example, includes 6 new jobs a month, up to 15 clients and all 12 document types with PDF export; see [pricing](/pricing) for the details.',
+      a: 'For low volume, often yes. Check the limits on jobs, clients, documents, templates and sending. The ContractorDocs free plan, for example, includes 6 new jobs and 15 new clients a month and all 12 document types with PDF export; see [pricing](/pricing) for the details.',
     },
     {
       q: 'Should I choose software that handles scheduling too?',

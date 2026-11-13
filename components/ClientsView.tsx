@@ -278,6 +278,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     const [listError, setListError] = useState<string | null>(null);
     const [serverLoaded, setServerLoaded] = useState(false);
     const [totalCount, setTotalCount] = useState<number | null>(null);
+    /** Clients created this calendar month: the Free plan limit counts these (as the old app did). */
+    const [monthCount, setMonthCount] = useState<number | null>(null);
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [filter, setFilter] = useState<Filter>('all');
@@ -342,8 +344,14 @@ const ClientsView: React.FC<ClientsViewProps> = ({
 
     const loadCount = useCallback(async () => {
         if (!userId) return;
-        const { count, error } = await supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId);
-        if (!error && typeof count === 'number') setTotalCount(count);
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const [all, month] = await Promise.all([
+            supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+            supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId).gte('created_at', monthStart),
+        ]);
+        if (!all.error && typeof all.count === 'number') setTotalCount(all.count);
+        if (!month.error && typeof month.count === 'number') setMonthCount(month.count);
     }, [userId]);
 
     useEffect(() => { loadFirstPage(); }, [loadFirstPage]);
@@ -584,7 +592,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         );
     }
 
-    const atLimit = isFree && totalCount !== null && totalCount >= freeLimit;
+    const atLimit = isFree && monthCount !== null && monthCount >= freeLimit;
     const searching = !!debouncedSearch || filter !== 'all';
 
     return (
@@ -592,9 +600,9 @@ const ClientsView: React.FC<ClientsViewProps> = ({
             <PageHeader
                 onBack={onBack}
                 title="Clients"
-                badge={isFree && totalCount !== null ? (
-                    <span className={cx('badge', atLimit ? 'badge-warning' : 'badge-muted')} title="Free plan client limit">
-                        {totalCount}/{freeLimit}
+                badge={isFree && monthCount !== null ? (
+                    <span className={cx('badge', atLimit ? 'badge-warning' : 'badge-muted')} title="New clients this month (Free plan limit)">
+                        {monthCount}/{freeLimit} this month
                     </span>
                 ) : undefined}
                 subtitle={totalCount === null ? 'Your customers, their documents and portal links' : `${totalCount} client${totalCount === 1 ? '' : 's'} · portal links, approvals and history`}
@@ -626,10 +634,10 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 {atLimit && (
                     <Notice
                         tone="warning"
-                        title={`You've reached the ${freeLimit}-client limit of the Free plan`}
+                        title={`You've added ${freeLimit} new clients this month, the Free plan limit`}
                         action={onUpgradeClick ? <button type="button" className="btn btn-primary btn-sm min-h-[36px]" onClick={onUpgradeClick}>Upgrade for unlimited clients</button> : undefined}
                     >
-                        Existing clients keep working. Upgrade to add more.
+                        Existing clients keep working. You can add more next month, or upgrade for unlimited clients.
                     </Notice>
                 )}
                 {notice && (

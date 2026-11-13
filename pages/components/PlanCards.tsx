@@ -27,7 +27,7 @@ export const PeriodToggle: React.FC<{ period: Period; onChange: (p: Period) => v
   </div>
 );
 
-export const PlanCards: React.FC<{ period: Period; headingLevel?: 'h2' | 'h3' }> = ({ period, headingLevel = 'h3' }) => {
+export const PlanCards: React.FC<{ period: Period; headingLevel?: 'h2' | 'h3'; listVariant?: 'badge' | 'tick' }> = ({ period, headingLevel = 'h3', listVariant = 'badge' }) => {
   const H = headingLevel;
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -68,7 +68,7 @@ export const PlanCards: React.FC<{ period: Period; headingLevel?: 'h2' | 'h3' }>
             >
               {tier === 'free' ? 'Start free' : `Get ${plan.name}`}
             </ButtonLink>
-            <CheckList items={plan.features} className="mt-7" />
+            <CheckList items={plan.features} className="mt-7" variant={listVariant} />
           </div>
         );
       })}

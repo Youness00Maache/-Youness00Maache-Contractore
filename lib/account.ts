@@ -110,6 +110,8 @@ export interface UsageSnapshot {
     status: SubscriptionStatus;
     jobsThisMonth: number;
     clientsTotal: number;
+    /** Clients created this calendar month (the Free plan limit counts these, like the old app). */
+    clientsThisMonth: number;
     emailsThisMonth: number;
     aiThisMonth: number;
     limits: UsageLimits;
@@ -142,6 +144,7 @@ export async function fetchUsage(): Promise<UsageSnapshot | null> {
         status: normalizeStatus(row.status, tier),
         jobsThisMonth: Number(row.jobs_this_month) || 0,
         clientsTotal: Number(row.clients_total) || 0,
+        clientsThisMonth: Number(row.clients_this_month ?? row.clients_total) || 0,
         emailsThisMonth: Number(row.emails_this_month) || 0,
         aiThisMonth: Number(row.ai_this_month) || 0,
         limits: {

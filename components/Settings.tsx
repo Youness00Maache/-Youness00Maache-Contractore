@@ -452,7 +452,7 @@ const Settings: React.FC<SettingsProps> = ({
 
                         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
                             <Meter label="New jobs this month" used={usage?.jobsThisMonth ?? 0} limit={usage?.limits.jobs ?? null} />
-                            <Meter label="Saved clients" used={usage?.clientsTotal ?? 0} limit={usage?.limits.clients ?? null} />
+                            <Meter label={usage?.limits.clients ? "New clients this month" : "Saved clients"} used={(usage?.limits.clients ? usage?.clientsThisMonth : usage?.clientsTotal) ?? 0} limit={usage?.limits.clients ?? null} />
                             <Meter label="Emails sent this month" used={usage?.emailsThisMonth ?? 0} limit={usage?.limits.emails ?? null} />
                             <Meter label="AI requests this month" used={usage?.aiThisMonth ?? 0} limit={usage?.limits.ai ?? null} />
                         </div>
