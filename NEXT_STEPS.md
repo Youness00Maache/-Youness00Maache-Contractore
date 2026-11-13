@@ -22,7 +22,7 @@ All in `pages/LandingPage.tsx` unless noted. Reload the page first: some screens
 3. **Improve the security section** (`TRUST` around line 79: Encrypted connections / Your data stays yours /
    Send-only Gmail access / Payments by Kelviq). Owner wrote "Improve this". No generic icons; make it
    distinctive and compact. Check the current "rating plate" version first, then improve further.
-4. **Client portal phone: "make this an actual phone"** (`PhoneMockup` in `pages/components/Mockups.tsx`
+4. ~~DONE (realistic frame, side buttons, island, status bar, home bar; check the top on a real screen)~~ **Client portal phone: "make this an actual phone"** (`PhoneMockup` in `pages/components/Mockups.tsx`
    around line 348, the "Change Order #3 / Approved & signed" screen). Make it look like a real modern phone:
    realistic frame/bezel, rounded screen, dynamic-island notch, status bar (time, signal, battery), side
    buttons, depth/shadow. Keep the screen content.

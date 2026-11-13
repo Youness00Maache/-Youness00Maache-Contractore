@@ -217,8 +217,24 @@ export const AiMockup: React.FC<{ variant?: 'default' | 'paper' }> = ({ variant 
 
 /** Client portal / e-signature illustration (phone). */
 export const PortalMockup: React.FC = () => (
-  <div className="mx-auto w-[260px] rounded-[2.2rem] border-[7px] border-slate-900 bg-white shadow-[0_30px_60px_-25px_rgba(16,24,40,.5)]" aria-hidden="true">
-    <div className="mx-auto mt-2 h-1.5 w-16 rounded-full bg-slate-200" />
+  // A realistic phone: metal edge, side buttons, black bezel, dynamic island, status bar, home indicator.
+  <div className="relative mx-auto w-[272px]" aria-hidden="true">
+    <span className="absolute -left-[3px] top-[92px] h-7 w-[3px] rounded-l-sm bg-slate-500" />
+    <span className="absolute -left-[3px] top-[136px] h-12 w-[3px] rounded-l-sm bg-slate-500" />
+    <span className="absolute -left-[3px] top-[196px] h-12 w-[3px] rounded-l-sm bg-slate-500" />
+    <span className="absolute -right-[3px] top-[150px] h-16 w-[3px] rounded-r-sm bg-slate-500" />
+    <div className="rounded-[3rem] bg-gradient-to-br from-slate-400 via-slate-700 to-slate-500 p-[2.5px] shadow-[0_40px_70px_-30px_rgba(16,24,40,.65)]">
+      <div className="rounded-[2.85rem] bg-slate-950 p-[9px]">
+        <div className="relative overflow-hidden rounded-[2.3rem] bg-white">
+          <div className="absolute left-1/2 top-2 z-10 h-[24px] w-[84px] -translate-x-1/2 rounded-full bg-slate-950" />
+          <div className="flex h-9 items-center justify-between px-6 text-[11px] font-semibold text-slate-900">
+            <span>9:41</span>
+            <span className="flex items-center gap-1">
+              <svg viewBox="0 0 18 12" className="h-2.5 w-[15px]" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1" /><rect x="5" y="5.5" width="3" height="6.5" rx="1" /><rect x="10" y="3" width="3" height="9" rx="1" /><rect x="15" y="0" width="3" height="12" rx="1" /></svg>
+              <svg viewBox="0 0 16 12" className="h-2.5 w-[14px]" fill="currentColor"><path d="M8 2.2c2.4 0 4.6.9 6.3 2.5l1.2-1.3A10.8 10.8 0 0 0 8 .4 10.8 10.8 0 0 0 .5 3.4l1.2 1.3A9 9 0 0 1 8 2.2Zm0 3.6c1.4 0 2.7.5 3.7 1.4l1.2-1.3A7.2 7.2 0 0 0 8 4a7.2 7.2 0 0 0-4.9 1.9l1.2 1.3c1-.9 2.3-1.4 3.7-1.4Zm0 3.5c-.5 0-1 .2-1.4.5L8 11.6l1.4-1.8c-.4-.3-.9-.5-1.4-.5Z" /></svg>
+              <span className="relative flex h-[11px] w-[22px] items-center rounded-[3px] border border-slate-900/60 p-[1.5px]"><span className="h-full w-[75%] rounded-[1.5px] bg-slate-900" /><span className="absolute -right-[3px] h-1 w-[1.5px] rounded-r bg-slate-900/60" /></span>
+            </span>
+          </div>
     <div className="p-4">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Northline Renovations</p>
       <p className="mt-1 text-sm font-bold text-slate-800">Change Order #3</p>
@@ -235,6 +251,10 @@ export const PortalMockup: React.FC = () => (
       <p className="mt-1.5 text-[10px] text-slate-500">Dana Whitfield · Nov 12, 2026, 2:14 PM</p>
       <div className="mt-3 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-[12px] font-bold text-white">
         <Check className="h-3.5 w-3.5" strokeWidth={3} /> Approved & signed
+      </div>
+    </div>
+          <div className="mx-auto mb-2 mt-1 h-[5px] w-28 rounded-full bg-slate-900" />
+        </div>
       </div>
     </div>
   </div>
