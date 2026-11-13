@@ -154,6 +154,14 @@ AppNav/DashboardScreen wait for the shared commit); calculator + tutorials FINIS
 Owner: restored OLD designs still wrong (preview vs downloaded PDF differ, PDF "simplified", spacing, empty bordered
 boxes) → templates helper ab3e480c0eebe3ce2 resumed for that. Still running: portal abdb2d533f6fc5933, data fidelity
 a13b8163ce3a8d37f. When all report: full tests + build + seo:check, ONE combined commit, apply migration 0600.
+**20:40: production parity DONE** (f8acfe5): portal/Get approval/temporary clients, data fidelity, calculator
+Simple/Advanced, tutorials, UI polish rest. Migration 0600 APPLIED to production (9 portal/approval functions).
+Only the templates helper ab3e480c0eebe3ce2 still runs (old designs: preview = PDF, spacing, no empty boxes;
+uncommitted: Sections.tsx, pdfGenerator.ts, templates-qa.ts, templates-visual.ts, utils/templates/**).
+Owner to test (signed in): create client "QA Client" → its portal shows the QA Test Job paid invoice + accepted
+estimate; Get approval / Ask again; Temporary (N); tour; /tutorials; calculator Advanced; AI sample fill.
+Note: the expiry cut-off for "legacy estimates can be signed after expiry" is 2026-11-13 (utils/clientPortalRules.ts
+EXPIRY_RULE_START + SQL _expiry_rule_start()); consider moving it to the go-live date.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
