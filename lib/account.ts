@@ -266,8 +266,12 @@ export const describeError = (error: unknown, fallback = 'Something went wrong. 
 // ---------------------------------------------------------------------------
 // Logout cleanup (CORE-028)
 // ---------------------------------------------------------------------------
-const USER_LOCAL_STORAGE_KEYS = ['google_provider_token', 'app_view_state', 'profit_calcs', 'active_ai_chat_id', 'cd.gmail.sender', 'cd_pending_plan'];
-const USER_LOCAL_STORAGE_PREFIXES = ['active_ai_chat', 'active_job_ai_chat_', 'cd_draft_', 'contractordocs-draft'];
+// User data is in the account (lib/userData.ts), so logout only drops device copies of it:
+//  - `cd.cache.*` (account copies) and `cd_job_labor_rate` are wiped; they are downloaded again at login.
+//  - `cd.pending.*` (saved here but not uploaded yet, per user id) and the legacy `profit_calcs` list (not uploaded yet)
+//    are KEPT: they are the only copy, and lib/userData.ts moves them into the account at the next login.
+const USER_LOCAL_STORAGE_KEYS = ['google_provider_token', 'app_view_state', 'active_ai_chat_id', 'cd.gmail.sender', 'cd_pending_plan', 'cd_job_labor_rate'];
+const USER_LOCAL_STORAGE_PREFIXES = ['active_ai_chat', 'active_job_ai_chat_', 'cd_draft_', 'contractordocs-draft', 'cd.cache.'];
 const USER_SESSION_STORAGE_KEYS = ['daily_report_setup_signature', 'consumed_ai_drafts', 'gmail_oauth_state', 'post_login_redirect', 'cd.gmail.returnTo'];
 
 export function clearUserBrowserStorage(): void {

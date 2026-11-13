@@ -6,7 +6,7 @@ import { ConfirmDialog, EmptyState, Field, InlineError, Modal, NoticeToast, Numb
 import { roundMoney, toNumber } from '../utils/money.ts';
 import { toLocalYMD } from '../utils/localDates.ts';
 import {
-  deleteProfitCalculation, loadProfitCalculations, readLocalProfitCalculations, saveProfitCalculation,
+  deleteProfitCalculation, loadProfitCalculations, pendingProfitCalculationCount, readLocalProfitCalculations, saveProfitCalculation,
   type SavedProfitCalc, type SyncMode,
 } from '../lib/userData.ts';
 
@@ -123,11 +123,12 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
         return;
       }
       setSaved((prev) => [res.calc, ...prev.filter((c) => c.id !== res.calc.id)]);
-      if (res.mode !== 'account') { setSyncMode(res.mode); setPendingCount((n) => n + (existing ? 0 : 1)); }
+      if (res.mode !== 'account') setSyncMode(res.mode);
+      setPendingCount(pendingProfitCalculationCount(uid));
       setCalcName(name);
       setSaveOpen(false);
       const msg = savedWhere(res.mode, name, !!existing);
-      notify(msg.kind === 'error' ? 'error' : msg.kind === 'info' ? 'info' : 'success', msg.text);
+      notify(msg.kind, msg.text);
     } finally {
       setBusy(false);
     }
@@ -139,6 +140,7 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
     const res = await deleteProfitCalculation(uid, calc.id);
     if (!res.ok) { notify('error', `Could not delete "${calc.name}". Check your connection and try again.`); return; }
     setSaved((prev) => prev.filter((c) => c.id !== calc.id));
+    setPendingCount(pendingProfitCalculationCount(uid));
   };
 
   const doLoad = (calc: SavedCalculation) => {
@@ -329,17 +331,29 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
         onClose={() => setSaveOpen(false)}
         size="sm"
         title="Save calculation"
-        description="Saved on this device. Use the same name to update it."
-        footer={<><button type="button" className="btn btn-outline" onClick={() => setSaveOpen(false)}>Cancel</button><button type="button" className="btn btn-primary" onClick={doSave} disabled={!saveName.trim()}>Save</button></>}
+        description="Saved to your account, so it's there on every device. Use the same name to update it."
+        footer={<><button type="button" className="btn btn-outline" onClick={() => setSaveOpen(false)}>Cancel</button><button type="button" className="btn btn-primary" onClick={() => { void doSave(); }} disabled={!saveName.trim() || busy}>{busy ? 'Saving…' : 'Save'}</button></>}
       >
-        <form onSubmit={(e) => { e.preventDefault(); doSave(); }}>
+        <form onSubmit={(e) => { e.preventDefault(); void doSave(); }}>
           <Field label="Name" htmlFor="pc-save-name">
             <input id="pc-save-name" className="input" value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="e.g. Kitchen remodel – Smith" autoFocus maxLength={80} />
           </Field>
         </form>
       </Modal>
 
-      <Modal open={loadOpen} onClose={() => setLoadOpen(false)} size="md" title="Saved calculations" description="Stored in this browser on this device." footer={<button type="button" className="btn btn-outline" onClick={() => setLoadOpen(false)}>Close</button>}>
+      <Modal
+        open={loadOpen}
+        onClose={() => setLoadOpen(false)}
+        size="md"
+        title="Saved calculations"
+        description={syncMode === 'loading' ? 'Loading your account…' : syncMode === 'account' ? 'Saved to your account.' : syncMode === 'device' ? 'Saved on this device for now.' : 'Your account could not be reached. Showing the copy on this device.'}
+        footer={<button type="button" className="btn btn-outline" onClick={() => setLoadOpen(false)}>Close</button>}
+      >
+        {pendingCount > 0 && (
+          <p className="mb-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+            {pendingCount} calculation{pendingCount === 1 ? ' is' : 's are'} only on this device for now and will be added to your account automatically.
+          </p>
+        )}
         {saved.length === 0 ? (
           <EmptyState compact icon={<FolderIcon />} title="Nothing saved yet" description="Use Save to keep a calculation for later." />
         ) : (
@@ -360,10 +374,10 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
       <ConfirmDialog
         open={!!deleteFor}
         title={`Delete "${deleteFor?.name ?? ''}"?`}
-        message="This saved calculation will be removed from this device."
+        message="This saved calculation will be deleted from your account on every device."
         confirmLabel="Delete"
         destructive
-        onConfirm={() => { if (deleteFor) persist(saved.filter((c) => c.id !== deleteFor.id)); setDeleteFor(null); }}
+        onConfirm={() => { if (deleteFor) void doDelete(deleteFor); else setDeleteFor(null); }}
         onCancel={() => setDeleteFor(null)}
       />
       <ConfirmDialog

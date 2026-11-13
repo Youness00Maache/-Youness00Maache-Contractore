@@ -5,6 +5,8 @@ import { PrinterIcon } from './Icons.tsx';
 import { Field, InlineError, Modal, NumberInput } from './viewKit.tsx';
 import { LABEL_SHEETS, getSheet, labelsPerSheet, placeLabels, toInches, type LabelSheet } from '../utils/labelSheets.ts';
 import { esc, safeUrl } from '../utils/escapeHtml.ts';
+import { LABEL_SHEET_LOCAL_KEY } from '../lib/userDataSync.ts';
+import { saveLabelSheetToAccount } from '../lib/userData.ts';
 
 interface PrintTagsModalProps {
   isOpen: boolean;
@@ -16,7 +18,8 @@ interface PrintTagsModalProps {
   userProfile?: UserProfile;
 }
 
-const SHEET_KEY = 'cd.labels.sheet';
+/** Device copy of the chosen label sheet; the account copy is user_settings 'labels.sheet' (lib/userData.ts). */
+const SHEET_KEY = LABEL_SHEET_LOCAL_KEY;
 const MAX_LABELS = 2000;
 
 /** What the QR encodes: a link that opens the item in the app (phone cameras can open it directly). */
@@ -209,7 +212,7 @@ const PrintTagsModal: React.FC<PrintTagsModalProps> = ({ isOpen, onClose, item, 
         <div className="space-y-4">
           {error && <InlineError>{error}</InlineError>}
           <Field label="Label sheet" htmlFor="lbl-sheet" hint={sheet.description}>
-            <select id="lbl-sheet" className="input" value={sheetId} onChange={(e) => setSheetId(e.target.value)}>
+            <select id="lbl-sheet" className="input" value={sheetId} onChange={(e) => { setSheetId(e.target.value); void saveLabelSheetToAccount(e.target.value); }}>
               {LABEL_SHEETS.map((s) => <option key={s.id} value={s.id}>{s.name} ({labelsPerSheet(s)}/sheet)</option>)}
             </select>
           </Field>

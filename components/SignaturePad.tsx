@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TrashIcon, PenIcon, UndoIcon, CheckIcon } from './Icons.tsx';
+import { SIGNATURE_LOCAL_PREFIX } from '../lib/userDataSync.ts';
+import { saveDefaultSignatureToAccount } from '../lib/userData.ts';
 
 /**
  * Signature pad: mouse, touch and stylus (pointer events, pressure-aware), high-DPI and resize aware,
@@ -23,7 +25,8 @@ interface SignaturePadProps {
 
 type Point = { x: number; y: number; w: number };
 
-const STORAGE_PREFIX = 'contractordocs:default-signature:';
+/** Device copy of the default signature; the account copy is profiles.default_signature_url (lib/userData.ts). */
+const STORAGE_PREFIX = SIGNATURE_LOCAL_PREFIX;
 const INK = '#111827';
 
 export const getDefaultSignature = (key?: string | null): string => {
@@ -264,6 +267,8 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
     const current = strokeCount > 0 ? lastEmittedRef.current : image;
     const saveAsDefault = () => {
         if (!current || !setDefaultSignature(defaultSignatureKey, current)) return;
+        // Also to the account, so it is there after logout and on other devices (only for the signed-in owner).
+        void saveDefaultSignatureToAccount(defaultSignatureKey, current);
         setSavedDefault(current);
         setDefaultSavedFlash(true);
         window.setTimeout(() => setDefaultSavedFlash(false), 2000);

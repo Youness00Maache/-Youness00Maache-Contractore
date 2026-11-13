@@ -26,8 +26,15 @@ export const DEFAULT_LABOR_RATE = 45;
 export const LABOR_RATE_STORAGE_KEY = 'cd_job_labor_rate';
 export const OVERTIME_MULTIPLIER = 1.5;
 
-/** Labor rate: the profile's default, else the last rate typed in Job financials on this device, else $45/h. */
+/** Rate typed in Job financials since the page loaded (newer than the profile the app loaded at login). */
+let rateTypedThisSession: number | null = null;
+
+/**
+ * Labor rate: the rate typed in Job financials in this session, else the account's default (profiles.default_labor_rate,
+ * which Job financials saves through lib/userData.ts), else this device's last rate, else $45/h.
+ */
 export const resolveLaborRate = (profileRate?: number | null): number => {
+    if (rateTypedThisSession && rateTypedThisSession > 0) return rateTypedThisSession;
     if (profileRate && profileRate > 0) return profileRate;
     try {
         const stored = Number(localStorage.getItem(LABOR_RATE_STORAGE_KEY));
@@ -36,7 +43,9 @@ export const resolveLaborRate = (profileRate?: number | null): number => {
     return DEFAULT_LABOR_RATE;
 };
 
+/** Device copy + this session's value. The caller also saves it to the account (lib/userData.ts saveLaborRateToAccount). */
 export const rememberLaborRate = (rate: number): void => {
+    if (Number.isFinite(rate) && rate > 0) rateTypedThisSession = rate;
     try { localStorage.setItem(LABOR_RATE_STORAGE_KEY, String(rate)); } catch { /* ignore */ }
 };
 

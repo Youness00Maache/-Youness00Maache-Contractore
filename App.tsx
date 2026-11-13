@@ -40,6 +40,7 @@ import { getBillingPortalUrl } from './lib/billing.ts';
 import { getTranslations } from './utils/translations.ts';
 import { parseView, type AppView } from './lib/routes.ts';
 import { dbApi } from './utils/db.ts';
+import { saveDefaultSignatureToAccount, syncUserDataAfterLogin } from './lib/userData.ts';
 import { compressImage } from './utils/imageCompression.ts';
 import type { EstimateHandoff } from './components/requests/RequestDetailModal.tsx';
 import type { ConvertResult } from './components/requests/requestsApi.ts';
@@ -681,6 +682,7 @@ const App: React.FC = () => {
         if (loadedUserIdRef.current) resetUserState(); // a different account signed in: drop the previous user's data
         loadedUserIdRef.current = user.id;
         loadAccountData(user);
+        void syncUserDataAfterLogin(user.id); // browser-only items → account (one time), device copies refreshed
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session?.user?.id]);
 
@@ -969,11 +971,15 @@ const App: React.FC = () => {
 
     const handleSaveSignature = async (dataUrl: string | null) => {
         const uid = sessionUserIdRef.current;
-        if (!uid || !navigator.onLine) return;
-        const { error } = await supabase.from('profiles').update({ default_signature_url: dataUrl }).eq('id', uid);
-        if (error && !isMissingColumnError(error)) toast.error(`Signature saved on this device only. ${describeError(error)}`);
-        else if (!error) setProfile(prev => (prev ? { ...prev, defaultSignatureUrl: dataUrl || undefined } : prev));
-        toast.success(dataUrl ? 'Default signature saved.' : 'Default signature removed.');
+        if (!uid) return;
+        // A save that can't reach the account (offline …) is kept on this device and uploaded at the next login.
+        const mode = await saveDefaultSignatureToAccount(uid, dataUrl);
+        if (mode === 'account') {
+            setProfile(prev => (prev ? { ...prev, defaultSignatureUrl: dataUrl || undefined } : prev));
+            toast.success(dataUrl ? 'Default signature saved.' : 'Default signature removed.');
+        } else {
+            toast.info('Signature saved on this device. It will be added to your account when you are back online.');
+        }
     };
 
     const handleManageBilling = async () => {

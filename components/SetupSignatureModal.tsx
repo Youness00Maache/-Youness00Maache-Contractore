@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import SignaturePad, { getDefaultSignature, setDefaultSignature } from './SignaturePad.tsx';
 import { PenIcon, XCircleIcon } from './Icons.tsx';
 import { supabase } from '../lib/supabase.ts';
+import { saveDefaultSignatureToAccount } from '../lib/userData.ts';
 
 interface SetupSignatureModalProps {
     initialDataUrl?: string;
@@ -65,7 +66,7 @@ const SetupSignatureModal: React.FC<SetupSignatureModalProps> = ({
 
     const handleSave = () => {
         if (!result) return;
-        if (rememberAsDefault) setDefaultSignature(ownerKey, result);
+        if (rememberAsDefault && setDefaultSignature(ownerKey, result)) void saveDefaultSignatureToAccount(ownerKey, result);
         onSave(result);
         onClose();
     };

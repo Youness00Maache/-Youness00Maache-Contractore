@@ -58,6 +58,9 @@ export interface UseMasterAIRouterOptions {
     userId?: string | null;
 }
 
+/** Device pointer value meaning "the user started a new chat" (vs. no pointer = reopen the latest chat). */
+const NEW_CHAT_MARKER = 'new';
+
 const newId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 const normalizeEntityName = (value: unknown): string => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -199,11 +202,19 @@ export function useMasterAIRouter({ scope, scopeId = null, userId = null }: UseM
         if (!canPersist || !storageKey) return;
         let saved: string | null = null;
         try { saved = localStorage.getItem(storageKey); } catch { saved = null; }
-        if (!saved) return;
+        // The user chose "New chat" on this device: start empty.
+        if (saved === NEW_CHAT_MARKER) return;
         let cancelled = false;
-        supabase.from('ai_chat_history').select('id, messages').eq('id', saved).eq('user_id', userId as string).maybeSingle()
+        // No device pointer (after logout, on another device): reopen this scope's most recent chat from the account.
+        let latest = supabase.from('ai_chat_history').select('id, messages').eq('user_id', userId as string);
+        latest = scope === 'job' ? latest.eq('scope', 'job').eq('scope_id', scopeId as string) : latest.or('scope.is.null,scope.eq.dashboard');
+        const request = saved
+            ? supabase.from('ai_chat_history').select('id, messages').eq('id', saved).eq('user_id', userId as string).maybeSingle()
+            : latest.order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        request
             .then(({ data }) => {
                 if (cancelled || !data || messagesRef.current.length) return;
+                if (!saved) { try { localStorage.setItem(storageKey, String(data.id)); } catch { /* ignore */ } }
                 const restored: ChatMessage[] = (Array.isArray(data.messages) ? data.messages : []).map((m: { role: string; content: string }) => ({
                     id: newId(), role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || ''),
                 }));
@@ -213,7 +224,7 @@ export function useMasterAIRouter({ scope, scopeId = null, userId = null }: UseM
                 setMessages(restored);
             });
         return () => { cancelled = true; };
-    }, [canPersist, storageKey, userId]);
+    }, [canPersist, storageKey, userId, scope, scopeId]);
 
     const persist = useCallback(async (list: ChatMessage[]) => {
         if (!canPersist) return;
@@ -317,7 +328,8 @@ export function useMasterAIRouter({ scope, scopeId = null, userId = null }: UseM
         setError(null);
         setCurrentChatId(null);
         chatIdRef.current = null;
-        try { if (storageKey) localStorage.removeItem(storageKey); } catch { /* ignore */ }
+        // Remember the choice so a reload doesn't reopen the latest chat (the chats themselves stay in the account).
+        try { if (storageKey) localStorage.setItem(storageKey, NEW_CHAT_MARKER); } catch { /* ignore */ }
     }, [cancel, storageKey]);
 
     const loadConversation = useCallback((chat: AIConversation) => {
