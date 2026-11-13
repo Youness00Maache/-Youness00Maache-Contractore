@@ -1,14 +1,20 @@
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import AIVoiceInput from '../AIVoiceInput.tsx';
-import { CameraIcon, EditIcon, ExternalLinkIcon, TrashIcon, UploadImageIcon, XCircleIcon } from '../Icons.tsx';
+import {
+    BoldIcon, CameraIcon, EditIcon, ExternalLinkIcon, HighlighterIcon, ItalicIcon, LinkIcon, RemoveFormatIcon, StrikethroughIcon, TextColorIcon,
+    TrashIcon, UnderlineIcon, UploadImageIcon, XCircleIcon,
+} from '../Icons.tsx';
 import { assertUsableImage, compressImage, describeImageError, fileToDataUrl } from '../../utils/imageCompression.ts';
 import { cleanPastedHtml, sanitizeEditorHtml } from './formUtils.ts';
 import { NumberInput } from './Fields.tsx';
 import { Spinner } from './Spinner.tsx';
-import RichTextToolbar, { EMPTY_ACTIVE, type Align, type BlockStyle, type EditorActiveState, type EditorCommand } from './RichTextToolbar.tsx';
+import RichTextToolbar, {
+    BlockMenuList, DEFAULT_HIGHLIGHT, EMPTY_ACTIVE, MOD, MenuButton, Swatches, TEXT_COLORS, ToolButton, blockItemsFor, preventFocusLoss,
+    type Align, type BlockItem, type BlockStyle, type EditorActiveState, type EditorCommand, type EditorFeatures,
+} from './RichTextToolbar.tsx';
 import {
-    changeIndent, checklistItemAt, checklistItemText, clearChecklist, closestIn, dropRedundantSpanStyles, getSelectionOffsets, hitsCheckbox, isChecklistItem,
-    liftListsOutOfParagraphs, normalizeChecklists, openLinkSafely, placeCaretAfterBox, placeCaretAtEnd, setSelectionOffsets, tableAddColumn, tableAddRow,
+    changeIndent, checklistItemAt, checklistItemText, clearChecklist, closestIn, dropRedundantSpanStyles, getSelectionOffsets, hitsCheckbox, insertDivider, isChecklistItem,
+    liftListsOutOfParagraphs, normalizeChecklists, openLinkSafely, placeCaretAfterBox, placeCaretAtEnd, separateFromChecklist, setSelectionOffsets, tableAddColumn, tableAddRow,
     tableDeleteRow, textStats, toggleChecklist, toggleChecklistItem, toSafeLink, unwrapElement, type TextOffsets,
 } from './richTextDom.ts';
 
@@ -27,12 +33,27 @@ interface RichTextEditorProps {
     placeholder?: string;
     minHeight?: number;
     ariaLabel?: string;
+    /** 'email': no photos/camera (embedded images don't survive email) and only fonts every device has. */
+    mode?: 'document' | 'email';
+    /** read-only while the parent is busy (e.g. sending) */
+    disabled?: boolean;
 }
 
 const COLORS = ['#000000', '#374151', '#9ca3af', '#ffffff', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0d9488', '#2563eb', '#7c3aed', '#db2777', '#fee2e2', '#fef3c7', '#dcfce7', '#dbeafe', '#ede9fe', '#f3f4f6'];
 const ALIGN_COMMAND: Record<Align, string> = { left: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight', justify: 'justifyFull' };
 const EMBEDDABLE = /^data:image\/(png|jpe?g|gif|webp);base64,/i;
 const HISTORY_LIMIT = 150;
+/** Markdown-style shortcuts typed at the start of a paragraph, then a space. */
+const MARKDOWN: { re: RegExp; command: EditorCommand }[] = [
+    { re: /^#$/, command: { type: 'block', value: 'h1' } },
+    { re: /^##$/, command: { type: 'block', value: 'h2' } },
+    { re: /^###$/, command: { type: 'block', value: 'h3' } },
+    { re: /^[-*•]$/, command: { type: 'list', value: 'ul' } },
+    { re: /^1[.)]$/, command: { type: 'list', value: 'ol' } },
+    { re: /^\[\s?\]$/, command: { type: 'list', value: 'check' } },
+    { re: /^>$/, command: { type: 'block', value: 'blockquote' } },
+];
+const SELECTION_BAR_W = 300;
 
 const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const escapeText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -44,13 +65,28 @@ const withCss = (fn: () => void) => {
     exec('styleWithCSS', 'true');
     try { fn(); } finally { exec('styleWithCSS', 'false'); }
 };
-const preventFocusLoss = (e: React.MouseEvent | React.PointerEvent) => e.preventDefault();
 const selectionInside = (el: HTMLElement | null): boolean => {
     const sel = window.getSelection();
     return Boolean(el && sel && sel.rangeCount && el.contains(sel.getRangeAt(0).commonAncestorContainer));
 };
+const isCoarsePointer = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+
+/** Puts the caret at `range`; a block left without text gets a <br> so the browser can keep editing it. */
+const collapseInto = (range: Range, root: HTMLElement) => {
+    const sel = window.getSelection();
+    if (!sel) return;
+    const block = closestIn<HTMLElement>(range.startContainer, 'p,h1,h2,h3,h4,h5,h6,blockquote,pre,li,td,th,div', root) || root;
+    if (!(block.textContent || '').length && !block.querySelector('br,img,table,hr')) {
+        block.innerHTML = '<br>';
+        range.setStart(block, 0);
+    }
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+};
 
 type Snapshot = { html: string; sel: TextOffsets | null };
+type SlashState = { node: Text; offset: number; query: string; index: number; top: number; left: number; above: boolean };
 
 const Modal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }> = ({ title, onClose, children, wide }) => (
     <div className="modal-backdrop" onClick={onClose}>
@@ -64,20 +100,52 @@ const Modal: React.FC<{ title: string; onClose: () => void; children: React.Reac
     </div>
 );
 
-const miniButton = 'flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-foreground hover:bg-muted';
+const miniButton = 'flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-foreground hover:bg-muted';
+const footerButton = 'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:h-4 [&_svg]:w-4';
+
+/** Block styles of the editing surface (the PDF has its own, see utils/templates/blocks.ts). */
+const EDITOR_CSS = `
+.cd-editor>:first-child{margin-top:0}
+.cd-editor h1{font-size:1.65em;line-height:1.25;font-weight:700;letter-spacing:-.02em;margin:1.1em 0 .35em}
+.cd-editor h2{font-size:1.32em;line-height:1.3;font-weight:700;letter-spacing:-.015em;margin:1em 0 .3em}
+.cd-editor h3{font-size:1.1em;line-height:1.35;font-weight:600;margin:.9em 0 .25em}
+.cd-editor h4{font-size:1em;font-weight:600;margin:.8em 0 .2em}
+.cd-editor p{margin:.4em 0}
+.cd-editor ul{list-style:disc;padding-left:1.5em;margin:.45em 0}
+.cd-editor ol{list-style:decimal;padding-left:1.5em;margin:.45em 0}
+.cd-editor ul ul{list-style-type:circle}
+.cd-editor ol ol{list-style-type:lower-alpha}
+.cd-editor li{margin:.2em 0;padding-left:.15em}
+.cd-editor li::marker{color:hsl(var(--muted-foreground))}
+.cd-editor ul[style*="list-style-type: none"]>li{padding-left:0;margin:.3em 0}
+.cd-editor blockquote{margin:.8em 0;padding:.15em 0 .15em 1em;border-left:3px solid hsl(var(--primary)/.55);color:hsl(var(--foreground)/.75)}
+.cd-editor pre{font-family:ui-monospace,monospace;font-size:.9em;white-space:pre-wrap;background:hsl(var(--muted));padding:.6em .8em;border-radius:8px}
+.cd-editor code{font-family:ui-monospace,monospace;font-size:.9em;background:hsl(var(--muted));padding:.1em .35em;border-radius:5px}
+.cd-editor a{color:hsl(var(--primary));text-decoration:underline;text-underline-offset:2px;text-decoration-color:hsl(var(--primary)/.45);cursor:pointer}
+.cd-editor img{max-width:100%;height:auto;border-radius:10px}
+.cd-editor table{max-width:100%;border-collapse:collapse;margin:.8em 0;font-size:.95em}
+.cd-editor th,.cd-editor td{border:1px solid hsl(var(--border));padding:7px 10px;vertical-align:top}
+.cd-editor th{font-weight:600;text-align:left}
+.cd-editor hr{border:0;border-top:1px solid hsl(var(--border));margin:1.4em 0}
+.cd-editor mark{background:#fef08a;color:inherit}
+.dark .cd-editor tr[style*="background"],.dark .cd-editor th[style*="background"],.dark .cd-editor td[style*="background"],
+.dark .cd-editor mark,.dark .cd-editor span[style*="background"]{color:#111827}
+`;
 
 /**
- * Rich text editor of the Daily Report and Note bodies (contentEditable + execCommand, no dependency).
+ * Rich text editor of the Daily Report and Note bodies and of emails (contentEditable + execCommand, no dependency).
+ * - one-row toolbar (the rest in a "…" menu), a floating toolbar on selected text, "/" commands and markdown shortcuts
  * - own undo/redo history (also covers checklist, indent, link, image and table changes the browser can't undo)
  * - paragraph styles, B/I/U/S, colors, highlight, fonts/sizes, lists, checklists, indent, alignment
  * - links: add / edit / remove, open with a click on the link bubble or Ctrl/⌘+click
  * - photos: upload, camera, paste, drop; embedded as a compressed data URL when the upload fails or offline
- * - tables, horizontal line, clear formatting, clean paste from Word / Google Docs, word count, sticky toolbar
+ * - tables, horizontal line, clear formatting, clean paste from Word / Google Docs, word count, sticky toolbar, voice
  * Output is plain HTML kept by `sanitizeEditorHtml` and by the PDF sanitizer (`sanitizeRichText`).
  */
 const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
-    value, onChange, onUploadImage, placeholder = 'Start writing…', minHeight = 320, ariaLabel = 'Document body',
+    value, onChange, onUploadImage, placeholder = 'Start writing…', minHeight = 280, ariaLabel = 'Document body', mode = 'document', disabled = false,
 }, ref) => {
+    const features = useMemo<EditorFeatures>(() => ({ images: mode !== 'email', fonts: mode !== 'email' }), [mode]);
     const shellRef = useRef<HTMLDivElement>(null);
     const wrapperRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<HTMLDivElement>(null);
@@ -88,6 +156,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     onChangeRef.current = onChange;
 
     const [active, setActive] = useState<EditorActiveState>(EMPTY_ACTIVE);
+    const [inTable, setInTable] = useState(false);
     const [isEmpty, setIsEmpty] = useState(!value);
     const [stats, setStats] = useState({ words: 0, chars: 0 });
     const [notice, setNotice] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
@@ -103,7 +172,14 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     const lastCellRef = useRef<HTMLElement | null>(null);
     const [box, setBox] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
     const [bubble, setBubble] = useState<{ anchor: HTMLAnchorElement; top: number; left: number } | null>(null);
+    const [selBar, setSelBar] = useState<{ top: number; left: number; below: boolean } | null>(null);
+    const pointerDownRef = useRef(false);
+    const [slash, setSlash] = useState<SlashState | null>(null);
+    const slashRef = useRef<SlashState | null>(null);
+    slashRef.current = slash;
     const [stickyTop, setStickyTop] = useState(0);
+    const stickyTopRef = useRef(0);
+    stickyTopRef.current = stickyTop;
     const [history, setHistory] = useState({ canUndo: false, canRedo: false });
     const historyRef = useRef<{ stack: Snapshot[]; index: number }>({ stack: [], index: -1 });
     const recordTimer = useRef<number | null>(null);
@@ -226,7 +302,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
             list: checklistItemAt(anchor, el) ? 'check' : listEl ? (listEl.tagName === 'OL' ? 'ol' : 'ul') : null,
             align: q('justifyCenter') ? 'center' : q('justifyRight') ? 'right' : q('justifyFull') ? 'justify' : 'left',
             link: Boolean(closestIn(anchor, 'a', el)),
+            highlight: Boolean(closestIn(anchor, 'mark,span[style*="background"],font[style*="background"]', el)),
         });
+        setInTable(Boolean(closestIn(anchor, 'td,th', el)));
     }, []);
 
     const updateBubble = useCallback(() => {
@@ -240,29 +318,120 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         setBubble({ anchor, top: Math.round(r.bottom - w.top + 6), left: Math.round(Math.max(0, Math.min(r.left - w.left, w.width - 300))) });
     }, []);
 
+    /** Floating toolbar over (desktop) or under (touch, where the system menu sits above) the selected text. */
+    const updateSelBar = useCallback(() => {
+        const el = editorRef.current;
+        const wrap = wrapperRef.current;
+        const sel = window.getSelection();
+        const hide = () => setSelBar(b => (b ? null : b));
+        if (!el || !wrap || !sel || !sel.rangeCount || sel.isCollapsed || pointerDownRef.current || slashRef.current) return hide();
+        if (document.activeElement !== el || !selectionInside(el) || !sel.toString().trim()) return hide();
+        const range = sel.getRangeAt(0);
+        let r = range.getBoundingClientRect();
+        if (!r.width && !r.height) {
+            const first = range.getClientRects()[0];
+            if (!first) return hide();
+            r = first;
+        }
+        const w = wrap.getBoundingClientRect();
+        const below = isCoarsePointer() || r.top - 52 < Math.max(0, stickyTopRef.current) + 52;
+        const center = r.left + r.width / 2;
+        const minLeft = 8 - w.left;
+        const maxLeft = window.innerWidth - 8 - SELECTION_BAR_W - w.left;
+        const left = Math.round(Math.max(minLeft, Math.min(center - w.left - SELECTION_BAR_W / 2, maxLeft)));
+        setSelBar({ top: Math.round(below ? r.bottom - w.top + 10 : r.top - w.top - 10), left, below });
+    }, []);
+
+    // ---------------------------------------------------------------- "/" commands
+    const slashItems = useMemo(() => (slash ? blockItemsFor(features, slash.query, inTable) : []), [slash, features, inTable]);
+
+    const openSlash = (node: Text, offset: number) => {
+        const wrap = wrapperRef.current;
+        if (!wrap) return;
+        const r = document.createRange();
+        r.setStart(node, offset);
+        r.setEnd(node, offset + 1);
+        const rect = r.getBoundingClientRect();
+        const w = wrap.getBoundingClientRect();
+        const viewH = window.visualViewport?.height ?? window.innerHeight;
+        const above = rect.bottom + 300 > viewH && rect.top > 320;
+        setSlash({
+            node, offset, query: '', index: 0, above,
+            top: Math.round(above ? rect.top - w.top - 6 : rect.bottom - w.top + 6),
+            left: Math.round(Math.max(0, Math.min(rect.left - w.left - 8, w.width - 260))),
+        });
+        setSelBar(null);
+    };
+
+    /** Keeps the "/" menu in sync with what was typed after the slash; closes it when the caret leaves. */
+    const syncSlash = () => {
+        const s = slashRef.current;
+        if (!s) return;
+        const el = editorRef.current;
+        const sel = window.getSelection();
+        const close = () => setSlash(null);
+        if (!el || !sel || !sel.rangeCount || !sel.isCollapsed || !el.contains(s.node) || s.node.data[s.offset] !== '/') return close();
+        if (sel.anchorNode !== s.node || sel.anchorOffset <= s.offset) return close();
+        const query = s.node.data.slice(s.offset + 1, sel.anchorOffset);
+        if (/^\s|\s\s|\n/.test(query) || query.length > 24) return close();
+        if (/\s$/.test(query) && !blockItemsFor(features, query, inTable).length) return close();
+        if (query !== s.query) setSlash({ ...s, query, index: 0 });
+    };
+
+    /** Removes "/query" and leaves the caret where the slash was. */
+    const consumeSlash = (): boolean => {
+        const s = slashRef.current;
+        const el = editorRef.current;
+        setSlash(null);
+        if (!s || !el || !el.contains(s.node) || s.node.data[s.offset] !== '/') return false;
+        const sel = window.getSelection();
+        const end = sel && sel.anchorNode === s.node ? Math.max(sel.anchorOffset, s.offset + 1) : s.offset + 1 + s.query.length;
+        const range = document.createRange();
+        range.setStart(s.node, s.offset);
+        range.setEnd(s.node, Math.min(end, s.node.length));
+        range.deleteContents();
+        collapseInto(range, el);
+        rememberSelection();
+        return true;
+    };
+
+    // ---------------------------------------------------------------- selection change
+    const latestSync = useRef(syncSlash);
+    latestSync.current = syncSlash;
     useEffect(() => {
         let timer = 0;
         const onSelectionChange = () => {
             window.clearTimeout(timer);
             timer = window.setTimeout(() => {
-                if (!selectionInside(editorRef.current)) return;
+                if (!selectionInside(editorRef.current)) { setSelBar(b => (b ? null : b)); return; }
                 rememberSelection();
                 refreshActive();
                 updateBubble();
+                updateSelBar();
+                latestSync.current();
             }, 30);
         };
+        const onPointerUp = () => {
+            if (!pointerDownRef.current) return;
+            pointerDownRef.current = false;
+            window.setTimeout(updateSelBar, 10);
+        };
         document.addEventListener('selectionchange', onSelectionChange);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
         return () => {
             document.removeEventListener('selectionchange', onSelectionChange);
+            window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
             window.clearTimeout(timer);
         };
-    }, [rememberSelection, refreshActive, updateBubble]);
+    }, [rememberSelection, refreshActive, updateBubble, updateSelBar]);
 
     // ---------------------------------------------------------------- commands
     /** Runs one editing step: selection back in the editor, change, then save to history and to the parent. */
     const run = (fn: (el: HTMLDivElement) => void) => {
         const el = editorRef.current;
-        if (!el) return;
+        if (!el || disabled) return;
         setNotice(null);
         flushRecord();
         restoreSelection();
@@ -274,11 +443,12 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         record();
         refreshActive();
         updateBubble();
+        updateSelBar();
     };
 
     const travel = (step: 1 | -1) => {
         const el = editorRef.current;
-        if (!el) return;
+        if (!el || disabled) return;
         flushRecord();
         const h = historyRef.current;
         const target = h.index + step;
@@ -290,6 +460,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         setSelectionOffsets(el, snap.sel);
         setSelectedEl(null);
         setBubble(null);
+        setSlash(null);
         emit();
         syncHistory();
         refreshActive();
@@ -297,13 +468,14 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
 
     const openLinkDialog = () => {
         const el = editorRef.current;
-        if (!el) return;
+        if (!el || disabled) return;
         restoreSelection();
         rememberSelection();
         const sel = window.getSelection();
         const anchor = closestIn<HTMLAnchorElement>(sel?.anchorNode, 'a', el);
         linkTargetRef.current = anchor;
         setBubble(null);
+        setSelBar(null);
         if (anchor) {
             setLinkDialog({ url: anchor.getAttribute('href') || '', text: anchor.textContent || '', askText: true, editing: true });
             return;
@@ -358,21 +530,34 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     }), [value]);
 
     const handleCommand = (cmd: EditorCommand) => {
+        if (disabled) return;
         switch (cmd.type) {
             case 'undo': travel(-1); return;
             case 'redo': travel(1); return;
             case 'link': openLinkDialog(); return;
             case 'table': rememberSelection(); setTableOpen(true); return;
-            case 'image': rememberSelection(); fileRef.current?.click(); return;
+            case 'image': if (features.images) { rememberSelection(); fileRef.current?.click(); } return;
+            case 'camera': if (features.images) void startCamera(); return;
             case 'block': run(() => { exec('formatBlock', `<${cmd.value}>`); }); return;
             case 'inline': run(() => { exec(cmd.value); }); return;
             case 'color': run(() => withCss(() => { exec('foreColor', cmd.value); })); return;
-            case 'highlight': run(() => withCss(() => { if (!exec('hiliteColor', cmd.value)) exec('backColor', cmd.value); })); return;
+            case 'highlight':
+                run(el => {
+                    if (cmd.value === 'transparent') {
+                        // <mark> (pasted or AI text) is highlighted by the tag itself: unwrap it
+                        const range = window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : null;
+                        if (range) el.querySelectorAll('mark').forEach(m => { if (range.intersectsNode(m)) unwrapElement(m); });
+                    }
+                    withCss(() => { if (!exec('hiliteColor', cmd.value)) exec('backColor', cmd.value); });
+                });
+                return;
             case 'font': run(() => withCss(() => { exec('fontName', cmd.value); })); return;
             case 'size': run(() => withCss(() => { exec('fontSize', String(cmd.value)); })); return;
             case 'indent': run(el => changeIndent(el, cmd.value)); return;
             case 'align': run(() => { exec(ALIGN_COMMAND[cmd.value]); }); return;
-            case 'hr': run(() => { exec('insertHorizontalRule'); }); return;
+            case 'hr':
+                run(el => { if (!insertDivider(el)) exec('insertHorizontalRule'); });
+                return;
             case 'clear': run(() => { exec('removeFormat'); }); return;
             case 'list':
                 run(el => {
@@ -385,16 +570,31 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
                         return;
                     }
                     exec(cmd.value === 'ol' ? 'insertOrderedList' : 'insertUnorderedList');
+                    if (cmd.value === 'ul') separateFromChecklist(el, closestIn<HTMLLIElement>(window.getSelection()?.anchorNode, 'li', el));
                 });
                 return;
             default:
         }
     };
 
+    const chooseBlock = (item: BlockItem) => {
+        if (consumeSlash()) { emit(); scheduleRecord(); }
+        handleCommand(item.command);
+    };
+
     // ---------------------------------------------------------------- keyboard, clicks, input
     const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
         const el = editorRef.current;
         if (!el) return;
+        const s = slashRef.current;
+        if (s) {
+            const count = slashItems.length;
+            if (e.key === 'ArrowDown' && count) { e.preventDefault(); setSlash({ ...s, index: (s.index + 1) % count }); return; }
+            if (e.key === 'ArrowUp' && count) { e.preventDefault(); setSlash({ ...s, index: (s.index - 1 + count) % count }); return; }
+            if ((e.key === 'Enter' || e.key === 'Tab') && count) { e.preventDefault(); chooseBlock(slashItems[Math.min(s.index, count - 1)]); return; }
+            if (e.key === 'Escape') { e.preventDefault(); setSlash(null); return; }
+            if (e.key === 'Enter') setSlash(null);
+        }
         const mod = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
         const sel = window.getSelection();
@@ -446,17 +646,56 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
             run(() => img.remove());
             return;
         }
-        if (e.key === 'Escape') { setBubble(null); setSelectedEl(null); }
+        if (e.key === 'Escape') { setBubble(null); setSelectedEl(null); setSelBar(null); }
+    };
+
+    /** "# ", "- ", "1. ", "[] ", "> " at the start of a paragraph, and "---", turn into blocks (like Docs / Notion). */
+    const tryMarkdownShortcut = (data: string | null): boolean => {
+        const el = editorRef.current;
+        const sel = window.getSelection();
+        if (!el || !sel || !sel.isCollapsed || !sel.anchorNode || sel.anchorNode.nodeType !== Node.TEXT_NODE) return false;
+        if (data !== ' ' && data !== '-') return false;
+        if (closestIn(sel.anchorNode, 'li,td,th,pre,h1,h2,h3,h4,blockquote', el)) return false;
+        const block = closestIn<HTMLElement>(sel.anchorNode, 'p,div', el) || el;
+        const before = document.createRange();
+        before.setStart(block, 0);
+        before.setEnd(sel.anchorNode, sel.anchorOffset);
+        const typed = before.toString().replace(/ /g, ' ');
+        let command: EditorCommand | null = null;
+        if (data === '-' && typed === '---') command = { type: 'hr' };
+        else if (data === ' ') command = MARKDOWN.find(m => m.re.test(typed.slice(0, -1)))?.command || null;
+        if (!command) return false;
+        flushRecord();
+        record();
+        before.deleteContents();
+        collapseInto(before, el);
+        rememberSelection();
+        handleCommand(command);
+        return true;
     };
 
     const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
         const el = editorRef.current;
         if (!el) return;
-        if ((e.nativeEvent as InputEvent).inputType === 'insertParagraph') {
+        const native = e.nativeEvent as InputEvent;
+        if (native.inputType === 'insertParagraph') {
             // a new line in a checklist gets its own box
             normalizeChecklists(el);
             const item = checklistItemAt(window.getSelection()?.anchorNode, el);
             if (item && !checklistItemText(item)) placeCaretAfterBox(item);
+        }
+        if (native.inputType === 'insertText' && !slashRef.current && tryMarkdownShortcut(native.data)) return;
+        // "/" at the start of a line or after a space opens the block menu
+        if (!slashRef.current && (native.inputType === 'insertText' || native.inputType === 'insertCompositionText')) {
+            const sel = window.getSelection();
+            const node = sel?.anchorNode;
+            if (sel?.isCollapsed && node && node.nodeType === Node.TEXT_NODE) {
+                const text = (node as Text).data;
+                const at = sel.anchorOffset - 1;
+                if (at >= 0 && text[at] === '/' && (at === 0 || /\s/.test(text[at - 1]))) openSlash(node as Text, at);
+            }
+        } else if (slashRef.current) {
+            syncSlash();
         }
         emit();
         scheduleRecord();
@@ -503,6 +742,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         const images = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'));
         if (images.length && !html.trim()) {
             e.preventDefault();
+            if (!features.images) { setNotice({ tone: 'warn', text: 'Photos can’t be pasted into an email. Attach a document instead.' }); return; }
             rememberSelection();
             void (async () => { for (const f of images.slice(0, 5)) await insertImageFile(f); })();
             return;
@@ -510,7 +750,8 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         if (!html && !text) return;
         e.preventDefault();
         run(() => {
-            const clean = html ? cleanPastedHtml(html) : '';
+            let clean = html ? cleanPastedHtml(html) : '';
+            if (clean && !features.images) clean = clean.replace(/<img\b[^>]*>/gi, '');
             if (clean) exec('insertHTML', clean);
             else exec('insertText', text);
         });
@@ -520,6 +761,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         const images = Array.from(e.dataTransfer?.files || []).filter(f => f.type.startsWith('image/'));
         if (!images.length) return;
         e.preventDefault();
+        if (!features.images) return;
         const doc = document as Document & {
             caretRangeFromPoint?: (x: number, y: number) => Range | null;
             caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -555,7 +797,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     // ---------------------------------------------------------------- images
     /** Uploads the photo; when that fails or the device is offline it is embedded as a compressed data URL instead. */
     const insertImageFile = async (file?: File | null) => {
-        if (!file) return;
+        if (!file || !features.images) return;
         setNotice(null);
         setUploading(true);
         try {
@@ -590,7 +832,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     }, []);
     useEffect(() => () => streamRef.current?.getTracks().forEach(t => t.stop()), []);
 
-    const startCamera = async () => {
+    async function startCamera() {
         setNotice(null);
         rememberSelection();
         if (!navigator.mediaDevices?.getUserMedia) { setNotice({ tone: 'warn', text: 'The camera isn’t available in this browser. Use “Photo” to upload instead.' }); return; }
@@ -603,7 +845,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         } catch (e: any) {
             setNotice({ tone: 'warn', text: e?.name === 'NotAllowedError' ? 'Camera access was blocked. Allow it in your browser settings, or upload a photo instead.' : 'Could not open the camera. Upload a photo instead.' });
         }
-    };
+    }
 
     const videoCallback = useCallback((node: HTMLVideoElement | null) => {
         videoRef.current = node;
@@ -627,6 +869,8 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
 
     // ---------------------------------------------------------------- image / table selection + resizing
     const handleEditorPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        pointerDownRef.current = true;
+        setSelBar(null);
         const target = e.target as HTMLElement;
         const img = target.closest('img');
         const tbl = target.closest('table');
@@ -698,7 +942,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         run(() => fn(node));
     };
 
-    // ---------------------------------------------------------------- sticky toolbar under the form header
+    // ---------------------------------------------------------------- sticky toolbar under the page / form header
     useEffect(() => {
         let header: HTMLElement | null = null;
         for (let node = shellRef.current?.parentElement; node && !header; node = node.parentElement) {
@@ -715,52 +959,46 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         return () => { ro?.disconnect(); window.removeEventListener('resize', update); };
     }, []);
 
-    const toolButton = 'flex h-14 w-full flex-col items-center justify-center gap-1 rounded-xl border border-border bg-card text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-60 sm:h-12 sm:flex-row sm:gap-2';
     const isImgSelected = selectedEl?.tagName === 'IMG';
     const bubbleHref = bubble?.anchor.getAttribute('href') || '';
 
     return (
-        <div className="space-y-3">
-            <style>{`
-                .cd-editor h1{font-size:1.75em;font-weight:700;margin:.4em 0}
-                .cd-editor h2{font-size:1.4em;font-weight:700;margin:.4em 0}
-                .cd-editor h3{font-size:1.15em;font-weight:700;margin:.4em 0}
-                .cd-editor p{margin:.35em 0}
-                .cd-editor ul{list-style:disc;padding-left:1.5em;margin:.5em 0}
-                .cd-editor ol{list-style:decimal;padding-left:1.5em;margin:.5em 0}
-                .cd-editor ul ul{list-style-type:circle}
-                .cd-editor ol ol{list-style-type:lower-alpha}
-                .cd-editor li{margin:.15em 0}
-                .cd-editor blockquote{border-left:4px solid hsl(var(--border));padding-left:1em;color:hsl(var(--muted-foreground));font-style:italic}
-                .cd-editor pre{font-family:ui-monospace,monospace;white-space:pre-wrap;background:hsl(var(--muted));padding:.5em .75em;border-radius:8px}
-                .cd-editor a{color:hsl(var(--primary));text-decoration:underline;cursor:pointer}
-                .cd-editor img{max-width:100%;height:auto}
-                .cd-editor table{max-width:100%;border-collapse:collapse;margin:.5em 0}
-                .cd-editor th,.cd-editor td{border:1px solid hsl(var(--border));padding:6px 8px;vertical-align:top}
-                .cd-editor hr{border-color:hsl(var(--border));margin:1em 0}
-                .cd-editor mark{background:#fef08a;color:inherit}
-            `}</style>
-            <div ref={shellRef} className="rounded-xl border border-input bg-card shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
+        <div className="space-y-2">
+            <style>{EDITOR_CSS}</style>
+            <div
+                ref={shellRef}
+                className={`rounded-xl border border-input bg-card shadow-sm transition focus-within:border-primary/60 focus-within:ring-4 focus-within:ring-primary/10 ${disabled ? 'opacity-70' : ''}`}
+                aria-disabled={disabled || undefined}
+            >
                 <div className="sticky z-20 rounded-t-xl border-b border-border bg-card" style={{ top: stickyTop }}>
-                    <RichTextToolbar active={active} canUndo={history.canUndo} canRedo={history.canRedo} onCommand={handleCommand} />
+                    <RichTextToolbar
+                        active={active}
+                        canUndo={history.canUndo}
+                        canRedo={history.canRedo}
+                        onCommand={handleCommand}
+                        features={features}
+                        disabled={disabled}
+                        inTable={inTable}
+                    />
                 </div>
                 <div ref={wrapperRef} className="relative">
-                    {isEmpty && <div className="pointer-events-none absolute left-4 top-3 text-sm text-muted-foreground/70">{placeholder}</div>}
+                    {isEmpty && <div className="pointer-events-none absolute left-4 right-4 top-3.5 text-base text-muted-foreground/60 sm:left-5 sm:text-[15px]">{placeholder}</div>}
                     <div
                         ref={editorRef}
-                        contentEditable
+                        contentEditable={!disabled}
                         suppressContentEditableWarning
                         role="textbox"
                         aria-multiline="true"
                         aria-label={ariaLabel}
+                        aria-readonly={disabled || undefined}
                         spellCheck
-                        className="cd-editor w-full overflow-x-auto rounded-b-xl px-4 py-3 text-sm leading-relaxed text-foreground focus:outline-none"
-                        style={{ minHeight }}
+                        className="cd-editor w-full overflow-x-auto px-4 py-3.5 text-base leading-[1.7] text-foreground focus:outline-none sm:px-5 sm:text-[15px]"
+                        style={{ minHeight: `min(${minHeight}px, 60vh)` }}
                         onInput={handleInput}
                         onKeyDown={handleKeyDown}
                         onClick={handleClick}
                         onFocus={() => exec('defaultParagraphSeparator', 'p')}
-                        onBlur={() => { rememberSelection(); flushRecord(); setBubble(null); }}
+                        onBlur={() => { rememberSelection(); flushRecord(); setBubble(null); setSlash(null); setSelBar(null); }}
                         onPaste={handlePaste}
                         onDrop={handleDrop}
                         onPointerDown={handleEditorPointerDown}
@@ -779,7 +1017,8 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
                             )}
                         </div>
                     )}
-                    {box && selectedEl && (
+                    {/* table tools give way to the selection toolbar while text in the table is selected */}
+                    {box && selectedEl && !(selBar && !isImgSelected) && (
                         <div
                             data-element-tools
                             onMouseDown={preventFocusLoss}
@@ -804,7 +1043,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
                         </div>
                     )}
 
-                    {bubble && (
+                    {bubble && !selBar && (
                         <div
                             onMouseDown={preventFocusLoss}
                             className="absolute z-20 flex max-w-[calc(100%-0.5rem)] items-center gap-0.5 rounded-xl border border-border bg-popover p-1 text-xs shadow-lift"
@@ -818,23 +1057,66 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
                             <button type="button" className={`${miniButton} text-destructive`} onClick={() => removeLink(bubble.anchor)}>Remove</button>
                         </div>
                     )}
+
+                    {selBar && !isImgSelected && (
+                        <div
+                            onMouseDown={preventFocusLoss}
+                            className="absolute z-30 flex items-center gap-0.5 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lift animate-fade-in"
+                            style={{ top: selBar.top, left: selBar.left, width: SELECTION_BAR_W, transform: selBar.below ? undefined : 'translateY(-100%)' }}
+                            role="toolbar"
+                            aria-label="Format selected text"
+                        >
+                            <ToolButton label="Bold" keys={`${MOD}B`} toggle active={active.bold} onClick={() => handleCommand({ type: 'inline', value: 'bold' })}><BoldIcon className="h-4 w-4" /></ToolButton>
+                            <ToolButton label="Italic" keys={`${MOD}I`} toggle active={active.italic} onClick={() => handleCommand({ type: 'inline', value: 'italic' })}><ItalicIcon className="h-4 w-4" /></ToolButton>
+                            <ToolButton label="Underline" keys={`${MOD}U`} toggle active={active.underline} onClick={() => handleCommand({ type: 'inline', value: 'underline' })}><UnderlineIcon className="h-4 w-4" /></ToolButton>
+                            <ToolButton label="Strikethrough" toggle active={active.strike} onClick={() => handleCommand({ type: 'inline', value: 'strikeThrough' })}><StrikethroughIcon className="h-4 w-4" /></ToolButton>
+                            <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+                            <ToolButton label={active.highlight ? 'Remove highlight' : 'Highlight'} toggle active={active.highlight} onClick={() => handleCommand({ type: 'highlight', value: active.highlight ? 'transparent' : DEFAULT_HIGHLIGHT })}><HighlighterIcon className="h-4 w-4" /></ToolButton>
+                            <MenuButton label="Text color" width={260} trigger={<TextColorIcon className="h-4 w-4" />}>
+                                {close => <Swatches colors={TEXT_COLORS} onPick={c => { handleCommand({ type: 'color', value: c }); close(); }} />}
+                            </MenuButton>
+                            <ToolButton label={active.link ? 'Edit link' : 'Link'} keys={`${MOD}K`} toggle active={active.link} onClick={openLinkDialog}><LinkIcon className="h-4 w-4" /></ToolButton>
+                            <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+                            <ToolButton label="Clear formatting" onClick={() => handleCommand({ type: 'clear' })}><RemoveFormatIcon className="h-4 w-4" /></ToolButton>
+                        </div>
+                    )}
+
+                    {slash && (
+                        <div
+                            onMouseDown={preventFocusLoss}
+                            className="absolute z-30 max-h-72 w-64 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-lift animate-fade-in [scrollbar-width:thin]"
+                            style={{ top: slash.top, left: slash.left, transform: slash.above ? 'translateY(-100%)' : undefined }}
+                        >
+                            <BlockMenuList
+                                title={slash.query ? `Blocks for “${slash.query}”` : 'Blocks'}
+                                items={slashItems}
+                                activeIndex={slash.index}
+                                onHover={index => setSlash(s => (s ? { ...s, index } : s))}
+                                onPick={chooseBlock}
+                            />
+                        </div>
+                    )}
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-b-xl border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-                    <span className="tabular-nums">{stats.words} {stats.words === 1 ? 'word' : 'words'} · {stats.chars} {stats.chars === 1 ? 'character' : 'characters'}</span>
-                    <span className="hidden sm:inline">Tap a link to open or edit it · Ctrl/⌘+click opens it directly</span>
+                <div className="flex items-center gap-0.5 rounded-b-xl border-t border-border px-1.5 py-1">
+                    <AIVoiceInput variant="tile" className={footerButton} disabled={disabled} onTranscript={handleVoice} onProblem={msg => { if (msg) setNotice({ tone: 'warn', text: msg }); }} />
+                    {features.images && (
+                        <>
+                            <button type="button" className={footerButton} onClick={startCamera} disabled={disabled}><CameraIcon /> Camera</button>
+                            <button type="button" className={footerButton} onClick={() => { rememberSelection(); fileRef.current?.click(); }} disabled={uploading || disabled}>
+                                {uploading ? <Spinner className="h-4 w-4" /> : <UploadImageIcon />} {uploading ? 'Adding…' : 'Photo'}
+                            </button>
+                            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => insertImageFile(e.target.files?.[0])} />
+                        </>
+                    )}
+                    <span className="ml-auto truncate pl-2 pr-1.5 text-[11px] tabular-nums text-muted-foreground">
+                        <span className="hidden sm:inline">Type / for headings, lists, tables · </span>
+                        {stats.words} {stats.words === 1 ? 'word' : 'words'}
+                    </span>
                 </div>
             </div>
             {notice && (
                 <p role="status" className={`rounded-lg px-3 py-2 text-xs font-medium ${notice.tone === 'info' ? 'bg-primary/10 text-primary' : 'bg-warning/10 text-warning'}`}>{notice.text}</p>
             )}
-            <div className="grid grid-cols-3 gap-2">
-                <button type="button" className={toolButton} onClick={startCamera}><CameraIcon className="h-5 w-5" /> Camera</button>
-                <AIVoiceInput variant="tile" className={toolButton} onTranscript={handleVoice} onProblem={msg => { if (msg) setNotice({ tone: 'warn', text: msg }); }} />
-                <button type="button" className={toolButton} onClick={() => { rememberSelection(); fileRef.current?.click(); }} disabled={uploading}>
-                    {uploading ? <Spinner className="h-5 w-5" /> : <UploadImageIcon className="h-5 w-5" />} {uploading ? 'Adding…' : 'Photo'}
-                </button>
-                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => insertImageFile(e.target.files?.[0])} />
-            </div>
 
             {linkDialog && (
                 <Modal title={linkDialog.editing ? 'Edit link' : 'Add link'} onClose={() => setLinkDialog(null)}>
@@ -889,7 +1171,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
                     ))}
                     <div className="mt-5 flex justify-end gap-2">
                         <button type="button" className="btn btn-outline" onClick={() => setTableOpen(false)}>Cancel</button>
-                        <button type="button" className="btn btn-primary" onClick={insertTable}>Insert</button>
+                        <button type="button" className="btn btn-primary" onClick={insertTable} autoFocus>Insert</button>
                     </div>
                 </Modal>
             )}

@@ -217,6 +217,41 @@ export const clearChecklist = (ul: HTMLElement) => {
     if (!ul.getAttribute('style')) ul.removeAttribute('style');
 };
 
+/**
+ * Chrome merges a new bulleted list into an adjacent <ul>, so bullets started right after a checklist would become
+ * checklist items. Moves the plain items around `li` into their own list next to the checklist (caret kept).
+ */
+export const separateFromChecklist = (root: HTMLElement, li: HTMLLIElement | null) => {
+    const ul = li?.parentElement;
+    if (!li || !ul || ul.tagName !== 'UL' || isChecklistItem(li) || !isChecklist(ul)) return;
+    const items = Array.from(ul.children);
+    let start = items.indexOf(li);
+    let end = start;
+    while (start > 0 && !isChecklistItem(items[start - 1])) start -= 1;
+    while (end < items.length - 1 && !isChecklistItem(items[end + 1])) end += 1;
+    const caret = getSelectionOffsets(root);
+    const plain = document.createElement('ul');
+    items.slice(start, end + 1).forEach(item => plain.appendChild(item));
+    if (start === 0) ul.before(plain);
+    else if (end === items.length - 1) ul.after(plain);
+    else {
+        const tail = ul.cloneNode(false) as HTMLElement;
+        items.slice(end + 1).forEach(item => tail.appendChild(item));
+        ul.after(plain, tail);
+    }
+    if ((li.textContent || '').trim()) {
+        if (caret) setSelectionOffsets(root, caret);
+        return;
+    }
+    // an empty item has no text offset of its own: put the caret inside it
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.setStart(li, 0);
+    range.collapse(true);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+};
+
 /** Turns the current paragraph(s) into a checklist, or the current checklist back into paragraphs. */
 export const toggleChecklist = (root: HTMLElement) => {
     const sel = window.getSelection();
@@ -253,6 +288,37 @@ export const placeCaretAfterBox = (li: Element) => {
 
 /** Text of a checklist item without its box (empty item → ''). */
 export const checklistItemText = (li: Element) => (li.textContent || '').replace(/^\s*[☐☑]\s?/, '').trim();
+
+/**
+ * Inserts a horizontal line after the current paragraph (or in place of it when it is empty) followed by an empty
+ * paragraph for the caret: valid markup (Chrome's insertHorizontalRule can leave bare text or an <hr> inside a <p>).
+ * Returns false inside lists and tables, where the browser command is used instead.
+ */
+export const insertDivider = (root: HTMLElement): boolean => {
+    const sel = window.getSelection();
+    const anchor = sel?.anchorNode;
+    if (!sel || !sel.rangeCount || !anchor || !root.contains(anchor) || closestIn(anchor, 'li,td,th', root)) return false;
+    const block = closestIn<HTMLElement>(anchor, 'p,h1,h2,h3,h4,h5,h6,blockquote,pre,div', root);
+    const hr = document.createElement('hr');
+    const next = document.createElement('p');
+    next.appendChild(document.createElement('br'));
+    if (!block) {
+        const range = sel.getRangeAt(0);
+        range.collapse(true);
+        range.insertNode(hr);
+        hr.after(next);
+    } else if (!(block.textContent || '').replace(/ /g, ' ').trim() && !block.querySelector('img,table,hr')) {
+        block.replaceWith(hr, next);
+    } else {
+        block.after(hr, next);
+    }
+    const range = document.createRange();
+    range.setStart(next, 0);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+};
 
 // ---------------------------------------------------------------------------
 // indent / outdent outside lists: margin-left on the paragraph (printed by the PDF, unlike <blockquote> hacks)

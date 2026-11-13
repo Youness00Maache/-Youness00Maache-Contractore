@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckIcon, StarIcon, SparklesIcon, XCircleIcon, LockIcon } from './Icons.tsx';
+import { CheckIcon, LockIcon } from './Icons.tsx';
 import { PLANS, isPaidTier, normalizeTier, type BillingPeriod, type PlanTier } from '../lib/plans.ts';
 import { startCheckout, getBillingPortalUrl } from '../lib/billing.ts';
 import { supabase } from '../lib/supabase.ts';
@@ -88,6 +88,26 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
         }
     };
 
+    const billingSwitch = (
+        <div className="flex w-full items-center rounded-full border border-border bg-muted/60 p-1 sm:w-auto" role="radiogroup" aria-label="Billing period">
+            {(['MONTHLY', 'YEARLY'] as BillingPeriod[]).map(p => (
+                <button
+                    key={p}
+                    type="button"
+                    role="radio"
+                    aria-checked={period === p}
+                    onClick={() => setPeriod(p)}
+                    className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-semibold transition sm:flex-none ${period === p ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                    {p === 'MONTHLY' ? 'Monthly' : 'Yearly'}
+                    {p === 'YEARLY' && yearlySavingsPercent > 0 && (
+                        <span className="text-xs font-semibold text-success">−{yearlySavingsPercent}%</span>
+                    )}
+                </button>
+            ))}
+        </div>
+    );
+
     return (
         <div
             className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 backdrop-blur-sm animate-fade-in sm:items-center sm:p-4"
@@ -97,53 +117,43 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
             aria-labelledby="upgrade-title"
         >
             <div
-                className="relative flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-card text-card-foreground shadow-lift animate-zoom-in sm:max-w-5xl sm:rounded-3xl"
+                className="relative flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-card text-card-foreground shadow-lift animate-zoom-in sm:max-w-[1040px] sm:rounded-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
-                <button
-                    type="button"
-                    onClick={onClose}
-                    disabled={!!busyTier}
-                    className="absolute right-3 top-3 z-10 rounded-xl p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-                    aria-label="Close"
-                >
-                    <XCircleIcon className="h-6 w-6" />
-                </button>
-
-                {/* Sized to fit a laptop screen without scrolling; only small phones scroll. */}
-                <div className="overflow-y-auto px-4 pb-4 pt-6 [scrollbar-width:thin] sm:px-6">
-                    <div className="mx-auto max-w-2xl text-center">
-                        <h2 id="upgrade-title" className="text-xl font-bold tracking-tight sm:text-2xl">
+                {/* Header: title on the left; the billing switch and the close button on the right, with room around them. */}
+                <div className="flex items-start gap-4 px-5 pt-5 sm:px-7 sm:pt-6">
+                    <div className="min-w-0 flex-1">
+                        <h2 id="upgrade-title" className="text-xl font-bold tracking-tight sm:text-[22px]">
                             {isPaid ? 'Your plan' : 'Upgrade ContractorDocs'}
                         </h2>
                         {featureName ? (
-                            <p className="mx-auto mt-2 inline-flex items-center gap-2 rounded-full bg-warning/15 px-3 py-1 text-sm font-medium text-foreground">
-                                <LockIcon className="h-4 w-4 text-warning" /> {featureName}
+                            <p className="mt-1 flex items-start gap-1.5 text-sm font-medium text-foreground">
+                                <LockIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" /> {featureName}
                             </p>
                         ) : (
-                            <p className="mt-1 text-sm text-muted-foreground">Unlimited jobs, clients and documents. Cancel anytime.</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                {isPaid ? 'Change or manage your subscription.' : 'Unlimited jobs, clients and documents. Cancel anytime.'}
+                            </p>
                         )}
-
-                        <div className="mt-3 inline-flex items-center rounded-full border border-border bg-muted p-1" role="radiogroup" aria-label="Billing period">
-                            {(['MONTHLY', 'YEARLY'] as BillingPeriod[]).map(p => (
-                                <button
-                                    key={p}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={period === p}
-                                    onClick={() => setPeriod(p)}
-                                    className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold transition ${period === p ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-                                >
-                                    {p === 'MONTHLY' ? 'Monthly' : 'Yearly'}
-                                    {p === 'YEARLY' && yearlySavingsPercent > 0 && (
-                                        <span className="badge badge-success">Save ~{yearlySavingsPercent}%</span>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
                     </div>
+                    <div className="hidden pt-0.5 sm:block">{billingSwitch}</div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={!!busyTier}
+                        className="-mr-2 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40 sm:ml-2 sm:mt-0"
+                        aria-label="Close"
+                        title="Close"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-5 w-5" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                    </button>
+                </div>
 
-                    <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+                {/* Sized to fit a laptop screen without scrolling; only small phones scroll. */}
+                <div className="overflow-y-auto px-5 pb-5 pt-4 [scrollbar-width:thin] sm:px-7 sm:pb-6 sm:pt-5">
+                    <div className="mb-4 sm:hidden">{billingSwitch}</div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
                         {ORDER.map(tier => {
                             const plan = PLANS[tier];
                             const isCurrent = tier === resolvedTier;
@@ -188,33 +198,30 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                             return (
                                 <div
                                     key={tier}
-                                    className={`relative flex flex-col rounded-2xl border p-4 ${highlighted ? 'border-primary bg-primary/[0.04] shadow-card' : 'border-border bg-card'} ${isCurrent ? 'ring-2 ring-primary/30' : ''}`}
+                                    className={`flex flex-col rounded-xl border p-5 ${highlighted || (isCurrent && isPaid) ? 'border-primary/60 shadow-card' : 'border-border'}`}
                                 >
-                                    {highlighted && (
-                                        <span className="badge badge-primary absolute -top-3 left-5 bg-primary text-primary-foreground">Most popular</span>
-                                    )}
-                                    <div className="flex items-center gap-2">
-                                        {tier === 'ai' ? <SparklesIcon className="h-5 w-5 text-primary" /> : tier === 'premium' ? <StarIcon className="h-5 w-5 text-primary" /> : null}
-                                        <h3 className="text-lg font-bold">{plan.name}</h3>
-                                        {isCurrent && <span className="badge badge-success ml-auto">Current</span>}
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h3 className="text-base font-semibold">{plan.name}</h3>
+                                        {highlighted && <span className="text-xs font-semibold text-primary">Most popular</span>}
                                     </div>
-                                    <p className="mt-1 text-sm text-muted-foreground">{plan.tagline}</p>
-                                    <div className="mt-3 flex items-baseline gap-1">
-                                        <span className="text-2xl font-bold tracking-tight">{formatPrice(price)}</span>
+                                    {/* two lines reserved on desktop so the prices line up across the cards */}
+                                    <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground md:min-h-[36px]">{plan.tagline}</p>
+                                    <div className="mt-3.5 flex items-baseline gap-1">
+                                        <span className="text-[28px] font-bold leading-none tracking-tight">{formatPrice(price)}</span>
                                         <span className="text-sm text-muted-foreground">{tier === 'free' ? '' : period === 'YEARLY' ? '/year' : '/month'}</span>
                                     </div>
-                                    <p className="mt-1 h-4 text-xs text-muted-foreground">
+                                    <p className="mt-1.5 h-4 text-xs text-muted-foreground">
                                         {perMonth ? `About ${formatPrice(Math.round(perMonth * 100) / 100)}/month, billed yearly` : tier === 'free' ? 'No credit card needed' : 'Billed monthly'}
                                     </p>
-                                    <ul className="mt-3 flex-1 space-y-1.5">
+                                    <div className="mt-3.5">{button}</div>
+                                    <ul className="mt-4 flex-1 space-y-1.5 border-t border-border pt-3.5">
                                         {plan.features.map(f => (
-                                            <li key={f} className="flex items-start gap-2 text-[13px] leading-snug text-foreground/90">
-                                                <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                                            <li key={f} className="flex items-start gap-2 text-[13px] leading-snug text-foreground/85">
+                                                <CheckIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                                                 <span>{f}</span>
                                             </li>
                                         ))}
                                     </ul>
-                                    <div className="mt-4">{button}</div>
                                 </div>
                             );
                         })}
@@ -226,14 +233,9 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                         </p>
                     )}
 
-                    <div className="mt-4 flex flex-col items-center justify-between gap-2 text-center sm:flex-row sm:text-left">
-                        <p className="text-xs text-muted-foreground">
-                            Secure checkout by Kelviq. Prices in USD; taxes may apply. Cancel anytime from Settings → Plan &amp; billing.
-                        </p>
-                        <button type="button" onClick={onClose} disabled={!!busyTier} className="shrink-0 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-40">
-                            Maybe later
-                        </button>
-                    </div>
+                    <p className="mt-4 text-center text-xs text-muted-foreground sm:text-left">
+                        Secure checkout by Kelviq. Prices in USD; taxes may apply. Cancel anytime from Settings → Plan &amp; billing.
+                    </p>
                 </div>
             </div>
         </div>
