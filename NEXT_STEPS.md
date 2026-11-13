@@ -149,6 +149,11 @@ name matcher is exact/case-sensitive. Owner: Drafts may stay hidden; Sent/Accept
 for portal & approval rules (migration 0600, to write+apply). NOT approved: backfilling old jobs to clients.
 Helpers: portal/approval/temporary clients abdb2d533f6fc5933; data fidelity (PARITY_V2 6,7,8,10,11,12,13,14)
 a13b8163ce3a8d37f. Calculator helper told: old Advanced mode = target margin + tax (default 20%).
+**20:10:** AI fixes committed (5f8b774) + ai-assistant DEPLOYED; UI polish partly committed (da4fa0a; CommunicationView/
+AppNav/DashboardScreen wait for the shared commit); calculator + tutorials FINISHED (uncommitted, shared files).
+Owner: restored OLD designs still wrong (preview vs downloaded PDF differ, PDF "simplified", spacing, empty bordered
+boxes) → templates helper ab3e480c0eebe3ce2 resumed for that. Still running: portal abdb2d533f6fc5933, data fidelity
+a13b8163ce3a8d37f. When all report: full tests + build + seo:check, ONE combined commit, apply migration 0600.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
