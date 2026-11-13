@@ -113,6 +113,40 @@ table (0b.20), backfill linking old jobs' typed clients; (c) small follow-ups: a
 assignedTo, invoice amountPaid, receipt invoiceNumber) and redeploy; run the free-plan check before "Convert to
 invoice" / "Create revision" open a new form (App.tsx).
 
+## 0d. Owner feedback with screenshots (2026-11-13 ~17:15). Do RIGHT AFTER the paused feature wave 1 is finished
+## and committed (before #7 "Export everything")
+
+1. **AI "Fill the form" refuses sample data:** "I can't make up random information…" when asked for random/test
+   data. Form-fill scope must honour sample/test requests (reuse `isSampleRequest()` from the plans work) and
+   fill EVERY field realistically.
+2. **AI doesn't fill all the boxes it's asked to** (e.g. "create client Michael with random info in all the
+   boxes"): client creation must fill name, email, phone, address, notes, etc.; documents must fill every
+   relevant field. Check the action schemas (CREATE_CLIENT entity fields, document fields) and the prompt.
+3. **AI "Fill the form" dialog is bad and stuck at the top of the screen** (overlaps the form header on the
+   invoice page). Redesign it: well placed (centered sheet on mobile, anchored panel on desktop), clearer,
+   shows what will be filled. Better results (see 1–2).
+4. **Dashboard AI panel:** owner wants the **rainbow border** (same rainbow as the AI Command button) on the
+   panel; the message box at the bottom is cut off / overflows the panel edge ("issue here"). Also one reply
+   said "The AI service is not reachable right now…" at 17:12: check the ai-assistant logs for that request.
+5. **Upgrade window:** too crowded at the top (title + subtitle + toggle). The ✕ and "Maybe later" do the same
+   job: keep ✕, remove "Maybe later" (or the reverse), and give the header room.
+6. **Communication page has two "Connect Gmail" buttons** (header + banner). Keep one. The message editor
+   there is the old basic one: use the new rich editor style.
+7. **Mobile dashboard:** the top header bar is mostly empty space "for no reason". Make it useful (page title,
+   quick actions) or slimmer. The floating AI button covers the "Newest first" sort control: move it so it never
+   covers content.
+8. **Rich text editor is "still so basic"** (Daily Report/Note): the toolbar wraps onto two rows and looks
+   plain. Make it feel modern: one clean toolbar row with an overflow menu, a floating selection toolbar,
+   "/" slash commands for blocks (heading, checklist, table, photo, divider), nicer block styling, sensible
+   height. Keep all current functions.
+9. **Profit calculator: "we used to have an advanced calculator, check the production site".** Restore the
+   OLD app's advanced calculator (git show 25ae5cc:components/… profit calculator: the Simple/Advanced switch
+   and every field/feature it had: overhead, labor hours/rates, markup/margin, etc.) on top of the new one.
+10. **Tutorials:** add tutorials showing how everything works: a short first-run guided tour of the app, contextual
+    "how this works" help on each main screen (jobs, documents, AI assistant, client portal, inventory, price book,
+    profit calculator, communication), and a Help/Tutorials page (marketing site + in-app) with step-by-step guides
+    (screenshots, optionally short videos/GIFs).
+
 ## 0c. New features from the competitor research (do AFTER 0 and 0b)
 
 Full report: `reports/Contractor software competitor feature gaps.md` (notes in
