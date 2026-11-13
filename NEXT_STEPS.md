@@ -134,6 +134,12 @@ ProfitCalculatorView/JobFinancialsModal change, which imports the not-yet-commit
 APPLIED to production: migrations 0200 (pay/financing/review) and 0400 (requests + job photos). PENDING: 0300 reminders
 (being changed so its cron secret is generated inside the DB; then apply + deploy `reminders` function, verify_jwt off),
 0500 data-sync (after that helper finishes).
+**19:00: feature wave 1 + data sync DONE and LIVE.** Commits 91322c3, 4dde2c6, 6a02a68. Applied to production:
+0200, 0300 (reminders: tables, pg_cron "contractordocs-reminders" every 10 min, Vault secret generated in the DB),
+0400, 0500 (profit_calculations, user_settings). Deployed function `reminders` (verify_jwt off; refuses calls
+without the secret). The `gmail` function code was refactored (core.ts) but the live one is unchanged (redeploy is
+optional). Needs the owner signed in to click-test: Pay now / I've paid / Mark as paid, reminders, quote link,
+photos, profit calculator saving across logout.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
