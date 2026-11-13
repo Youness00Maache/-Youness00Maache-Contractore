@@ -140,6 +140,9 @@ APPLIED to production: migrations 0200 (pay/financing/review) and 0400 (requests
 without the secret). The `gmail` function code was refactored (core.ts) but the live one is unchanged (redeploy is
 optional). Needs the owner signed in to click-test: Pay now / I've paid / Mark as paid, reminders, quote link,
 photos, profit calculator saving across logout.
+**19:05 helpers for 0d:** AI quality+UI a5ff00bb5da18ddcd (0d.1-4 + AI field list); UI polish ad82842e81aea70d2
+(0d.5-8); advanced calculator + tutorials a05bd498c73326970 (0d.9-10). Parity audit v2 ae60c2aa3fda85201 still running
+(→ docs/work/PARITY_V2.md, then implement).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
