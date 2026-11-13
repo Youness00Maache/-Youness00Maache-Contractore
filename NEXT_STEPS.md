@@ -4,7 +4,7 @@ Work is paused at the owner's request. Nothing has been pushed to GitHub. The lo
 `http://localhost:3010` (Vite dev server, connected to the REAL production database `iauteblvljppwzsxloyd`).
 Owner's rules for this work: never remove a feature the old app had (old app = commit `25ae5cc` = the live
 site today); no Docker; don't push unless asked; no generic "vibe-coded" design (icon-in-a-square cards).
-**Pacing rule (updated 2026-11-13 17:37):** stop at **95%** of the 5-hour limit (recurring 5-minute check stops at 93%) (check with
+**Pacing rule (updated 2026-11-13 21:05): AUTONOMOUS CYCLE.** Work until ~90% of the 5-hour limit (5-minute check stops at 86%), stop until the reset, then continue automatically without waiting for the owner; repeat until the weekly limit (stop when weekly >= 95%) (check with
 `mcp__ccd_session_mgmt__get_usage` before each major step), commit finished work, update this file, and set a
 one-shot timer a few minutes after the reset (local time = UTC) to continue.
 
