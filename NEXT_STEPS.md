@@ -4,7 +4,7 @@ Work is paused at the owner's request. Nothing has been pushed to GitHub. The lo
 `http://localhost:3010` (Vite dev server, connected to the REAL production database `iauteblvljppwzsxloyd`).
 Owner's rules for this work: never remove a feature the old app had (old app = commit `25ae5cc` = the live
 site today); no Docker; don't push unless asked; no generic "vibe-coded" design (icon-in-a-square cards).
-**Pacing rule (updated 2026-11-13 15:10):** stop at **80%** of the 5-hour limit (check with
+**Pacing rule (updated 2026-11-13 17:37):** stop at **95%** of the 5-hour limit (recurring 5-minute check stops at 93%) (check with
 `mcp__ccd_session_mgmt__get_usage` before each major step), commit finished work, update this file, and set a
 one-shot timer a few minutes after the reset (local time = UTC) to continue.
 
@@ -112,6 +112,15 @@ table (0b.20), backfill linking old jobs' typed clients; (c) small follow-ups: a
 (supabase/functions/ai-assistant/shared/documentSchema.ts: estimate taxRate/discount, change order status, work order
 assignedTo, invoice amountPaid, receipt invoiceNumber) and redeploy; run the free-plan check before "Convert to
 invoice" / "Create revision" open a new form (App.tsx).
+
+## 0e. Data that isn't saved to the account (owner, 2026-11-13 17:37). APPROVED: additive tables to fix it
+
+Owner: saved profit calculations disappear after logout/login. Audit EVERYTHING stored only in the browser and
+move real user data to the database (migration 20261113000500_user_data_sync.sql, additive; apply after review),
+with a one-time import of existing browser data. A helper started 17:40.
+
+**Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
+requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
 ## 0d. Owner feedback with screenshots (2026-11-13 ~17:15). Do RIGHT AFTER the paused feature wave 1 is finished
 ## and committed (before #7 "Export everything")
