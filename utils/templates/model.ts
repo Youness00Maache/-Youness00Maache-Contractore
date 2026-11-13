@@ -13,6 +13,17 @@ import {
   type FormatOptions,
 } from './format.ts';
 import { renderVisualsHtml } from './widgets.ts';
+import { financingFor, httpsLink, isPayableStatus, payLinkFor } from '../../lib/payments.ts';
+import { qrSvg } from '../../lib/qrcode.ts';
+
+/** "Scan to pay" QR (generated locally, no network); '' when the link can't be encoded. */
+const payQr = (href: string): string => {
+  try {
+    return qrSvg(href, { size: 76, margin: 2, ecc: 'M', color: '#111111' });
+  } catch {
+    return '';
+  }
+};
 
 export type DocKind =
   | 'invoice' | 'estimate' | 'workOrder' | 'dailyReport' | 'timeSheet' | 'materialLog' | 'expenseLog'
@@ -104,7 +115,10 @@ export interface DocModel {
   items: ItemsTable | null;
   totals: TotalLine[];
   summaryNotes: Section[];
-  paymentLink: { url: string; label: string } | null;
+  /** "Pay now" button; `qr` = inline SVG "Scan to pay" (https links only), `caption` its label */
+  paymentLink: { url: string; label: string; qr?: string; caption?: string } | null;
+  /** "Financing available" on estimates at or above the contractor's amount */
+  financing: { url: string; label: string; note: string } | null;
   visualsHtml: string;
   after: Section[];
   signatures: Signature[];
@@ -320,6 +334,7 @@ export const buildDocumentModel = (
     totals: [],
     summaryNotes: [],
     paymentLink: null,
+    financing: null,
     visualsHtml: renderVisualsHtml(d.ai_visual_data),
     after: [],
     signatures: [],
@@ -382,8 +397,19 @@ export const buildDocumentModel = (
           </tbody></table>`,
         });
       }
-      const link = safeUrl(d.paypalLink || d.paymentLink);
-      if (link && /^https?:/i.test(link)) model.paymentLink = { url: link, label: 'Pay online' };
+      // "Pay now": the contractor's own payment page with the amount still due (PayPal.me/Cash App links get it
+      // filled in) and a "Scan to pay" QR for paper invoices. Not shown once the invoice is paid or cancelled.
+      const rawLink = d.paypalLink || d.paymentLink;
+      const pay = payLinkFor({ ...d, paypalLink: rawLink });
+      const payHref = pay ? safeUrl(pay.href) : '';
+      if (pay && payHref) {
+        const qr = payQr(pay.href);
+        model.paymentLink = { url: payHref, label: esc(pay.buttonLabel), ...(qr ? { qr, caption: 'Scan to pay' } : {}) };
+      } else if (!httpsLink(rawLink) && isPayableStatus(status)) {
+        // http links (and links that aren't clean https addresses) keep the button they always had, without a QR
+        const link = safeUrl(rawLink);
+        if (link && /^https?:/i.test(link)) model.paymentLink = { url: link, label: 'Pay now' };
+      }
       model.after = compact([section('notes', 'Notes', d.notes), section('terms', 'Terms & conditions', d.terms)]);
       model.signatures = compact([contractorSig(), clientSig('Client signature', false)]);
       // Only add the closing line when the notes don't already thank the client (avoids printing it twice).
@@ -407,6 +433,9 @@ export const buildDocumentModel = (
       model.items = lineItemsTable(d.lineItems, fmt);
       model.totals = lines;
       model.highlight = { label: 'Estimate total', value: esc(money(tot.total, fmt)) };
+      const fin = financingFor(d);
+      const finUrl = fin ? safeUrl(fin.url) : '';
+      if (finUrl) model.financing = { url: finUrl, label: 'Financing available', note: 'Pay over time with our financing partner. Check your options online:' };
       model.after = compact([section('notes', 'Notes', d.notes), section('terms', 'Terms & conditions', d.terms)]);
       model.signatures = compact([contractorSig() || sig('Contractor', '', companyName, ''), clientSig('Client acceptance', true)]);
       model.closing = 'We appreciate the opportunity to earn your business.';

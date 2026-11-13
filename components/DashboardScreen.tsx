@@ -26,6 +26,10 @@ interface DashboardScreenProps {
     t: Translation;
     /** AI assistant entry point (rendered by App, owned by the AI area). */
     aiSlot?: React.ReactNode;
+    /** "Payments reported by clients" card between the overview and the jobs (rendered by App; nothing when empty). */
+    paymentsSlot?: React.ReactNode;
+    /** Quote requests from the public request page (rendered by App; nothing until the feature exists in the database). */
+    requestsSlot?: React.ReactNode;
     onNewJob: () => void;
     onOpenJob: (jobId: string) => void;
     onOpenDocument: (form: FormDataType) => void;
@@ -104,7 +108,7 @@ const StatCard: React.FC<{
 };
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({
-    userName, plan, jobs, forms, clientsCount, lowStockCount, usage, loading, t, aiSlot,
+    userName, plan, jobs, forms, clientsCount, lowStockCount, usage, loading, t, aiSlot, paymentsSlot, requestsSlot,
     onNewJob, onOpenJob, onOpenDocument, onDuplicateJob, onDeleteJob, onUpgrade, onOpenClients, onOpenInventory, onOpenCalendar,
 }) => {
     const initial = useMemo(readFilters, []);
@@ -231,6 +235,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                     </>
                 )}
             </section>
+
+            {/* things to act on first (e.g. payments reported by clients); renders nothing when empty */}
+            {paymentsSlot}
+            {requestsSlot}
 
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_320px]">
                 {/* Jobs */}

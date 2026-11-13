@@ -8,10 +8,12 @@ import { supabase } from '../lib/supabase.ts';
 import { EmptyState, Modal, Notice, StatusBadge, cx, getErrorMessage } from './commsKit.tsx';
 import { documentLabel } from '../utils/clientLinks.ts';
 import { formatMoney } from '../utils/money.ts';
+import { payLinkFor, paymentReportOf } from '../lib/payments.ts';
+import PortalPhotos from './photos/PortalPhotos.tsx';
 import {
     BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
     PublicPageSkeleton, SIGNABLE_TYPES, SigningPanel, callDeclineRpcWithName, callSigningRpc, contractorName, currencyOf,
-    documentTotals, fmtDate, getDocState, isNetworkMessage, normalizeContractor, normalizeDocument, parseRpcPayload, str,
+    documentTotals, fmtDate, getDocState, isNetworkMessage, makeReportPayment, normalizeContractor, normalizeDocument, parseRpcPayload, str,
     throwIfPayloadError,
     type LinkProblem, type PublicContractor, type PublicDocument, type SigningOutcome,
 } from './DocumentApprovalView.tsx';
@@ -99,6 +101,8 @@ const DocumentRow: React.FC<{
     const date = fmtDate(d.issueDate || d.date || doc.createdAt);
     const title = str(d.title);
     const showBalance = doc.type === 'Invoice' && totals.amountPaid > 0;
+    const pay = doc.type === 'Invoice' && str(d.status) !== 'Draft' ? payLinkFor(d) : null;
+    const reported = doc.type === 'Invoice' ? paymentReportOf(d) : null;
     return (
         <article className="card card-pad flex flex-col gap-4 transition hover:shadow-card sm:flex-row sm:items-center">
             <button type="button" onClick={onView} className="flex min-w-0 flex-1 items-start gap-3 text-left">
@@ -108,7 +112,10 @@ const DocumentRow: React.FC<{
                     <span className="block truncate text-sm text-muted-foreground">
                         {title && title !== label ? `${title} · ` : ''}{doc.type}{date ? ` · ${date}` : ''}
                     </span>
-                    <span className="mt-2 flex flex-wrap gap-1.5"><DocBadge doc={doc} /></span>
+                    <span className="mt-2 flex flex-wrap gap-1.5">
+                        <DocBadge doc={doc} />
+                        {reported && <span className="badge badge-primary">Payment reported {fmtDate(reported.at)}</span>}
+                    </span>
                 </span>
             </button>
             <div className="flex flex-col gap-3 sm:items-end">
@@ -121,6 +128,11 @@ const DocumentRow: React.FC<{
                     </div>
                 )}
                 <div className="flex gap-2">
+                    {pay && !reported && (
+                        <a href={pay.href} target="_blank" rel="noopener noreferrer" className="btn btn-primary min-h-[40px] flex-1 sm:flex-none" title={pay.buttonLabel}>
+                            <CreditCardIcon className="h-4 w-4" /> Pay {formatMoney(pay.amount, currencyOf(d))}
+                        </a>
+                    )}
                     {state === 'open' && (
                         <button type="button" className="btn btn-primary min-h-[40px] flex-1 sm:flex-none" onClick={onSign}>
                             <PenIcon className="h-4 w-4" /> Review &amp; sign
@@ -360,6 +372,9 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                     </>
                 )}
 
+                {/* job photos the contractor chose to share (components/photos; nothing when there are none) */}
+                <PortalPhotos portalKey={key} className="mt-8" />
+
                 <section className="card card-pad mt-8">
                     <h2 className="font-semibold">Questions? Contact {company}</h2>
                     <p className="mb-2 text-sm text-muted-foreground">They'll be happy to help with any of these documents.</p>
@@ -386,7 +401,13 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                 {currentProblem !== 'signed' && ` Contact ${company} if you have questions.`}
                             </Notice>
                         )}
-                        <DocumentDetail doc={current} contractor={contractor} clientName={clientName} />
+                        <DocumentDetail
+                            doc={current}
+                            contractor={contractor}
+                            clientName={clientName}
+                            onReportPayment={makeReportPayment({ portalKey: key, documentId: current.id })}
+                            onPaymentReported={() => load(true)}
+                        />
                         <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                             <DownloadPdfButton doc={current} contractor={contractor} clientName={clientName} />
                         </div>

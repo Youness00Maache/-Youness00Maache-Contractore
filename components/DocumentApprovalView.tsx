@@ -12,8 +12,10 @@ import { computeDocumentTotals, formatMoney, lineItemAmount, toNumber, type Docu
 import { safeUrl } from '../utils/escapeHtml.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 import type { Job, UserProfile } from '../types.ts';
+import { financingFor, payAmountOf, payLinkFor, paymentReportOf, isPayableStatus } from '../lib/payments.ts';
+import { reportPaymentPublic, type ReportTarget } from '../lib/paymentsApi.ts';
 import {
-    AlertTriangleIcon, CheckCircleIcon, ClockIcon, CreditCardIcon, DownloadIcon, GlobeIcon, MailIcon,
+    AlertTriangleIcon, CheckCircleIcon, ClockIcon, CreditCardIcon, DownloadIcon, ExternalLinkIcon, GlobeIcon, MailIcon,
     MapPinIcon, PenIcon, ShieldCheckIcon, SmartphoneIcon, XCircleIcon,
 } from './Icons.tsx';
 
@@ -405,6 +407,141 @@ export const ContractorContact: React.FC<{ contractor: PublicContractor; classNa
 };
 
 /* =====================================================================================
+   Paying (the contractor's own pay link + "I've paid") and financing
+   ===================================================================================== */
+
+/** Reports "I've paid" for the page's credential (portal key or approval-link token). */
+export type ReportPaymentFn = (note: string, amount: number) => Promise<'ok' | 'unsupported'>;
+
+export const makeReportPayment = (target: ReportTarget): ReportPaymentFn => (note, amount) => reportPaymentPublic(target, note, amount);
+
+const hostLabel = (href: string) => {
+    try { return new URL(href).hostname.replace(/^www\./, ''); } catch { return 'the payment page'; }
+};
+
+/**
+ * Invoice payment box: amount still due, "Pay now" (the contractor's own PayPal / Square / Stripe / bank page, new
+ * tab) and "I've paid" with an optional note so the contractor knows to check. Nothing for paid / cancelled invoices.
+ */
+export const PayNowPanel: React.FC<{
+    doc: PublicDocument;
+    contractor: PublicContractor;
+    onReport?: ReportPaymentFn;
+    onReported?: () => void;
+}> = ({ doc, contractor, onReport, onReported }) => {
+    const d = doc.data;
+    const [mode, setMode] = useState<'idle' | 'form' | 'busy' | 'done' | 'unsupported'>('idle');
+    const [note, setNote] = useState('');
+    const [error, setError] = useState('');
+    const [reportedAt, setReportedAt] = useState('');
+    if (doc.type !== 'Invoice' || !isPayableStatus(d.status) || str(d.status) === 'Draft') return null;
+    const due = payAmountOf(d);
+    if (!(due.amount > 0)) return null;
+    const pay = payLinkFor(d);
+    const company = contractorName(contractor);
+    const money = (v: number) => formatMoney(v, currencyOf(d));
+    const report = paymentReportOf(d);
+    const shownReportAt = reportedAt || report?.at || '';
+
+    const submit = async () => {
+        if (!onReport) return;
+        setMode('busy');
+        setError('');
+        try {
+            const res = await onReport(note.trim(), due.amount);
+            if (res === 'unsupported') { setMode('unsupported'); return; }
+            setReportedAt(new Date().toISOString());
+            setMode('done');
+            onReported?.();
+        } catch (e) {
+            const msg = getErrorMessage(e);
+            setError(/already marked as paid/i.test(msg) ? `${company} has already marked this invoice as paid.` : msg);
+            setMode('form');
+        }
+    };
+
+    return (
+        <section className="rounded-2xl border border-border p-4 sm:p-5" aria-label="Payment">
+            <div className="flex items-baseline justify-between gap-3">
+                <p className="text-sm font-medium text-muted-foreground">{due.label}</p>
+                <p className="text-2xl font-bold tabular-nums text-foreground">{money(due.amount)}</p>
+            </div>
+            {pay && (
+                <>
+                    <a href={pay.href} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-lg mt-3 min-h-[48px] w-full">
+                        <CreditCardIcon className="h-4 w-4" /> {pay.buttonLabel}
+                    </a>
+                    <p className="mt-1.5 text-center text-xs text-muted-foreground">Opens {hostLabel(pay.href)} in a new tab. You pay {company} directly.</p>
+                </>
+            )}
+            {shownReportAt ? (
+                <p className="mt-4 flex items-start gap-2 border-t border-border pt-3 text-sm text-foreground" role="status">
+                    <CheckCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                    <span>
+                        You let {company} know you paid{fmtDate(shownReportAt) ? ` on ${fmtDate(shownReportAt)}` : ''}
+                        {(mode === 'done' ? note.trim() : report?.note) ? <> (“{mode === 'done' ? note.trim() : report?.note}”)</> : null}. They’ll confirm it.
+                    </span>
+                </p>
+            ) : onReport && mode === 'idle' ? (
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-border pt-3 text-sm">
+                    <span className="text-muted-foreground">{pay ? 'Already paid?' : 'Paid by check, cash or transfer?'}</span>
+                    <button type="button" className="btn btn-ghost btn-sm min-h-[40px] font-semibold text-primary" onClick={() => setMode('form')}>
+                        I’ve paid
+                    </button>
+                </div>
+            ) : onReport && (mode === 'form' || mode === 'busy') ? (
+                <div className="mt-4 space-y-3 border-t border-border pt-4">
+                    <div>
+                        <label className="label" htmlFor={`${doc.id}-paid-note`}>How and when did you pay? (optional)</label>
+                        <input
+                            id={`${doc.id}-paid-note`}
+                            className="input min-h-[44px]"
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
+                            maxLength={200}
+                            placeholder="e.g. PayPal, Nov 14"
+                            disabled={mode === 'busy'}
+                        />
+                    </div>
+                    {error && <Notice tone="danger" onClose={() => setError('')}>{error}</Notice>}
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <button type="button" className="btn btn-outline min-h-[44px]" onClick={() => { setMode('idle'); setError(''); }} disabled={mode === 'busy'}>Cancel</button>
+                        <button type="button" className="btn btn-primary min-h-[44px]" onClick={submit} disabled={mode === 'busy'}>
+                            {mode === 'busy' ? <Spinner label="Sending…" /> : `Let ${company} know`}
+                        </button>
+                    </div>
+                </div>
+            ) : mode === 'unsupported' ? (
+                <Notice tone="warning" className="mt-4" title={`Please tell ${company} directly`}>
+                    <p>Confirming a payment online isn’t available yet. Reach out using any of these:</p>
+                    <ContractorContact contractor={contractor} className="mt-2" />
+                </Notice>
+            ) : null}
+        </section>
+    );
+};
+
+/** "Financing available" on estimates at or above the contractor's amount (the lender's page shows the terms). */
+export const FinancingNotice: React.FC<{ doc: PublicDocument; contractor: PublicContractor }> = ({ doc, contractor }) => {
+    if (doc.type !== 'Estimate') return null;
+    const fin = financingFor(doc.data);
+    if (!fin) return null;
+    return (
+        <section className="flex flex-col gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+                <p className="font-semibold text-foreground">Financing available</p>
+                <p className="text-sm text-muted-foreground">
+                    {contractorName(contractor)} works with a financing partner, so you can pay for this project over time. The lender shows the terms before you apply.
+                </p>
+            </div>
+            <a href={fin.url} target="_blank" rel="noopener noreferrer" className="btn btn-outline min-h-[44px] shrink-0">
+                Check your options <ExternalLinkIcon className="h-4 w-4" />
+            </a>
+        </section>
+    );
+};
+
+/* =====================================================================================
    Document detail (parties, line items, totals, text sections, signature state)
    ===================================================================================== */
 
@@ -442,7 +579,14 @@ export const SignatureBlock: React.FC<{ doc: PublicDocument }> = ({ doc }) => {
     );
 };
 
-export const DocumentDetail: React.FC<{ doc: PublicDocument; contractor: PublicContractor; clientName?: string }> = ({ doc, contractor, clientName = '' }) => {
+export const DocumentDetail: React.FC<{
+    doc: PublicDocument;
+    contractor: PublicContractor;
+    clientName?: string;
+    /** enables "I've paid" on invoices */
+    onReportPayment?: ReportPaymentFn;
+    onPaymentReported?: () => void;
+}> = ({ doc, contractor, clientName = '', onReportPayment, onPaymentReported }) => {
     const d = doc.data;
     const currency = currencyOf(d);
     const money = (v: number) => formatMoney(v, currency);
@@ -485,7 +629,8 @@ export const DocumentDetail: React.FC<{ doc: PublicDocument; contractor: PublicC
     ] as Array<[string, string]>).filter(([, v]) => !!v);
 
     const contractSum = toNumber(d.currentContractSum);
-    const payLink = doc.type === 'Invoice' && totals.balanceDue > 0 && str(d.status) !== 'Paid' && /^https:\/\//i.test(str(d.paypalLink))
+    // an old invoice with a plain http link keeps its simple button (PayNowPanel only uses https links)
+    const legacyPayLink = doc.type === 'Invoice' && totals.balanceDue > 0 && str(d.status) !== 'Paid' && /^http:\/\//i.test(str(d.paypalLink))
         ? safeHref(d.paypalLink) : '';
 
     return (
@@ -608,11 +753,13 @@ export const DocumentDetail: React.FC<{ doc: PublicDocument; contractor: PublicC
                 </dl>
             )}
 
-            {payLink && (
-                <a href={payLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary min-h-[44px] w-full sm:w-auto">
-                    <CreditCardIcon className="h-4 w-4" /> Pay online
+            {legacyPayLink && (
+                <a href={legacyPayLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary min-h-[44px] w-full sm:w-auto">
+                    <CreditCardIcon className="h-4 w-4" /> Pay now
                 </a>
             )}
+            <PayNowPanel doc={doc} contractor={contractor} onReport={onReportPayment} onReported={onPaymentReported} />
+            <FinancingNotice doc={doc} contractor={contractor} />
 
             {sections.map(([k, v]) => <TextSection key={k} title={k} text={v} />)}
 
@@ -1012,12 +1159,13 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
     }
 
     const totals = documentTotals(doc.data);
+    const payBar = doc.type === 'Invoice' && str(doc.data.status) !== 'Draft' && !paymentReportOf(doc.data) ? payLinkFor(doc.data) : null;
 
     return (
         <div className="flex min-h-screen flex-col bg-background text-foreground">
-            <BrandHeader contractor={contractor} tagline="Secure document approval" />
+            <BrandHeader contractor={contractor} tagline={doc.type === 'Invoice' ? 'Secure invoice' : 'Secure document approval'} />
 
-            <main className={cx('mx-auto w-full max-w-3xl flex-1 space-y-6 px-4 py-6 sm:px-6 sm:py-10', canSign && !signInView && 'pb-28 sm:pb-10')}>
+            <main className={cx('mx-auto w-full max-w-3xl flex-1 space-y-6 px-4 py-6 sm:px-6 sm:py-10', ((canSign && !signInView) || payBar) && 'pb-28 sm:pb-10')}>
                 <section className="animate-fade-in">
                     <h1 className="text-2xl font-bold sm:text-3xl">{intro.title}</h1>
                     <p className="mt-1 text-muted-foreground">{intro.subtitle}</p>
@@ -1028,7 +1176,13 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                 {pageError && <Notice tone="danger" onClose={() => setPageError('')}>{pageError}</Notice>}
 
                 <div className="card card-pad">
-                    <DocumentDetail doc={doc} contractor={contractor} clientName={clientName} />
+                    <DocumentDetail
+                        doc={doc}
+                        contractor={contractor}
+                        clientName={clientName}
+                        onReportPayment={makeReportPayment({ token })}
+                        onPaymentReported={() => load(true)}
+                    />
                     <div className="mt-6 flex flex-wrap gap-2 border-t border-border pt-4">
                         <DownloadPdfButton doc={doc} contractor={contractor} clientName={clientName} onError={setPageError} />
                     </div>
@@ -1061,6 +1215,21 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                     <ContractorContact contractor={contractor} />
                 </section>
             </main>
+
+            {/* phones: the pay button stays in reach while the invoice is read */}
+            {payBar && (
+                <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 px-4 py-3 shadow-lift backdrop-blur sm:hidden">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="truncate text-xs text-muted-foreground">{payBar.amountLabel}</p>
+                            <p className="text-base font-bold tabular-nums">{formatMoney(payBar.amount, currencyOf(doc.data))}</p>
+                        </div>
+                        <a href={payBar.href} target="_blank" rel="noopener noreferrer" className="btn btn-primary min-h-[44px] shrink-0">
+                            <CreditCardIcon className="h-4 w-4" /> Pay now
+                        </a>
+                    </div>
+                </div>
+            )}
 
             {canSign && !signInView && (
                 <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 px-4 py-3 shadow-lift backdrop-blur sm:hidden">

@@ -11,9 +11,17 @@ import { getDefaultSignature, setDefaultSignature } from './SignaturePad.tsx';
 import { SUPPORTED_LANGUAGES } from '../utils/translations.ts';
 import { PLANS, isPaidTier, normalizeTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL, type UsageSnapshot } from '../lib/account.ts';
+import {
+    PAY_SERVICES, mapPaymentSettings, paymentSettingsOf, paymentSettingsProblem, paymentSettingsRow, samePaymentSettings,
+    type PaymentSettings,
+} from '../lib/payments.ts';
+import { savePaymentSettings } from '../lib/paymentsApi.ts';
+import { Toggle } from './forms/Fields.tsx';
+import RequestLinkSettings from './requests/RequestLinkSettings.tsx';
+import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
 
 type ThemeName = 'light' | 'dark' | 'blue';
-export type SettingsSection = 'profile' | 'company' | 'signature' | 'appearance' | 'billing' | 'account';
+export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
@@ -46,9 +54,12 @@ const THEMES: { value: ThemeName; label: string; icon: React.ComponentType<React
 const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'profile', label: 'Profile' },
     { id: 'company', label: 'Company' },
+    { id: 'payments', label: 'Payments & reviews' },
+    { id: 'requests', label: 'Request-a-quote link' },
     { id: 'signature', label: 'Signature' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'billing', label: 'Plan & billing' },
+    { id: 'reminders', label: 'Reminders' },
     { id: 'account', label: 'Account' },
 ];
 
@@ -107,6 +118,13 @@ const Settings: React.FC<SettingsProps> = ({
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const baselineRef = useRef<UserProfile>(initialProfile);
+    // "Get paid" settings (own pay link, financing link, Google review link): saved to their own columns
+    const [pay, setPay] = useState<PaymentSettings>(() => paymentSettingsOf(initialProfile));
+    const payBaselineRef = useRef<PaymentSettings>(paymentSettingsOf(initialProfile));
+    const [payNotice, setPayNotice] = useState<string | null>(null);
+    const payUnavailable = Boolean(initialProfile?.paymentSettingsUnavailable);
+    const payDirty = !samePaymentSettings(pay, payBaselineRef.current);
+    const updatePay = (patch: Partial<PaymentSettings>) => { setSavedAt(null); setPay(prev => ({ ...prev, ...patch })); };
 
     // Re-sync from the app only when there are no unsaved edits (never drop the user's typing).
     useEffect(() => {
@@ -118,6 +136,9 @@ const Settings: React.FC<SettingsProps> = ({
             setLogoPreview(initialProfile.logoUrl || '');
             setProfilePicPreview(initialProfile.profilePictureUrl || '');
         }
+        const payDirtyNow = !samePaymentSettings(pay, payBaselineRef.current);
+        payBaselineRef.current = paymentSettingsOf(initialProfile);
+        if (!payDirtyNow) setPay(paymentSettingsOf(initialProfile));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialProfile]);
 
@@ -147,8 +168,8 @@ const Settings: React.FC<SettingsProps> = ({
     }, [profile.name]);
 
     const dirty = useMemo(
-        () => editableKeys.some(k => ((profile as any)[k] || '') !== ((baselineRef.current as any)[k] || '')) || !!logoFile || !!profilePicFile,
-        [profile, logoFile, profilePicFile],
+        () => editableKeys.some(k => ((profile as any)[k] || '') !== ((baselineRef.current as any)[k] || '')) || !!logoFile || !!profilePicFile || payDirty,
+        [profile, logoFile, profilePicFile, payDirty],
     );
 
     useEffect(() => {
@@ -190,14 +211,37 @@ const Settings: React.FC<SettingsProps> = ({
     };
 
     const handleSaveChanges = async () => {
+        const payProblem = payDirty && !payUnavailable ? paymentSettingsProblem(pay) : null;
+        if (payProblem) {
+            setSaveError(payProblem);
+            document.getElementById('settings-payments')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
         setSaving(true);
         setSaveError(null);
+        setPayNotice(null);
         try {
+            // links are stored as https:// addresses ("paypal.me/acme" → "https://paypal.me/acme")
+            let savedPay: PaymentSettings | null = null;
+            if (payDirty && !payUnavailable) {
+                const res = await savePaymentSettings(initialProfile.id, pay);
+                if (res === 'saved') savedPay = mapPaymentSettings(paymentSettingsRow(pay));
+                else setPayNotice('Your payment settings need a one-time database update before they can be saved. Everything else was saved.');
+            }
             await onSave(
-                { ...profile, logoUrl: logoPreview ? profile.logoUrl : '', profilePictureUrl: profilePicPreview ? profile.profilePictureUrl : '' },
+                {
+                    ...profile,
+                    ...(savedPay || {}),
+                    logoUrl: logoPreview ? profile.logoUrl : '',
+                    profilePictureUrl: profilePicPreview ? profile.profilePictureUrl : '',
+                },
                 logoFile,
                 profilePicFile,
             );
+            if (savedPay) {
+                setPay(savedPay);
+                payBaselineRef.current = savedPay;
+            }
             setLogoFile(null);
             setProfilePicFile(null);
             baselineRef.current = profile;
@@ -211,6 +255,7 @@ const Settings: React.FC<SettingsProps> = ({
 
     const discardChanges = () => {
         setProfile(baselineRef.current);
+        setPay(payBaselineRef.current);
         setLogoFile(null);
         setProfilePicFile(null);
         setLogoPreview(baselineRef.current.logoUrl || '');
@@ -366,6 +411,104 @@ const Settings: React.FC<SettingsProps> = ({
                         {imageError && <p role="alert" className="mt-3 text-sm text-destructive">{imageError}</p>}
                     </Section>
 
+                    {/* Payments & reviews: the contractor's own links; ContractorDocs never handles the money */}
+                    <Section id="payments" title="Payments & reviews" description="Your own payment page, financing partner and Google reviews. Clients pay you directly.">
+                        {payUnavailable && (
+                            <p className="mb-5 flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2 text-sm text-foreground">
+                                <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                                These settings need a one-time database update before they can be saved. Everything else on this page works as usual.
+                            </p>
+                        )}
+                        {payNotice && <p role="status" className="mb-5 rounded-xl bg-warning/10 px-3 py-2 text-sm text-foreground">{payNotice}</p>}
+                        <fieldset disabled={payUnavailable} className="space-y-6 divide-y divide-border disabled:opacity-60">
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                <div className="sm:col-span-3">
+                                    <h3 className="text-sm font-semibold text-foreground">“Pay now” link</h3>
+                                    <p className="mt-0.5 text-sm text-muted-foreground">
+                                        Your PayPal.me, Square, Venmo, Stripe Payment Link or bank page. New invoices get it automatically (you can change it on each one).
+                                        Clients see a Pay now button with the amount due in the portal and the email, and a “Scan to pay” code on the PDF.
+                                    </p>
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label htmlFor="payLinkDefault" className="label">Payment link</label>
+                                    <input id="payLinkDefault" type="url" inputMode="url" className="input" value={pay.payLinkDefault} onChange={(e) => updatePay({ payLinkDefault: e.target.value })} placeholder="https://paypal.me/yourcompany" autoComplete="off" />
+                                </div>
+                                <div>
+                                    <label htmlFor="payLinkLabel" className="label">Shown as (optional)</label>
+                                    <input id="payLinkLabel" className="input" list="pay-services" value={pay.payLinkLabel} onChange={(e) => updatePay({ payLinkLabel: e.target.value })} placeholder="PayPal" maxLength={40} autoComplete="off" />
+                                    <datalist id="pay-services">{PAY_SERVICES.map(s => <option key={s} value={s} />)}</datalist>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-3">
+                                <div className="sm:col-span-3">
+                                    <h3 className="text-sm font-semibold text-foreground">Financing for larger jobs</h3>
+                                    <p className="mt-0.5 text-sm text-muted-foreground">
+                                        Paste your application link from Wisetack, Hearth, GoodLeap or your local lender. Estimates from the amount you choose show
+                                        “Financing available” in the portal and on the PDF. The lender shows the terms; no rates are printed by ContractorDocs.
+                                    </p>
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label htmlFor="financingLink" className="label">Financing link</label>
+                                    <input id="financingLink" type="url" inputMode="url" className="input" value={pay.financingLink} onChange={(e) => updatePay({ financingLink: e.target.value })} placeholder="https://" autoComplete="off" />
+                                </div>
+                                <div>
+                                    <label htmlFor="financingMin" className="label">Show on estimates from ($)</label>
+                                    <input
+                                        id="financingMin"
+                                        type="number"
+                                        inputMode="decimal"
+                                        min={0}
+                                        step="100"
+                                        className="input"
+                                        value={pay.financingMinAmount ? String(pay.financingMinAmount) : ''}
+                                        onChange={(e) => updatePay({ financingMinAmount: Math.max(0, Number(e.target.value) || 0) })}
+                                        placeholder="e.g. 2000"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 pt-6">
+                                <div>
+                                    <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                        Google review request {!paid && <span className="badge badge-primary">Premium</span>}
+                                    </h3>
+                                    <p className="mt-0.5 text-sm text-muted-foreground">
+                                        After you mark an invoice as paid, send the client a short thank-you with your review link (email from your Gmail, or copy it into a text).
+                                        Every client gets the same request: Google doesn’t allow asking only the happy ones.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label htmlFor="googleReviewLink" className="label">Google review link</label>
+                                    <input id="googleReviewLink" type="url" inputMode="url" className="input" value={pay.googleReviewLink} onChange={(e) => updatePay({ googleReviewLink: e.target.value })} placeholder="https://g.page/r/…/review" autoComplete="off" />
+                                    <p className="mt-1.5 text-xs text-muted-foreground">Find it in your Google Business Profile under “Ask for reviews”.</p>
+                                </div>
+                                <Toggle
+                                    checked={pay.reviewAutoSend && paid}
+                                    onChange={(on) => updatePay({ reviewAutoSend: on })}
+                                    disabled={!paid || payUnavailable}
+                                    label="Send it automatically when I mark an invoice as paid"
+                                    description={paid ? 'Uses your connected Gmail. One request per invoice; you can always send it by hand instead.' : 'Part of Premium. Upgrade to send review requests after each payment.'}
+                                />
+                                {!paid && onUpgradeClick && (
+                                    <div><button type="button" className="btn btn-outline btn-sm" onClick={onUpgradeClick}><StarIcon className="h-4 w-4" /> Upgrade for review requests</button></div>
+                                )}
+                            </div>
+                        </fieldset>
+                    </Section>
+
+                    {/* Request-a-quote link (public request page + QR; components/requests) */}
+                    <Section id="requests" title="Request-a-quote link" description="A public page and QR code where new clients can ask you for a quote.">
+                        <RequestLinkSettings
+                            embedded
+                            plan={plan}
+                            companyName={profile.companyName || profile.name}
+                            logoUrl={profile.logoUrl}
+                            phone={profile.phone}
+                            onUpgrade={onUpgradeClick ? () => onUpgradeClick() : undefined}
+                        />
+                    </Section>
+
                     {/* Signature */}
                     <Section id="signature" title="Default signature" description="Offered when you sign a document, so you don't have to draw it every time. It's only added when you choose it.">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -463,6 +606,9 @@ const Settings: React.FC<SettingsProps> = ({
                             <p className="mt-2 text-xs text-muted-foreground">Usage counted from the data loaded on this device.</p>
                         )}
                     </Section>
+
+                    {/* Reminders & follow-ups (components/reminders; the card's id is settings-reminders) */}
+                    <ReminderSettingsCard onUpgradeClick={onUpgradeClick} />
 
                     {/* Account */}
                     <Section id="account" title="Account" tone="danger">

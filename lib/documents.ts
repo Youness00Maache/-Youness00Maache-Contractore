@@ -33,6 +33,8 @@ export const DOCUMENT_METADATA_COLUMNS = [
     'clientSignedAt:data->>clientSignedAt',
     'viewedByProvider:data->>viewedByProvider',
     'isAiGenerated:data->>isAiGenerated',
+    // the client's "I've paid" (mirrored into data by migration 20261113000200; null before it)
+    'paymentReportedAt:data->>paymentReportedAt',
 ].join(', ');
 
 export const DOCUMENT_DETAIL_COLUMNS = 'id, user_id, job_id, type, created_at, public_token, data';
@@ -59,6 +61,7 @@ const createLightweightDocumentData = (row: any, type: FormType) => ({
     clientSignedAt: row.clientSignedAt || undefined,
     viewedByProvider: String(row.viewedByProvider).toLowerCase() === 'true',
     isAiGenerated: String(row.isAiGenerated).toLowerCase() === 'true',
+    paymentReportedAt: row.paymentReportedAt || undefined,
     [LIGHTWEIGHT_DOCUMENT_FLAG]: true,
 } as any);
 
@@ -110,6 +113,8 @@ export const mergeDocuments = (prev: FormDataType[], incoming: FormDataType[]): 
                     status: d.status ?? (existing.data as any).status,
                     viewedByProvider: d.viewedByProvider || (existing.data as any).viewedByProvider,
                     clientSignatureUrl: d.clientSignatureUrl || (existing.data as any).clientSignatureUrl,
+                    // a new "I've paid" from the client shows up without reopening the invoice
+                    ...(d.paymentReportedAt ? { paymentReportedAt: d.paymentReportedAt } : {}),
                 },
             });
         } else {
@@ -257,6 +262,9 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
     const {
         clientSignatureUrl: _sig, clientSignedAt: _signedAt, clientSignedBy: _signedBy, clientSignerName: _signer,
         viewedByProvider: _viewed, approvedAt: _approvedAt, inventoryDeductedAt: _deducted,
+        // a copy starts unpaid: no client payment report, no recorded payments, no review request
+        paymentReportedAt: _reported, paymentReportNote: _reportNote, paymentReportAmount: _reportAmount,
+        payments: _payments, paidAt: _paidAt, reviewRequestedAt: _review,
         [LIGHTWEIGHT_DOCUMENT_FLAG]: _flag,
         ...rest
     } = (data || {}) as any;
@@ -267,5 +275,11 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
         if (next[key]) next[key] = `${next[key]}-COPY`;
     }
     if (typeof next.deductInventory === 'boolean') next.deductInventory = false;
+    // payments recorded with "Mark as paid" are not copied (a deposit typed on the original stays)
+    if (Array.isArray(_payments) && _payments.length && next.amountPaid !== undefined) {
+        const recorded = _payments.reduce((s: number, p: any) => s + (Number(p?.amount) || 0), 0);
+        const left = Math.round(Math.max(0, (Number(next.amountPaid) || 0) - recorded) * 100) / 100;
+        if (left > 0) next.amountPaid = left; else delete next.amountPaid;
+    }
     return { ...next, ...overrides };
 };

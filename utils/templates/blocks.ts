@@ -183,10 +183,20 @@ export const totalsHtml = (totals: TotalLine[], cls = 'cd-totals') =>
     ? `<div class="${cls}">${totals.map((r) => `<div class="cd-tot cd-tot-${r.kind || 'normal'}"><span class="cd-tot-label">${r.label}</span><span class="cd-tot-value cd-num">${r.value}</span></div>`).join('')}</div>`
     : '';
 
-export const payButton = (m: DocModel) =>
-  m.paymentLink
-    ? `<div class="cd-pay"><a class="cd-pay-btn" href="${m.paymentLink.url}">${m.paymentLink.label} →</a><div class="cd-pay-url">${m.paymentLink.url}</div></div>`
+/** "Financing available" note on estimates (rendered wherever a design puts the pay button). */
+export const financingNote = (m: DocModel) =>
+  m.financing
+    ? `<div class="cd-fin"><div class="cd-fin-h">${m.financing.label}</div><div class="cd-fin-note">${m.financing.note}</div><a class="cd-fin-url" href="${m.financing.url}">${m.financing.url}</a></div>`
     : '';
+
+/** Pay button + its link, with a small "Scan to pay" QR beside it (https links); plus the financing note. Shared by every design. */
+export const payButton = (m: DocModel) => {
+  const p = m.paymentLink;
+  const pay = p
+    ? `<div class="cd-pay${p.qr ? ' cd-pay-has-qr' : ''}"><div class="cd-pay-main"><a class="cd-pay-btn" href="${p.url}">${p.label} →</a><div class="cd-pay-url">${p.url}</div></div>${p.qr ? `<div class="cd-pay-qr">${p.qr}<div class="cd-pay-qr-cap">${p.caption || 'Scan to pay'}</div></div>` : ''}</div>`
+    : '';
+  return pay + financingNote(m);
+};
 
 export const summaryNotes = (m: DocModel) =>
   m.summaryNotes.map((s) => `<div class="cd-sum-note"><div class="cd-label">${s.title}</div>${s.html}</div>`).join('');
@@ -194,7 +204,7 @@ export const summaryNotes = (m: DocModel) =>
 /** The closing line inside the totals area (used by every summary renderer). */
 export const closingInline = (m: DocModel) => (m.closing ? `<div class="cd-sum-closing">${m.closing}</div>` : '');
 
-export const hasSummary = (m: DocModel) => !!(m.totals.length || m.paymentLink || m.summaryNotes.length);
+export const hasSummary = (m: DocModel) => !!(m.totals.length || m.paymentLink || m.financing || m.summaryNotes.length);
 
 export const defaultSummary = (ctx: RenderCtx, withClosing = true) => {
   const { m } = ctx;
@@ -342,6 +352,15 @@ font-family:var(--font-body);color:var(--ink);font-size:12.5px;line-height:1.5;-
 .cd-pay{margin-bottom:14px;}
 .cd-pay-btn{display:inline-block;padding:9px 18px;border-radius:6px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:12px;text-decoration:none;}
 .cd-pay-url{font-size:9px;color:var(--muted);margin-top:5px;overflow-wrap:anywhere;}
+.cd-pay.cd-pay-has-qr{display:flex;align-items:center;gap:12px;}
+.cd-pay-main{min-width:0;flex:1 1 auto;}
+.cd-pay-qr{flex:none;width:76px;text-align:center;}
+.cd-pay-qr svg{display:block;width:76px;height:76px;border-radius:3px;}
+.cd-pay-qr-cap{font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:3px;white-space:nowrap;}
+.cd-fin{margin-bottom:14px;padding:8px 10px;border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--ink);}
+.cd-fin-h{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);}
+.cd-fin-note{font-size:10.5px;margin-top:2px;}
+.cd-fin-url{display:block;font-size:9.5px;font-weight:600;color:var(--accent-ink);text-decoration:none;margin-top:2px;overflow-wrap:anywhere;}
 .cd-sum-note{margin-bottom:12px;font-size:11.5px;}
 .cd-sum-closing{font-family:var(--font-head);font-size:13.5px;font-weight:700;color:var(--accent-ink);margin-top:4px;}
 .cd-signoff{display:flex;gap:40px;align-items:flex-start;}

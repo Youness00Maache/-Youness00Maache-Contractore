@@ -58,13 +58,50 @@ export const fillEmailPlaceholders = (text: string, values: Record<string, strin
     .trim();
 };
 
-/** Converts the plain-text message the user typed into safe HTML (escaped, line breaks kept). */
+/**
+ * The "Pay now" line of an invoice email: `Pay now with PayPal ($1,250.00): https://…`. It stays readable as plain
+ * text (copy, mailto, phone share) and plainTextToEmailHtml turns it into a button.
+ */
+export const payNowLine = (pay: { buttonLabel: string; amountText?: string; href: string } | null | undefined): string => {
+  const href = String(pay?.href || '').trim();
+  if (!/^https:\/\/[^\s<>"']+$/i.test(href)) return '';
+  const label = String(pay?.buttonLabel || 'Pay now').replace(/[\r\n:]+/g, ' ').trim() || 'Pay now';
+  const amount = String(pay?.amountText || '').replace(/[\r\n():]+/g, ' ').trim();
+  return `${/^pay now\b/i.test(label) ? label : `Pay now (${label})`}${amount ? ` (${amount})` : ''}: ${href}`;
+};
+
+/** A paragraph that is exactly one pay line (see payNowLine). */
+export const PAY_LINE_RE = /^(Pay now\b[^\n:]{0,100}):\s*(https:\/\/[^\s<>"']+)$/i;
+
+const SIGN_OFF_RE = /^(thank you|thanks|many thanks|best regards|best|kind regards|regards|sincerely|cheers|warm regards)\b[^\n]{0,20}[,!.]?\s*(\n|$)/i;
+
+/**
+ * Adds the pay line to a message that doesn't have it yet (e.g. a saved custom template): as its own paragraph
+ * before the sign-off ("Thank you, …"), else at the end. Unchanged when the line is empty or already there.
+ */
+export const withPayLine = (body: string, line: string): string => {
+  const text = String(body || '');
+  if (!line || text.includes(line)) return text;
+  const paras = text.split(/\n\s*\n/);
+  const signOff = paras.findIndex((p, i) => i > 0 && SIGN_OFF_RE.test(p.trim()));
+  if (signOff > 0) paras.splice(signOff, 0, line);
+  else paras.push(line);
+  return paras.join('\n\n');
+};
+
+const PAY_BUTTON_STYLE = 'display: inline-block; background-color: #2148ed; color: #ffffff; padding: 12px 22px; border-radius: 8px; font-weight: 700; text-decoration: none';
+
+/** Converts the plain-text message the user typed into safe HTML (escaped, line breaks kept); a pay line becomes a button. */
 export const plainTextToEmailHtml = (text: string): string =>
   String(text || '')
     .split(/\r?\n\s*\r?\n/)
     .map((para) => para.trim())
     .filter(Boolean)
-    .map((para) => `<p>${escMultiline(para)}</p>`)
+    .map((para) => {
+      const pay = PAY_LINE_RE.exec(para);
+      if (pay) return `<p><a href="${esc(pay[2])}" style="${PAY_BUTTON_STYLE}">${esc(pay[1].trim())}</a></p>`;
+      return `<p>${escMultiline(para)}</p>`;
+    })
     .join('');
 
 /**

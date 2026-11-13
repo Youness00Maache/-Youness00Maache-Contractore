@@ -121,7 +121,7 @@ const VARIANTS: Array<{ id: string; make: (kind: DocKind, base: any) => any }> =
 ];
 
 const REQUIRED_TEXT: Record<DocKind, (d: any) => string[]> = {
-  invoice: (d) => [d.invoiceNumber, d.clientName, d.notes?.split('\n')[0], d.terms, 'Pay online'],
+  invoice: (d) => [d.invoiceNumber, d.clientName, d.notes?.split('\n')[0], d.terms, 'Pay now'],
   estimate: (d) => [d.estimateNumber, d.clientName, d.terms, d.notes, d.clientSignedBy],
   workOrder: (d) => [d.workOrderNumber, d.description?.split('\n')[0], d.materialsUsed, d.terms, d.status],
   dailyReport: (d) => [d.reportNumber, d.weather, d.temperature, d.projectName, d.projectAddress, ...(d.tags || []), 'Materials Delivered'],
@@ -222,6 +222,28 @@ const unitChecks = () => {
     check((report.match(/CONTENT_MARKER/g) || []).length === 1, `legacy adapter ${name} must render daily report content exactly once`);
   }
   check(typeof LegacyA.getAIVisualHtml({ metrics: [{ label: 'Done', value: '80%' }], progress_percentage: 80 }, '#123456') === 'string', 'getAIVisualHtml still exported');
+
+  // "get paid": Scan-to-pay QR (https links, every design), amount filled into PayPal.me, hidden once paid; financing note
+  const payInv = { ...ref, invoiceNumber: 'INV-QR', status: 'Sent', paypalLink: 'https://paypal.me/acme', payLinkLabel: 'PayPal' };
+  const finEst = { ...ref, estimateNumber: 'EST-FIN', status: 'Sent', financingLink: 'https://apply.lender.example/acme', financingMinAmount: 100 };
+  for (const id of templates) {
+    const r = renderDocument(FormType.Invoice, { ...payInv, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+    check(r.html.includes('class="cd-pay-qr"') && /<svg[^>]*viewBox="0 0 \d+ \d+"/.test(r.html) && r.html.includes('Scan to pay'), `[${id}] invoice with an https pay link must show the "Scan to pay" QR`);
+    check(r.html.includes('https://paypal.me/acme/203.00') && r.html.includes('Pay now with PayPal'), `[${id}] pay button must carry the amount due (PayPal.me) and the service name`);
+    const e = renderDocument(FormType.Estimate, { ...finEst, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+    check(e.html.includes('Financing available') && e.html.includes('https://apply.lender.example/acme'), `[${id}] estimate at/above the financing amount must show "Financing available"`);
+  }
+  const paidInv = renderDocument(FormType.Invoice, { ...payInv, status: 'Paid' }, SAMPLE_PROFILE, SAMPLE_JOB);
+  check(!paidInv.model.paymentLink && !paidInv.html.includes('class="cd-pay-qr"'), 'paid invoice: no pay button and no QR');
+  const partInv = renderDocument(FormType.Invoice, { ...payInv, amountPaid: 103 }, SAMPLE_PROFILE, SAMPLE_JOB);
+  check(partInv.html.includes('https://paypal.me/acme/100.00'), 'part-paid invoice: the pay link asks for the balance due ($100.00)');
+  const httpInv = renderDocument(FormType.Invoice, { ...payInv, paypalLink: 'http://pay.example.com/x' }, SAMPLE_PROFILE, SAMPLE_JOB);
+  check(!!httpInv.model.paymentLink && !httpInv.model.paymentLink.qr, 'plain http pay link: button kept (as before), no QR');
+  const lowEst = renderDocument(FormType.Estimate, { ...finEst, financingMinAmount: 5000 }, SAMPLE_PROFILE, SAMPLE_JOB);
+  check(!lowEst.html.includes('Financing available'), 'estimate below the financing amount: no financing note');
+  const badFin = renderDocument(FormType.Estimate, { ...finEst, financingLink: 'javascript:alert(1)' }, SAMPLE_PROFILE, SAMPLE_JOB);
+  check(!badFin.html.includes('Financing available') && !/javascript:/i.test(badFin.html), 'unsafe financing link is ignored');
+  check(!renderDocument(FormType.Invoice, { ...finEst }, SAMPLE_PROFILE, SAMPLE_JOB).html.includes('Financing available'), 'financing is only for estimates');
 
   // field placement: every value a form collects lands in the right box, in every design (scripts/templates-fields.ts)
   modelFieldChecks(check);

@@ -66,6 +66,33 @@ export interface UserProfile {
   gmailAccessToken?: string;
   gmailRefreshToken?: string;
   defaultLaborRate?: number;
+  // ---- "get paid" settings (profiles.default_pay_link …, migration 20261113000200) ----
+  /** contractor's own payment page (PayPal.me, Square, Venmo, Stripe Payment Link, bank page), copied onto new invoices */
+  payLinkDefault?: string;
+  /** short name of that payment service shown on the button ("PayPal") */
+  payLinkLabel?: string;
+  /** financing partner application link (Wisetack, Hearth, …), shown on estimates from `financingMinAmount` */
+  financingLink?: string;
+  financingMinAmount?: number;
+  /** Google review link for the review request after "Mark as paid" (Premium) */
+  googleReviewLink?: string;
+  /** send the review request automatically after "Mark as paid" (Premium, needs Gmail) */
+  reviewAutoSend?: boolean;
+  /** true when the database doesn't have the columns above yet (settings are shown read-only) */
+  paymentSettingsUnavailable?: boolean;
+}
+
+/** One payment recorded with "Mark as paid" (kept on the invoice; the receipt document holds the details). */
+export interface InvoicePayment {
+  id: string;
+  amount: number;
+  /** local calendar date YYYY-MM-DD */
+  date: string;
+  method?: string;
+  /** the Receipt document created for this payment */
+  receiptId?: string;
+  receiptNumber?: string;
+  recordedAt?: string;
 }
 
 export interface Client {
@@ -176,8 +203,20 @@ export interface InvoiceData extends DocumentStyle {
   /** payment terms printed on the invoice */
   terms?: string;
   notes: string;
+  /** "Pay now" link (the contractor's own PayPal / Square / Venmo / Stripe / bank page) */
   paypalLink?: string;
+  /** name of that payment service on the button ("Pay now with PayPal") */
+  payLinkLabel?: string;
   status: 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled';
+  /** payments recorded with "Mark as paid" (date YYYY-MM-DD of the last one in `paidAt` when paid in full) */
+  payments?: InvoicePayment[];
+  paidAt?: string;
+  /** set by the client's "I've paid" (mirrored from documents.payment_reported_* by the database) */
+  paymentReportedAt?: string;
+  paymentReportNote?: string;
+  paymentReportAmount?: number;
+  /** when the review request was sent / copied after payment (one request per invoice) */
+  reviewRequestedAt?: string;
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;
@@ -306,6 +345,9 @@ export interface EstimateData extends DocumentStyle {
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
   /** id of the signed estimate this one revises ("Revise" on a signed estimate) */
   revisionOf?: string;
+  /** financing partner link shown to the client ("Financing available") when the total is at least financingMinAmount */
+  financingLink?: string;
+  financingMinAmount?: number;
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;

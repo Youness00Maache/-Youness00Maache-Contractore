@@ -41,6 +41,8 @@ import { getTranslations } from './utils/translations.ts';
 import { parseView, type AppView } from './lib/routes.ts';
 import { dbApi } from './utils/db.ts';
 import { compressImage } from './utils/imageCompression.ts';
+import type { EstimateHandoff } from './components/requests/RequestDetailModal.tsx';
+import type { ConvertResult } from './components/requests/requestsApi.ts';
 
 // ── Lazy screens (INFRA-005: keep the first load small) ──────────────────────
 const Login = lazy(() => import('./components/Login.tsx'));
@@ -74,6 +76,12 @@ const PriceBookView = lazy(() => import('./components/PriceBookView.tsx'));
 const ProfitCalculatorView = lazy(() => import('./components/ProfitCalculatorView.tsx'));
 const PortalView = lazy(() => import('./components/PortalView.tsx'));
 const DocumentApprovalView = lazy(() => import('./components/DocumentApprovalView.tsx'));
+// "get paid" (NEXT_STEPS 0c): Mark as paid dialog + "payments reported by clients" dashboard card
+const MarkPaidDialog = lazy(() => import('./components/payments/MarkPaidDialog.tsx'));
+const PaymentReportsCard = lazy(() => import('./components/payments/PaymentReportsCard.tsx'));
+// Request-a-quote inbox (dashboard) and job photo timeline (job page): NEXT_STEPS 0c #5 / #11
+const RequestsInbox = lazy(() => import('./components/requests/RequestsInbox.tsx'));
+const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
@@ -273,6 +281,7 @@ const App: React.FC = () => {
     const showDeleteJobModal = jobToDelete !== null;
     const showDeleteDocModal = docToDelete !== null;
     const [showJobFinancials, setShowJobFinancials] = useState(false);
+    const [markPaidDoc, setMarkPaidDoc] = useState<FormDataType | null>(null);
 
     // Refs that callbacks read (avoid stale closures in long-lived listeners)
     const sessionUserIdRef = useRef<string | null>(null);
@@ -1243,6 +1252,18 @@ const App: React.FC = () => {
         setForms(prev => prev.map(f => (idSet.has(f.id) ? { ...f, data: { ...(f.data as any), viewedByProvider: true } } : f)));
     };
 
+    /** "Mark as paid" saved documents (the invoice and the receipt it created): keep lists, usage and stock in step. */
+    const handlePaymentRecorded = (docs: FormDataType[]) => {
+        const known = new Set(forms.map(f => f.id));
+        const saved = docs.map(doc => ({ ...doc, createdAt: doc.createdAt || forms.find(f => f.id === doc.id)?.createdAt || new Date().toISOString() }));
+        saved.forEach(primeDocumentCache);
+        setForms(prev => mergeDocuments(prev.filter(f => !saved.some(s => s.id === f.id)), saved));
+        saved.filter(doc => !known.has(doc.id) && doc.type === FormType.Receipt).forEach(doc => bumpDocUsage(doc.jobId));
+        refreshUsage();
+        const uid = sessionUserIdRef.current;
+        if (uid && saved.some(doc => doc.type === FormType.Invoice)) loadInventory(uid).catch(() => undefined);
+    };
+
     const handleDuplicateDoc = async (form: FormDataType) => {
         const uid = sessionUserIdRef.current;
         if (!uid) return;
@@ -1500,6 +1521,34 @@ const App: React.FC = () => {
     const renderJobAIModal = (_job: Job) => null;
     // ── end AI-owned render helpers ──
 
+    // ── Request-a-quote (NEXT_STEPS 0c #5): a converted request's job and client join the lists; "Draft estimate
+    //    with AI" opens the job, then sends the request text + photos to the job's assistant as one message (the
+    //    assistant only proposes a draft estimate; nothing is saved until the contractor opens and saves it).
+    const aiHandoffRef = useRef<EstimateHandoff | null>(null);
+    const [aiHandoffTick, setAiHandoffTick] = useState(0);
+    useEffect(() => {
+        const h = aiHandoffRef.current;
+        if (!h || !ai.isOpen || ai.mode !== 'job' || ai.job?.id !== h.jobId) return;
+        aiHandoffRef.current = null;
+        void ai.send(h.prompt, { images: h.images });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ai.isOpen, ai.mode, ai.job?.id, aiHandoffTick]);
+
+    const handleRequestConverted = (res: ConvertResult) => {
+        const created = mapJobRow(res.job);
+        setJobs(prev => [created, ...prev.filter(j => j.id !== created.id)]);
+        const uid = sessionUserIdRef.current;
+        if (uid) loadClients(uid).catch(() => undefined);
+        refreshUsage();
+    };
+
+    const handleDraftEstimate = (h: EstimateHandoff) => {
+        aiHandoffRef.current = h;
+        navigate(`/jobs/${h.jobId}`);
+        ai.openForJob({ id: h.jobId } as Job); // the hook keeps only the id; the job itself comes from `jobs`
+        setAiHandoffTick(n => n + 1);
+    };
+
     // ── Screens ──────────────────────────────────────────────────────────────
     const renderNotFoundJob = () => (
         <div className="page">
@@ -1524,6 +1573,26 @@ const App: React.FC = () => {
             loading={!jobsLoaded}
             t={t}
             aiSlot={renderDashboardAI()}
+            paymentsSlot={(
+                <Suspense fallback={null}>
+                    <PaymentReportsCard refreshKey={forms} jobNameById={new Map(jobs.map(j => [j.id, j.name]))} onOpen={openDocument} onMarkPaid={setMarkPaidDoc} />
+                </Suspense>
+            )}
+            requestsSlot={(
+                <Suspense fallback={null}>
+                    <RequestsInbox
+                        plan={plan}
+                        companyName={profile?.companyName || profile?.name}
+                        logoUrl={profile?.logoUrl}
+                        phone={profile?.phone}
+                        checkJobLimit={() => checkLimit('jobs')}
+                        onConverted={handleRequestConverted}
+                        onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                        onUpgrade={openUpgrade}
+                        onDraftEstimate={handleDraftEstimate}
+                    />
+                </Suspense>
+            )}
             onNewJob={() => navigateToCreateJob('dashboard')}
             onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
             onOpenDocument={openDocument}
@@ -1567,6 +1636,12 @@ const App: React.FC = () => {
                 onLoadMore={() => loadDocumentsForJob(job.id)}
                 onOpenFinancials={() => setShowJobFinancials(true)}
                 onUpgrade={() => openUpgrade(`Free plan: ${effectiveUsage.limits.docs} documents per job each month.`)}
+                onMarkPaid={setMarkPaidDoc}
+                photosSlot={(
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobPhotos job={job} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} />
+                    </Suspense>
+                )}
             />
         );
     };
@@ -1624,7 +1699,7 @@ const App: React.FC = () => {
         };
 
         switch (formType) {
-            case FormType.Invoice: return <InvoiceForm key={componentKey} {...common} userProfile={profile} invoice={form?.data as InvoiceData | null} onClose={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
+            case FormType.Invoice: return <InvoiceForm key={componentKey} {...common} userProfile={profile} invoice={form?.data as InvoiceData | null} onClose={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} onPaymentRecorded={handlePaymentRecorded} onUpgrade={openUpgrade} onEmailSent={handleEmailSent} onOpenReceipt={(r) => openDocument(r, true)} onOpenSettings={() => navigate('/settings#payments')} />;
             case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} {...common} profile={profile} report={form?.data as DailyJobReportData | null} onBack={handleCloseForm} />;
             case FormType.Note: return <NoteForm key={componentKey} {...common} profile={profile} note={form?.data as NoteData | null} createdAt={form?.createdAt} onBack={handleCloseForm} />;
             case FormType.WorkOrder: return <WorkOrderForm key={componentKey} {...common} profile={profile} data={form?.data as WorkOrderData | null} onBack={handleCloseForm} />;
@@ -1755,7 +1830,7 @@ const App: React.FC = () => {
                         onManageBilling={handleManageBilling}
                         onSaveSignature={handleSaveSignature}
                         onDeleteAccount={handleDeleteAccount}
-                        initialSection={location.hash === '#billing' ? 'billing' : undefined}
+                        initialSection={location.hash === '#billing' ? 'billing' : location.hash === '#payments' ? 'payments' : undefined}
                     />
                 );
             case 'billingSuccess':
@@ -1938,6 +2013,25 @@ const App: React.FC = () => {
             {showJobFinancials && viewJob && (
                 <Suspense fallback={null}>
                     <JobFinancialsModal job={viewJob} defaultLaborRate={profile?.defaultLaborRate} onClose={() => setShowJobFinancials(false)} />
+                </Suspense>
+            )}
+
+            {/* "Mark as paid" from the job page menu or the dashboard (the invoice form opens its own) */}
+            {markPaidDoc && profile && (
+                <Suspense fallback={null}>
+                    <MarkPaidDialog
+                        invoice={markPaidDoc}
+                        onClose={() => setMarkPaidDoc(null)}
+                        onRecorded={handlePaymentRecorded}
+                        profile={profile}
+                        job={jobs.find(j => j.id === markPaidDoc.jobId) || null}
+                        clients={clients}
+                        clientId={jobs.find(j => j.id === markPaidDoc.jobId)?.clientId ?? null}
+                        onUpgrade={openUpgrade}
+                        onEmailSent={handleEmailSent}
+                        onOpenReceipt={(r) => openDocument(r, true)}
+                        onOpenSettings={() => navigate('/settings#payments')}
+                    />
                 </Suspense>
             )}
 

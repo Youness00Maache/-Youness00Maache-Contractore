@@ -7,7 +7,9 @@ import { EstimateIcon, FileTextIcon, TrendingUpIcon, EyeIcon, EyeOffIcon, Invoic
 import ShareModal from './ShareModal.tsx';
 import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
-import { DateField, FieldGrid, FormSection, MoneyField, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
+import { DateField, FieldGrid, FormSection, MoneyField, SelectField, TextAreaField, TextField, Toggle } from './forms/Fields.tsx';
+import { financingFor, normalizeHttpsUrl } from '../lib/payments.ts';
+import DocumentRemindersPanel from './reminders/DocumentRemindersPanel.tsx';
 import { AIInsightsSection, ApprovalSection, ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
 import LineItemsEditor from './forms/LineItemsEditor.tsx';
 import TotalsPanel from './forms/TotalsPanel.tsx';
@@ -104,6 +106,7 @@ const EstimateForm: React.FC<Props> = ({
     const [shareOpen, setShareOpen] = useState(false);
     const [convertOpen, setConvertOpen] = useState(false);
     const [converting, setConverting] = useState(false);
+    const [financingOpen, setFinancingOpen] = useState(false);
     const download = (d: EstimateData) => generateEstimatePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID);
     const stockLookup = useMemo(() => makeStockLookup(inventoryItems, data), [inventoryItems, data]);
     const idRef = useRef<string | undefined>(documentId);
@@ -138,6 +141,8 @@ const EstimateForm: React.FC<Props> = ({
                 signatureUrl: '',
                 templateId: DEFAULT_TEMPLATE_ID,
                 themeColors: { ...DEFAULT_THEME },
+                // financing partner link from Settings → Payments & reviews (shown when the total reaches the amount)
+                ...(profile.financingLink ? { financingLink: profile.financingLink, financingMinAmount: toNumber(profile.financingMinAmount) } : {}),
             };
         },
         hydrate: d => backfillCompany({
@@ -148,11 +153,16 @@ const EstimateForm: React.FC<Props> = ({
             notes: d.notes ?? '',
             terms: d.terms ?? '',
             status: d.status || 'Draft',
+            // estimates made before the financing link was set get it too (never added to a signed one)
+            ...(d.financingLink === undefined && profile.financingLink && !isClientSigned(d)
+                ? { financingLink: profile.financingLink, financingMinAmount: toNumber(profile.financingMinAmount) }
+                : {}),
         }, profile),
         validate: d => {
             if (!String(d.estimateNumber || '').trim()) return 'Add an estimate number.';
             if (!isISODate(d.issueDate)) return 'Add a valid issue date.';
             if (d.expiryDate && isISODate(d.expiryDate) && d.expiryDate < d.issueDate) return 'The expiry date is before the issue date.';
+            if (d.financingLink && !normalizeHttpsUrl(d.financingLink)) return 'The financing link must be a web address (https://…).';
             // Short stock never blocks saving (a payment/approval must always be recordable): the database lets stock
             // go negative and flags it in the inventory history; line rows already show stock warnings.
             return null;
@@ -174,6 +184,8 @@ const EstimateForm: React.FC<Props> = ({
     const marginTone = margin >= 30 ? 'text-success' : margin >= 15 ? 'text-warning' : 'text-destructive';
     const token = lock.newToken ?? publicToken ?? form.lastSaveResult?.public_token ?? null;
     const accepted = isClientSigned(d) || d.status === 'Accepted';
+    const showFinancing = financingOpen || Boolean(d.financingLink);
+    const financing = financingFor(d);
 
     const openConvert = async () => {
         // the invoice links back to the SAVED estimate
@@ -286,10 +298,48 @@ const EstimateForm: React.FC<Props> = ({
                 </LockedFieldset>
             </FormSection>
 
+            {/* automatic estimate follow-ups (components/reminders); outside the signed lock */}
+            <DocumentRemindersPanel type="Estimate" documentId={idRef.current} data={d} clientId={(d as any).clientId} />
+
             <LockedFieldset locked={locked} className="space-y-6">
                 <FormSection title="Notes & terms" description="Printed on the estimate.">
                     <TextAreaField label="Notes" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Scope, exclusions, schedule…" />
                     <TextAreaField label="Terms & conditions" value={d.terms} onChange={v => update({ terms: v })} rows={4} />
+                </FormSection>
+
+                <FormSection title="Financing" description="Offer your financing partner on larger jobs. The client sees “Financing available” in the portal and on the PDF; the lender shows the terms.">
+                    <Toggle
+                        checked={showFinancing}
+                        onChange={on => {
+                            setFinancingOpen(on);
+                            if (!on) update({ financingLink: '' });
+                            else if (!d.financingLink && profile.financingLink) update({ financingLink: profile.financingLink, financingMinAmount: toNumber(profile.financingMinAmount) });
+                        }}
+                        label="Show “Financing available”"
+                        description="Paste the application link from Wisetack, Hearth, GoodLeap or your lender (save it once in Settings → Payments & reviews)."
+                    />
+                    {showFinancing && (
+                        <FieldGrid>
+                            <TextField
+                                label="Financing link"
+                                type="url"
+                                inputMode="url"
+                                value={d.financingLink || ''}
+                                onChange={v => update({ financingLink: v })}
+                                onBlur={() => { const n = normalizeHttpsUrl(d.financingLink); if (n && n !== d.financingLink) update({ financingLink: n }); }}
+                                placeholder="https://"
+                                error={d.financingLink && !normalizeHttpsUrl(d.financingLink) ? 'Enter a web address starting with https://' : undefined}
+                            />
+                            <MoneyField
+                                label="Show when the total is at least"
+                                value={toNumber(d.financingMinAmount)}
+                                onValueChange={v => update({ financingMinAmount: v })}
+                                hint={financing
+                                    ? `Shown: this estimate (${formatMoney(totals.total)}) qualifies.`
+                                    : d.financingLink && normalizeHttpsUrl(d.financingLink) ? `Hidden: the total is below ${formatMoney(toNumber(d.financingMinAmount))}.` : undefined}
+                            />
+                        </FieldGrid>
+                    )}
                 </FormSection>
             </LockedFieldset>
 

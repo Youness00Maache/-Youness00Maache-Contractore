@@ -7,6 +7,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.ts';
 import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
+import { portalShareMessage } from '../lib/messaging.ts';
+import { MessageAppButtons } from './MessageAppButtons.tsx';
 import {
     approvalUrl,
     copyToClipboard,
@@ -1139,6 +1141,12 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                         <RefreshCwIcon className="h-4 w-4" /> New link
                                     </button>
                                 </div>
+                                {/* send it from your own phone: Messages / WhatsApp open with the link typed in */}
+                                <MessageAppButtons
+                                    className="mt-2 [&>a]:flex-1"
+                                    phone={client.phone}
+                                    message={portalShareMessage({ clientName: client.name, company, link: portalUrl(client.portal_key) })}
+                                />
                             </>
                         ) : (
                             <button type="button" className="btn btn-primary mt-3 min-h-[40px] w-full" onClick={createPortal} disabled={portalBusy}>

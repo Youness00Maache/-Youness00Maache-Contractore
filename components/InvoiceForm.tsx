@@ -1,8 +1,11 @@
-import React, { useMemo, useState } from 'react';
-import { FormType, type InvoiceData, type Job, type UserProfile, type SavedItem, type InventoryItem, type Client } from '../types.ts';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
+import { FormType, type InvoiceData, type Job, type UserProfile, type SavedItem, type InventoryItem, type Client, type FormData as FormDataType } from '../types.ts';
 import { generateInvoicePDF } from '../services/pdfGenerator.ts';
-import { computeDocumentTotals, toNumber } from '../utils/money.ts';
-import { InvoiceIcon, ClockIcon, CreditCardIcon, FileTextIcon, PercentIcon } from './Icons.tsx';
+import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
+import { InvoiceIcon, ClockIcon, CreditCardIcon, FileTextIcon, PercentIcon, CheckCircleIcon } from './Icons.tsx';
+import { PAY_SERVICES, canMarkPaid, payLinkFor, paymentReportOf, withoutPaymentReport } from '../lib/payments.ts';
+import { clearPaymentReport } from '../lib/paymentsApi.ts';
+import DocumentRemindersPanel from './reminders/DocumentRemindersPanel.tsx';
 import ShareModal from './ShareModal.tsx';
 import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
@@ -35,7 +38,15 @@ interface InvoiceFormProps {
     documentId?: string;
     publicToken?: string | null;
     existingNumbers?: string[];
+    /** "Mark as paid" changed documents (the invoice and the receipt it created): the parent updates its lists */
+    onPaymentRecorded?: (docs: FormDataType[]) => void;
+    onUpgrade?: (reason?: string) => void;
+    onEmailSent?: () => void;
+    onOpenReceipt?: (receipt: FormDataType) => void;
+    onOpenSettings?: () => void;
 }
+
+const MarkPaidDialog = lazy(() => import('./payments/MarkPaidDialog.tsx'));
 
 const RECURRENCE_MONTHS: Record<string, number> = { Monthly: 1, Quarterly: 3, 'Bi-Annually': 6, Annually: 12 };
 const DUE_TERMS = [
@@ -52,6 +63,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
     const goBack = props.onClose || props.onBack || (() => undefined);
     const [shareOpen, setShareOpen] = useState(false);
     const [payLinkOpen, setPayLinkOpen] = useState(Boolean(saved?.paypalLink));
+    const [markPaidDoc, setMarkPaidDoc] = useState<FormDataType | null>(null);
+    const [reportBusy, setReportBusy] = useState(false);
 
     const download = (d: InvoiceData) => generateInvoicePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID);
     const stockLookup = useMemo(() => makeStockLookup(inventoryItems, saved), [inventoryItems, saved]);
@@ -77,7 +90,9 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                 taxRate: 0,
                 shipping: 0,
                 notes: 'Thank you for your business.',
-                paypalLink: '',
+                // the default "Pay now" link from Settings → Payments & reviews (editable on each invoice)
+                paypalLink: profile.payLinkDefault || '',
+                ...(profile.payLinkDefault && profile.payLinkLabel ? { payLinkLabel: profile.payLinkLabel } : {}),
                 companyName: profile.companyName || '',
                 companyAddress: profile.address || '',
                 companyPhone: profile.phone || '',
@@ -119,6 +134,35 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
     const progress = Boolean(d.isProgressBilling);
     const showPayLink = payLinkOpen || Boolean(d.paypalLink);
     const recurrence = d.recurrence || { enabled: false, frequency: 'Monthly' as const };
+    const savedId = documentId ?? form.lastSaveResult?.id;
+    const pay = payLinkFor(d);
+    const report = paymentReportOf(d);
+    const clientId = (d as any).clientId || (job as any).clientId || clients.find(c => c.name.trim().toLowerCase() === String(d.clientName || '').trim().toLowerCase())?.id || null;
+
+    /** "Mark as paid": saves first when needed (the payment is recorded on the saved invoice). */
+    const openMarkPaid = async () => {
+        if ((await form.ensureSaved()) !== 'saved') return;
+        const id = documentId ?? form.lastSaveResult?.id;
+        if (!id) return;
+        setMarkPaidDoc({ id, jobId: job.id, type: FormType.Invoice, createdAt: '', data: form.data, public_token: publicToken ?? form.lastSaveResult?.public_token ?? undefined });
+    };
+    const dismissReport = async () => {
+        if (!savedId) return;
+        setReportBusy(true);
+        try {
+            await clearPaymentReport(savedId);
+            form.replaceSilently(prev => withoutPaymentReport(prev));
+        } catch (e) {
+            form.setFeedback({ tone: 'error', message: e instanceof Error ? e.message : 'Could not update the invoice.' });
+        } finally {
+            setReportBusy(false);
+        }
+    };
+    const markPaidButton = canMarkPaid(d.status) && totals.total > 0 ? (
+        <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => void openMarkPaid()} disabled={form.busy}>
+            <CheckCircleIcon className="h-4 w-4" /> Mark as paid
+        </button>
+    ) : null;
 
     const setRecurrence = (patch: Partial<NonNullable<InvoiceData['recurrence']>>) =>
         update(prev => ({ ...prev, recurrence: { enabled: false, frequency: 'Monthly', ...prev.recurrence, ...patch } }));
@@ -149,10 +193,32 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
             actions={(
                 <>
                     <AIFillButton jobId={job.id} formType={FormType.Invoice} onApply={form.applyDraft} compact />
+                    {markPaidButton}
                     <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
                 </>
             )}
         >
+            {report && (
+                <section className="flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Payment reported by the client">
+                    <div className="min-w-0 text-sm">
+                        <p className="font-semibold text-foreground">
+                            Payment reported by {d.clientName || 'the client'}
+                            {report.at ? ` on ${new Date(report.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
+                        </p>
+                        <p className="text-muted-foreground">
+                            {[report.note ? `“${report.note}”` : '', report.amount ? formatMoney(report.amount) : ''].filter(Boolean).join(' · ') || 'They tapped “I’ve paid” on their invoice.'}
+                            {' '}Check that it arrived, then mark the invoice paid.
+                        </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                        <button type="button" className="btn btn-ghost btn-sm min-h-[40px]" onClick={() => void dismissReport()} disabled={reportBusy || form.busy}>Not received</button>
+                        <button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={() => void openMarkPaid()} disabled={form.busy}>
+                            <CheckCircleIcon className="h-4 w-4" /> Mark as paid
+                        </button>
+                    </div>
+                </section>
+            )}
+
             <FormSection title="Invoice details" icon={FileTextIcon} description={d.sourceEstimateNumber ? `Created from estimate ${d.sourceEstimateNumber}.` : undefined}>
                 <FieldGrid>
                     <TextField label="Invoice #" value={d.invoiceNumber} onChange={v => update({ invoiceNumber: v })} />
@@ -219,24 +285,56 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                 />
             </FormSection>
 
-            <FormSection title="Payment" description="Let the client pay online from the PDF." icon={CreditCardIcon}>
+            <FormSection title="Payment" description="Let the client pay online from the portal, the email and the PDF." icon={CreditCardIcon}>
                 <Toggle
                     checked={showPayLink}
                     onChange={on => { setPayLinkOpen(on); if (!on) update({ paypalLink: '' }); }}
                     label="Add a “Pay now” link"
-                    description="Paste your PayPal.me, Stripe or Square payment link."
+                    description="Your own PayPal.me, Square, Venmo, Stripe or bank payment page. The client pays you directly."
                 />
                 {showPayLink && (
-                    <TextField
-                        label="Payment link"
-                        type="url"
-                        inputMode="url"
-                        value={d.paypalLink}
-                        onChange={v => update({ paypalLink: v })}
-                        onBlur={() => { const n = normalizeLinkUrl(d.paypalLink); if (n && n !== d.paypalLink) update({ paypalLink: n }); }}
-                        placeholder="https://paypal.me/yourcompany"
-                        error={d.paypalLink && !normalizeLinkUrl(d.paypalLink) ? 'Enter a web address starting with https://' : undefined}
-                    />
+                    <FieldGrid>
+                        <TextField
+                            label="Payment link"
+                            type="url"
+                            inputMode="url"
+                            value={d.paypalLink}
+                            onChange={v => update({ paypalLink: v })}
+                            onBlur={() => { const n = normalizeLinkUrl(d.paypalLink); if (n && n !== d.paypalLink) update({ paypalLink: n }); }}
+                            placeholder="https://paypal.me/yourcompany"
+                            error={d.paypalLink && !normalizeLinkUrl(d.paypalLink) ? 'Enter a web address starting with https://' : undefined}
+                        />
+                        <TextField
+                            label="Shown as (optional)"
+                            value={d.payLinkLabel || ''}
+                            onChange={v => update({ payLinkLabel: v })}
+                            list="invoice-pay-services"
+                            placeholder="e.g. PayPal"
+                            maxLength={40}
+                            autoComplete="off"
+                            hint={pay ? `Button: “${pay.buttonLabel}” · ${pay.amountLabel.toLowerCase()} ${formatMoney(pay.amount)}${pay.href !== pay.url ? ' (amount filled in)' : ''}` : undefined}
+                        />
+                        <datalist id="invoice-pay-services">{PAY_SERVICES.map(s => <option key={s} value={s} />)}</datalist>
+                    </FieldGrid>
+                )}
+                {showPayLink && d.paypalLink && /^http:\/\//i.test(d.paypalLink.trim()) && (
+                    <p className="text-xs text-muted-foreground">Use the https:// address of your payment page to get the “Scan to pay” code on the PDF and the button in the client portal.</p>
+                )}
+                {!showPayLink && !profile.payLinkDefault && (
+                    <p className="text-xs text-muted-foreground">Tip: save your payment link once in Settings → Payments &amp; reviews and every new invoice gets it.</p>
+                )}
+                {Array.isArray(d.payments) && d.payments.length > 0 && (
+                    <div className="rounded-xl border border-border">
+                        <p className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payments recorded</p>
+                        <ul className="divide-y divide-border text-sm">
+                            {d.payments.map(p => (
+                                <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
+                                    <span>{formatDisplayDate(p.date)}{p.method ? ` · ${p.method}` : ''}{p.receiptNumber ? ` · Receipt ${p.receiptNumber}` : ''}</span>
+                                    <span className="font-semibold tabular-nums">{formatMoney(p.amount)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 )}
             </FormSection>
 
@@ -266,6 +364,9 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                 )}
             </FormSection>
 
+            {/* automatic payment reminders (components/reminders); they stop on "I've paid" / Mark as paid */}
+            <DocumentRemindersPanel type="Invoice" documentId={savedId} data={d} clientId={clientId} />
+
             <FormSection title="Notes" description="Printed at the bottom of the invoice.">
                 <TextAreaField label="Notes for the client" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Payment instructions, thank-you note…" />
             </FormSection>
@@ -290,6 +391,28 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                 onDownload={form.download}
                 getPdfDataUri={async () => String(await generateInvoicePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
             />
+
+            {markPaidDoc && (
+                <Suspense fallback={null}>
+                    <MarkPaidDialog
+                        invoice={markPaidDoc}
+                        onClose={() => setMarkPaidDoc(null)}
+                        onRecorded={docs => {
+                            const inv = docs.find(x => x.id === markPaidDoc.id);
+                            if (inv) form.replaceSilently(inv.data as InvoiceData);
+                            props.onPaymentRecorded?.(docs);
+                        }}
+                        profile={profile}
+                        job={job}
+                        clients={clients}
+                        clientId={clientId}
+                        onUpgrade={props.onUpgrade}
+                        onEmailSent={props.onEmailSent}
+                        onOpenReceipt={props.onOpenReceipt}
+                        onOpenSettings={props.onOpenSettings}
+                    />
+                </Suspense>
+            )}
         </FormShell>
     );
 };

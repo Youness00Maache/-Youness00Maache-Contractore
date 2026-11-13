@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import type { Client, EmailTemplate, Job, UserProfile } from '../types.ts';
 import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
 import { approvalUrl, copyToClipboard, ensureApprovalToken, ensurePortalKey, portalUrl } from '../utils/clientLinks.ts';
-import { fillEmailPlaceholders, senderIdentity } from '../utils/emailTemplates.ts';
+import { fillEmailPlaceholders, payNowLine, senderIdentity, withPayLine } from '../utils/emailTemplates.ts';
+import { payLinkFor } from '../lib/payments.ts';
+import { shortShareMessage } from '../lib/messaging.ts';
+import { MessageAppButtons } from './MessageAppButtons.tsx';
 import { CopyIcon, MailIcon, XCircleIcon, DownloadIcon, ShareIcon, GlobeIcon, UsersIcon, CheckIcon, AlertTriangleIcon } from './Icons.tsx';
 
 interface ShareModalProps {
@@ -58,7 +61,8 @@ const defaultTemplate = (docType: string, hasLink: boolean): EmailTemplate => {
     if (type === 'invoice') {
         return {
             subject: 'Invoice [Document Number] from [My Company]',
-            body: `Hi [Client Name],\n\nHere is invoice [Document Number] for [Total Amount].${hasLink ? '\n\nView it online: [Link]' : ''}\n\nPlease let me know if you have any questions.\n\nThank you,\n[My Name]\n[My Company]`,
+            // [Pay Now] = "Pay now with PayPal ($1,250.00): https://…" (a button in the sent email), dropped when there's no pay link
+            body: `Hi [Client Name],\n\nHere is invoice [Document Number] for [Total Amount].${hasLink ? '\n\nView it online: [Link]' : ''}\n\n[Pay Now]\n\nPlease let me know if you have any questions.\n\nThank you,\n[My Name]\n[My Company]`,
         };
     }
     if (type === 'estimate' || type === 'change order') {
@@ -123,6 +127,19 @@ const ShareModal: React.FC<ShareModalProps> = ({
     const total = documentTotalOf(data);
     const number = documentNumberOf(data);
     const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    // invoice "Pay now": the contractor's own pay link with the amount still due (deposit / progress / balance)
+    const pay = /^invoice$/i.test(docType) ? payLinkFor(data) : null;
+    const payLine = pay ? payNowLine({ buttonLabel: pay.buttonLabel, amountText: formatMoney(pay.amount), href: pay.href }) : '';
+    const sender = senderIdentity(profile, data?.companyName);
+    const textMessage = shortShareMessage({
+        docType,
+        number: number || String(data?.title || '').trim(),
+        total: total !== null ? formatMoney(total) : '',
+        clientName: recipientName || data?.clientName || client?.name,
+        company: sender.company,
+        link: shareLink,
+        payLine,
+    });
 
     // links: the client's portal (created for legacy clients without a key) is what the message points to
     useEffect(() => {
@@ -151,9 +168,13 @@ const ShareModal: React.FC<ShareModalProps> = ({
             '[Document Number]': number || String(data?.title || '').trim(),
             '[Total Amount]': total !== null ? formatMoney(total) : '',
             '[Link]': shareLink,
+            '[Pay Now]': payLine,
+            '[Pay Link]': pay?.href || '',
         });
         setSubject(fill(tpl.subject));
-        if (!bodyEdited) setBody(fill(tpl.body));
+        // a saved custom template without [Pay Now] still gets the pay line (before the sign-off)
+        const hasPayPlaceholder = /\[Pay (Now|Link)\]/.test(tpl.body);
+        if (!bodyEdited) setBody(hasPayPlaceholder ? fill(tpl.body) : withPayLine(fill(tpl.body), payLine));
     }, [isOpen, shareLink]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -283,7 +304,14 @@ const ShareModal: React.FC<ShareModalProps> = ({
                                 <span className="text-xs text-muted-foreground">Messages, WhatsApp, more</span>
                             </button>
                         )}
+                        {/* from the contractor's own phone: the message and link are typed in, nothing is sent by us */}
+                        <MessageAppButtons variant="tiles" tileClassName={action} phone={recipientName ? '' : client?.phone} message={textMessage} />
                     </div>
+                    {pay && (
+                        <p className="-mt-2 text-xs text-muted-foreground">
+                            The message includes a “{pay.buttonLabel}” link for {formatMoney(pay.amount)} ({pay.amountLabel.toLowerCase()}).
+                        </p>
+                    )}
 
                     {notice && (
                         <p role="status" className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium ${notice.tone === 'ok' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>

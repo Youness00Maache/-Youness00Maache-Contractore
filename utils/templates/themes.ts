@@ -7,7 +7,7 @@ import type { TemplateId } from './registry.ts';
 import { mix } from './colors.ts';
 import {
   block, closingInline, defaultCompose, defaultParties, docNumber, footerHtml, lines, logoImg, metaList, monogram,
-  partyBlocks, payButton, statusBadge, summaryNotes, titleH1, totalsHtml,
+  partyBlocks, payButton, financingNote, statusBadge, summaryNotes, titleH1, totalsHtml,
   type RenderCtx, type ThemeDef,
 } from './blocks.ts';
 import { metaLines, metaStrip, rgba, without } from './kit.ts';
@@ -267,7 +267,9 @@ const executive: ThemeDef = {
   },
   compose: (ctx, p) => {
     const { m } = ctx;
-    const pay = payButton(m) || (m.company.phone || m.company.email ? `<div class="ex-band-text">${[m.company.phone, m.company.email].filter(Boolean).join('<span class="cd-dot">·</span>')}</div>` : '');
+    const contact = m.company.phone || m.company.email ? `<div class="ex-band-text">${[m.company.phone, m.company.email].filter(Boolean).join('<span class="cd-dot">·</span>')}</div>` : '';
+    // estimates: contact line + the financing note (payButton carries it); invoices: the pay button
+    const pay = m.paymentLink ? payButton(m) : contact + financingNote(m);
     const due = m.keyDate ? `<div class="ex-due"><div class="ex-band-label">${m.keyDate.label}</div><div class="ex-band-big">${m.keyDate.value}</div></div>` : '';
     const left = `<div class="ex-band-col"><div class="ex-band-h">${m.paymentLink ? 'Payment' : 'Contact'}</div>${pay}${summaryNotes(m)}${due}${m.closing ? `<div class="ex-band-thanks">${m.closing}</div>` : ''}</div>`;
     const band = `<section class="cd-block cd-pin ex-band${m.totals.length ? '' : ' ex-band-slim'}"${m.totals.length || m.paymentLink ? '' : ' data-optional="1"'}>${left}${totalsHtml(m.totals)}</section>`;
@@ -433,7 +435,7 @@ const boldHeader: ThemeDef = {
   },
   compose: (ctx, p) => {
     const { m } = ctx;
-    const side = `<div class="bd-sum-side"><div class="bd-sum-h">${m.paymentLink ? 'Payment info' : m.keyDate ? m.keyDate.label : 'Contact'}</div>${payButton(m)}${summaryNotes(m)}${!m.paymentLink && m.keyDate ? `<div class="bd-sum-big">${m.keyDate.value}</div>` : ''}${!m.paymentLink && !m.keyDate ? lines(m.company.lines) : ''}${closingInline(m)}</div>`;
+    const side = `<div class="bd-sum-side"><div class="bd-sum-h">${m.paymentLink ? 'Payment info' : m.keyDate ? m.keyDate.label : 'Contact'}</div>${m.paymentLink ? payButton(m) : ''}${summaryNotes(m)}${!m.paymentLink && m.keyDate ? `<div class="bd-sum-big">${m.keyDate.value}</div>` : ''}${!m.paymentLink && !m.keyDate ? lines(m.company.lines) : ''}${m.paymentLink ? '' : financingNote(m)}${closingInline(m)}</div>`;
     const band = `<section class="cd-block cd-pin bd-band${m.totals.length ? '' : ' bd-band-slim'}"${m.totals.length || m.paymentLink ? '' : ' data-optional="1"'}>${side}${totalsHtml(m.totals)}</section>`;
     return [...defaultCompose(without(p, 'summary')), band];
   },

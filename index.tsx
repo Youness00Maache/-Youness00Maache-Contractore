@@ -10,11 +10,14 @@ import { createRoot, hydrateRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import MarketingSite from './pages/MarketingSite.tsx';
 import { isMarketingPath, isAppCallback, rootBelongsToApp, markLandingForced, normalizePath } from './pages/routes.ts';
+import { requestSlugFromPath } from './components/requests/requestLogic.ts';
 import { preloadRouteData } from './pages/blogLoader.ts';
 import { LogoMark } from './pages/components/Logo.tsx';
 import './index.css';
 
 const App = lazy(() => import('./App.tsx'));
+/** Public request-a-quote page (/r/<slug>): its own small chunk, the app is not loaded. */
+const RequestQuotePage = lazy(() => import('./components/requests/RequestQuotePage.tsx'));
 
 /** Fonts used by the document templates: only needed inside the app, so loaded on demand. */
 const TEMPLATE_FONTS_HREF =
@@ -65,7 +68,22 @@ const Root: React.FC = () => {
     return isAppCallback(location) ? <AppBranch /> : <Navigate to="/dashboard" replace />;
   }
   if (isMarketingPath(path)) return <MarketingSite />;
+  const requestSlug = requestSlugFromPath(location.pathname);
+  if (requestSlug !== null) return <RequestBranch slug={requestSlug} />;
   return <AppBranch />;
+};
+
+/** /r/<slug>: the contractor's public request-a-quote page (no login, no app shell, no ContractorDocs splash). */
+const RequestBranch: React.FC<{ slug: string }> = ({ slug }) => {
+  useEffect(() => {
+    document.documentElement.classList.remove('cd-site');
+    document.documentElement.classList.add('cd-app');
+  }, []);
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" aria-busy="true" />}>
+      <RequestQuotePage slug={slug} />
+    </Suspense>
+  );
 };
 
 const rootElement = document.getElementById('root');

@@ -5,6 +5,10 @@ import { FormType, type UserProfile } from '../types.ts';
 import { ConfirmDialog, EmptyState, Field, InlineError, Modal, NoticeToast, NumberInput, PageHeader, XIcon, money, useNotice } from './viewKit.tsx';
 import { roundMoney, toNumber } from '../utils/money.ts';
 import { toLocalYMD } from '../utils/localDates.ts';
+import {
+  deleteProfitCalculation, loadProfitCalculations, readLocalProfitCalculations, saveProfitCalculation,
+  type SavedProfitCalc, type SyncMode,
+} from '../lib/userData.ts';
 
 interface ProfitItem {
   id: string;
@@ -13,22 +17,14 @@ interface ProfitItem {
   charge: number;
 }
 
-interface SavedCalculation {
-  id: string;
-  name: string;
-  date: string;
-  items: ProfitItem[];
-  vatRate: number;
-  vatEnabled: boolean;
-  margin: number;
-}
+/** Saved calculations live in the account (public.profit_calculations, lib/userData.ts); the device keeps a copy. */
+type SavedCalculation = SavedProfitCalc;
 
 interface ProfitCalculatorViewProps {
   onBack: () => void;
   profile?: UserProfile;
 }
 
-const STORAGE_KEY = 'profit_calcs';
 const newRow = (description = ''): ProfitItem => ({ id: crypto.randomUUID(), description, cost: 0, charge: 0 });
 const starterRows = () => [newRow('Materials'), newRow('Labor')];
 
@@ -46,14 +42,12 @@ export const profitSummary = (items: ProfitItem[], taxEnabled: boolean, taxRate:
 /** Price that yields `marginPct` on `cost` (0 ≤ margin < 100). */
 export const priceForMargin = (cost: number, marginPct: number) => roundMoney(toNumber(cost) / (1 - marginPct / 100));
 
-const loadSaved = (): SavedCalculation[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((c) => c && Array.isArray(c.items)) : [];
-  } catch {
-    return [];
-  }
+/** Where a save ended up, in words. */
+const savedWhere = (mode: SyncMode, name: string, updated: boolean): { kind: 'success' | 'info' | 'error'; text: string } => {
+  if (mode === 'account') return { kind: 'success', text: updated ? `"${name}" updated.` : `"${name}" saved to your account.` };
+  if (mode === 'device') return { kind: 'info', text: `"${name}" saved on this device. It will be added to your account automatically.` };
+  if (mode === 'offline') return { kind: 'info', text: `"${name}" saved on this device. It will be added to your account when you're back online.` };
+  return { kind: 'error', text: 'Could not save the calculation. Check your connection and try again.' };
 };
 
 const health = (margin: number, hasRevenue: boolean) => {
@@ -78,14 +72,27 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
   const [resetOpen, setResetOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
+  const [syncMode, setSyncMode] = useState<SyncMode | 'loading'>('loading');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [busy, setBusy] = useState(false);
   const { notice, notify, clear } = useNotice();
+  const uid = profile?.id || '';
 
-  useEffect(() => { setSaved(loadSaved()); }, []);
-
-  const persist = (list: SavedCalculation[]) => {
-    setSaved(list);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch { notify('error', 'Could not save on this device (storage is full or blocked).'); }
-  };
+  // Device copy first (instant, works offline), then the account list (uploads anything saved only on this device).
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    setSaved(readLocalProfitCalculations(uid));
+    setSyncMode('loading');
+    loadProfitCalculations(uid).then((res) => {
+      if (cancelled) return;
+      setSaved(res.list);
+      setSyncMode(res.mode);
+      setPendingCount(res.pending);
+      if (res.uploaded > 0) notify('success', `${res.uploaded} saved calculation${res.uploaded === 1 ? ' was' : 's were'} added to your account from this device.`);
+    });
+    return () => { cancelled = true; };
+  }, [uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const s = useMemo(() => profitSummary(items, taxEnabled, taxRate), [items, taxEnabled, taxRate]);
   const h = health(s.margin, s.totalCharge > 0);
@@ -102,15 +109,36 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
     notify('success', `Prices set for a ${targetMargin}% margin on ${withCost} line${withCost === 1 ? '' : 's'} with a cost.`);
   };
 
-  const doSave = () => {
+  const doSave = async () => {
     const name = saveName.trim();
-    if (!name) return;
+    if (!name || busy) return;
+    if (!uid) { notify('error', 'Your account is still loading. Try again in a moment.'); return; }
     const existing = saved.find((c) => c.name.toLowerCase() === name.toLowerCase());
     const calc: SavedCalculation = { id: existing?.id || crypto.randomUUID(), name, date: new Date().toISOString(), items, vatRate: taxRate, vatEnabled: taxEnabled, margin: s.margin };
-    persist([calc, ...saved.filter((c) => c.id !== calc.id)]);
-    setCalcName(name);
-    setSaveOpen(false);
-    notify('success', existing ? `"${name}" updated.` : `"${name}" saved on this device.`);
+    setBusy(true);
+    try {
+      const res = await saveProfitCalculation(uid, calc);
+      if (res.mode === 'failed') {
+        notify('error', savedWhere(res.mode, name, !!existing).text);
+        return;
+      }
+      setSaved((prev) => [res.calc, ...prev.filter((c) => c.id !== res.calc.id)]);
+      if (res.mode !== 'account') { setSyncMode(res.mode); setPendingCount((n) => n + (existing ? 0 : 1)); }
+      setCalcName(name);
+      setSaveOpen(false);
+      const msg = savedWhere(res.mode, name, !!existing);
+      notify(msg.kind === 'error' ? 'error' : msg.kind === 'info' ? 'info' : 'success', msg.text);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doDelete = async (calc: SavedCalculation) => {
+    setDeleteFor(null);
+    if (!uid) return;
+    const res = await deleteProfitCalculation(uid, calc.id);
+    if (!res.ok) { notify('error', `Could not delete "${calc.name}". Check your connection and try again.`); return; }
+    setSaved((prev) => prev.filter((c) => c.id !== calc.id));
   };
 
   const doLoad = (calc: SavedCalculation) => {

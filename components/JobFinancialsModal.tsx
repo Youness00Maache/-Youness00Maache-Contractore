@@ -5,6 +5,7 @@ import { formatMoney } from '../utils/money.ts';
 import {
     COLLECTED_DEFINITION, PROFIT_DEFINITION, PROFIT_FORMULA, rememberLaborRate, resolveLaborRate, summarizeJobMoney, type FinanceDoc,
 } from '../lib/finance.ts';
+import { saveLaborRateToAccount } from '../lib/userData.ts';
 import { CalculatorIcon, XCircleIcon, InvoiceIcon, BoxIcon, ClockIcon, ExpenseLogIcon, BarChartIcon, InfoIcon, EstimateIcon } from './Icons.tsx';
 import { Skeleton } from './ui/Skeleton.tsx';
 
@@ -161,6 +162,7 @@ const JobFinancialsModal: React.FC<JobFinancialsModalProps> = ({ job, defaultLab
                                         const v = Math.max(0, Number(e.target.value) || 0);
                                         setRate(v);
                                         rememberLaborRate(v);
+                                        saveLaborRateToAccount(v);
                                     }}
                                     className="input sm:w-32"
                                 />

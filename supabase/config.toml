@@ -420,6 +420,10 @@ verify_jwt = true
 [functions.gmail]
 verify_jwt = true
 
+# Called by pg_cron through pg_net (no user JWT); it checks the x-reminders-secret header instead.
+[functions.reminders]
+verify_jwt = false
+
 [functions.ai-assistant]
 verify_jwt = true
 

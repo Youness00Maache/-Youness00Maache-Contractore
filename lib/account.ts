@@ -24,6 +24,8 @@ export const SUPPORT_EMAIL: string = (((import.meta as any).env || {}).VITE_SUPP
 /** Columns the app needs. Optional ones are retried without if the database doesn't have them yet. */
 const CORE_PROFILE_COLUMNS = 'id, email, name, company_name, logo_url, profile_picture_url, address, phone, website, job_title, subscription_tier, language, email_templates, theme';
 const OPTIONAL_PROFILE_COLUMNS = ['subscription_status', 'subscription_period_end', 'default_labor_rate', 'default_signature_url'];
+/** "Get paid" settings (migration 20261113000200); loaded in a separate step so a missing one never drops the others. */
+const PAYMENT_PROFILE_COLUMNS = ['default_pay_link', 'default_pay_link_label', 'financing_link', 'financing_min_amount', 'google_review_link', 'review_auto_send'];
 
 export const isMissingColumnError = (error: { code?: string; message?: string } | null | undefined) =>
     !!error && (error.code === '42703' || error.code === 'PGRST204' || /column .* does not exist|could not find the .* column/i.test(error.message || ''));
@@ -61,6 +63,16 @@ export const mapProfileRow = (row: any): AppProfile => {
         subscriptionStatus: normalizeStatus(row.subscription_status, plan),
         subscriptionPeriodEnd: row.subscription_period_end || null,
         defaultSignatureUrl: row.default_signature_url || undefined,
+        ...(('default_pay_link' in (row || {}))
+            ? {
+                payLinkDefault: row.default_pay_link || '',
+                payLinkLabel: row.default_pay_link_label || '',
+                financingLink: row.financing_link || '',
+                financingMinAmount: row.financing_min_amount != null ? Number(row.financing_min_amount) || 0 : 0,
+                googleReviewLink: row.google_review_link || '',
+                reviewAutoSend: row.review_auto_send === true,
+            }
+            : {}),
     };
 };
 
@@ -69,14 +81,23 @@ export const mapProfileRow = (row: any): AppProfile => {
  * Returns null only when the row doesn't exist and could not be created; throws on other errors.
  */
 export async function loadProfileRow(user: { id: string; email?: string | null; user_metadata?: any }, preferredTheme: ThemeName): Promise<AppProfile> {
-    let columns = [CORE_PROFILE_COLUMNS, ...OPTIONAL_PROFILE_COLUMNS].join(', ');
+    let columns = [CORE_PROFILE_COLUMNS, ...OPTIONAL_PROFILE_COLUMNS, ...PAYMENT_PROFILE_COLUMNS].join(', ');
     let result = await supabase.from('profiles').select(columns).eq('id', user.id).maybeSingle();
+    let paymentColumns = true;
+    if (result.error && isMissingColumnError(result.error)) {
+        paymentColumns = false;
+        columns = [CORE_PROFILE_COLUMNS, ...OPTIONAL_PROFILE_COLUMNS].join(', ');
+        result = await supabase.from('profiles').select(columns).eq('id', user.id).maybeSingle();
+    }
     if (result.error && isMissingColumnError(result.error)) {
         columns = CORE_PROFILE_COLUMNS;
         result = await supabase.from('profiles').select(columns).eq('id', user.id).maybeSingle();
     }
     if (result.error) throw new Error(result.error.message || 'Could not load your profile.');
-    if (result.data) return mapProfileRow(result.data);
+    if (result.data) {
+        const mapped = mapProfileRow(result.data);
+        return paymentColumns ? mapped : { ...mapped, paymentSettingsUnavailable: true };
+    }
 
     // First sign-in: create the row (billing columns are defaulted server-side).
     const metaName = user.user_metadata?.full_name || user.user_metadata?.name || '';

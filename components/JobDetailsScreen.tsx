@@ -38,7 +38,14 @@ interface JobDetailsScreenProps {
     onLoadMore: () => void;
     onOpenFinancials: () => void;
     onUpgrade: () => void;
+    /** "Mark as paid" in an invoice's menu (optional) */
+    onMarkPaid?: (form: FormDataType) => void;
+    /** Job photo timeline (rendered by App); adds a Documents / Photos switch. URL hash #photos opens it. */
+    photosSlot?: React.ReactNode;
 }
+
+// "get paid": invoice still open (not Paid / Cancelled) and the client's "I've paid" report
+const isOpenInvoice = (form: FormDataType) => String(form.type) === 'Invoice' &&!/^(paid|cancel+ed|void)$/i.test(String((form.data as any)?.status || ''));
 
 const statusTone = (status?: string): string => {
     const s = String(status || '').toLowerCase();
@@ -54,7 +61,8 @@ const DocumentTile: React.FC<{
     onOpen: () => void;
     onDuplicate: () => void;
     onDelete: () => void;
-}> = ({ form, onOpen, onDuplicate, onDelete }) => {
+    onMarkPaid?: () => void;
+}> = ({ form, onOpen, onDuplicate, onDelete, onMarkPaid }) => {
     const meta = getDocTypeMeta(form.type);
     const Icon = meta.icon;
     const d = (form.data || {}) as any;
@@ -80,6 +88,7 @@ const DocumentTile: React.FC<{
                     {d.status && <span className={`badge ${statusTone(d.status)}`}>{d.status}</span>}
                     {signed && <span className="badge badge-success"><CheckCircleIcon className="h-3 w-3" /> Client signed</span>}
                     {d.isAiGenerated && <span className="badge badge-primary"><SparklesIcon className="h-3 w-3" /> AI drafted</span>}
+                    {d.paymentReportedAt && isOpenInvoice(form) && <span className="badge badge-warning">Payment reported</span>}
                 </div>
             </div>
             <DropdownMenu
@@ -92,6 +101,7 @@ const DocumentTile: React.FC<{
                     </span>
                 }
             >
+                {onMarkPaid && isOpenInvoice(form) && <DropdownItem onClick={onMarkPaid}><CheckCircleIcon className="h-4 w-4" /> Mark as paid</DropdownItem>}
                 <DropdownItem onClick={onDuplicate}><CopyIcon className="h-4 w-4" /> Duplicate as draft</DropdownItem>
                 <DropdownSeparator />
                 <DropdownItem onClick={onDelete} destructive><TrashIcon className="h-4 w-4" /> Delete</DropdownItem>
@@ -103,8 +113,14 @@ const DocumentTile: React.FC<{
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onDeleteDocument, onStatusChange,
-    onLoadMore, onOpenFinancials, onUpgrade,
+    onLoadMore, onOpenFinancials, onUpgrade, onMarkPaid, photosSlot,
 }) => {
+    // Documents / Photos switch (kept in the URL hash so Back from a photo or a refresh stays on Photos).
+    const [tab, setTabState] = useState<'docs' | 'photos'>(() => (typeof window !== 'undefined' && window.location.hash === '#photos' ? 'photos' : 'docs'));
+    const setTab = (next: 'docs' | 'photos') => {
+        setTabState(next);
+        try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next === 'photos' ? '#photos' : ''}`); } catch { /* ignore */ }
+    };
     // Filters live here, so they reset when another job opens (CORE-025).
     const [query, setQuery] = useState('');
     const [typeFilter, setTypeFilter] = useState<string>('All');
@@ -196,7 +212,19 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 </div>
             )}
 
-            {/* Documents */}
+            {photosSlot && (
+                <div className="mb-4 flex gap-6 border-b border-border" role="tablist" aria-label="Job sections">
+                    {([['docs', t.projectDocs || 'Documents'], ['photos', 'Photos']] as const).map(([id, label]) => (
+                        <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+                            className={`-mb-px min-h-[44px] border-b-2 px-1 text-base font-bold transition ${tab === id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {photosSlot && tab === 'photos' ? photosSlot : (
+            /* Documents */
             <section aria-labelledby="docs-heading">
                 <div className="mb-3 flex items-center justify-between gap-2">
                     <h2 id="docs-heading" className="text-lg font-bold">{t.projectDocs || 'Documents'}</h2>
@@ -256,6 +284,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                                 onOpen={() => onOpenDocument(form)}
                                 onDuplicate={() => onDuplicateDocument(form)}
                                 onDelete={() => onDeleteDocument(form)}
+                                onMarkPaid={onMarkPaid && isOnline ? () => onMarkPaid(form) : undefined}
                             />
                         ))}
                     </div>
@@ -270,6 +299,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                     </div>
                 )}
             </section>
+            )}
         </div>
     );
 };
