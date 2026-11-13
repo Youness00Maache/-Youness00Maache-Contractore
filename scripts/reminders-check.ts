@@ -12,6 +12,7 @@ import { buildValues, DEFAULT_TEMPLATES, fillTemplate, renderReminder, resolveTe
 import { computeTotals, invoiceBalance, receiptsForInvoice } from '../supabase/functions/reminders/shared/money.ts';
 import { factsFromDoc, recipientOf, reminderLink, resolveClient, type DocRow } from '../supabase/functions/reminders/shared/targets.ts';
 import { dispatchReminders, SendFailure, type Claim, type DispatchDeps, type OutgoingReminder } from '../supabase/functions/reminders/shared/dispatch.ts';
+import { constantTimeEqual, verifyCronSecret } from '../supabase/functions/reminders/shared/cronAuth.ts';
 import { computeDocumentTotals } from '../utils/money.ts';
 import { docRowFromForm } from '../lib/reminders.ts';
 
@@ -349,6 +350,30 @@ const main = async () => {
     s.deps.hasTime = () => ++t <= 2;
     const sum = await dispatchReminders([item(1), item(2), item(3), item(4)], s.deps);
     eq('time budget: the rest waits for the next run', [sum.sent, sum.deferred], [2, 2]);
+  }
+
+  /* ============================================================== 9b. cron authentication */
+  {
+    // the secret lives only in the database (Vault); the function asks reminders_check_secret()
+    const dbSecret = 'f'.repeat(64);
+    let dbCalls = 0;
+    const check = async (s: string) => { dbCalls++; return s === dbSecret; };
+    eq('right header: ok (asked the database)', [await verifyCronSecret(dbSecret, { checkInDatabase: check }), dbCalls], ['ok', 1]);
+    eq('wrong header: denied', await verifyCronSecret('e'.repeat(64), { checkInDatabase: check }), 'denied');
+    dbCalls = 0;
+    eq('missing / short / huge header: denied without asking', [
+      await verifyCronSecret(null, { checkInDatabase: check }),
+      await verifyCronSecret('', { checkInDatabase: check }),
+      await verifyCronSecret('short-secret', { checkInDatabase: check }),
+      await verifyCronSecret('x'.repeat(600), { checkInDatabase: check }),
+      dbCalls,
+    ], ['denied', 'denied', 'denied', 'denied', 0]);
+    eq('header whitespace is trimmed', await verifyCronSecret(`  ${dbSecret}\n`, { checkInDatabase: check }), 'ok');
+    eq('database down / not migrated: unavailable (503), never ok', await verifyCronSecret(dbSecret, { checkInDatabase: async () => { throw new Error('function does not exist'); } }), 'unavailable');
+    eq('optional env override works without the database', await verifyCronSecret('o'.repeat(40), { override: 'o'.repeat(40), checkInDatabase: async () => { throw new Error('down'); } }), 'ok');
+    eq('override set but header differs: falls back to the database', await verifyCronSecret(dbSecret, { override: 'o'.repeat(40), checkInDatabase: check }), 'ok');
+    eq('empty override is ignored', await verifyCronSecret('a'.repeat(40), { override: '', checkInDatabase: async () => false }), 'denied');
+    ok('constantTimeEqual', constantTimeEqual('abc', 'abc') && !constantTimeEqual('abc', 'abd') && !constantTimeEqual('abc', 'abcd') && !constantTimeEqual('', ''));
   }
 
   /* ============================================================== 10. wording */

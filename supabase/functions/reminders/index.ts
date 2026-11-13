@@ -1,7 +1,7 @@
 // reminders: sends automatic invoice reminders, estimate follow-ups and visit reminders from each user's own Gmail.
 //
 // Called every 10 minutes by pg_cron (public.reminders_cron_tick() -> pg_net) — never by browsers.
-//   POST { action: 'run', dry_run?: boolean }   header  x-reminders-secret: <REMINDERS_CRON_SECRET>
+//   POST { action: 'run', dry_run?: boolean }   header  x-reminders-secret: <Vault 'reminders_cron_secret'>
 //   -> { ok, sent, skipped, failed, taken, deferred, reasons, users, targets, ms }   (dry_run: what would go out)
 //
 // What goes out when is decided by ./shared/schedule.ts (same code the app uses to show planned dates).
@@ -10,8 +10,10 @@
 // reminder is never sent twice, even when two runs overlap. Free plan: each reminder counts toward the monthly
 // email cap (usage_events kind 'email'); when the cap is reached the reminder is skipped and logged.
 //
-// Secrets (Edge Functions → Secrets): REMINDERS_CRON_SECRET (new, random, same value as the Vault secret
-// 'reminders_cron_secret'), plus the gmail ones: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID,
+// Auth: no secret to set by hand. The migration generates the cron secret inside the database (Vault); this
+// function checks the header with public.reminders_check_secret() through its built-in service-role key.
+// REMINDERS_CRON_SECRET (env) is an optional override, not needed in production.
+// Secrets used (the gmail ones, already set): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID,
 // GOOGLE_CLIENT_SECRET, SITE_URL, TOKEN_ENCRYPTION_KEY (if set for gmail). Deploy with JWT verification OFF.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
@@ -31,6 +33,7 @@ import {
   type ClientRow, type DocRow, type JobRow, type OverrideRow, type ReceiptRow, type RecordRow,
 } from './shared/targets.ts';
 import { dispatchReminders, emptySummary, mergeSummary, SendFailure, type Claim, type OutgoingReminder } from './shared/dispatch.ts';
+import { verifyCronSecret } from './shared/cronAuth.ts';
 
 const SITE_URL = (env('SITE_URL') || 'https://www.contractordocs.app').split(',')[0].trim().replace(/\/+$/, '');
 const USERS_PER_BATCH = 40;
@@ -43,14 +46,6 @@ const MAX_PAGES = 20;
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
-
-/** Constant-time comparison of the shared secret. */
-function secretMatches(given: string, expected: string): boolean {
-  if (!given || !expected || given.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= given.charCodeAt(i) ^ expected.charCodeAt(i);
-  return diff === 0;
-}
 
 const chunks = <T,>(list: T[], size: number): T[][] => {
   const out: T[][] = [];
@@ -561,14 +556,25 @@ async function run(admin: SupabaseClient, opts: { dryRun: boolean }) {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' });
-  const expected = env('REMINDERS_CRON_SECRET');
-  if (!expected) {
-    console.error('[reminders] REMINDERS_CRON_SECRET is not set');
+  let admin: SupabaseClient;
+  try {
+    admin = adminClient();
+  } catch {
     return json(503, { error: 'Reminders are not configured.', code: 'NOT_CONFIGURED' });
   }
-  if (!secretMatches((req.headers.get('x-reminders-secret') ?? '').trim(), expected)) {
-    return json(401, { error: 'Unauthorized', code: 'UNAUTHORIZED' });
-  }
+  const auth = await verifyCronSecret(req.headers.get('x-reminders-secret'), {
+    override: env('REMINDERS_CRON_SECRET'),
+    checkInDatabase: async (secret) => {
+      const { data, error } = await admin.rpc('reminders_check_secret', { p: secret });
+      if (error) {
+        console.error('[reminders] reminders_check_secret failed:', error.code, error.message);
+        throw new Error(error.message);
+      }
+      return data === true;
+    },
+  });
+  if (auth === 'unavailable') return json(503, { error: 'Reminders are not set up yet (migration 20261113000300).', code: 'NOT_MIGRATED' });
+  if (auth !== 'ok') return json(401, { error: 'Unauthorized', code: 'UNAUTHORIZED' });
   let body: Record<string, unknown> = {};
   try {
     const text = await req.text();
@@ -579,7 +585,7 @@ Deno.serve(async (req: Request) => {
   const action = String(body?.action ?? 'run');
   if (action !== 'run') return json(400, { error: 'Unknown action.', code: 'INVALID_ACTION' });
   try {
-    return json(200, await run(adminClient(), { dryRun: body?.dry_run === true }));
+    return json(200, await run(admin, { dryRun: body?.dry_run === true }));
   } catch (e) {
     console.error('[reminders] run failed:', (e as Error)?.message ?? e);
     const missing = /reminders_config|reminder_settings|reminders|relation|schema cache/i.test(String((e as Error)?.message ?? ''));
