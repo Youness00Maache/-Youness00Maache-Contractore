@@ -162,6 +162,9 @@ Owner to test (signed in): create client "QA Client" → its portal shows the QA
 estimate; Get approval / Ask again; Temporary (N); tour; /tutorials; calculator Advanced; AI sample fill.
 Note: the expiry cut-off for "legacy estimates can be signed after expiry" is 2026-11-13 (utils/clientPortalRules.ts
 EXPIRY_RULE_START + SQL _expiry_rule_start()); consider moving it to the go-live date.
+**20:55 owner: the AI must know the whole platform** (exact steps with real button names, no generic answers, and
+"do it for me"). AI helper a5ff00bb5da18ddcd resumed: knowledge base from components/help/helpContent.ts + app map,
+retrieval per message, HOW_TO answers with "Do it for me"/"Take me there", tests. Then redeploy ai-assistant.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
