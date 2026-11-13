@@ -1,83 +1,55 @@
-# ContractorDocs: go-live checklist (owner actions)
+# ContractorDocs: go-live checklist
 
-Everything in the code is done and tested locally. The steps below need **you**, because they involve your passwords,
-secret keys, or approving a deploy. Do them in this order. Each step says how long it takes.
+Production database: Supabase project **ContractoreAI** (`mrpvmszmedsjgmdyohli`).
 
-Your production database is the Supabase project **ContractoreAI** (`mrpvmszmedsjgmdyohli`), already resumed.
+## Already done (by Claude, 2026-11-13)
+- Database tables, security rules, storage buckets and functions loaded into ContractoreAI (19 tables, all with RLS).
+- Supabase Auth URL configuration: Site URL `https://www.contractordocs.app`; redirects `https://www.contractordocs.app/**`,
+  `https://contractordocs.app/**`, `http://localhost:3010/**`.
+- All 5 server functions deployed (`master-ai-router`, `kelviq-checkout`, `kelviq-webhook` (JWT off), `gmail-auth`, `delete-account`).
+- Function settings: `SITE_URL`, `KELVIQ_ENV`, `KELVIQ_PRODUCT_ID`, `GEMINI_MODEL`.
+- Kelviq: ContractorDocs product + Premium/Premium + AI plans (live), webhook endpoint
+  `https://mrpvmszmedsjgmdyohli.supabase.co/functions/v1/kelviq-webhook` with 14 events.
+- Vercel env vars: `VITE_SUPABASE_URL`, `VITE_SITE_URL`, `VITE_KELVIQ_ENV`, `VITE_KELVIQ_PRODUCT_ID`, `VITE_SUPPORT_EMAIL`.
+- Search Console: properties added for `contractordocs.app` and `https://www.contractordocs.app/` (verification file is in the site).
+- All code committed locally on `my-branch` (commit `d02e3dc`).
 
----
+## Left for you (Claude is not allowed to copy passwords, API keys or secrets)
 
-## 1. Security first (2 min)
-- **Rotate the Gemini API key** that was stored in plain text in the old `list_models.js` (now deleted):
-  Google AI Studio → API keys → delete the old key → create a new one. Keep the new key for step 4.
+### 1. Paste the secret keys into Supabase (5 min)
+Open https://supabase.com/dashboard/project/mrpvmszmedsjgmdyohli/functions/secrets and add:
 
-## 2. Database tables (1 min of your time)
-- Sign in again at https://supabase.com/dashboard in Chrome (your session expired), then tell Claude
-  "signed in". Claude loads the tested database (`supabase/migrations/*`) into ContractoreAI for you.
-  *(Alternative: run `npx supabase link --project-ref mrpvmszmedsjgmdyohli` and `npx supabase db push` yourself.)*
-
-## 3. Supabase CLI login (1 min)
-In a terminal in this project folder:
-```bash
-npx supabase login
-```
-```bash
-npx supabase link --project-ref mrpvmszmedsjgmdyohli
-```
-(`link` may ask for the database password: Supabase Dashboard → Project Settings → Database → Reset password if you don't know it.)
-
-## 4. Secrets for the server functions (5 min)
-Get these values first:
-- **Kelviq server API key**: https://app.kelviq.com/settings/api-keys (Live mode) → *Server API Key*.
-- **Kelviq webhook secret**: https://app.kelviq.com/settings/webhooks/new → URL
-  `https://mrpvmszmedsjgmdyohli.supabase.co/functions/v1/kelviq-webhook`, events: `checkout.completed`,
-  `subscription.created`, `subscription.updated`, `subscription.plan_changed`, `subscription.cancelled`,
-  `subscription.paused`, `subscription.resumed`, `invoice.paid`, `invoice.payment_failed`, `order.refunded`
-  → save → copy the signing secret (`kq_whsec_…`).
-- **Gemini API key**: the new one from step 1.
-- **Google OAuth client id + secret** (for "Sign in with Google" and Gmail sending): see `docs/work/GMAIL_SETUP.md`.
-
-Then run (replace the `<...>` parts):
-```bash
-npx supabase secrets set SITE_URL=https://www.contractordocs.app KELVIQ_ENV=live KELVIQ_PRODUCT_ID=45575a06-3bbc-4fe3-9151-ebfc34d19332 GEMINI_MODEL=gemini-flash-latest KELVIQ_SERVER_API_KEY=<kelviq-server-key> KELVIQ_WEBHOOK_SECRET=<kq_whsec_...> GEMINI_API_KEY=<gemini-key> GOOGLE_CLIENT_ID=<google-client-id> GOOGLE_CLIENT_SECRET=<google-client-secret> TOKEN_ENCRYPTION_KEY=<output of: openssl rand -base64 32>
-```
-Keep a copy of `TOKEN_ENCRYPTION_KEY` somewhere safe (if it's lost, everyone has to reconnect Gmail).
-
-## 5. Deploy the server functions (2 min)
-```bash
-npx supabase functions deploy
-```
-(Deploys `master-ai-router`, `kelviq-checkout`, `kelviq-webhook`, `gmail-auth`, `delete-account` with the
-settings in `supabase/config.toml`.) Then in Kelviq → Webhooks → your endpoint → **Send test event** → it should show 200.
-
-## 6. Supabase Auth settings (3 min)
-Supabase Dashboard → Authentication:
-- **URL Configuration** → Site URL `https://www.contractordocs.app`; Redirect URLs:
-  `https://www.contractordocs.app/**`, `https://contractordocs.app/**`.
-- **Sign In / Providers → Google**: enable, paste the Google client id + secret.
-- **Emails → SMTP**: set a custom sender (the built-in one is limited to a few emails per hour).
-
-## 7. Vercel environment variables (3 min)
-Vercel → project **youness00-maache-contractore** → Settings → Environment Variables (Production):
-| Name | Value |
+| Name | Where to get the value |
 |---|---|
-| `VITE_SUPABASE_URL` | `https://mrpvmszmedsjgmdyohli.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | Supabase Dashboard → Project Settings → API → *anon / publishable* key |
-| `VITE_SITE_URL` | `https://www.contractordocs.app` |
-| `VITE_KELVIQ_ENV` | `live` |
-| `VITE_KELVIQ_PRODUCT_ID` | `45575a06-3bbc-4fe3-9151-ebfc34d19332` |
-| `VITE_SUPPORT_EMAIL` | your support address |
+| `KELVIQ_WEBHOOK_SECRET` | The Kelviq tab Claude left open ("Endpoint added", starts with `kq_whsec_`). If you closed it: Kelviq → Settings → Webhooks → endpoint → regenerate secret. |
+| `KELVIQ_SERVER_API_KEY` | https://app.kelviq.com/settings/api-keys (Live) → Server API Key |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey → Create API key (and **delete the old key** that was in `list_models.js`) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud Console OAuth client (see `docs/work/GMAIL_SETUP.md`); only needed for Gmail sending |
+| `TOKEN_ENCRYPTION_KEY` | Any random 32+ character string (e.g. run `openssl rand -base64 32`); keep a copy. Only needed for Gmail. |
 
-## 8. Publish the new site (tell Claude "deploy")
-Vercel deploys from GitHub `main`. Claude can commit this work, push it, and open a pull request into `main` when you say so.
+### 2. One value in Vercel (1 min)
+Vercel → project *youness00-maache-contractore* → Settings → Environment Variables → add
+`VITE_SUPABASE_ANON_KEY` = Supabase → Project Settings → API Keys → **anon / publishable** key (Production + Preview).
 
-## 9. After the first deploy (Claude can do these with you)
-- Search Console: verify `https://www.contractordocs.app/` (file `google58a3bf2c7e0ed45b.html` is already in the site)
-  and submit `https://www.contractordocs.app/sitemap.xml`.
-- Namecheap → `contractordocs.app` → Advanced DNS → add a **TXT** record, host `@`, value
-  `google-site-verification=5SlJQTlsq6Y_-ZjwIUyUrL1cN3ggRy8FkwYTJSZIOfU` (verifies the whole domain in Search Console).
-- Google Cloud: publish the OAuth consent screen ("In production") and request verification for `gmail.send`
-  (`docs/work/GMAIL_SETUP.md`).
-- Kelviq branding: your Kelviq organization is named **Framitor**, so checkout and receipts show that name. Rename it in
-  Kelviq → Settings → Organization (or ask Kelviq support for a second organization) if you want "ContractorDocs" there.
-- Textlinker is paused (free plan allows 2 active Supabase projects). Upgrading Supabase to Pro lets you run both.
+### 3. Publish the code (2 min)
+This computer's GitHub login (`YounessMaache`) can't push to `Youness00Maache/-Youness00Maache-Contractore`. Either:
+- run `gh auth login` and sign in as **Youness00Maache**, then tell Claude "push" (Claude pushes, opens the PR and merges it), or
+- on GitHub (as Youness00Maache) → repo → Settings → Collaborators → add `YounessMaache` with write access.
+
+Merging into `main` makes Vercel deploy the new site automatically.
+
+### 4. DNS for Search Console (2 min)
+Namecheap → `contractordocs.app` → Advanced DNS → add **TXT**, host `@`, value
+`google-site-verification=5SlJQTlsq6Y_-ZjwIUyUrL1cN3ggRy8FkwYTJSZIOfU`. After the deploy, tell Claude to verify and submit the sitemap.
+
+### 5. Optional
+- Google sign-in: Supabase → Authentication → Sign In / Providers → Google (client id + secret).
+- Custom SMTP sender for auth emails (Supabase → Authentication → Emails), the built-in one is rate-limited.
+- Kelviq org name is **Framitor** (shown at checkout): rename in Kelviq → Settings → Organization if you want.
+
+## About the old data
+The previous database (`iauteblvljppwzsxloyd`, "supabase-yellow-elephant", created through Vercel's Supabase
+integration) no longer exists: its address stopped resolving before this work started, and Vercel shows no databases.
+No notice email was found. Its users, clients and documents can only come back if Supabase support can restore it:
+email support@supabase.com with the project ref `iauteblvljppwzsxloyd` and ask whether a backup exists. If they send a
+backup, Claude can import it: the migrations already include an importer for the old schema.
