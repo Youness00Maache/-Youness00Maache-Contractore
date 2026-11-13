@@ -185,6 +185,9 @@ eq('5163 slot 9', slotPosition(s5163, 9), { row: 4, col: 1, x: 4.3438, y: 8.5 })
 const l7160 = getSheet('avery-l7160');
 eq('L7160 has 21', labelsPerSheet(l7160), 21);
 ok('L7160 right margin ~= left', Math.abs(210 - (slotPosition(l7160, 2).x + 63.5) - 7.21) < 0.02);
+const a430 = getSheet('a4-30');
+eq('A4 30 is the original layout', [a430.id, a430.pageSize, labelsPerSheet(a430), a430.labelWidth, a430.labelHeight], ['a4-30', 'A4', 30, 60, 25.4]);
+eq('A4 30 slot 29 (last)', slotPosition(a430, 29), { row: 9, col: 2, x: 144, y: 238.6 });
 
 // ---------------------------------------------------------------- stock & pricing
 eq('stock ok', stockStatus({ quantity: 10, low_stock_threshold: 5 }), 'ok');

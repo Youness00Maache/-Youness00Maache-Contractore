@@ -24,7 +24,8 @@ const TYPES: { value: NonNullable<SavedItem['type']>; label: string }[] = [
   { value: 'service', label: 'Service' },
   { value: 'labor', label: 'Labor' },
   { value: 'material', label: 'Material' },
-  { value: 'bundle', label: 'Bundle / kit' },
+  // Any item can be typed "Bundle" (as in the original app); a kit is a bundle built from components.
+  { value: 'bundle', label: 'Bundle' },
 ];
 const UNITS = ['each', 'hr', 'day', 'job', 'sq ft', 'ft', 'lin ft', 'm', 'm²', 'yd', 'gal', 'lb', 'box', 'set'];
 const MAX_IMAGES = 6;
@@ -219,7 +220,7 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
             {!isKit && (
               <Field label="Type" htmlFor="pb-type">
                 <select id="pb-type" className="input" value={form.type || 'service'} onChange={(e) => set('type', e.target.value as SavedItem['type'])}>
-                  {TYPES.filter((t) => t.value !== 'bundle').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </Field>
             )}

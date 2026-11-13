@@ -980,6 +980,20 @@ const App: React.FC = () => {
 
         const name = String(jobData?.name || '').trim();
         if (!name) throw new Error('Please enter a job name.');
+
+        // Worker double-booking: checked BEFORE saving, like the old app (which refused to save). Now the user
+        // can still go ahead on purpose.
+        const workerName = String(jobData?.workerName || '').trim();
+        if (workerName) {
+            const start = jobData?.startDate || localYmd();
+            const end = jobData?.endDate || start;
+            const conflict = jobs.find(j => j.status === 'active' && j.workerName && j.workerName.toLowerCase() === workerName.toLowerCase()
+                && (j.startDate || '') <= end && ((j.endDate || j.startDate) || '') >= start);
+            if (conflict && !window.confirm(`Scheduling conflict: ${workerName} is already scheduled on "${conflict.name}" during these dates.\n\nCreate this job anyway?`)) {
+                throw new Error(`Not saved: ${workerName} is already scheduled on "${conflict.name}" during these dates. Change the dates or the worker.`);
+            }
+        }
+
         const clientName = String(jobData?.clientName || '').trim();
         const row: Record<string, unknown> = {
             id: crypto.randomUUID(),
@@ -1005,15 +1019,6 @@ const App: React.FC = () => {
         setJobs(prev => [created, ...prev.filter(j => j.id !== created.id)]);
         refreshUsage();
         toast.success(`Job "${created.name}" created.`);
-
-        // Worker scheduling overlap: a heads-up, not a blocker (CORE-030).
-        if (created.workerName) {
-            const start = created.startDate;
-            const end = created.endDate || start;
-            const overlap = jobs.find(j => j.status === 'active' && j.workerName && j.workerName.toLowerCase() === created.workerName!.toLowerCase()
-                && (j.startDate || '') <= (end || '') && ((j.endDate || j.startDate) || '') >= (start || ''));
-            if (overlap) toast.info(`${created.workerName} is also scheduled on "${overlap.name}" during these dates.`);
-        }
 
         if (!skipNavigation) {
             if (view.screen === 'createJob' && view.returnTo === 'calendar') navigate('/calendar', { replace: true });
@@ -1614,6 +1619,8 @@ const App: React.FC = () => {
                     jobs={jobs}
                     clients={clients}
                     onAddJob={handleAddJobFromInventory}
+                    onUpgrade={openUpgrade}
+                    onClientsChanged={() => { const uid = sessionUserIdRef.current; if (uid) { loadClients(uid).catch(() => undefined); refreshUsage(); } }}
                     onDataChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadInventory(uid).catch(() => undefined); }}
                 />;
             case 'pricebook':

@@ -455,11 +455,11 @@ async function handlerTests() {
     }
     {
         const good = { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '```json\n{"action_type":"GENERATE_DOCUMENT","reply_text":"Draft ready","document_type":"INVOICE","line_items":[{"description":"Door","quantity":2,"rate":450}]}\n```' }] } }] };
-        const { f, calls } = makeFetch({ modelResponses: [{ status: 404, body: { error: { message: 'models/gemini-flash-latest is not found' } } }, { status: 200, body: good }] });
+        const { f, calls } = makeFetch({ modelResponses: [{ status: 404, body: { error: { message: 'models/gemini-2.5-flash is not found' } } }, { status: 200, body: good }] });
         const res = await createHandler(envOf({ GEMINI_API_KEY: 'test-key' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
-        eq(res.status, 200, 'falls back to gemini-2.5-flash after a 404');
+        eq(res.status, 200, 'falls back to gemini-2.5-flash-lite after a 404');
         const modelCalls = calls.filter(c => c.url.includes('generativelanguage'));
-        ok(modelCalls[0].url.includes('/models/gemini-flash-latest:') && modelCalls[1].url.includes('/models/gemini-2.5-flash:'), 'primary then fallback model');
+        ok(modelCalls[0].url.includes('/models/gemini-2.5-flash:') && modelCalls[1].url.includes('/models/gemini-2.5-flash-lite:'), 'primary then fallback model');
         const sent = JSON.parse(String(modelCalls[1].init?.body));
         eq([sent.generationConfig.responseMimeType, typeof sent.generationConfig.responseSchema, sent.generationConfig.temperature <= 0.3], ['application/json', 'object', true], 'JSON mode + schema + low temperature');
         ok(new Headers(modelCalls[1].init?.headers).get('x-goog-api-key') === 'test-key' && !modelCalls[1].url.includes('key='), 'key in header, not URL');

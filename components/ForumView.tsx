@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SUPABASE_URL, supabase } from '../lib/supabase.ts';
-import { BellIcon, EditIcon, MessageCircleIcon, MessageSquareIcon, PlayIcon, PlusIcon, SendIcon, ThumbsDownIcon, ThumbsUpIcon, TrashIcon, UploadImageIcon } from './Icons.tsx';
+import { BellIcon, CameraIcon, EditIcon, MessageCircleIcon, MessageSquareIcon, PlayIcon, PlusIcon, SendIcon, ThumbsDownIcon, ThumbsUpIcon, TrashIcon, UploadImageIcon } from './Icons.tsx';
 import {
   ActionMenu, ConfirmDialog, EmptyState, Field, FlagIcon, InlineError, Modal, NoticeToast, PageHeader, Segmented, SkeletonList, XIcon,
   IMAGE_ACCEPT, friendlyError, getCurrentUserId, ownStoragePath, timeAgo, uploadToOwnFolder, useIsMobile, useNotice,
@@ -191,6 +191,138 @@ const YouTubeEmbed: React.FC<{ url?: string | null }> = ({ url }) => {
   );
 };
 
+/**
+ * Post title/body in the list, clamped like before, with the original forum's "Show more" toggle.
+ * The toggle only appears when the text is actually cut off (measured, so it is right on every screen width).
+ */
+const ExpandableText: React.FC<{ text: string; as: 'h3' | 'p'; className: string; clampClass: 'line-clamp-3' | 'line-clamp-4'; onOpen: () => void; focusable?: boolean }> = ({ text, as, className, clampClass, onOpen, focusable = true }) => {
+  const ref = useRef<HTMLHeadingElement & HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return;
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, expanded]);
+
+  const cls = `${className} ${expanded ? '' : clampClass}`;
+  return (
+    <>
+      <button type="button" onClick={onOpen} tabIndex={focusable ? undefined : -1} className="block w-full text-left">
+        {as === 'h3' ? <h3 ref={ref} className={cls}>{text}</h3> : <p ref={ref} className={cls}>{text}</p>}
+      </button>
+      {(clipped || expanded) && (
+        <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} className="mt-0.5 rounded text-xs font-semibold text-primary hover:underline">
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </>
+  );
+};
+
+/**
+ * "Take a photo" for posts and comments (the original forum's in-app camera). Uses getUserMedia when the
+ * browser has it; otherwise (or if the camera can't be opened) it falls back to the phone's own camera
+ * app through `<input capture>`.
+ */
+const CameraButton: React.FC<{ onPhoto: (file: File) => void; onOpenChange?: (open: boolean) => void; className: string; disabled?: boolean; ariaLabel?: string; children: React.ReactNode }> = ({ onPhoto, onOpenChange, className, disabled, ariaLabel, children }) => {
+  const [open, setOpen] = useState(false);
+  const captureRef = useRef<HTMLInputElement>(null);
+  const setOpenState = (v: boolean) => { setOpen(v); onOpenChange?.(v); };
+  const onCaptureInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (f) { setOpenState(false); onPhoto(f); }
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={className}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        onClick={() => (navigator.mediaDevices?.getUserMedia ? setOpenState(true) : captureRef.current?.click())}
+      >
+        {children}
+      </button>
+      <input ref={captureRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onCaptureInput} />
+      {open && <CameraModal onClose={() => setOpenState(false)} onPhoto={(f) => { setOpenState(false); onPhoto(f); }} onCaptureInput={onCaptureInput} />}
+    </>
+  );
+};
+
+const CameraModal: React.FC<{ onClose: () => void; onPhoto: (file: File) => void; onCaptureInput: (e: React.ChangeEvent<HTMLInputElement>) => void }> = ({ onClose, onPhoto, onCaptureInput }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [status, setStatus] = useState<'starting' | 'ready' | 'failed'>('starting');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    (async () => {
+      try {
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); }
+        catch (e: any) {
+          if (e?.name === 'NotAllowedError') throw e;
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        const v = videoRef.current;
+        if (v) { v.srcObject = stream; await v.play().catch(() => undefined); }
+      } catch (e: any) {
+        if (cancelled) return;
+        setStatus('failed');
+        setError(e?.name === 'NotAllowedError'
+          ? 'Camera access was blocked. Allow it in your browser settings, or use your camera app below.'
+          : e?.name === 'NotFoundError' ? 'No camera was found on this device.' : 'The camera could not be opened.');
+      }
+    })();
+    return () => { cancelled = true; stream?.getTracks().forEach((t) => t.stop()); };
+  }, []);
+
+  const capture = () => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    canvas.getContext('2d')?.drawImage(v, 0, 0);
+    canvas.toBlob((blob) => { if (blob) onPhoto(new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' })); }, 'image/jpeg', 0.9);
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="md"
+      title="Take a photo"
+      footer={<><button type="button" className="btn btn-outline" onClick={onClose}>Cancel</button><button type="button" className="btn btn-primary" onClick={capture} disabled={status !== 'ready'}><CameraIcon className="h-4 w-4" /> Capture</button></>}
+    >
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-black">
+        <video ref={videoRef} className="h-full w-full object-contain" playsInline muted autoPlay onLoadedData={() => setStatus((s) => (s === 'failed' ? s : 'ready'))} />
+        {status !== 'ready' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white">
+            <CameraIcon className={`h-10 w-10 ${status === 'starting' ? 'animate-pulse opacity-80' : 'opacity-60'}`} />
+            <p className="text-sm">{status === 'starting' ? 'Starting camera…' : error}</p>
+            {status === 'failed' && (
+              <label className="btn btn-outline cursor-pointer border-white/40 bg-transparent text-white hover:bg-white/10">
+                Use camera app
+                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={onCaptureInput} />
+              </label>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+};
+
 const applyVote = <T extends { upvotes: number; downvotes: number; userVote: VoteType }>(row: T, value: 1 | -1): T => {
   const type: VoteType = value === 1 ? 'up' : 'down';
   let { upvotes, downvotes } = row;
@@ -270,6 +402,8 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
   const [draft, setDraft] = useState<PostDraft | null>(null);
   const [savingPost, setSavingPost] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  /** While the camera is open over the post editor, Escape/backdrop must not close (and lose) the draft. */
+  const [draftCameraOpen, setDraftCameraOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ kind: 'post' | 'comment'; id: string; imageUrl?: string | null } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [report, setReport] = useState<{ kind: 'post' | 'comment'; id: string } | null>(null);
@@ -451,7 +585,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
     setDraftError(null);
     setDraft({ id: p.id, title: p.title, content: p.content, category: (CATEGORIES.includes(p.category as Category) ? p.category : 'General') as Category, youtube: p.youtube_url || '', imageUrl: isTrustedImage(p.image_url) ? p.image_url! : null, file: null, preview: null });
   };
-  const closeDraft = () => { if (draft?.preview) URL.revokeObjectURL(draft.preview); setDraft(null); };
+  const closeDraft = () => { if (draft?.preview) URL.revokeObjectURL(draft.preview); setDraft(null); setDraftCameraOpen(false); };
 
   const savePost = async () => {
     if (!draft || !uid) return;
@@ -678,7 +812,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
   );
 
   const postCard = (p: Post) => {
-    const long = p.content.length > 280 || (p.content.match(/\n/g) || []).length > 4;
+    const hasMedia = isTrustedImage(p.image_url) || !!getYouTubeId(p.youtube_url);
     return (
       <article key={p.id} className="card flex gap-1 p-2 transition hover:border-primary/30 sm:gap-3 sm:p-3">
         <VoteControl score={p.upvotes - p.downvotes} vote={p.userVote} onVote={(v) => votePost(p, v)} busy={voting[p.id]} size="sm" />
@@ -692,16 +826,19 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
             </div>
             <div className="-mr-1 -mt-1 shrink-0">{ownerMenu('post', p)}</div>
           </div>
-          <button type="button" onClick={() => onNavigate(p.id)} className="mt-1 block w-full text-left">
-            <h3 className="line-clamp-3 break-words text-base font-semibold leading-snug text-foreground hover:text-primary">{p.title}</h3>
-            {p.content && <p className={`mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground ${long ? 'line-clamp-4' : ''}`}>{p.content}</p>}
-            {isTrustedImage(p.image_url) && (
-              <img src={p.image_url} alt="" loading="lazy" className="mt-3 max-h-72 w-full rounded-xl border border-border object-cover" />
+          <div className="mt-1">
+            <ExpandableText as="h3" text={p.title} clampClass="line-clamp-3" className="break-words text-base font-semibold leading-snug text-foreground hover:text-primary" onOpen={() => onNavigate(p.id)} />
+            {p.content && <ExpandableText as="p" text={p.content} clampClass="line-clamp-4" className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground" onOpen={() => onNavigate(p.id)} focusable={false} />}
+            {hasMedia && (
+              <button type="button" onClick={() => onNavigate(p.id)} tabIndex={-1} className="block w-full text-left">
+                {isTrustedImage(p.image_url) ? (
+                  <img src={p.image_url} alt="" loading="lazy" className="mt-3 max-h-72 w-full rounded-xl border border-border object-cover" />
+                ) : (
+                  <span className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-foreground"><PlayIcon className="h-3.5 w-3.5" /> Video</span>
+                )}
+              </button>
             )}
-            {!isTrustedImage(p.image_url) && getYouTubeId(p.youtube_url) && (
-              <span className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-foreground"><PlayIcon className="h-3.5 w-3.5" /> Video</span>
-            )}
-          </button>
+          </div>
           <button type="button" onClick={() => onNavigate(p.id)} className="mt-2 inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
             <MessageCircleIcon className="h-4 w-4" /> {p.comment_count} comment{p.comment_count === 1 ? '' : 's'}
           </button>
@@ -840,6 +977,9 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
           <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); sendComment(); }}>
             <input ref={replyFileRef} type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={(e) => { pickImage(e.target.files?.[0], (f, prev) => { setReplyFile(f); setReplyPreview(prev); }); e.target.value = ''; }} />
             <button type="button" className="btn btn-outline h-11 w-11 shrink-0 p-0" aria-label="Attach a photo" onClick={() => replyFileRef.current?.click()} disabled={sending}><UploadImageIcon className="h-5 w-5" /></button>
+            <CameraButton className="btn btn-outline h-11 w-11 shrink-0 p-0" ariaLabel="Take a photo" disabled={sending} onPhoto={(file) => pickImage(file, (f, prev) => { setReplyFile(f); setReplyPreview(prev); })}>
+              <CameraIcon className="h-5 w-5" />
+            </CameraButton>
             <label htmlFor="forum-reply" className="sr-only">Write a comment</label>
             <textarea
               id="forum-reply"
@@ -879,7 +1019,7 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
       <Modal
         open={!!draft}
         onClose={closeDraft}
-        busy={savingPost}
+        busy={savingPost || draftCameraOpen}
         size="lg"
         title={draft?.id ? 'Edit post' : 'New post'}
         description="Posts are visible to every ContractorDocs member."
@@ -910,10 +1050,19 @@ const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, o
                     </button>
                   </div>
                 ) : (
-                  <label className="flex h-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground">
-                    <UploadImageIcon className="h-6 w-6" /> Add a photo
-                    <input type="file" accept={IMAGE_ACCEPT} className="sr-only" onChange={(e) => { pickImage(e.target.files?.[0], (f, prev) => setDraft((d) => (d ? { ...d, file: f, preview: prev } : d))); e.target.value = ''; }} />
-                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex h-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground">
+                      <UploadImageIcon className="h-6 w-6" /> Add a photo
+                      <input type="file" accept={IMAGE_ACCEPT} className="sr-only" onChange={(e) => { pickImage(e.target.files?.[0], (f, prev) => setDraft((d) => (d ? { ...d, file: f, preview: prev } : d))); e.target.value = ''; }} />
+                    </label>
+                    <CameraButton
+                      className="flex h-24 flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                      onOpenChange={setDraftCameraOpen}
+                      onPhoto={(file) => pickImage(file, (f, prev) => setDraft((d) => (d ? { ...d, file: f, preview: prev } : d)))}
+                    >
+                      <CameraIcon className="h-6 w-6" /> Take a photo
+                    </CameraButton>
+                  </div>
                 )}
               </div>
               <Field label="YouTube link (optional)" htmlFor="fp-yt" error={draft.youtube.trim() && !getYouTubeId(draft.youtube) ? 'Paste a youtube.com or youtu.be link.' : undefined}>

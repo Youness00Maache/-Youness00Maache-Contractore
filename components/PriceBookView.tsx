@@ -146,7 +146,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
     const list = items.filter((i) => {
       const cat = (i.category || '').trim() || 'General';
       if (category !== 'all' && cat !== category) return false;
-      if (typeFilter === 'kit' && !i.is_assembly) return false;
+      if (typeFilter === 'kit' && !i.is_assembly && i.type !== 'bundle') return false;
       if (typeFilter !== 'all' && typeFilter !== 'kit' && (i.is_assembly || (i.type || 'service') !== typeFilter)) return false;
       if (!q) return true;
       return [i.name, i.description, i.sku, i.category].some((v) => (v || '').toLowerCase().includes(q));
@@ -334,7 +334,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
               <option value="service">Services</option>
               <option value="labor">Labor</option>
               <option value="material">Materials</option>
-              <option value="kit">Kits</option>
+              <option value="kit">Kits &amp; bundles</option>
             </select>
             <select className="input sm:w-44" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort">
               <option value="name">Name A–Z</option>
@@ -343,7 +343,8 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
               <option value="margin">Best margin</option>
               <option value="recent">Recently added</option>
             </select>
-            <div className="col-span-2 hidden sm:block">
+            <div className="col-span-2 flex items-center justify-between gap-2 sm:block">
+              <span className="text-sm text-muted-foreground sm:hidden">Layout</span>
               <Segmented<'grid' | 'list'> size="sm" ariaLabel="Layout" value={view} onChange={setView} options={[{ value: 'grid', label: <GridIcon className="h-4 w-4" />, title: 'Grid' }, { value: 'list', label: <RowsIcon className="h-4 w-4" />, title: 'List' }]} />
             </div>
           </div>
@@ -389,7 +390,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
                 </div>
                 <div className="flex flex-1 flex-col p-4">
                   <div className="mb-1 flex flex-wrap gap-1.5">
-                    {item.is_assembly && <span className="badge badge-primary">Kit</span>}
+                    {item.is_assembly ? <span className="badge badge-primary">Kit</span> : item.type === 'bundle' && <span className="badge badge-muted">Bundle</span>}
                     {item.taxable === false && <span className="badge badge-muted">Non-taxable</span>}
                   </div>
                   <h3 className="line-clamp-2 pr-8 font-semibold leading-snug text-foreground">{item.name}</h3>

@@ -175,7 +175,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
             {/* Header */}
             <div className="page-header">
                 <div className="min-w-0">
-                    <h1 className="page-title truncate">{greeting()}{firstName ? `, ${firstName}` : ''}</h1>
+                    {/* English keeps the time-of-day greeting; other languages use their translated welcome (as the old app did). */}
+                    <h1 className="page-title truncate">{t.welcome && t.welcome !== 'Welcome' ? t.welcome : greeting()}{firstName ? `, ${firstName}` : ''}</h1>
                     <p className="page-subtitle">
                         {loading ? 'Loading your jobs...' : activeCount > 0 ? `You have ${activeCount} active ${activeCount === 1 ? 'job' : 'jobs'}.` : 'Create a job to start making documents.'}
                     </p>

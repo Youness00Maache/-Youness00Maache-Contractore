@@ -24,10 +24,15 @@ export interface HandlerDeps {
 /** Monthly AI requests per plan. Keep in sync with lib/plans.ts (FREE_LIMITS.ai, PAID_AI_LIMITS). */
 export const AI_MONTHLY_LIMITS: Record<'free' | 'premium' | 'ai', number> = { free: 15, premium: 60, ai: 600 };
 
-const DEFAULT_MODEL = 'gemini-flash-latest';
-const FALLBACK_MODEL = 'gemini-2.5-flash';
-// Big requests (a job + clients + several documents) can take the model a minute; the edge runtime allows 150 s.
+// gemini-flash-latest hung for 100 s+ on 2026-11-13 while gemini-2.5-flash answered: use the stable model first.
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const FALLBACK_MODEL = 'gemini-2.5-flash-lite';
+// Total time for all model attempts (the edge runtime allows 150 s). A slow first model is abandoned after
+// FIRST_ATTEMPT_MS so the fallback still has time to answer.
 const MODEL_TIMEOUT_MS = 100_000;
+const FIRST_ATTEMPT_MS = 30_000;
+/** Tried in order after the configured model; duplicates are skipped. */
+const BACKUP_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 /** Small thinking budget: enough for planning multi-step requests, keeps answers fast. */
 const THINKING_BUDGET = 1024;
 
@@ -165,7 +170,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         const key = env.get('GEMINI_API_KEY') || '';
         if (!key) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured yet (missing model key).');
         const primary = (env.get('GEMINI_MODEL') || DEFAULT_MODEL).trim();
-        const models = primary === FALLBACK_MODEL ? [primary] : [primary, FALLBACK_MODEL];
+        const models = [...new Set([primary, ...BACKUP_MODELS, FALLBACK_MODEL])];
 
         const contents: Array<{ role: 'user' | 'model'; parts: Array<Record<string, unknown>> }> = [];
         for (const m of request.history || []) {
@@ -194,17 +199,19 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         const startedAt = Date.now();
 
         let lastError = '';
-        for (const model of models) {
+        for (const [index, model] of models.entries()) {
             let res: Response;
             let withThinking = true;
+            const isLast = index === models.length - 1;
             const post = () => {
-                // Never let two attempts together exceed the runtime limit.
+                // Never let the attempts together exceed the runtime limit.
                 const remaining = Math.max(10_000, MODEL_TIMEOUT_MS - (Date.now() - startedAt));
+                const budget = isLast ? remaining : Math.min(FIRST_ATTEMPT_MS, remaining);
                 return fetchWithTimeout(f, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                     body: makeBody(withThinking),
-                }, remaining);
+                }, budget);
             };
             try {
                 res = await post();
@@ -219,8 +226,10 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             } catch (err) {
                 const aborted = err instanceof Error && err.name === 'AbortError';
                 log('model request failed', model, aborted ? 'timeout' : String(err));
-                if (aborted) throw new HttpError(504, 'AI_TIMEOUT', 'The AI took too long to answer. Please try again, or ask for fewer things at once.');
-                lastError = 'network';
+                if (aborted && (isLast || MODEL_TIMEOUT_MS - (Date.now() - startedAt) < 15_000)) {
+                    throw new HttpError(504, 'AI_TIMEOUT', 'The AI took too long to answer. Please try again, or ask for fewer things at once.');
+                }
+                lastError = aborted ? 'timeout' : 'network';
                 continue;
             }
             if (!res.ok) {

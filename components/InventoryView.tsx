@@ -1,7 +1,8 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import type { AssemblyItem, Client, InventoryHistoryItem, InventoryItem, Job, UserProfile } from '../types.ts';
-import { AlertTriangleIcon, BoxIcon, BriefcaseIcon, CameraIcon, ClockIcon, CopyIcon, EditIcon, MapPinIcon, PlusIcon, PrinterIcon, SearchIcon, TrashIcon, TruckIcon } from './Icons.tsx';
+import { AlertTriangleIcon, BoxIcon, BriefcaseIcon, CameraIcon, ClockIcon, CopyIcon, EditIcon, MapPinIcon, PlusIcon, PrinterIcon, SearchIcon, TrashIcon, TruckIcon, UsersIcon } from './Icons.tsx';
+import { isPlanLimitError, planLimitMessage } from '../lib/account.ts';
 // The camera (html5-qrcode) and QR generator are only downloaded when the user opens them.
 const PrintTagsModal = lazy(() => import('./PrintTagsModal.tsx'));
 const QRScannerModal = lazy(() => import('./QRScannerModal.tsx'));
@@ -33,8 +34,15 @@ interface InventoryViewProps {
   /** @deprecated ignored: check-outs go through RPC */
   onAllocate?: (itemId: string, jobId: string | null, quantity: number, notes?: string) => Promise<void>;
   clients?: Client[];
-  /** @deprecated ignored */
+  /**
+   * Optional client creator (must enforce plan limits). Without it, "New client" in the check-out dialog
+   * saves through the shared `insertClient` (ClientDetails.tsx); the database enforces the plan limit.
+   */
   onAddClient?: (client: Partial<Client>) => Promise<Client | null>;
+  /** Opens the upgrade modal (used when a new client hits the Free plan limit). */
+  onUpgrade?: (reason?: string) => void;
+  /** Called after a client is created here so the App can refresh its client list and usage. */
+  onClientsChanged?: () => void;
   /** Creates a job (App handler, enforces plan limits). Used by "New job" in the check-out dialog. */
   onAddJob?: (job: Partial<Job>) => Promise<Job | null>;
   /** @deprecated ignored */
@@ -74,6 +82,10 @@ interface HistoryRow {
 }
 
 interface JobOption { id: string; name: string; clientName?: string }
+
+/** "New client" in the check-out dialog (the original app's quick client: name, phone, email, temporary). */
+interface QuickClientInput { name: string; phone: string; email: string; temporary: boolean }
+const EMPTY_QUICK_CLIENT: QuickClientInput = { name: '', phone: '', email: '', temporary: false };
 
 interface Draft {
   name: string;
@@ -141,7 +153,7 @@ const StockStepper: React.FC<{ qty: number; unit?: string; onStep: (delta: numbe
   </div>
 );
 
-const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, jobs = [], clients = [], userProfile, onAddJob, openAddModal, prefillData, onDataChanged }) => {
+const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, jobs = [], clients = [], userProfile, onAddJob, onAddClient, onUpgrade, onClientsChanged, openAddModal, prefillData, onDataChanged }) => {
   const [items, setItems] = useState<InventoryItem[]>(() => (seed || []).map(normalizeItem));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -394,12 +406,13 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
 
   const duplicate = async (item: InventoryItem) => {
     try {
+      // Like the original app, the copy keeps the stock on hand (logged as "Initial stock"). Kits hold no stock.
       const created = await createItem({
         name: `${item.name} (copy)`, category: item.category || '', unit: item.unit || '', cost_price: toNumber(item.cost_price),
         supplier: item.supplier || '', sku: '', location: item.location || '', low_stock_threshold: lowStockThreshold(item),
-        is_assembly: !!item.is_assembly, assembly_items: item.assembly_items || [], initialQty: 0,
+        is_assembly: !!item.is_assembly, assembly_items: item.assembly_items || [], initialQty: item.is_assembly ? 0 : Math.max(0, displayQty(item)),
       });
-      notify('success', `Duplicated as "${created.name}" (stock starts at 0).`);
+      notify('success', created.is_assembly ? `Duplicated as "${created.name}".` : `Duplicated as "${created.name}" with ${toNumber(created.quantity)} ${created.unit || 'in stock'}.`);
       notifyChanged();
     } catch (e) {
       notify('error', friendlyError(e, 'Could not duplicate the item.'));
@@ -478,6 +491,31 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     if (item) setSheetId(item.id);
     else notify('error', 'No inventory item matches that code.');
   };
+
+  // ------------------------------------------------------------------ quick client (check-out dialog)
+  // Same save path as the Clients screen (insertClient, loaded on demand); the database enforces the plan limit.
+  const createClient = useCallback(async (input: QuickClientInput): Promise<Client> => {
+    const { insertClient, validateClientDraft, TEMP_TAG } = await import('./ClientDetails.tsx');
+    const draft = { name: input.name, email: input.email, phone: input.phone, address: '', notes: input.temporary ? TEMP_TAG : '' };
+    const invalid = validateClientDraft(draft);
+    if (invalid.name || invalid.email) throw new Error(invalid.name || invalid.email);
+    try {
+      let created: Client | null;
+      if (onAddClient) {
+        created = await onAddClient(draft);
+        if (!created?.id) throw new Error('The client could not be created.');
+      } else {
+        const uid = userId ?? (await getCurrentUserId());
+        if (!uid) throw new Error('Your session has expired. Please sign in again.');
+        created = await insertClient(draft, uid);
+      }
+      onClientsChanged?.();
+      return created;
+    } catch (e) {
+      if (isPlanLimitError(e)) onUpgrade?.(planLimitMessage(e));
+      throw e;
+    }
+  }, [onAddClient, onClientsChanged, onUpgrade, userId]);
 
   const sheetItem = sheetId ? byId.get(sheetId) ?? null : null;
 
@@ -769,11 +807,16 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
           propJobs={jobs}
           clients={clients}
           onAddJob={onAddJob}
+          onCreateClient={createClient}
           userId={userId}
           onClose={() => setCheckoutFor(null)}
-          onSubmit={async (qty, jobId, note, jobName) => {
+          onSubmit={async (qty, jobId, note, jobName, clientName) => {
             const item = byId.get(checkoutFor.id) ?? checkoutFor;
-            const reason = note.trim() || (jobName ? `Checked out to ${jobName}` : 'Checked out');
+            // A job check-out is linked by job_id; a client-only check-out keeps the client's name in the logged reason.
+            const reason = clientName && !jobId
+              ? (note.trim() ? `${note.trim()} (Checked out to ${clientName})` : `Checked out to ${clientName}`)
+              : note.trim() || (jobName ? `Checked out to ${jobName}` : 'Checked out');
+            const target = jobId ? jobName : clientName;
             const moves = checkoutMoves(item, qty);
             const { error } = await supabase.rpc('checkout_inventory', { p_item_id: item.id, p_qty: qty, p_job_id: jobId, p_reason: reason });
             if (!error) {
@@ -792,7 +835,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
                 throw e;
               }
             } else throw error;
-            notify('success', `Checked out ${qty} × ${item.name}${jobName ? ` to ${jobName}` : ''}.`);
+            notify('success', `Checked out ${qty} × ${item.name}${target ? ` to ${target}` : ''}.`);
             notifyChanged();
             setCheckoutFor(null);
           }}
@@ -1055,15 +1098,20 @@ const CheckoutModal: React.FC<{
   propJobs: Job[];
   clients: Client[];
   onAddJob?: (job: Partial<Job>) => Promise<Job | null>;
+  onCreateClient: (client: QuickClientInput) => Promise<Client>;
   userId: string | null;
   onClose: () => void;
-  onSubmit: (qty: number, jobId: string | null, note: string, jobName?: string) => Promise<void>;
-}> = ({ item, available, byId, propJobs, clients, onAddJob, userId, onClose, onSubmit }) => {
+  onSubmit: (qty: number, jobId: string | null, note: string, jobName?: string, clientName?: string) => Promise<void>;
+}> = ({ item, available, byId, propJobs, clients, onAddJob, onCreateClient, userId, onClose, onSubmit }) => {
   const [qty, setQty] = useState(1);
   const [jobId, setJobId] = useState('');
   const [note, setNote] = useState('');
   const [jobs, setJobs] = useState<JobOption[]>(() => propJobs.filter((j) => j.status === 'active').map((j) => ({ id: j.id, name: j.name, clientName: j.clientName })));
   const [newJob, setNewJob] = useState<{ name: string; client: string } | null>(null);
+  // Client-only check-out (no job), as in the original app. New clients are added to this local list.
+  const [clientList, setClientList] = useState<Client[]>(clients);
+  const [clientId, setClientId] = useState('');
+  const [newClient, setNewClient] = useState<(QuickClientInput & { forJob: boolean }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1085,13 +1133,32 @@ const CheckoutModal: React.FC<{
   const over = whole > available;
   const moves = checkoutMoves(item, whole);
   const selectedJob = jobs.find((j) => j.id === jobId);
+  const selectedClient = jobId ? undefined : clientList.find((c) => c.id === clientId);
+
+  const createClient = async () => {
+    if (!newClient) return;
+    if (!newClient.name.trim()) { setError('Give the client a name.'); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await onCreateClient(newClient);
+      setClientList((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+      if (newClient.forJob) setNewJob((j) => (j ? { ...j, client: created.id } : j));
+      else { setJobId(''); setClientId(created.id); }
+      setNewClient(null);
+    } catch (e) {
+      setError(friendlyError(e, 'Could not create the client.'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const createJob = async () => {
     if (!newJob?.name.trim()) { setError('Give the new job a name.'); return; }
     setBusy(true);
     setError(null);
     try {
-      const client = clients.find((c) => c.id === newJob.client);
+      const client = clientList.find((c) => c.id === newJob.client);
       let created: { id: string } | null = null;
       if (onAddJob) {
         created = await onAddJob({ name: newJob.name.trim(), clientName: client?.name || '', clientAddress: client?.address || '', startDate: todayYMD(), status: 'active' });
@@ -1120,7 +1187,7 @@ const CheckoutModal: React.FC<{
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(whole, jobId || null, note, selectedJob?.name);
+      await onSubmit(whole, jobId || null, note, selectedJob?.name, selectedClient?.name);
     } catch (e) {
       setError(friendlyError(e, 'Could not check out the item.'));
       setBusy(false);
@@ -1138,7 +1205,7 @@ const CheckoutModal: React.FC<{
       footer={
         <>
           <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className={`btn ${over ? 'btn-danger' : 'btn-primary'}`} onClick={submit} disabled={busy || whole <= 0 || !!newJob}>
+          <button type="button" className={`btn ${over ? 'btn-danger' : 'btn-primary'}`} onClick={submit} disabled={busy || whole <= 0 || !!newJob || !!newClient}>
             {busy ? 'Saving…' : over ? 'Check out anyway' : `Check out ${whole}`}
           </button>
         </>
@@ -1167,29 +1234,71 @@ const CheckoutModal: React.FC<{
           </div>
         )}
 
-        {newJob ? (
+        {newClient ? (
+          <div className="space-y-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+            <h3 className="text-sm font-semibold">New client</h3>
+            <Field label="Name *" htmlFor="co-cl-name">
+              <input id="co-cl-name" className="input" value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} placeholder="e.g. Jane Smith" maxLength={200} autoFocus />
+            </Field>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Phone" htmlFor="co-cl-phone">
+                <input id="co-cl-phone" className="input" type="tel" inputMode="tel" value={newClient.phone} onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })} />
+              </Field>
+              <Field label="Email" htmlFor="co-cl-email">
+                <input id="co-cl-email" className="input" type="email" inputMode="email" value={newClient.email} onChange={(e) => setNewClient({ ...newClient, email: e.target.value })} />
+              </Field>
+            </div>
+            <label className="flex min-h-[40px] cursor-pointer items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 text-sm">
+              <input type="checkbox" className="h-5 w-5 accent-[hsl(var(--primary))]" checked={newClient.temporary} onChange={(e) => setNewClient({ ...newClient, temporary: e.target.checked })} />
+              <span>
+                <span className="font-medium text-foreground">Mark as temporary client</span>
+                <span className="block text-xs text-muted-foreground">Walk-ins and one-off hand-outs. You can convert them later.</span>
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn btn-ghost btn-sm h-10" onClick={() => setNewClient(null)} disabled={busy}>Cancel</button>
+              <button type="button" className="btn btn-primary btn-sm h-10" onClick={createClient} disabled={busy || !newClient.name.trim()}>Create client</button>
+            </div>
+          </div>
+        ) : newJob ? (
           <div className="space-y-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
             <h3 className="text-sm font-semibold">New job</h3>
             <input className="input" value={newJob.name} onChange={(e) => setNewJob({ ...newJob, name: e.target.value })} placeholder="Job name, e.g. 12 Main St bathroom" autoFocus />
-            <select className="input" value={newJob.client} onChange={(e) => setNewJob({ ...newJob, client: e.target.value })} aria-label="Client">
-              <option value="">No client</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <div className="flex gap-2">
+              <select className="input flex-1" value={newJob.client} onChange={(e) => setNewJob({ ...newJob, client: e.target.value })} aria-label="Client">
+                <option value="">No client</option>
+                {clientList.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button type="button" className="btn btn-outline shrink-0" onClick={() => setNewClient({ ...EMPTY_QUICK_CLIENT, forJob: true })} disabled={busy}><UsersIcon className="h-4 w-4" /> New</button>
+            </div>
             <div className="flex justify-end gap-2">
               <button type="button" className="btn btn-ghost btn-sm h-10" onClick={() => setNewJob(null)} disabled={busy}>Cancel</button>
               <button type="button" className="btn btn-primary btn-sm h-10" onClick={createJob} disabled={busy}>Create job</button>
             </div>
           </div>
         ) : (
-          <Field label="Job" htmlFor="co-job" hint="Leave on “No job” for van stock or general use.">
-            <div className="flex gap-2">
-              <select id="co-job" className="input flex-1" value={jobId} onChange={(e) => setJobId(e.target.value)}>
-                <option value="">No job</option>
-                {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}{j.clientName ? ` · ${j.clientName}` : ''}</option>)}
-              </select>
-              <button type="button" className="btn btn-outline shrink-0" onClick={() => setNewJob({ name: '', client: '' })}><PlusIcon className="h-4 w-4" /> New</button>
-            </div>
-          </Field>
+          <>
+            <Field label="Job" htmlFor="co-job" hint="Leave on “No job” for van stock or general use.">
+              <div className="flex gap-2">
+                <select id="co-job" className="input flex-1" value={jobId} onChange={(e) => setJobId(e.target.value)}>
+                  <option value="">No job</option>
+                  {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}{j.clientName ? ` · ${j.clientName}` : ''}</option>)}
+                </select>
+                <button type="button" className="btn btn-outline shrink-0" onClick={() => setNewJob({ name: '', client: '' })}><PlusIcon className="h-4 w-4" /> New</button>
+              </div>
+            </Field>
+            {!jobId && (
+              <Field label="Client (no job)" htmlFor="co-client" hint="Optional. Hand stock to a client without a job; their name is saved in the stock history.">
+                <div className="flex gap-2">
+                  <select id="co-client" className="input flex-1" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+                    <option value="">No client</option>
+                    {clientList.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <button type="button" className="btn btn-outline shrink-0" onClick={() => setNewClient({ ...EMPTY_QUICK_CLIENT, forJob: false })}><UsersIcon className="h-4 w-4" /> New</button>
+                </div>
+              </Field>
+            )}
+          </>
         )}
 
         <Field label="Note (optional)" htmlFor="co-note">
@@ -1208,7 +1317,7 @@ const HISTORY_PAGE = 50;
 
 const HistoryModal: React.FC<{ itemId: string | null; byId: Map<string, InventoryItem>; onClose: () => void }> = ({ itemId, byId, onClose }) => {
   const [rows, setRows] = useState<HistoryRow[]>([]);
-  const [jobs, setJobs] = useState<Record<string, string>>({});
+  const [jobs, setJobs] = useState<Record<string, { name: string; client?: string }>>({});
   const [loading, setLoading] = useState(true);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1225,8 +1334,8 @@ const HistoryModal: React.FC<{ itemId: string | null; byId: Map<string, Inventor
     setMore(page.length === HISTORY_PAGE);
     const missing = Array.from(new Set(page.map((r) => r.job_id).filter((id): id is string => !!id && !(id in jobs))));
     if (missing.length) {
-      const { data: jd } = await supabase.from('jobs').select('id,name').in('id', missing);
-      if (jd) setJobs((prev) => ({ ...prev, ...Object.fromEntries((jd as any[]).map((j) => [j.id, j.name || 'Job'])) }));
+      const { data: jd } = await supabase.from('jobs').select('id,name,client_name').in('id', missing);
+      if (jd) setJobs((prev) => ({ ...prev, ...Object.fromEntries((jd as any[]).map((j) => [j.id, { name: j.name || 'Job', client: j.client_name || undefined }])) }));
     }
     setLoading(false);
   }, [itemId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1253,6 +1362,7 @@ const HistoryModal: React.FC<{ itemId: string | null; byId: Map<string, Inventor
           {rows.map((r) => {
             const change = toNumber(r.quantity_change);
             const name = (r.item_id && byId.get(r.item_id)?.name) || r.item_name || 'Deleted item';
+            const job = r.job_id ? jobs[r.job_id] : undefined;
             return (
               <li key={r.id} className="flex items-start gap-3 py-3">
                 <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ${change >= 0 ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>{change >= 0 ? '+' : '−'}</span>
@@ -1260,7 +1370,7 @@ const HistoryModal: React.FC<{ itemId: string | null; byId: Map<string, Inventor
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       {!itemId && <div className="truncate font-semibold text-foreground">{name}</div>}
-                      <div className="text-sm text-foreground">{actionLabel(r.action)}{r.job_id && jobs[r.job_id] ? <span className="text-muted-foreground"> · {jobs[r.job_id]}</span> : null}</div>
+                      <div className="text-sm text-foreground">{actionLabel(r.action)}{job ? <span className="text-muted-foreground"> · {job.name}{job.client ? ` (${job.client})` : ''}</span> : null}</div>
                     </div>
                     <span className={`shrink-0 font-bold tabular-nums ${change >= 0 ? 'text-success' : 'text-destructive'}`}>{change > 0 ? '+' : ''}{change}</span>
                   </div>

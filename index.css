@@ -219,6 +219,8 @@
 @keyframes glow-pulse { 0%,100% { box-shadow: 0 0 5px rgba(58,123,213,.4); } 50% { box-shadow: 0 0 20px rgba(58,123,213,.8); } }
 .animate-glow { animation: glow-pulse 2s ease-in-out infinite; }
 
+/* In the components layer so Tailwind utilities (hidden, md:inline-flex, fixed, bottom-24…) still apply. */
+@layer components {
 .ai-button-premium-wrapper {
   position: relative; padding: 1.5px; border-radius: 9999px; display: inline-block; cursor: pointer;
   background: linear-gradient(90deg, #3766f8, #06b6d4, #10b981, #3766f8); background-size: 200% 200%;
@@ -242,6 +244,7 @@
   animation: rainbow-rotate 4s linear infinite; box-shadow: 0 4px 20px rgba(55,102,248,.2);
 }
 .ai-doc-card-highlight > div { border-radius: 14px; background: hsl(var(--card)); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }

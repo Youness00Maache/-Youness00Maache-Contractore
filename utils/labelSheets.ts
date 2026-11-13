@@ -71,6 +71,16 @@ export const LABEL_SHEETS: LabelSheet[] = [
     columns: 2, rows: 7, labelWidth: 99.1, labelHeight: 38.1,
     marginTop: 15.15, marginLeft: 4.65, pitchX: 101.6, pitchY: 38.1, cornerRadius: 2.5,
   },
+  {
+    // The original app's only layout (old PrintTagsModal): 10 mm page padding, 3 columns of 60 × 25.4 mm
+    // labels with a 7 mm column gap and no row gap.
+    id: 'a4-30',
+    name: 'A4 30 per sheet',
+    description: '30 per sheet · 60 × 25.4 mm · A4',
+    unit: 'mm', pageWidth: 210, pageHeight: 297, pageSize: 'A4',
+    columns: 3, rows: 10, labelWidth: 60, labelHeight: 25.4,
+    marginTop: 10, marginLeft: 10, pitchX: 67, pitchY: 25.4, cornerRadius: 0,
+  },
 ];
 
 export const getSheet = (id: string): LabelSheet => LABEL_SHEETS.find((s) => s.id === id) ?? LABEL_SHEETS[0];
