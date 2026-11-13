@@ -1,0 +1,57 @@
+App.tsx(862,56): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
+App.tsx(1586,17): error TS2322: Type '{ id: any; user_id: any; name: any; client_name: any; client_address: any; start_date: any; end_date: any; status: any; created_at: any; }[]' is not assignable to type '{ id: any; user_id: any; name: any; client_name: any; client_address: any; start_date: any; end_date: any; status: any; worker_name: any; created_at: any; }[]'.
+  Property 'worker_name' is missing in type '{ id: any; user_id: any; name: any; client_name: any; client_address: any; start_date: any; end_date: any; status: any; created_at: any; }' but required in type '{ id: any; user_id: any; name: any; client_name: any; client_address: any; start_date: any; end_date: any; status: any; worker_name: any; created_at: any; }'.
+App.tsx(3053,60): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
+components/DailyJobReportForm.tsx(257,38): error TS2339: Property 'clientId' does not exist on type 'Partial<DailyJobReportData>'.
+components/DocumentAIQAHarness.tsx(36,5): error TS2561: Object literal may only specify known properties, but 'user_id' does not exist in type 'Job'. Did you mean to write 'userId'?
+components/JobDocumentAIModal.tsx(379,37): error TS2322: Type '(enrichedInput: string, extras?: { attachedImages?: AttachedImage[]; structuredSetup?: Record<string, unknown>; }) => Promise<MasterRouterPayload>' is not assignable to type '(enrichedText: string, extras?: { attachedImages?: AttachedImage[]; }) => void | Promise<void>'.
+  Type 'Promise<MasterRouterPayload>' is not assignable to type 'void | Promise<void>'.
+    Type 'Promise<MasterRouterPayload>' is not assignable to type 'Promise<void>'.
+      Type 'MasterRouterPayload' is not assignable to type 'void'.
+  Type '{}' is missing the following properties from type 'UserProfile': id, name, email
+  Type '{}' is missing the following properties from type 'UserProfile': id, name, email
+services/batchEmailSender.ts(58,18): error TS2352: Conversion of type 'InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ... 6 more ... | ProfitReportData' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'ProfitReportData' is not comparable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ProfitReportData'.
+services/batchEmailSender.ts(84,22): error TS2352: Conversion of type 'InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ... 6 more ... | ProfitReportData' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'ProfitReportData' is not comparable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ProfitReportData'.
+  Object literal may only specify known properties, and 'deductInventory' does not exist in type 'MaterialLogData | (() => MaterialLogData)'.
+  Index signature for type 'string' is missing in type 'MasterRouterPayload'.
+  Property 'target_route' is missing in type 'EnrichedRouterResult' but required in type 'MasterRouterPayload'.
+  Property 'target_route' is missing in type 'EnrichedRouterResult' but required in type 'MasterRouterPayload'.
+  Property 'target_route' is missing in type 'EnrichedRouterResult' but required in type 'MasterRouterPayload'.
+  Types of property 'payload' are incompatible.
+    Type 'Record<string, any> | Record<string, any>[]' is not assignable to type 'Record<string, unknown>'.
+      Type 'Record<string, any>[]' is not assignable to type 'Record<string, unknown>'.
+        Index signature for type 'string' is missing in type 'Record<string, any>[]'.
+  Property 'target_route' is missing in type 'EnrichedRouterResult' but required in type 'MasterRouterPayload'.
+  Property 'target_route' is missing in type 'EnrichedRouterResult' but required in type 'MasterRouterPayload'.
+supabase/functions/gmail-auth/index.ts(2,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/gmail-auth/index.ts(3,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/gmail-auth/index.ts(19,26): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gmail-auth/index.ts(20,30): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gmail-auth/index.ts(21,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/gmail-auth/index.ts(22,36): error TS2304: Cannot find name 'Deno'.
+supabase/functions/master-ai-router/index.ts(1,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/master-ai-router/index.ts(74,30): error TS2304: Cannot find name 'Deno'.
+supabase/functions/master-ai-router/index.ts(75,35): error TS2304: Cannot find name 'Deno'.
+supabase/functions/master-ai-router/index.ts(185,32): error TS2304: Cannot find name 'Deno'.
+supabase/functions/master-ai-router/index.ts(185,66): error TS2304: Cannot find name 'Deno'.
+supabase/functions/paypal-webhook/index.ts(1,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/paypal-webhook/index.ts(2,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/paypal-webhook/index.ts(21,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/paypal-webhook/index.ts(22,29): error TS2304: Cannot find name 'Deno'.
+supabase/functions/process-contractor-ai/index.ts(1,23): error TS2307: Cannot find module 'https://deno.land/std@0.168.0/http/server.ts' or its corresponding type declarations.
+supabase/functions/process-contractor-ai/index.ts(2,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/process-contractor-ai/index.ts(36,13): error TS2304: Cannot find name 'Deno'.
+supabase/functions/process-contractor-ai/index.ts(37,13): error TS2304: Cannot find name 'Deno'.
+supabase/functions/process-contractor-ai/index.ts(48,13): error TS2304: Cannot find name 'Deno'.
+supabase/functions/process-contractor-ai/index.ts(49,13): error TS2304: Cannot find name 'Deno'.
+supabase/functions/process-contractor-ai/index.ts(133,33): error TS2304: Cannot find name 'Deno'.
+utils/aiMentionUtils.ts(13,18): error TS2352: Conversion of type 'InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ... 6 more ... | ProfitReportData' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'ProfitReportData' is not comparable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ProfitReportData'.
+utils/buildEmailBatch.ts(43,18): error TS2352: Conversion of type 'InvoiceData | WorkOrderData | DailyJobReportData | TimeSheetData | MaterialLogData | EstimateData | ... 6 more ... | ProfitReportData' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'ProfitReportData' is not comparable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ProfitReportData'.

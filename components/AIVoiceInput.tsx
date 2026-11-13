@@ -1,123 +1,161 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MicIcon } from './Icons.tsx';
 
-// Define the global window interface to include both standard and webkit prefixed versions
 declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
+    interface Window {
+        SpeechRecognition: any;
+        webkitSpeechRecognition: any;
+    }
 }
 
 interface AIVoiceInputProps {
-  onTranscript: (transcript: string) => void;
+    /** Called with each finished phrase (append it to your text). */
+    onTranscript: (transcript: string) => void;
+    /** Live, not-yet-final words (optional preview). */
+    onInterim?: (text: string) => void;
+    disabled?: boolean;
+    /** compact = icon button (chat composer); labeled = button with a caption (forms). */
+    variant?: 'compact' | 'labeled';
+    className?: string;
 }
 
-export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript }) => {
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const [isSupported, setIsSupported] = useState(true);
+/**
+ * Continuous dictation (AI-011): the recognizer is created once, keeps listening across pauses
+ * (browsers end a session after silence, so it restarts until the user presses Stop), and
+ * parent re-renders never stop it because the callbacks are read from refs.
+ */
+export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript, onInterim, disabled, variant = 'labeled', className = '' }) => {
+    const [isListening, setIsListening] = useState(false);
+    const [isSupported, setIsSupported] = useState(true);
+    const [problem, setProblem] = useState<string | null>(null);
+    const recognitionRef = useRef<any>(null);
+    const wantListeningRef = useRef(false);
+    const transcriptRef = useRef(onTranscript);
+    const interimRef = useRef(onInterim);
+    transcriptRef.current = onTranscript;
+    interimRef.current = onInterim;
 
-  useEffect(() => {
-    // Check for support
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (SpeechRecognitionAPI) {
-      const recognition = new SpeechRecognitionAPI();
-      // Set continuous to true so it doesn't stop after a single sentence
-      recognition.continuous = true; 
-      recognition.interimResults = false;
-      recognition.lang = 'en-US'; 
-      
-      recognition.onresult = (event: any) => {
-        const lastResultIndex = event.results.length - 1;
-        const transcript = event.results[lastResultIndex][0].transcript;
-        onTranscript(transcript.trim());
-      };
-      
-      recognition.onerror = (event: any) => {
-        // 'no-speech' is just a timeout, ignore it.
-        if (event.error === 'no-speech') {
+    useEffect(() => {
+        const API = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+        if (!API) { setIsSupported(false); return; }
+        const rec = new API();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+        rec.onresult = (event: any) => {
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const result = event.results[i];
+                const text = String(result[0]?.transcript || '').trim();
+                if (!text) continue;
+                if (result.isFinal) transcriptRef.current(text);
+                else interim += `${text} `;
+            }
+            interimRef.current?.(interim.trim());
+        };
+        rec.onerror = (event: any) => {
+            if (event.error === 'no-speech' || event.error === 'aborted') return;
+            wantListeningRef.current = false;
+            setIsListening(false);
+            interimRef.current?.('');
+            setProblem(event.error === 'not-allowed' || event.error === 'service-not-allowed'
+                ? 'Microphone access is blocked. Allow it in your browser settings.'
+                : 'Voice input stopped. Tap the mic to try again.');
+        };
+        rec.onend = () => {
+            if (wantListeningRef.current) {
+                try { rec.start(); return; } catch { /* fall through */ }
+            }
+            wantListeningRef.current = false;
+            setIsListening(false);
+            interimRef.current?.('');
+        };
+        recognitionRef.current = rec;
+        return () => {
+            wantListeningRef.current = false;
+            try { rec.abort(); } catch { /* ignore */ }
+            recognitionRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (disabled && wantListeningRef.current) {
+            wantListeningRef.current = false;
+            try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+        }
+    }, [disabled]);
+
+    const toggle = () => {
+        setProblem(null);
+        if (!isSupported) {
+            setProblem('Voice typing works in Chrome, Edge and Safari.');
             return;
         }
-        console.error("Speech recognition error", event.error);
-        if (event.error === 'not-allowed') {
-            alert("Microphone access denied. Please allow microphone access.");
+        const rec = recognitionRef.current;
+        if (!rec) return;
+        if (isListening) {
+            wantListeningRef.current = false;
+            try { rec.stop(); } catch { /* ignore */ }
+            setIsListening(false);
+            return;
+        }
+        try {
+            wantListeningRef.current = true;
+            rec.start();
+            setIsListening(true);
+        } catch {
+            wantListeningRef.current = false;
             setIsListening(false);
         }
-      };
-
-      // Only reset state if it wasn't a manual stop (though with continuous=true, onend usually means error or manual stop)
-      recognition.onend = () => {
-         // We trust the state to manage the UI, but if it stopped unexpectedly, we sync up.
-         // If we wanted it to restart automatically, we'd do it here, but manual toggle is safer for UX.
-         setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    } else {
-        setIsSupported(false);
-    }
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
     };
-  }, [onTranscript]);
 
-  const toggleListening = () => {
-    if (!isSupported) {
-        alert("Voice typing is not supported in this browser. Please use Chrome or Edge.");
-        return;
-    }
-
-    const recognition = recognitionRef.current;
-    if (!recognition) return;
-
-    if (isListening) {
-      recognition.stop();
-      setIsListening(false);
-    } else {
-      try {
-        recognition.start();
-        setIsListening(true);
-      } catch (err) {
-        console.error("Start recognition error:", err);
-        setIsListening(false);
-      }
-    }
-  };
-
-  // Stop icon SVG
-  const StopIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-        <rect x="6" y="6" width="12" height="12" rx="2" />
-    </svg>
-  );
-
-  return (
-    <div className="flex flex-col items-center gap-2 text-center">
+    const label = isListening ? 'Stop dictation' : 'Dictate with your voice';
+    const button = (
         <button
-          className={`group w-16 h-16 rounded-xl flex items-center justify-center transition-all bg-card border border-border hover:bg-secondary ${isListening ? 'ring-2 ring-red-500 bg-red-50 dark:bg-red-900/20' : ''}`}
-          type="button"
-          onClick={toggleListening}
-          title={isListening ? 'Stop recording' : 'Start voice typing'}
+            type="button"
+            onClick={toggle}
+            disabled={disabled}
+            title={problem || label}
+            aria-label={label}
+            aria-pressed={isListening}
+            className={`relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-colors disabled:opacity-50 ${isListening
+                ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'} ${variant === 'compact' ? className : ''}`}
         >
-          {isListening ? (
-            <div className="text-red-500 animate-pulse">
-                <StopIcon />
-            </div>
-          ) : (
-            <MicIcon className={`w-6 h-6 ${isSupported ? 'text-foreground/70' : 'text-muted-foreground/30'}`} />
-          )}
+            {isListening ? (
+                <>
+                    <span className="absolute inset-0 animate-ping rounded-xl bg-destructive/20" aria-hidden />
+                    <span className="relative h-3.5 w-3.5 rounded-sm bg-destructive" aria-hidden />
+                </>
+            ) : (
+                <MicIcon className={`h-5 w-5 ${isSupported ? '' : 'opacity-40'}`} />
+            )}
         </button>
-        <p className="h-4 text-xs text-foreground/70 font-medium">
-          {isListening ? 'Tap to Stop' : 'Voice'}
-        </p>
-    </div>
-  );
+    );
+
+    if (variant === 'compact') {
+        return (
+            <span className="relative inline-flex">
+                {button}
+                {(problem || isListening) && (
+                    <span
+                        role="status"
+                        className={`pointer-events-none absolute bottom-full right-0 mb-2 w-max max-w-[220px] rounded-lg px-2.5 py-1.5 text-[11px] font-medium shadow-lift ${problem ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background'}`}
+                    >
+                        {problem || 'Listening… tap to stop'}
+                    </span>
+                )}
+            </span>
+        );
+    }
+    return (
+        <div className={`flex flex-col items-center gap-1 text-center ${className}`}>
+            {button}
+            <p className={`text-[11px] font-medium ${problem ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {problem || (isListening ? 'Listening… tap to stop' : 'Voice')}
+            </p>
+        </div>
+    );
 };
 
 export default AIVoiceInput;

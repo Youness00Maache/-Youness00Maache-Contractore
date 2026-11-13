@@ -1,3 +1,4 @@
+import { esc, escMultiline, sanitizeRichText } from './escapeHtml.ts';
 
 export interface EmailTemplateDefinition {
   id: string;
@@ -7,25 +8,52 @@ export interface EmailTemplateDefinition {
   html: string; // HTML template with placeholders
 }
 
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const DEFAULT_COLORS: Record<string, string> = { primary_color: '#2563eb', secondary_color: '#1e40af' };
+
+/** Only a valid hex color may reach the template's CSS. */
+export const safeColor = (value: unknown, fallback = '#2563eb'): string => {
+  const v = String(value ?? '').trim();
+  return HEX_COLOR.test(v) ? v : fallback;
+};
+
+/** Converts the plain-text message the user typed into safe HTML (escaped, line breaks kept). */
+export const plainTextToEmailHtml = (text: string): string =>
+  String(text || '')
+    .split(/\r?\n\s*\r?\n/)
+    .map((para) => para.trim())
+    .filter(Boolean)
+    .map((para) => `<p>${escMultiline(para)}</p>`)
+    .join('');
+
 /**
- * Replace placeholders in HTML template with actual values
+ * Fills a template's `{{placeholders}}`. Every value is made safe here, whatever the caller passes (COMM-033):
+ * - `body` is sanitized rich text (pass already-safe HTML, e.g. from `plainTextToEmailHtml`),
+ * - `*_color` must be a hex color (else the default),
+ * - `logo_url` must be an https URL (email clients block other schemes),
+ * - everything else is HTML-escaped text.
+ * `{{#if name}}…{{/if}}` blocks are kept only when the (safe) value is non-empty. Unknown placeholders are removed.
  */
 export const applyTemplateVariables = (
   html: string,
   variables: Record<string, string | undefined>
 ): string => {
-  let result = html;
-
-  // 1. Handle standard replacements
+  const safe: Record<string, string> = {};
   for (const [key, value] of Object.entries(variables)) {
-    const placeholder = `{{${key}}}`;
-    result = result.split(placeholder).join(value || '');
+    if (key === 'body') safe[key] = sanitizeRichText(value ?? '');
+    else if (key.endsWith('_color')) safe[key] = safeColor(value, DEFAULT_COLORS[key]);
+    else if (key === 'logo_url') safe[key] = /^https:\/\/[^\s"'<>]+$/i.test(String(value ?? '').trim()) ? esc(String(value).trim()) : '';
+    else safe[key] = esc(value ?? '');
   }
 
-  // 2. Handle conditional blocks (e.g. {{#if logo_url}}...{{/if}})
+  // 1. Conditional blocks first, so a removed block never leaves placeholders behind.
   const ifPattern = /\{\{#if\s+(\w+)\s*\}\}([\s\S]*?)\{\{\/if\}\}/g;
-  result = result.replace(ifPattern, (match, varName, content) => {
-    return variables[varName] ? content : '';
+  let result = html.replace(ifPattern, (_match, varName: string, content: string) => (safe[varName] ? content : ''));
+
+  // 2. Placeholders.
+  result = result.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, key: string) => {
+    if (key in safe) return safe[key];
+    return key.endsWith('_color') ? (DEFAULT_COLORS[key] || '#2563eb') : '';
   });
 
   return result;

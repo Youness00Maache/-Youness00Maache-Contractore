@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>ContractorDocs</title>
+  <rect width="64" height="64" rx="15" fill="#2148ed"/>
+  <path d="M21 12h15l9 9v27a4 4 0 0 1-4 4H21a4 4 0 0 1-4-4V16a4 4 0 0 1 4-4Z" fill="#fff"/>
+  <path d="M36 12v6a3 3 0 0 0 3 3h6Z" fill="#bdd3ff"/>
+  <rect x="22" y="26" width="15" height="3.4" rx="1.7" fill="#90b6ff"/>
+  <rect x="22" y="33" width="10" height="3.4" rx="1.7" fill="#90b6ff"/>
+  <circle cx="45" cy="45" r="11" fill="#f59e0b" stroke="#2148ed" stroke-width="3"/>
+  <path d="m40 45.3 3.4 3.4 6.6-7" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

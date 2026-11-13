@@ -18,7 +18,7 @@ type ToolbarButtonProps = {
 const ToolbarButton: React.FC<ToolbarButtonProps> = ({ label, icon: Icon, isActive, onClick, showTooltip, hideTooltip }) => (
     <div className="relative shrink-0" onMouseEnter={() => showTooltip(label)} onMouseLeave={hideTooltip}>
         <button
-            className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors duration-200 border ${
+            className={`h-9 w-9 flex items-center justify-center rounded-lg transition-colors duration-200 border ${
                 isActive 
                 ? "bg-primary/20 text-primary border-primary/30" 
                 : "bg-card text-foreground border-border hover:bg-secondary"
@@ -27,7 +27,7 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({ label, icon: Icon, isActi
             onClick={onClick}
             title={label}
         >
-            <Icon className="h-5 w-5" />
+            <Icon className="h-4 w-4" />
         </button>
     </div>
 );
@@ -127,9 +127,9 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
     ];
     
     const initialFonts = [
-      { name: 'Default', family: 'var(--font-sans)' },
-      { name: 'Serif', family: 'var(--font-serif)' },
-      { name: 'Mono', family: 'var(--font-mono)' },
+      { name: 'Default', family: 'Inter, ui-sans-serif, system-ui, sans-serif' },
+      { name: 'Serif', family: 'Georgia, "Times New Roman", serif' },
+      { name: 'Mono', family: 'ui-monospace, SFMono-Regular, Consolas, monospace' },
       { name: 'Inter', family: 'Inter, sans-serif' },
       { name: 'Roboto', family: 'Roboto, sans-serif' },
       { name: 'Open Sans', family: 'Open Sans, sans-serif' },
@@ -196,11 +196,11 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
                 {/* Format Dropdown */}
                 <div className="relative shrink-0" ref={headingDropdownRef}>
-                    <button className="h-8 px-2 flex items-center gap-1 bg-card border border-border rounded-md hover:bg-secondary text-xs font-medium w-20 justify-between" onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}>
+                    <button className="h-9 px-2 flex items-center gap-1 bg-card border border-border rounded-lg hover:bg-secondary text-xs font-medium w-20 justify-between" onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}>
                         <span className="truncate">Normal</span><ChevronDownIcon className="w-3 h-3 opacity-50" />
                     </button>
                     {showHeadingDropdown && (
-                        <div className="absolute top-full mt-1 left-0 w-32 bg-popover border border-border rounded-md shadow-lg z-50 py-1">
+                        <div className="absolute top-full mt-1 left-0 w-32 bg-popover border border-border rounded-xl shadow-lift z-50 py-1">
                             {headings.map(h => (
                                 <button key={h.tag} onClick={() => handleHeadingChange(h.tag)} className={`block w-full text-left px-3 py-1.5 hover:bg-muted ${h.className} ${activeButtons.includes(h.tag) ? 'bg-primary/10 text-primary' : ''}`}>{h.label}</button>
                             ))}
@@ -210,11 +210,11 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
                 {/* Font Dropdown */}
                 <div className="relative shrink-0" ref={fontDropdownRef}>
-                    <button className="h-8 w-20 flex items-center justify-between px-2 rounded-md hover:bg-secondary bg-card border border-border text-xs font-medium" onClick={() => setShowFontDropdown(!showFontDropdown)} title="Font Family">
+                    <button className="h-9 w-24 flex items-center justify-between px-2 rounded-lg hover:bg-secondary bg-card border border-border text-xs font-medium" onClick={() => setShowFontDropdown(!showFontDropdown)} title="Font Family">
                         <span className="truncate">Arial</span><ChevronDownIcon className="w-3 h-3 opacity-50" />
                     </button>
                     {showFontDropdown && (
-                        <div className="absolute top-full mt-1 left-0 w-48 bg-popover border border-border rounded-md shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
+                        <div className="absolute top-full mt-1 left-0 w-48 bg-popover border border-border rounded-xl shadow-lift z-50 py-1 max-h-60 overflow-y-auto">
                             {initialFonts.map(f => (
                                 <button key={f.name} onClick={() => handleFontChange(f.family)} className="w-full text-left px-3 py-2 hover:bg-muted text-sm truncate" style={{ fontFamily: f.family }}>{f.name}</button>
                             ))}
@@ -224,11 +224,11 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
 
                 {/* Size Dropdown */}
                 <div className="relative shrink-0" ref={sizeDropdownRef}>
-                    <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary bg-card border border-border" onClick={() => setShowSizeDropdown(!showSizeDropdown)} title="Font Size">
+                    <button className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-secondary bg-card border border-border" onClick={() => setShowSizeDropdown(!showSizeDropdown)} title="Font Size">
                         <TextSizeIcon className="w-4 h-4" />
                     </button>
                     {showSizeDropdown && (
-                        <div className="absolute top-full mt-1 left-0 w-24 bg-popover border border-border rounded-md shadow-lg z-50 py-1">
+                        <div className="absolute top-full mt-1 left-0 w-24 bg-popover border border-border rounded-xl shadow-lift z-50 py-1">
                             {fontSizes.map(s => (
                                 <button key={s.label} onClick={() => handleSizeChange(s.value)} className="block w-full text-left px-3 py-2 text-xs hover:bg-muted">{s.label}</button>
                             ))}
@@ -244,17 +244,17 @@ const Toolbar: React.FC<ToolbarProps> = ({ activeButtons, onCommand, toggleActiv
                 ))}
 
                 <div className="relative shrink-0 flex gap-1" ref={colorPickerRef}>
-                    <button className={`h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary border border-border ${showColorPicker === 'text' ? 'bg-muted' : 'bg-card'}`} onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')} title="Text Color">
+                    <button className={`h-9 w-9 flex items-center justify-center rounded-lg hover:bg-secondary border border-border ${showColorPicker === 'text' ? 'bg-muted' : 'bg-card'}`} onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')} title="Text Color">
                         <TextColorIcon className="w-4 h-4" />
                     </button>
-                    <button className={`h-8 w-8 flex items-center justify-center rounded-md hover:bg-secondary border border-border ${showColorPicker === 'background' ? 'bg-muted' : 'bg-card'}`} onClick={() => setShowColorPicker(showColorPicker === 'background' ? null : 'background')} title="Highlight Color">
+                    <button className={`h-9 w-9 flex items-center justify-center rounded-lg hover:bg-secondary border border-border ${showColorPicker === 'background' ? 'bg-muted' : 'bg-card'}`} onClick={() => setShowColorPicker(showColorPicker === 'background' ? null : 'background')} title="Highlight Color">
                         <HighlighterIcon className="w-4 h-4" />
                     </button>
                     {showColorPicker && (
-                        <div className="absolute top-full mt-1 left-0 w-48 bg-popover border border-border rounded-md shadow-lg z-50 p-2">
+                        <div className="absolute top-full mt-1 left-0 w-48 bg-popover border border-border rounded-xl shadow-lift z-50 p-2">
                             <div className="grid grid-cols-8 gap-1">
                                 {colors.map(color => (
-                                    <button key={color} onClick={() => handleColorChange(color)} className="w-5 h-5 rounded-full border border-border/20 hover:scale-110 transition-transform" style={{ backgroundColor: color }} title={color} />
+                                    <button key={color} type="button" onClick={() => handleColorChange(color)} aria-label={`Color ${color}`} className="w-6 h-6 rounded-full border border-border/20 hover:scale-110 transition-transform" style={{ backgroundColor: color }} title={color} />
                                 ))}
                             </div>
                         </div>

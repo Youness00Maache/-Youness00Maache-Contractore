@@ -1,44 +1,258 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import ClientDetails from './ClientDetails.tsx';
-import { Client, FormData as FormDataType, FormType, Job } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, SearchIcon, PlusIcon, TrashIcon, UsersIcon, GlobeIcon, CheckIcon, PenIcon, EstimateIcon, ChangeOrderIcon, CopyIcon, CheckCircleIcon, MoreVerticalIcon, ClockIcon } from './Icons.tsx';
-import { DropdownMenu, DropdownItem } from './ui/DropdownMenu.tsx';
-import ConfirmationModal from './ConfirmationModal.tsx';
-import { UserProfile } from '../types';
+/**
+ * Clients directory: server-side search & pagination, add/edit/delete (single + bulk),
+ * CSV import/export, portal links, approval requests and client activity.
+ * Self-sufficient: talks to Supabase directly with error handling (COMM-020/021/022) and
+ * notifies App through `onClientsChanged` so its cached list can refresh.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase.ts';
+import { isPaidTier, normalizeTier } from '../lib/plans.ts';
+import { Client, FormType, type FormData as FormDataType, type Job, type UserProfile } from '../types.ts';
+import {
+    copyToClipboard,
+    documentLabel,
+    ensurePortalKey,
+    fetchClientDocuments,
+    fetchClientJobs,
+    isMissingFunctionError,
+    pgrstQuote,
+    portalUrl,
+    type ClientDocSummary,
+} from '../utils/clientLinks.ts';
+import ClientDetails, {
+    ActionMenu,
+    CLIENT_COLUMNS,
+    ClientFormModal,
+    DocTypeIcon,
+    EMAIL_RE,
+    EMPTY_DRAFT,
+    RequestApprovalModal,
+    TEMP_TAG,
+    deleteClients,
+    draftFromClient,
+    fmtDate,
+    insertClient,
+    isTemporaryClient,
+    parseDate,
+    stripTempTag,
+    useCommunicationNavigator,
+    useUserId,
+    type ClientDraft,
+    type CommunicationPrefill,
+} from './ClientDetails.tsx';
+import {
+    Avatar,
+    ConfirmDialog,
+    EmptyState,
+    Modal,
+    Notice,
+    PageHeader,
+    SkeletonRows,
+    Spinner,
+    StatusBadge,
+    cx,
+    getErrorMessage,
+    isPlanLimitError,
+} from './commsKit.tsx';
+import {
+    CheckIcon,
+    ClockIcon,
+    CopyIcon,
+    DownloadIcon,
+    EditIcon,
+    FileTextIcon,
+    GlobeIcon,
+    MailIcon,
+    MapPinIcon,
+    PenIcon,
+    PlusIcon,
+    SearchIcon,
+    SmartphoneIcon,
+    TrashIcon,
+    UploadImageIcon,
+    UsersIcon,
+    XCircleIcon,
+} from './Icons.tsx';
+
+export type { CommunicationPrefill } from './ClientDetails.tsx';
 
 interface ClientsViewProps {
     onBack: () => void;
-    supabase: any;
-    session: any;
+    /** @deprecated the shared client from lib/supabase.ts is used. */
+    supabase?: any;
+    session?: any;
     clients?: Client[];
-    forms?: FormDataType[]; // Added forms for document lookup
+    forms?: FormDataType[];
+    /** @deprecated details load their own jobs. */
     jobs?: Job[];
-    onAddClient?: (client: any) => Promise<void>;
+    /** @deprecated ignored: the view saves itself (errors and plan limits are handled inline). */
+    onAddClient?: (client: any) => Promise<any>;
+    /** @deprecated ignored. */
     onDeleteClient?: (id: string) => Promise<void>;
     isOnline?: boolean;
     onNavigateToNewDoc?: (type: FormType, clientId: string) => void;
     onNavigateToJob?: (jobId: string) => void;
     onNavigateToDoc?: (formId: string, jobId: string, type: FormType) => void;
-    userProfile?: UserProfile;
+    userProfile?: UserProfile | null;
     onUpgradeClick?: () => void;
     freeLimit?: number;
+    /** @deprecated ignored. */
     onUpdateClient?: (client: any) => Promise<void>;
+    /** @deprecated ignored (the legacy App version overwrote documents, COMM-001). */
     onMarkDocumentsAsViewed?: (clientId: string) => Promise<void>;
+    /** @deprecated ignored. */
+    onLoadClientDocuments?: (clientName: string) => Promise<void>;
+    /** @deprecated ignored: the list paginates itself. */
+    onLoadMoreClients?: () => Promise<void>;
+    /** @deprecated ignored. */
+    hasMoreClients?: boolean;
+    openCreateModal?: boolean;
+    prefillData?: any;
+    /** Called after any create / update / delete / import so App can refresh its cached clients. */
+    onClientsChanged?: () => void;
+    /** Called with the document ids that were marked as seen (so App can clear its badge). */
+    onDocumentsViewed?: (documentIds: string[]) => void;
+    /** Opens the Communication page; defaults to navigate('/communication', { state: { prefillData } }). */
+    onNavigateToCommunication?: (prefill: CommunicationPrefill) => void;
 }
+
+const PAGE_SIZE = 50;
+type Filter = 'all' | 'regular' | 'temporary';
+
+const byName = (a: Client, b: Client) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+
+/** `%term%` with LIKE wildcards escaped, quoted for a PostgREST `or=(...)` filter. */
+const ilikePattern = (term: string) => pgrstQuote(`%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`);
+
+const localMatch = (c: Client, term: string, filter: Filter) => {
+    if (filter === 'temporary' && !isTemporaryClient(c)) return false;
+    if (filter === 'regular' && isTemporaryClient(c)) return false;
+    if (!term) return true;
+    const t = term.toLowerCase();
+    return [c.name, c.email, c.phone].some((v) => String(v || '').toLowerCase().includes(t));
+};
+
+/* ------------------------------------------------------------------ CSV helpers */
+
+/** RFC 4180 parser (quotes, escaped quotes, CRLF/LF, BOM). Detects `,`, `;` or tab delimiters. */
+export function parseCsv(input: string): string[][] {
+    let text = input;
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    const firstLine = text.split(/\r?\n/, 1)[0] || '';
+    const counts = { ',': 0, ';': 0, '\t': 0 } as Record<string, number>;
+    let q = false;
+    for (const ch of firstLine) {
+        if (ch === '"') q = !q;
+        else if (!q && ch in counts) counts[ch] += 1;
+    }
+    const delim = counts[';'] > counts[','] && counts[';'] >= counts['\t'] ? ';' : counts['\t'] > counts[','] ? '\t' : ',';
+
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+            if (c === '"') {
+                if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+            } else field += c;
+            continue;
+        }
+        if (c === '"') { inQuotes = true; continue; }
+        if (c === delim) { row.push(field); field = ''; continue; }
+        if (c === '\r' || c === '\n') {
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            row.push(field); rows.push(row); row = []; field = '';
+            continue;
+        }
+        field += c;
+    }
+    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    return rows.filter((r) => r.some((cell) => cell.trim() !== ''));
+}
+
+const csvCell = (value: unknown): string => {
+    let s = String(value ?? '');
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // spreadsheet formula-injection guard
+    if (/[",\r\n]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
+    return s;
+};
+
+const toCsv = (rows: unknown[][]) => `﻿${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+
+const downloadText = (filename: string, content: string, type = 'text/csv;charset=utf-8') => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+const todayYmd = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const normHeader = (h: string) => h.toLowerCase().replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
+const HEADER_ALIASES: Record<keyof ClientDraft, string[]> = {
+    name: ['name', 'full name', 'fullname', 'client', 'client name', 'customer', 'customer name', 'company', 'company name', 'contact', 'contact name'],
+    email: ['email', 'e mail', 'email address', 'e mail address', 'mail'],
+    phone: ['phone', 'phone number', 'mobile', 'mobile phone', 'cell', 'cell phone', 'tel', 'telephone'],
+    address: ['address', 'street', 'street address', 'full address', 'location'],
+    notes: ['notes', 'note', 'comments', 'comment', 'description'],
+};
+
+interface ImportRow {
+    line: number;
+    draft: ClientDraft;
+    errors: string[];
+    warnings: string[];
+    include: boolean;
+}
+
+const MAX_IMPORT_ROWS = 5000;
+
+/* ------------------------------------------------------------------ mark documents viewed (COMM-001) */
+
+async function markDocumentsViewed(ids: string[]): Promise<boolean> {
+    if (!ids.length) return true;
+    const attempts: Array<Record<string, string[]>> = [{ p_document_ids: ids }, { p_doc_ids: ids }, { p_ids: ids }];
+    for (const args of attempts) {
+        const { error } = await supabase.rpc('mark_documents_viewed', args);
+        if (!error) return true;
+        if (!isMissingFunctionError(error)) return false;
+    }
+    return false;
+}
+
+/** Signed/declined documents of a client that the contractor hasn't seen (from App's lightweight forms). */
+const unseenActivityFor = (client: Client, forms: FormDataType[], seen: Set<string>) =>
+    forms.filter((f) => {
+        if (seen.has(f.id)) return false;
+        const row = f as any;
+        const d = (f.data || {}) as any;
+        const linkedId = row.client_id ?? row.clientId ?? d.clientId ?? null;
+        const belongs = linkedId ? linkedId === client.id : d.clientName === client.name;
+        if (!belongs) return false;
+        const viewed = d.viewedByProvider === true || String(d.viewedByProvider).toLowerCase() === 'true';
+        const acted = !!d.clientSignedAt || !!d.clientDeclinedAt || d.status === 'Accepted' || d.status === 'Rejected';
+        return acted && !viewed;
+    });
+
+const activityDate = (doc: ClientDocSummary) => doc.data.clientSignedAt || doc.data.clientDeclinedAt || doc.createdAt;
+
+/* ================================================================== component */
 
 const ClientsView: React.FC<ClientsViewProps> = ({
     onBack,
-    supabase,
     session,
     clients: propClients,
     forms = [],
-    jobs = [],
-    onAddClient,
-    onDeleteClient,
     isOnline,
     onNavigateToNewDoc,
     onNavigateToJob,
@@ -46,635 +260,1156 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     userProfile,
     onUpgradeClick,
     freeLimit = 15,
-    onUpdateClient,
-    onMarkDocumentsAsViewed
+    openCreateModal,
+    prefillData,
+    onClientsChanged,
+    onDocumentsViewed,
+    onNavigateToCommunication,
 }) => {
-    const [selectedDetailsClient, setSelectedDetailsClient] = useState<Client | null>(null);
-    const [localClients, setLocalClients] = useState<Client[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [loading, setLoading] = useState(false);
+    const userId = useUserId(session);
+    const goToCommunication = useCommunicationNavigator(onNavigateToCommunication);
+    const isFree = !isPaidTier(normalizeTier(userProfile?.subscriptionTier));
+
+    /* ---------- list state ---------- */
+    const [items, setItems] = useState<Client[]>(() => [...(propClients || [])].sort(byName));
+    const [hasMore, setHasMore] = useState(false);
+    const [listLoading, setListLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [listError, setListError] = useState<string | null>(null);
+    const [serverLoaded, setServerLoaded] = useState(false);
+    const [totalCount, setTotalCount] = useState<number | null>(null);
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [filter, setFilter] = useState<Filter>('all');
+    const requestRef = useRef(0);
+
+    /* ---------- UI state ---------- */
+    const [notice, setNotice] = useState<{ tone: 'success' | 'danger' | 'warning' | 'info'; text: string; upgrade?: boolean } | null>(null);
+    const [detailsClient, setDetailsClient] = useState<Client | null>(null);
+    const [form, setForm] = useState<{ mode: 'add' | 'edit'; initial: Partial<ClientDraft>; clientId?: string; error?: string | null } | null>(null);
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [approvalClient, setApprovalClient] = useState<Client | null>(null);
+    const [activityClient, setActivityClient] = useState<Client | null>(null);
+    const [showHistory, setShowHistory] = useState(false);
+    const [showImport, setShowImport] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [copiedId, setCopiedId] = useState<string | null>(null);
-
-    // Approval Hub Modal State
-    const [showApprovalModal, setShowApprovalModal] = useState(false);
-    const [selectedClientForApproval, setSelectedClientForApproval] = useState<Client | null>(null);
-    const [approvalCopiedDocId, setApprovalCopiedDocId] = useState<string | null>(null);
-    const [showSignedDocsModal, setShowSignedDocsModal] = useState(false); // NEW: Modal for signed documents
-    const [selectedClientForSignedDocs, setSelectedClientForSignedDocs] = useState<Client | null>(null); // NEW
-    const [showHistoryModal, setShowHistoryModal] = useState(false); // NEW: Global history
-    const [clientToDelete, setClientToDelete] = useState<string | null>(null);
-
-    const [newClient, setNewClient] = useState<Partial<Client>>({
-        name: '',
-        email: '',
-        phone: '',
-        address: '',
-        notes: ''
-    });
-
-    const [showTemporaryClientsModal, setShowTemporaryClientsModal] = useState(false);
-
-    const activeClients = propClients || localClients;
+    const [portalBusyId, setPortalBusyId] = useState<string | null>(null);
+    const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
-        if (session && !propClients) fetchClients();
-    }, [session, propClients]);
+        const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+        return () => window.clearTimeout(t);
+    }, [search]);
 
-    const fetchClients = async () => {
-        setLoading(true);
-        const { data, error } = await supabase
-            .from('clients')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .order('name');
+    // Before the first server response, keep showing App's cached clients.
+    useEffect(() => {
+        if (!serverLoaded && propClients) setItems([...propClients].sort(byName));
+    }, [propClients, serverLoaded]);
 
+    const buildQuery = useCallback((from: number, term: string, f: Filter) => {
+        let q = supabase.from('clients').select(CLIENT_COLUMNS).order('name', { ascending: true }).order('id', { ascending: true });
+        if (userId) q = q.eq('user_id', userId);
+        if (term) {
+            const pat = ilikePattern(term);
+            q = q.or(`name.ilike.${pat},email.ilike.${pat},phone.ilike.${pat}`);
+        }
+        if (f === 'temporary') q = q.ilike('notes', `%${TEMP_TAG}%`);
+        if (f === 'regular') q = q.or(`notes.is.null,notes.not.ilike.${pgrstQuote(`%${TEMP_TAG}%`)}`);
+        return q.range(from, from + PAGE_SIZE - 1);
+    }, [userId]);
+
+    const loadFirstPage = useCallback(async () => {
+        if (!userId) return;
+        const req = ++requestRef.current;
+        setListLoading(true);
+        setListError(null);
+        const { data, error } = await buildQuery(0, debouncedSearch, filter);
+        if (req !== requestRef.current) return;
         if (error) {
-            console.error('Error fetching clients:', error);
-        }
-        else setLocalClients(data || []);
-        setLoading(false);
-    };
-
-    const handleAdd = async () => {
-        if (!newClient.name) return alert('Client Name is required');
-
-        setLoading(true);
-        if (onAddClient) {
-            await onAddClient(newClient);
-            setShowAddModal(false);
-            setNewClient({ name: '', email: '', phone: '', address: '', notes: '' });
+            setListError(getErrorMessage(error, 'Could not load clients.'));
         } else {
-            const { error } = await supabase
-                .from('clients')
-                .insert([{ ...newClient, user_id: session.user.id }]);
+            setItems((data || []) as Client[]);
+            setHasMore((data || []).length === PAGE_SIZE);
+            setServerLoaded(true);
+        }
+        setListLoading(false);
+    }, [userId, buildQuery, debouncedSearch, filter]);
 
-            if (error) {
-                alert(`Failed to add client: ${error.message}`);
-            } else {
-                setShowAddModal(false);
-                setNewClient({ name: '', email: '', phone: '', address: '', notes: '' });
-                fetchClients();
+    const loadCount = useCallback(async () => {
+        if (!userId) return;
+        const { count, error } = await supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId);
+        if (!error && typeof count === 'number') setTotalCount(count);
+    }, [userId]);
+
+    useEffect(() => { loadFirstPage(); }, [loadFirstPage]);
+    useEffect(() => { loadCount(); }, [loadCount]);
+
+    const loadMore = async () => {
+        if (loadingMore) return;
+        const req = requestRef.current;
+        setLoadingMore(true);
+        const { data, error } = await buildQuery(items.length, debouncedSearch, filter);
+        if (req === requestRef.current) {
+            if (error) setNotice({ tone: 'danger', text: getErrorMessage(error, 'Could not load more clients.') });
+            else {
+                setItems((prev) => {
+                    const ids = new Set(prev.map((c) => c.id));
+                    return [...prev, ...((data || []) as Client[]).filter((c) => !ids.has(c.id))];
+                });
+                setHasMore((data || []).length === PAGE_SIZE);
             }
         }
-        setLoading(false);
+        setLoadingMore(false);
     };
 
-    const handleDelete = async (id: string) => {
-        setClientToDelete(id);
-    };
-
-    const confirmDelete = async () => {
-        if (!clientToDelete) return;
-
-        setLoading(true);
-        if (onDeleteClient) {
-            await onDeleteClient(clientToDelete);
-        } else {
-            const { error } = await supabase
-                .from('clients')
-                .delete()
-                .eq('id', clientToDelete);
-
-            if (error) {
-                alert(`Failed to delete client: ${error.message}`);
-            }
-            else fetchClients();
-        }
-        setClientToDelete(null);
-        setLoading(false);
-    };
-
-    const handleConvertClient = async (client: Client, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!onUpdateClient) return;
-        const newNotes = (client.notes || '').replace('[TEMPORARY]', '').trim();
-        await onUpdateClient({ ...client, notes: newNotes });
-        if (activeClients === localClients) {
-            // refresh manually if no parents are doing it
-            fetchClients();
-        }
-    };
-
-    // Helper to get signed documents for a client
-    const getClientSignedDocs = (clientName: string, onlyUnseen = false) => {
-        return forms.filter(f =>
-            (f.type === FormType.Estimate || f.type === FormType.ChangeOrder) &&
-            (f.data as any).clientName === clientName &&
-            (f.data as any).clientSignatureUrl &&
-            (!onlyUnseen || !(f.data as any).viewedByProvider)
-        );
-    };
-
-    const copyPortalLink = (client: Client) => {
-        if (!client.portal_key) {
-            alert("This client does not have a portal key yet. Please refresh or update the client.");
-            return;
-        }
-        const url = `${window.location.origin}?portal=${client.portal_key}`;
-        navigator.clipboard.writeText(url);
-        setCopiedId(client.id);
-        setTimeout(() => setCopiedId(null), 2000);
-    };
-
-    // Helper to open Approval Modal
-    const openApprovalModal = (client: Client) => {
-        setSelectedClientForApproval(client);
-        setShowApprovalModal(true);
-    };
-
-    // Filter docs for the selected client in the modal
-    const clientApprovalDocs = useMemo(() => {
-        if (!selectedClientForApproval) return [];
-
-        return forms.filter(f => {
-            // Filter for Estimates and Change Orders only
-            if (f.type !== FormType.Estimate && f.type !== FormType.ChangeOrder) return false;
-
-            // Match by Client Name (Standard app behavior)
-            const data = f.data as any;
-            return data.clientName === selectedClientForApproval.name;
-        }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    }, [selectedClientForApproval, forms]);
-
-    const copyApprovalLink = (doc: FormDataType) => {
-        if (!doc.public_token) {
-            alert("This document cannot be shared securely yet. Please open and save it again to generate a token.");
-            return;
-        }
-        const url = `${window.location.origin}?approval_token=${doc.public_token}`;
-        navigator.clipboard.writeText(url);
-        setApprovalCopiedDocId(doc.id);
-        setTimeout(() => setApprovalCopiedDocId(null), 2000);
-    };
-
-    const handleCreateNew = (type: FormType) => {
-        if (onNavigateToNewDoc && selectedClientForApproval) {
-            onNavigateToNewDoc(type, selectedClientForApproval.id);
-            setShowApprovalModal(false); // Close modal
-        }
-    };
-
-    const regularClients = activeClients.filter(c => !c.notes?.includes('[TEMPORARY]'));
-    const temporaryClients = activeClients.filter(c => c.notes?.includes('[TEMPORARY]'));
-
-    const filteredClients = regularClients.filter(c =>
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
+    const visible = useMemo(
+        () => (serverLoaded ? items : items.filter((c) => localMatch(c, debouncedSearch, filter))),
+        [items, serverLoaded, debouncedSearch, filter],
     );
 
-    const filteredTempClients = temporaryClients.filter(c =>
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    const changed = () => { loadCount(); onClientsChanged?.(); };
 
-    if (selectedDetailsClient) {
-        // Filter jobs and docs for this client
-        const clientJobs = jobs.filter(j => j.clientName === selectedDetailsClient.name);
-        const clientJobIds = clientJobs.map(j => j.id);
-        const clientDocs = forms.filter(f => {
-            const data = f.data as any;
-            return clientJobIds.includes(f.jobId) || data.clientName === selectedDetailsClient.name;
+    const upsertLocal = (client: Client) => {
+        setItems((prev) => {
+            const exists = prev.some((c) => c.id === client.id);
+            const next = exists ? prev.map((c) => (c.id === client.id ? client : c)) : [...prev, client];
+            return next.sort(byName);
         });
+        setDetailsClient((cur) => (cur && cur.id === client.id ? client : cur));
+    };
 
+    /* ---------- AI prefill / open-create (processed once per payload) ---------- */
+    const processedPrefillRef = useRef<string | null>(null);
+    const openedCreateRef = useRef(false);
+
+    useEffect(() => {
+        if (prefillData) {
+            if (!userId) return;
+            const key = JSON.stringify(prefillData);
+            if (processedPrefillRef.current === key) return;
+            processedPrefillRef.current = key;
+            // Clear router state so a page refresh does not replay the AI action (keeps react-router's keys).
+            try {
+                const st = window.history.state;
+                if (st && typeof st === 'object') window.history.replaceState({ ...st, usr: null }, document.title);
+            } catch { /* ignore */ }
+
+            const toDraft = (d: any): ClientDraft => {
+                const notes = String(d?.notes || '');
+                const temp = !!(d?.isTemporary || d?.is_temporary);
+                return {
+                    name: String(d?.name || d?.clientName || '').trim(),
+                    email: String(d?.email || '').trim(),
+                    phone: String(d?.phone || '').trim(),
+                    address: String(d?.address || '').trim(),
+                    notes: temp && !notes.includes(TEMP_TAG) ? `${TEMP_TAG} ${notes}`.trim() : notes,
+                };
+            };
+
+            const run = async () => {
+                if (Array.isArray(prefillData)) {
+                    let added = 0;
+                    const failures: string[] = [];
+                    for (const entry of prefillData) {
+                        const draft = toDraft(entry);
+                        if (!draft.name) continue;
+                        if (draft.email && !EMAIL_RE.test(draft.email)) draft.email = '';
+                        try {
+                            upsertLocal(await insertClient(draft, userId));
+                            added++;
+                        } catch (err) {
+                            if (isPlanLimitError(err)) {
+                                setNotice({ tone: 'warning', text: `Added ${added} client${added === 1 ? '' : 's'}. ${getErrorMessage(err)}`, upgrade: true });
+                                if (added) changed();
+                                return;
+                            }
+                            failures.push(`${draft.name}: ${getErrorMessage(err)}`);
+                        }
+                    }
+                    if (added) changed();
+                    setNotice(failures.length
+                        ? { tone: 'warning', text: `Added ${added} client${added === 1 ? '' : 's'}. Not added: ${failures.join('; ')}` }
+                        : { tone: 'success', text: `Added ${added} client${added === 1 ? '' : 's'}.` });
+                    return;
+                }
+                const draft = toDraft(prefillData);
+                if (!draft.name) { setForm({ mode: 'add', initial: draft }); return; }
+                if (prefillData.auto_submit) {
+                    try {
+                        if (draft.email && !EMAIL_RE.test(draft.email)) throw new Error('The email address looks invalid. Please check it.');
+                        const saved = await insertClient(draft, userId);
+                        upsertLocal(saved);
+                        changed();
+                        setNotice({ tone: 'success', text: `${saved.name} was added to your clients.` });
+                    } catch (err) {
+                        setForm({ mode: 'add', initial: draft, error: err instanceof Error ? err.message : String(err) });
+                    }
+                } else {
+                    setForm({ mode: 'add', initial: draft });
+                }
+            };
+            run();
+        } else if (openCreateModal && !openedCreateRef.current) {
+            openedCreateRef.current = true;
+            setForm({ mode: 'add', initial: EMPTY_DRAFT });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [prefillData, openCreateModal, userId]);
+
+    /* ---------- selection & delete ---------- */
+    const toggleSelected = (id: string) => setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+    const allVisibleSelected = visible.length > 0 && visible.every((c) => selected.has(c.id));
+    const toggleSelectAll = () => setSelected(allVisibleSelected ? new Set() : new Set(visible.map((c) => c.id)));
+    const exitSelection = () => { setSelectionMode(false); setSelected(new Set()); };
+
+    const doDelete = async () => {
+        if (!deleteIds?.length) return;
+        setDeleteBusy(true);
+        setDeleteError(null);
+        try {
+            await deleteClients(deleteIds);
+            const gone = new Set(deleteIds);
+            setItems((prev) => prev.filter((c) => !gone.has(c.id)));
+            setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+            setNotice({ tone: 'success', text: deleteIds.length === 1 ? 'Client deleted.' : `${deleteIds.length} clients deleted.` });
+            setDeleteIds(null);
+            if (selectionMode) exitSelection();
+            changed();
+        } catch (err) {
+            setDeleteError(getErrorMessage(err, 'Could not delete. Please try again.'));
+        } finally {
+            setDeleteBusy(false);
+        }
+    };
+
+    /* ---------- per-client actions ---------- */
+    const copyPortal = async (client: Client) => {
+        setPortalBusyId(client.id);
+        try {
+            const hadKey = !!client.portal_key;
+            const key = await ensurePortalKey(client);
+            if (!hadKey) { upsertLocal({ ...client, portal_key: key }); onClientsChanged?.(); }
+            const url = portalUrl(key);
+            if (await copyToClipboard(url)) {
+                setCopiedId(client.id);
+                window.setTimeout(() => setCopiedId((cur) => (cur === client.id ? null : cur)), 2500);
+            } else {
+                setNotice({ tone: 'info', text: `Copy this portal link for ${client.name}: ${url}` });
+            }
+        } catch (err) {
+            setNotice({ tone: 'danger', text: getErrorMessage(err) });
+        } finally {
+            setPortalBusyId(null);
+        }
+    };
+
+    const convertToRegular = async (client: Client) => {
+        try {
+            const { data, error } = await supabase.from('clients').update({ notes: stripTempTag(client.notes) }).eq('id', client.id).select(CLIENT_COLUMNS).single();
+            if (error) throw new Error(error.message);
+            const saved = data as Client;
+            if (filter === 'temporary') setItems((prev) => prev.filter((c) => c.id !== saved.id));
+            else upsertLocal(saved);
+            setNotice({ tone: 'success', text: `${saved.name} is now a regular client.` });
+            onClientsChanged?.();
+        } catch (err) {
+            setNotice({ tone: 'danger', text: getErrorMessage(err) });
+        }
+    };
+
+    /* ---------- export ---------- */
+    const exportCsv = async () => {
+        if (!userId) return;
+        setExporting(true);
+        try {
+            const all: Client[] = [];
+            const STEP = 1000;
+            for (let from = 0; ; from += STEP) {
+                const { data, error } = await supabase
+                    .from('clients')
+                    .select(CLIENT_COLUMNS)
+                    .eq('user_id', userId)
+                    .order('name', { ascending: true })
+                    .order('id', { ascending: true })
+                    .range(from, from + STEP - 1);
+                if (error) throw new Error(error.message);
+                all.push(...((data || []) as Client[]));
+                if (!data || data.length < STEP) break;
+            }
+            if (!all.length) { setNotice({ tone: 'info', text: 'There are no clients to export yet.' }); return; }
+            const rows: unknown[][] = [['Name', 'Email', 'Phone', 'Address', 'Notes', 'Temporary', 'Client since']];
+            all.forEach((c) => rows.push([
+                c.name, c.email || '', c.phone || '', c.address || '', stripTempTag(c.notes),
+                isTemporaryClient(c) ? 'yes' : 'no', c.created_at ? c.created_at.slice(0, 10) : '',
+            ]));
+            downloadText(`clients-${todayYmd()}.csv`, toCsv(rows));
+            setNotice({ tone: 'success', text: `Exported ${all.length} client${all.length === 1 ? '' : 's'}.` });
+        } catch (err) {
+            setNotice({ tone: 'danger', text: `Export failed: ${getErrorMessage(err)}` });
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    /* ---------- details page ---------- */
+    if (detailsClient) {
         return (
             <ClientDetails
-                client={selectedDetailsClient}
-                jobs={clientJobs}
-                docs={clientDocs}
-                onBack={() => setSelectedDetailsClient(null)}
-                onNavigateToJob={onNavigateToJob || (() => { })}
-                onNavigateToDoc={onNavigateToDoc || (() => { })}
+                client={detailsClient}
+                userProfile={userProfile}
+                userId={userId}
+                onBack={() => setDetailsClient(null)}
+                onClientUpdated={(c) => { upsertLocal(c); onClientsChanged?.(); }}
+                onClientDeleted={(id) => {
+                    setItems((prev) => prev.filter((c) => c.id !== id));
+                    setDetailsClient(null);
+                    setNotice({ tone: 'success', text: 'Client deleted.' });
+                    changed();
+                }}
+                onNavigateToJob={onNavigateToJob}
+                onNavigateToDoc={onNavigateToDoc}
+                onNavigateToNewDoc={onNavigateToNewDoc}
+                onNavigateToCommunication={onNavigateToCommunication}
+                onUpgradeClick={onUpgradeClick}
             />
         );
     }
 
-    return (
-        <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            {/* Single-row header: [← Title] left | [actions] right */}
-            <header className="flex items-center justify-between mb-8 gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-9 h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
-                        <BackArrowIcon className="h-5 w-5" />
-                    </Button>
-                    <div className="min-w-0">
-                        <h1 className="text-lg md:text-2xl font-bold tracking-tight truncate">Client Directory</h1>
-                        {userProfile?.subscriptionTier !== 'Premium' && (
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] md:text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold shadow-sm border border-blue-200">
-                                    {activeClients.filter(c => { if (!c.created_at) return true; const d = new Date(c.created_at); return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear(); }).length}/{freeLimit} <span className="hidden sm:inline">Clients</span>
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                    {isOnline === false && <div className="hidden md:block bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold animate-pulse">Offline</div>}
-                    <Button variant="outline" onClick={() => setShowHistoryModal(true)} className="rounded-full shadow-md hover:bg-secondary h-12 w-12 md:h-9 md:w-auto md:px-3 flex items-center justify-center p-0 md:p-2" title="History">
-                        <ClockIcon className="w-7 h-7 md:w-4 md:h-4" />
-                        <span className="hidden md:inline ml-1.5">History</span>
-                    </Button>
-                    <Button variant="outline" onClick={() => setShowTemporaryClientsModal(true)} className="rounded-full shadow-md h-12 w-12 md:h-9 md:w-auto md:px-3 flex items-center justify-center bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100 p-0 md:p-2" title={`Temporary (${temporaryClients.length})`}>
-                        <UsersIcon className="w-7 h-7 md:w-4 md:h-4" />
-                        <span className="hidden md:inline ml-1.5">Temporary ({temporaryClients.length})</span>
-                    </Button>
-                    <Button onClick={() => setShowAddModal(true)} className="rounded-full shadow-md shadow-primary/20 h-12 w-12 md:h-9 md:w-auto md:px-3 flex items-center justify-center p-0 md:p-2">
-                        <PlusIcon className="w-7 h-7 md:w-4 md:h-4 md:mr-2" />
-                        <span className="hidden md:inline">Add Client</span>
-                    </Button>
-                </div>
-            </header>
+    const atLimit = isFree && totalCount !== null && totalCount >= freeLimit;
+    const searching = !!debouncedSearch || filter !== 'all';
 
-            <div className="relative mb-8 max-w-md">
-                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                    placeholder="Search clients by name or email..."
-                    className="pl-10 h-11 rounded-full bg-card border-border shadow-sm focus:ring-2 focus:ring-primary/20"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                />
+    return (
+        <div className="page animate-fade-in">
+            <PageHeader
+                onBack={onBack}
+                title="Clients"
+                badge={isFree && totalCount !== null ? (
+                    <span className={cx('badge', atLimit ? 'badge-warning' : 'badge-muted')} title="Free plan client limit">
+                        {totalCount}/{freeLimit}
+                    </span>
+                ) : undefined}
+                subtitle={totalCount === null ? 'Your customers, their documents and portal links' : `${totalCount} client${totalCount === 1 ? '' : 's'} · portal links, approvals and history`}
+                actions={
+                    <>
+                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowHistory(true)}>
+                            <ClockIcon className="h-4 w-4" /> <span>Activity</span>
+                        </button>
+                        <ActionMenu
+                            label="Import or export clients"
+                            triggerClassName="btn btn-outline min-h-[40px]"
+                            trigger={<><FileTextIcon className="h-4 w-4" /> <span>Import / export</span></>}
+                            items={[
+                                { label: 'Import from CSV', icon: <UploadImageIcon className="h-4 w-4" />, onClick: () => setShowImport(true) },
+                                { label: exporting ? 'Exporting…' : 'Export all to CSV', icon: <DownloadIcon className="h-4 w-4" />, onClick: exportCsv, disabled: exporting },
+                            ]}
+                        />
+                        <button type="button" className="btn btn-primary min-h-[40px]" onClick={() => setForm({ mode: 'add', initial: EMPTY_DRAFT })}>
+                            <PlusIcon className="h-4 w-4" /> Add client
+                        </button>
+                    </>
+                }
+            />
+
+            <div className="space-y-3">
+                {isOnline === false && (
+                    <Notice tone="warning" title="You're offline">Changes can't be saved until you're back online.</Notice>
+                )}
+                {atLimit && (
+                    <Notice
+                        tone="warning"
+                        title={`You've reached the ${freeLimit}-client limit of the Free plan`}
+                        action={onUpgradeClick ? <button type="button" className="btn btn-primary btn-sm min-h-[36px]" onClick={onUpgradeClick}>Upgrade for unlimited clients</button> : undefined}
+                    >
+                        Existing clients keep working. Upgrade to add more.
+                    </Notice>
+                )}
+                {notice && (
+                    <Notice
+                        tone={notice.tone}
+                        onClose={() => setNotice(null)}
+                        action={notice.upgrade && onUpgradeClick ? <button type="button" className="btn btn-primary btn-sm min-h-[36px]" onClick={onUpgradeClick}>Upgrade</button> : undefined}
+                    >
+                        <span className="break-words">{notice.text}</span>
+                    </Notice>
+                )}
             </div>
 
-            {loading && activeClients.length === 0 ? (
-                <div className="flex items-center justify-center h-64 text-muted-foreground">Loading clients...</div>
-            ) : filteredClients.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-64 bg-muted/10 rounded-2xl border border-dashed border-border">
-                    <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
-                        <UsersIcon className="w-6 h-6" />
-                    </div>
-                    <p className="text-lg font-medium text-foreground">No clients found</p>
-                    <p className="text-sm text-muted-foreground mt-1">Try adjusting your search or add a new client.</p>
+            {/* Toolbar */}
+            <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="relative w-full md:max-w-sm">
+                    <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                        type="search"
+                        className="input min-h-[44px] pl-10 pr-10"
+                        placeholder="Search name, email or phone"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        aria-label="Search clients"
+                    />
+                    {listLoading && serverLoaded && (
+                        <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground"><Spinner /></span>
+                    )}
                 </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredClients.map(client => (
-                        <Card
-                            key={client.id}
-                            onClick={() => setSelectedDetailsClient(client)}
-                            className="group hover:shadow-xl transition-all duration-300 border-blue-100 dark:border-border hover:border-blue-300 dark:hover:border-primary/50 bg-gradient-to-br from-white to-blue-50/30 dark:from-card dark:to-card relative overflow-hidden cursor-pointer"
-                        >
-                            <CardHeader className="pb-3 flex flex-row gap-4 items-center border-b border-blue-100 dark:border-border bg-white/50 dark:bg-secondary/20">
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-lg relative">
-                                    {client.name.charAt(0).toUpperCase()}
-                                    {/* Notification Badge for Signed Documents (Unseen only) */}
-                                    {getClientSignedDocs(client.name, true).length > 0 && (
-                                        <div
-                                            className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-xs font-bold ring-2 ring-white shadow-sm animate-bounce"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSelectedClientForSignedDocs(client);
-                                                setShowSignedDocsModal(true);
-                                                if (onMarkDocumentsAsViewed) onMarkDocumentsAsViewed(client.id);
-                                            }}
-                                            title="View new signed documents"
-                                        >
-                                            {getClientSignedDocs(client.name, true).length}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <h3 className="font-bold text-lg text-blue-900 dark:text-foreground truncate group-hover:text-blue-700 dark:group-hover:text-primary transition-colors">{client.name}</h3>
-                                    {client.address && <p className="text-xs text-blue-600/70 dark:text-muted-foreground truncate">{client.address}</p>}
-                                </div>
-                            </CardHeader>
-                            <CardContent className="pt-4 pb-4 space-y-3 text-sm">
-                                {client.email ? (
-                                    <div className="flex items-center gap-3 text-blue-700 dark:text-muted-foreground group-hover:text-blue-900 dark:group-hover:text-foreground transition-colors">
-                                        <div className="w-8 h-8 rounded-full bg-white dark:bg-secondary flex items-center justify-center shrink-0 shadow-sm">
-                                            <span className="text-xs">@</span>
-                                        </div>
-                                        <span className="truncate">{client.email}</span>
-                                    </div>
-                                ) : (
-                                    <div className="h-8 flex items-center text-blue-400/50 dark:text-muted-foreground/40 italic pl-11">No email</div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex rounded-xl bg-muted p-1" role="group" aria-label="Filter clients">
+                        {(['all', 'regular', 'temporary'] as Filter[]).map((f) => (
+                            <button
+                                key={f}
+                                type="button"
+                                aria-pressed={filter === f}
+                                onClick={() => setFilter(f)}
+                                className={cx(
+                                    'min-h-[36px] rounded-lg px-3 text-sm font-semibold capitalize transition-colors',
+                                    filter === f ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
                                 )}
-
-                                {client.phone ? (
-                                    <div className="flex items-center gap-3 text-blue-700 dark:text-muted-foreground group-hover:text-blue-900 dark:group-hover:text-foreground transition-colors">
-                                        <div className="w-8 h-8 rounded-full bg-white dark:bg-secondary flex items-center justify-center shrink-0 shadow-sm">
-                                            <span className="text-xs">#</span>
-                                        </div>
-                                        <span>{client.phone}</span>
-                                    </div>
-                                ) : (
-                                    <div className="h-8 flex items-center text-blue-400/50 dark:text-muted-foreground/40 italic pl-11">No phone</div>
-                                )}
-
-                                <div className="pt-4 grid grid-cols-2 gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={(e) => { e.stopPropagation(); copyPortalLink(client); }}
-                                        className="text-xs h-9 bg-white text-blue-700 border-blue-100 hover:bg-blue-50 dark:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-700 shadow-sm"
-                                        title="Copy Magic Portal Link"
-                                    >
-                                        {copiedId === client.id ? <CheckIcon className="w-3 h-3 mr-1" /> : <GlobeIcon className="w-3 h-3 mr-1" />}
-                                        {copiedId === client.id ? 'Copied' : 'Portal'}
-                                    </Button>
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        onClick={(e) => { e.stopPropagation(); openApprovalModal(client); }}
-                                        className="text-xs h-9 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                                        title="Get Approval Link"
-                                    >
-                                        <PenIcon className="w-3 h-3 mr-1" /> Get Approval
-                                    </Button>
-                                </div>
-                            </CardContent>
-                            <div
-                                className="absolute top-4 right-4 group-hover:bg-white/80 dark:group-hover:bg-zinc-800/80 rounded-full transition-colors"
-                                onClick={(e) => e.stopPropagation()}
                             >
-                                <DropdownMenu
-                                    align="right"
-                                    trigger={
-                                        <Button variant="ghost" size="sm" className="h-10 w-10 p-0 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
-                                            <MoreVerticalIcon className="w-6 h-6" />
-                                        </Button>
-                                    }
+                                {f}
+                            </button>
+                        ))}
+                    </div>
+                    {!selectionMode ? (
+                        <button type="button" className="btn btn-ghost min-h-[40px]" onClick={() => setSelectionMode(true)} disabled={!visible.length}>
+                            <CheckIcon className="h-4 w-4" /> Select
+                        </button>
+                    ) : (
+                        <button type="button" className="btn btn-ghost min-h-[40px]" onClick={exitSelection}>Done</button>
+                    )}
+                </div>
+            </div>
+
+            {selectionMode && (
+                <div className="sticky top-2 z-20 mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/95 p-2 shadow-card backdrop-blur">
+                    <span className="px-2 text-sm font-semibold text-foreground">{selected.size} selected</span>
+                    <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={toggleSelectAll}>
+                        {allVisibleSelected ? 'Clear selection' : `Select all ${visible.length}`}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-danger btn-sm ml-auto min-h-[40px]"
+                        disabled={!selected.size}
+                        onClick={() => { setDeleteError(null); setDeleteIds([...selected]); }}
+                    >
+                        <TrashIcon className="h-4 w-4" /> Delete
+                    </button>
+                </div>
+            )}
+
+            {/* List */}
+            <div className="mt-4">
+                {listError && (
+                    <Notice tone="danger" title="Could not load clients" className="mb-3" action={<button type="button" className="btn btn-outline btn-sm min-h-[36px]" onClick={loadFirstPage}>Retry</button>}>
+                        {listError}
+                    </Notice>
+                )}
+                {listLoading && !serverLoaded && visible.length === 0 ? (
+                    <SkeletonRows rows={5} />
+                ) : visible.length === 0 ? (
+                    searching ? (
+                        <EmptyState
+                            icon={<SearchIcon className="h-6 w-6" />}
+                            title={debouncedSearch ? `No clients match “${debouncedSearch}”` : `No ${filter} clients`}
+                            description="Try another search or filter."
+                            action={<button type="button" className="btn btn-outline min-h-[40px]" onClick={() => { setSearch(''); setFilter('all'); }}>Clear search</button>}
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={<UsersIcon className="h-6 w-6" />}
+                            title="No clients yet"
+                            description="Add your first client, or import a list from a spreadsheet."
+                            action={
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                    <button type="button" className="btn btn-primary min-h-[40px]" onClick={() => setForm({ mode: 'add', initial: EMPTY_DRAFT })}>
+                                        <PlusIcon className="h-4 w-4" /> Add client
+                                    </button>
+                                    <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowImport(true)}>
+                                        <UploadImageIcon className="h-4 w-4" /> Import CSV
+                                    </button>
+                                </div>
+                            }
+                        />
+                    )
+                ) : (
+                    <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {visible.map((client) => {
+                            const unseen = unseenActivityFor(client, forms, seenIds);
+                            const isSelected = selected.has(client.id);
+                            const temp = isTemporaryClient(client);
+                            return (
+                                <li
+                                    key={client.id}
+                                    className={cx('card flex flex-col gap-3 p-4 transition-shadow hover:shadow-card', isSelected && 'ring-2 ring-primary')}
                                 >
-                                    <DropdownItem
-                                        onClick={(e) => { e.stopPropagation(); handleDelete(client.id); }}
-                                        destructive
-                                    >
-                                        <TrashIcon className="w-4 h-4 mr-2" />
-                                        Delete Client
-                                    </DropdownItem>
-                                </DropdownMenu>
-                            </div>
-                        </Card>
-                    ))}
-                </div>
-            )}
+                                    <div className="flex items-start gap-2">
+                                        {selectionMode && (
+                                            <label className="flex h-11 w-9 shrink-0 cursor-pointer items-center justify-center">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-5 w-5 accent-[hsl(var(--primary))]"
+                                                    checked={isSelected}
+                                                    onChange={() => toggleSelected(client.id)}
+                                                    aria-label={`Select ${client.name}`}
+                                                />
+                                            </label>
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 rounded-xl text-left"
+                                            onClick={() => (selectionMode ? toggleSelected(client.id) : setDetailsClient(client))}
+                                        >
+                                            <Avatar name={client.name} />
+                                            <span className="min-w-0">
+                                                <span className="block truncate font-semibold text-foreground">{client.name}</span>
+                                                <span className="block truncate text-xs text-muted-foreground">
+                                                    {client.address || (client.created_at ? `Added ${fmtDate(client.created_at)}` : 'View details')}
+                                                </span>
+                                            </span>
+                                        </button>
+                                        <ActionMenu
+                                            label={`Actions for ${client.name}`}
+                                            items={[
+                                                { label: 'Edit', icon: <EditIcon className="h-4 w-4" />, onClick: () => setForm({ mode: 'edit', initial: draftFromClient(client), clientId: client.id }) },
+                                                { label: 'Email client', icon: <MailIcon className="h-4 w-4" />, onClick: () => goToCommunication({ clientId: client.id, clientName: client.name, clientEmail: client.email || undefined }) },
+                                                ...(temp ? [{ label: 'Convert to regular', icon: <UsersIcon className="h-4 w-4" />, onClick: () => convertToRegular(client) }] : []),
+                                                { label: 'Select', icon: <CheckIcon className="h-4 w-4" />, onClick: () => { setSelectionMode(true); setSelected((p) => new Set(p).add(client.id)); } },
+                                                { label: 'Delete', icon: <TrashIcon className="h-4 w-4" />, destructive: true, onClick: () => { setDeleteError(null); setDeleteIds([client.id]); } },
+                                            ]}
+                                        />
+                                    </div>
 
-            {/* Add Client Modal */}
-            {showAddModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowAddModal(false)}>
-                    <Card className="w-full max-w-md animate-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <CardHeader>
-                            <CardTitle>Add New Client</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div><Label>Name</Label><Input value={newClient.name} onChange={e => setNewClient({ ...newClient, name: e.target.value })} placeholder="Full Name or Company" /></div>
-                            <div><Label>Email</Label><Input value={newClient.email} onChange={e => setNewClient({ ...newClient, email: e.target.value })} placeholder="client@example.com" /></div>
-                            <div><Label>Phone</Label><Input value={newClient.phone} onChange={e => setNewClient({ ...newClient, phone: e.target.value })} placeholder="(555) 123-4567" /></div>
-                            <div><Label>Address</Label><Input value={newClient.address} onChange={e => setNewClient({ ...newClient, address: e.target.value })} placeholder="Street Address" /></div>
-                            <div><Label>Notes</Label><Input value={newClient.notes} onChange={e => setNewClient({ ...newClient, notes: e.target.value })} placeholder="Additional details..." /></div>
-                        </CardContent>
-                        <CardFooter className="flex flex-col-reverse sm:flex-row gap-3 sm:justify-end bg-muted/20 rounded-b-lg p-4">
-                            <Button variant="outline" onClick={() => setShowAddModal(false)} className="w-full sm:w-auto">Cancel</Button>
-                            <Button onClick={handleAdd} disabled={loading} className="w-full sm:w-auto">{loading ? 'Saving...' : 'Add Client'}</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
-
-            {/* Approval Link Modal */}
-            {showApprovalModal && selectedClientForApproval && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4 backdrop-blur-sm" onClick={() => setShowApprovalModal(false)}>
-                    <Card className="w-full max-w-lg animate-in zoom-in-95 shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <CardHeader className="border-b border-border bg-muted/20 pb-4">
-                            <CardTitle className="text-xl">Get Approval Link</CardTitle>
-                            <CardDescription>Select a document to send to <span className="font-semibold text-foreground">{selectedClientForApproval.name}</span> for signature.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex-1 overflow-y-auto p-0">
-                            {clientApprovalDocs.length > 0 ? (
-                                <div className="divide-y divide-border">
-                                    {clientApprovalDocs.map(doc => {
-                                        const data = doc.data as any;
-                                        const title = data.title || data.estimateNumber || data.changeOrderNumber || doc.type;
-                                        const date = new Date(doc.createdAt).toLocaleDateString();
-                                        const status = data.status || 'Draft';
-
-                                        return (
-                                            <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-muted/30 transition-colors">
-                                                <div className="flex items-center gap-3 overflow-hidden">
-                                                    <div className={`p-2 rounded-lg shrink-0 ${doc.type === FormType.Estimate ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                        {doc.type === FormType.Estimate ? <EstimateIcon className="w-5 h-5" /> : <ChangeOrderIcon className="w-5 h-5" />}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <p className="font-semibold text-sm truncate">{title}</p>
-                                                        <div className="flex gap-2 text-xs text-muted-foreground mt-0.5">
-                                                            <span>{date}</span>
-                                                            <span className={`font-medium ${status === 'Accepted' ? 'text-green-600' : 'text-slate-500'}`}>{status}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => copyApprovalLink(doc)}
-                                                    className={`text-xs ml-2 shrink-0 ${approvalCopiedDocId === doc.id ? 'border-green-500 text-green-600 bg-green-50' : ''}`}
+                                    {(temp || unseen.length > 0) && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {temp && <span className="badge badge-warning">Temporary</span>}
+                                            {unseen.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    className="badge badge-success min-h-[28px] cursor-pointer hover:brightness-95"
+                                                    onClick={() => setActivityClient(client)}
                                                 >
-                                                    {approvalCopiedDocId === doc.id ? <CheckIcon className="w-3.5 h-3.5 mr-1" /> : <CopyIcon className="w-3.5 h-3.5 mr-1" />}
-                                                    {approvalCopiedDocId === doc.id ? 'Copied' : 'Copy Link'}
-                                                </Button>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="p-8 text-center text-muted-foreground">
-                                    <p>No Estimates or Change Orders found for this client.</p>
-                                </div>
-                            )}
-                        </CardContent>
-                        <CardFooter className="border-t pt-4 flex justify-end">
-                            <Button variant="ghost" onClick={() => setShowApprovalModal(false)}>Close</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
-
-            {/* NEW: Signed Documents Modal */}
-            {showSignedDocsModal && selectedClientForSignedDocs && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowSignedDocsModal(false)}>
-                    <Card className="w-full max-w-lg animate-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <CardHeader className="border-b border-border pb-4 bg-green-50/50 dark:bg-green-900/10">
-                            <CardTitle className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                                <CheckCircleIcon className="w-5 h-5" />
-                                Signed Documents - {selectedClientForSignedDocs.name}
-                            </CardTitle>
-                            <CardDescription>Documents approved and signed by the client.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="h-[400px] p-4 overflow-y-auto">
-                                <div className="space-y-3">
-                                    {getClientSignedDocs(selectedClientForSignedDocs.name).length === 0 ? (
-                                        <div className="text-center py-8 text-muted-foreground">No signed documents found.</div>
-                                    ) : (
-                                        getClientSignedDocs(selectedClientForSignedDocs.name).map(doc => {
-                                            const d = doc.data as any;
-                                            return (
-                                                <div key={doc.id} className="flex flex-col p-3 rounded-lg border border-green-100 dark:border-green-900/30 bg-green-50/30 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div>
-                                                            <span className="font-semibold text-sm flex items-center gap-2">
-                                                                {doc.type === FormType.Estimate ? <EstimateIcon className="w-4 h-4 text-blue-500" /> : <ChangeOrderIcon className="w-4 h-4 text-orange-500" />}
-                                                                {d.title || doc.type}
-                                                            </span>
-                                                            <span className="text-xs text-muted-foreground block mt-0.5">#{d.estimateNumber || d.changeOrderNumber || '---'}</span>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                                                Signed
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="text-xs text-muted-foreground border-t border-green-100 dark:border-green-900/30 pt-2 mt-1 space-y-1">
-                                                        <div className="flex justify-between">
-                                                            <span>Signed By:</span>
-                                                            <span className="font-medium text-foreground">{d.clientSignedBy || 'Client'}</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span>Date:</span>
-                                                            <span className="font-medium text-foreground">{d.clientSignedAt ? new Date(d.clientSignedAt).toLocaleString() : 'Unknown'}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                            </div>
-                        </CardContent>
-                        <CardFooter className="border-t pt-4 flex justify-end">
-                            <Button onClick={() => setShowSignedDocsModal(false)}>Close</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
-
-            {/* NEW: Temporary Clients Modal */}
-            {showTemporaryClientsModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowTemporaryClientsModal(false)}>
-                    <Card className="w-full max-w-4xl animate-in zoom-in-95 shadow-2xl h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <CardHeader className="border-b border-border pb-4 bg-orange-50 dark:bg-orange-950/20">
-                            <CardTitle className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
-                                <UsersIcon className="w-5 h-5" />
-                                Temporary Clients
-                            </CardTitle>
-                            <CardDescription>Walk-ins and temporary jobs created via QR scanner.</CardDescription>
-                            <div className="relative mt-2">
-                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                                <Input
-                                    placeholder="Search temporary clients..."
-                                    className="pl-10 h-9 rounded-full bg-background border-border shadow-sm text-sm"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                            </div>
-                        </CardHeader>
-                        <CardContent className="flex-1 overflow-y-auto p-4 bg-muted/10">
-                            {filteredTempClients.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                                    <UsersIcon className="w-8 h-8 mb-2 opacity-20" />
-                                    <p>No temporary clients found.</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {filteredTempClients.map(client => (
-                                        <div key={client.id} className="bg-card p-4 rounded-xl border border-orange-200 dark:border-orange-900/30 flex flex-col gap-2 relative">
-                                            <div className="flex justify-between items-start">
-                                                <h3 className="font-bold text-base truncate pr-6">{client.name}</h3>
-                                                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleDelete(client.id); }} className="absolute top-2 right-2 text-destructive hover:bg-destructive/10 h-7 w-7 p-0 rounded-full">
-                                                    <TrashIcon className="w-3.5 h-3.5" />
-                                                </Button>
-                                            </div>
-                                            <div className="text-xs text-muted-foreground space-y-1 mt-1">
-                                                {client.email && <div className="truncate">📧 {client.email}</div>}
-                                                {client.phone && <div>📞 {client.phone}</div>}
-                                            </div>
-                                            <div className="flex gap-2 mt-2 border-t pt-2 border-orange-100 dark:border-orange-900/20">
-                                                <Button size="sm" variant="outline" className="flex-1 h-8 text-[11px] border-orange-200 text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900/50" onClick={(e) => handleConvertClient(client, e)}>
-                                                    Convert to Regular
-                                                </Button>
-                                                <Button size="sm" className="flex-1 h-8 text-[11px] bg-orange-500 hover:bg-orange-600 text-white" onClick={() => { setSelectedDetailsClient(client); setShowTemporaryClientsModal(false); }}>
-                                                    View Details
-                                                </Button>
-                                            </div>
+                                                    <CheckIcon className="h-3.5 w-3.5" /> {unseen.length} new signed {unseen.length === 1 ? 'update' : 'updates'}
+                                                </button>
+                                            )}
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                        <CardFooter className="border-t pt-4 flex justify-between bg-card">
-                            <span className="text-xs text-muted-foreground">{filteredTempClients.length} temporary client(s)</span>
-                            <Button variant="outline" onClick={() => setShowTemporaryClientsModal(false)}>Close</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
+                                    )}
 
-            {/* Global History Modal */}
-            {showHistoryModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowHistoryModal(false)}>
-                    <Card className="w-full max-w-2xl animate-in zoom-in-95 shadow-2xl h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <CardHeader className="border-b border-border pb-4 bg-muted/20">
-                            <CardTitle className="flex items-center gap-2">
-                                <ClockIcon className="w-5 h-5 text-primary" />
-                                Portal Activity History
-                            </CardTitle>
-                            <CardDescription>View all recent document approvals and signatures from the client portal.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex-1 overflow-y-auto p-0">
-                            {forms.filter(f => (f.data as any).clientSignatureUrl || (f.data as any).status === 'Accepted').length === 0 ? (
-                                <div className="text-center py-12 text-muted-foreground">
-                                    <ClockIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                                    <p>No activity recorded yet.</p>
-                                </div>
-                            ) : (
-                                <div className="divide-y divide-border">
-                                    {forms
-                                        .filter(f => (f.data as any).clientSignatureUrl || (f.data as any).status === 'Accepted' || (f.data as any).status === 'Rejected')
-                                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                                        .map(doc => {
-                                            const d = doc.data as any;
-                                            const status = d.status || 'Draft';
-                                            return (
-                                                <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-muted/30 transition-colors">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={`p-3 rounded-xl ${status === 'Accepted' ? 'bg-green-100 text-green-700' : status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                            {doc.type === FormType.Estimate ? <EstimateIcon className="w-5 h-5" /> : <ChangeOrderIcon className="w-5 h-5" />}
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-bold text-sm">
-                                                                {d.clientName} {status === 'Accepted' ? 'accepted' : status === 'Rejected' ? 'rejected' : 'signed'} {d.title || doc.type}
-                                                            </p>
-                                                            <p className="text-xs text-muted-foreground mt-0.5">
-                                                                {new Date(doc.createdAt).toLocaleString()} • {d.estimateNumber || d.changeOrderNumber || '---'}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                    <div className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${status === 'Accepted' ? 'bg-green-100 text-green-700' : status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                        {status}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
-                                    }
-                                </div>
-                            )}
-                        </CardContent>
-                        <CardFooter className="border-t pt-4 flex justify-end">
-                            <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
+                                    <div className="space-y-0.5 text-sm">
+                                        {client.email ? (
+                                            <a className="flex min-h-[32px] items-center gap-2 truncate text-muted-foreground hover:text-primary" href={`mailto:${client.email}`}>
+                                                <MailIcon className="h-4 w-4 shrink-0" /> <span className="truncate">{client.email}</span>
+                                            </a>
+                                        ) : (
+                                            <p className="flex min-h-[32px] items-center gap-2 text-muted-foreground/70"><MailIcon className="h-4 w-4 shrink-0" /> No email</p>
+                                        )}
+                                        {client.phone ? (
+                                            <a className="flex min-h-[32px] items-center gap-2 text-muted-foreground hover:text-primary" href={`tel:${client.phone.replace(/[^\d+]/g, '')}`}>
+                                                <SmartphoneIcon className="h-4 w-4 shrink-0" /> <span className="truncate">{client.phone}</span>
+                                            </a>
+                                        ) : (
+                                            <p className="flex min-h-[32px] items-center gap-2 text-muted-foreground/70"><SmartphoneIcon className="h-4 w-4 shrink-0" /> No phone</p>
+                                        )}
+                                        {client.address && (
+                                            <p className="flex min-h-[32px] items-center gap-2 text-muted-foreground"><MapPinIcon className="h-4 w-4 shrink-0" /> <span className="truncate">{client.address}</span></p>
+                                        )}
+                                    </div>
 
-            <ConfirmationModal
-                isOpen={!!clientToDelete}
-                onClose={() => setClientToDelete(null)}
-                onConfirm={confirmDelete}
-                title="Delete Client"
-                message="Are you sure you want to delete this client? This action cannot be undone and will remove all associated data."
-                confirmLabel="Delete"
-                isDestructive={true}
+                                    {!selectionMode && (
+                                        <div className="mt-auto grid grid-cols-2 gap-2 border-t border-border pt-3">
+                                            <button
+                                                type="button"
+                                                className={cx('btn btn-sm min-h-[40px]', copiedId === client.id ? 'btn-secondary text-success' : 'btn-outline')}
+                                                onClick={() => copyPortal(client)}
+                                                disabled={portalBusyId === client.id}
+                                                title="Copy the client's portal link"
+                                            >
+                                                {portalBusyId === client.id ? <Spinner /> : copiedId === client.id ? <CheckIcon className="h-4 w-4" /> : <GlobeIcon className="h-4 w-4" />}
+                                                {copiedId === client.id ? 'Copied' : 'Portal link'}
+                                            </button>
+                                            <button type="button" className="btn btn-sm btn-primary min-h-[40px]" onClick={() => setApprovalClient(client)}>
+                                                <PenIcon className="h-4 w-4" /> Request approval
+                                            </button>
+                                        </div>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+
+                {hasMore && serverLoaded && (
+                    <div className="mt-6 flex justify-center">
+                        <button type="button" className="btn btn-outline min-h-[44px] px-6" onClick={loadMore} disabled={loadingMore}>
+                            {loadingMore ? <Spinner label="Loading…" /> : 'Load more clients'}
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Modals */}
+            <ClientFormModal
+                open={!!form}
+                mode={form?.mode || 'add'}
+                initial={form?.initial}
+                clientId={form?.clientId}
+                initialError={form?.error || null}
+                userId={userId}
+                onClose={() => setForm(null)}
+                onSaved={(saved, mode) => {
+                    setForm(null);
+                    if (mode === 'add' && filter === 'temporary' && !isTemporaryClient(saved)) setFilter('all');
+                    upsertLocal(saved);
+                    setNotice({ tone: 'success', text: mode === 'add' ? `${saved.name} was added.` : 'Client updated.' });
+                    changed();
+                }}
+                onUpgrade={onUpgradeClick}
+            />
+
+            <RequestApprovalModal
+                open={!!approvalClient}
+                client={approvalClient}
+                onClose={() => setApprovalClient(null)}
+                onEmail={(prefill) => { setApprovalClient(null); goToCommunication(prefill); }}
+                onNavigateToNewDoc={onNavigateToNewDoc}
+            />
+
+            <ConfirmDialog
+                open={!!deleteIds}
+                title={deleteIds && deleteIds.length > 1 ? `Delete ${deleteIds.length} clients?` : 'Delete this client?'}
+                message={<p>{deleteIds && deleteIds.length > 1 ? 'Their portal links stop working.' : "The client's portal link stops working."} Jobs and documents are kept.</p>}
+                confirmLabel={deleteIds && deleteIds.length > 1 ? `Delete ${deleteIds.length} clients` : 'Delete client'}
+                destructive
+                busy={deleteBusy}
+                error={deleteError}
+                onConfirm={doDelete}
+                onCancel={() => setDeleteIds(null)}
+            />
+
+            <ClientActivityModal
+                client={activityClient}
+                forms={forms}
+                onClose={() => setActivityClient(null)}
+                onOpenDoc={onNavigateToDoc}
+                onMarkedSeen={(ids) => {
+                    setSeenIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; });
+                    onDocumentsViewed?.(ids);
+                }}
+            />
+
+            <ActivityHistoryModal
+                open={showHistory}
+                userId={userId}
+                onClose={() => setShowHistory(false)}
+                onOpenDoc={onNavigateToDoc}
+            />
+
+            <ImportClientsModal
+                open={showImport}
+                userId={userId}
+                knownClients={items}
+                onClose={() => setShowImport(false)}
+                onUpgrade={onUpgradeClick}
+                onImported={(count) => {
+                    if (count > 0) {
+                        loadFirstPage();
+                        changed();
+                    }
+                }}
             />
         </div>
+    );
+};
+
+/* ================================================================== per-client activity (badge) */
+
+const ClientActivityModal: React.FC<{
+    client: Client | null;
+    forms: FormDataType[];
+    onClose: () => void;
+    onOpenDoc?: (formId: string, jobId: string, type: FormType) => void;
+    onMarkedSeen: (ids: string[]) => void;
+}> = ({ client, forms, onClose, onOpenDoc, onMarkedSeen }) => {
+    const [docs, setDocs] = useState<ClientDocSummary[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [newIds, setNewIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (!client) return;
+        let alive = true;
+        setDocs(null);
+        setError(null);
+        (async () => {
+            try {
+                const jobs = await fetchClientJobs(client);
+                const list = await fetchClientDocuments(client, { jobIds: jobs.map((j) => j.id) });
+                const acted = list
+                    .filter((d) => d.data.clientSignedAt || d.data.clientDeclinedAt || d.data.status === 'Accepted' || d.data.status === 'Rejected')
+                    .sort((a, b) => (parseDate(activityDate(b))?.getTime() || 0) - (parseDate(activityDate(a))?.getTime() || 0));
+                if (!alive) return;
+                const unseen = new Set<string>([
+                    ...acted.filter((d) => !d.data.viewedByProvider).map((d) => d.id),
+                    ...unseenActivityFor(client, forms, new Set()).map((f) => f.id),
+                ]);
+                setNewIds(unseen);
+                setDocs(acted);
+                if (unseen.size) {
+                    const ids = [...unseen];
+                    if (await markDocumentsViewed(ids)) onMarkedSeen(ids);
+                }
+            } catch (err) {
+                if (alive) { setError(getErrorMessage(err)); setDocs([]); }
+            }
+        })();
+        return () => { alive = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client?.id]);
+
+    return (
+        <Modal
+            open={!!client}
+            onClose={onClose}
+            size="lg"
+            title="Recent client activity"
+            description={client ? `Documents ${client.name} signed or declined.` : undefined}
+            footer={<button type="button" className="btn btn-outline min-h-[40px]" onClick={onClose}>Close</button>}
+        >
+            {error && <Notice tone="danger" className="mb-3">{error}</Notice>}
+            {docs === null ? <SkeletonRows rows={3} /> : docs.length === 0 ? (
+                <EmptyState icon={<ClockIcon className="h-6 w-6" />} title="No signed documents yet" description="When the client signs or declines an estimate or change order it shows up here." />
+            ) : (
+                <ActivityList docs={docs} newIds={newIds} onOpenDoc={onOpenDoc} onAfterOpen={onClose} />
+            )}
+        </Modal>
+    );
+};
+
+const ActivityList: React.FC<{
+    docs: ClientDocSummary[];
+    newIds?: Set<string>;
+    showClient?: boolean;
+    onOpenDoc?: (formId: string, jobId: string, type: FormType) => void;
+    onAfterOpen?: () => void;
+}> = ({ docs, newIds, showClient, onOpenDoc, onAfterOpen }) => (
+    <ul className="space-y-2">
+        {docs.map((doc) => {
+            const declined = !!doc.data.clientDeclinedAt || doc.data.status === 'Rejected';
+            const who = doc.data.clientSignerName || doc.data.clientName || 'Client';
+            const when = activityDate(doc);
+            const label = documentLabel(doc.type, doc.data);
+            const Wrapper: any = onOpenDoc ? 'button' : 'div';
+            return (
+                <li key={doc.id}>
+                    <Wrapper
+                        {...(onOpenDoc ? { type: 'button', onClick: () => { onOpenDoc(doc.id, doc.jobId, doc.type as FormType); onAfterOpen?.(); } } : {})}
+                        className={cx('flex w-full min-h-[56px] items-center gap-3 rounded-xl border border-border bg-card p-3 text-left', onOpenDoc && 'hover:bg-muted/40')}
+                    >
+                        <div className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', declined ? 'bg-destructive/10 text-destructive' : 'bg-success/10 text-success')}>
+                            <DocTypeIcon type={doc.type} className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm text-foreground">
+                                <span className="font-semibold">{who}</span> {declined ? 'declined' : 'signed'} <span className="font-semibold">{label}</span>
+                                {showClient && doc.data.clientName && doc.data.clientName !== who ? <span className="text-muted-foreground"> · {doc.data.clientName}</span> : null}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{fmtDate(when, !!(doc.data.clientSignedAt || doc.data.clientDeclinedAt)) || 'Date unknown'}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                            {newIds?.has(doc.id) && <span className="badge badge-primary">New</span>}
+                            <StatusBadge status={declined ? 'Declined' : 'Signed'} />
+                        </div>
+                    </Wrapper>
+                </li>
+            );
+        })}
+    </ul>
+);
+
+/* ================================================================== global activity history (COMM-040) */
+
+const ACTIVITY_COLUMNS = [
+    'id', 'job_id', 'type', 'created_at', 'public_token',
+    'title:data->>title', 'invoiceNumber:data->>invoiceNumber', 'estimateNumber:data->>estimateNumber',
+    'changeOrderNumber:data->>changeOrderNumber', 'status:data->>status', 'clientName:data->>clientName',
+    'clientSignedAt:data->>clientSignedAt', 'clientSignerName:data->>clientSignerName', 'clientSignedBy:data->>clientSignedBy',
+    'clientDeclinedAt:data->>clientDeclinedAt', 'viewedByProvider:data->>viewedByProvider',
+].join(', ');
+
+const ActivityHistoryModal: React.FC<{
+    open: boolean;
+    userId: string | null;
+    onClose: () => void;
+    onOpenDoc?: (formId: string, jobId: string, type: FormType) => void;
+}> = ({ open, userId, onClose, onOpenDoc }) => {
+    const [docs, setDocs] = useState<ClientDocSummary[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const load = useCallback(async () => {
+        setDocs(null);
+        setError(null);
+        let q = supabase
+            .from('documents')
+            .select(ACTIVITY_COLUMNS)
+            .or('data->>clientSignedAt.not.is.null,data->>clientDeclinedAt.not.is.null,data->>status.in.(Accepted,Rejected)')
+            .order('created_at', { ascending: false })
+            .limit(200);
+        if (userId) q = q.eq('user_id', userId);
+        const { data, error: err } = await q;
+        if (err) { setError(getErrorMessage(err, 'Could not load activity.')); setDocs([]); return; }
+        const mapped: ClientDocSummary[] = (data || []).map((row: any) => ({
+            id: row.id,
+            jobId: row.job_id,
+            type: row.type,
+            createdAt: row.created_at,
+            publicToken: row.public_token ?? null,
+            clientId: null,
+            data: {
+                title: row.title || undefined,
+                number: row.estimateNumber || row.changeOrderNumber || row.invoiceNumber || undefined,
+                status: row.status || undefined,
+                clientName: row.clientName || undefined,
+                clientSignedAt: row.clientSignedAt || undefined,
+                clientSignerName: row.clientSignerName || row.clientSignedBy || undefined,
+                clientDeclinedAt: row.clientDeclinedAt || undefined,
+                viewedByProvider: String(row.viewedByProvider).toLowerCase() === 'true',
+            },
+        }));
+        mapped.sort((a, b) => (parseDate(activityDate(b))?.getTime() || 0) - (parseDate(activityDate(a))?.getTime() || 0));
+        setDocs(mapped);
+    }, [userId]);
+
+    useEffect(() => { if (open) load(); }, [open, load]);
+
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            size="lg"
+            title="Client activity"
+            description="Estimates and change orders your clients signed or declined, newest first."
+            footer={<button type="button" className="btn btn-outline min-h-[40px]" onClick={onClose}>Close</button>}
+        >
+            {error && (
+                <Notice tone="danger" className="mb-3" action={<button type="button" className="btn btn-outline btn-sm min-h-[36px]" onClick={load}>Retry</button>}>{error}</Notice>
+            )}
+            {docs === null ? <SkeletonRows rows={4} /> : docs.length === 0 ? (
+                <EmptyState icon={<ClockIcon className="h-6 w-6" />} title="No activity yet" description="Send an approval link or a portal link; signatures will appear here." />
+            ) : (
+                <ActivityList
+                    docs={docs}
+                    newIds={new Set(docs.filter((d) => !d.data.viewedByProvider).map((d) => d.id))}
+                    showClient
+                    onOpenDoc={onOpenDoc}
+                    onAfterOpen={onClose}
+                />
+            )}
+        </Modal>
+    );
+};
+
+/* ================================================================== CSV import */
+
+const ImportClientsModal: React.FC<{
+    open: boolean;
+    userId: string | null;
+    knownClients: Client[];
+    onClose: () => void;
+    onImported: (count: number) => void;
+    onUpgrade?: () => void;
+}> = ({ open, userId, knownClients, onClose, onImported, onUpgrade }) => {
+    const [fileName, setFileName] = useState('');
+    const [rows, setRows] = useState<ImportRow[] | null>(null);
+    const [parseError, setParseError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [result, setResult] = useState<{ imported: number; tone: 'success' | 'warning' | 'danger'; text: string; upgrade?: boolean } | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    const reset = () => {
+        setFileName('');
+        setRows(null);
+        setParseError(null);
+        setBusy(false);
+        setProgress(0);
+        setResult(null);
+        if (inputRef.current) inputRef.current.value = '';
+    };
+
+    useEffect(() => { if (open) reset(); }, [open]);
+
+    const downloadTemplate = () => downloadText('clients-template.csv', toCsv([
+        ['Name', 'Email', 'Phone', 'Address', 'Notes'],
+        ['Jane Cooper', 'jane@example.com', '(555) 201-3344', '12 Oak St, Springfield', 'Prefers text messages'],
+    ]));
+
+    const onFile = async (file: File | undefined) => {
+        setParseError(null);
+        setRows(null);
+        setResult(null);
+        if (!file) return;
+        setFileName(file.name);
+        if (file.size > 5 * 1024 * 1024) { setParseError('That file is larger than 5 MB. Split it into smaller files.'); return; }
+        try {
+            const table = parseCsv(await file.text());
+            if (table.length < 2) { setParseError('The file needs a header row and at least one client.'); return; }
+            const headers = table[0].map(normHeader);
+            const col = (key: keyof ClientDraft) => headers.findIndex((h) => HEADER_ALIASES[key].includes(h));
+            const idx = { name: col('name'), email: col('email'), phone: col('phone'), address: col('address'), notes: col('notes') };
+            const firstIdx = headers.findIndex((h) => ['first name', 'firstname', 'given name'].includes(h));
+            const lastIdx = headers.findIndex((h) => ['last name', 'lastname', 'surname', 'family name'].includes(h));
+            if (idx.name < 0 && firstIdx < 0) {
+                setParseError('Could not find a "Name" column. Use headers like Name, Email, Phone, Address, Notes (download the template below).');
+                return;
+            }
+            const body = table.slice(1, MAX_IMPORT_ROWS + 1);
+            const existingEmails = new Set(knownClients.map((c) => (c.email || '').toLowerCase()).filter(Boolean));
+            const existingNames = new Set(knownClients.map((c) => c.name.toLowerCase()));
+
+            // Also check the server for emails already saved (only the ones in this file).
+            const fileEmails = [...new Set(body.map((r) => (idx.email >= 0 ? (r[idx.email] || '').trim() : '')).filter((e) => EMAIL_RE.test(e)))];
+            for (let i = 0; i < fileEmails.length && i < 1000; i += 200) {
+                const chunk = fileEmails.slice(i, i + 200);
+                let q = supabase.from('clients').select('email').in('email', chunk);
+                if (userId) q = q.eq('user_id', userId);
+                const { data } = await q;
+                (data || []).forEach((r: any) => r.email && existingEmails.add(String(r.email).toLowerCase()));
+            }
+
+            const seenInFile = new Set<string>();
+            const parsed: ImportRow[] = body.map((r, i) => {
+                const get = (j: number) => (j >= 0 ? String(r[j] ?? '').trim() : '');
+                const composedName = idx.name >= 0 ? get(idx.name) : [get(firstIdx), get(lastIdx)].filter(Boolean).join(' ');
+                const draft: ClientDraft = {
+                    name: composedName.replace(/\s+/g, ' '),
+                    email: get(idx.email),
+                    phone: get(idx.phone),
+                    address: get(idx.address),
+                    notes: get(idx.notes),
+                };
+                const errors: string[] = [];
+                const warnings: string[] = [];
+                if (!draft.name) errors.push('Name is missing');
+                if (draft.name.length > 200) errors.push('Name is too long');
+                if (draft.email && !EMAIL_RE.test(draft.email)) {
+                    warnings.push(`Invalid email "${draft.email}" will be left empty`);
+                    draft.email = '';
+                }
+                const emailKey = draft.email.toLowerCase();
+                let include = errors.length === 0;
+                if (emailKey && existingEmails.has(emailKey)) { warnings.push('Already a client with this email'); include = false; }
+                else if (!emailKey && draft.name && existingNames.has(draft.name.toLowerCase())) { warnings.push('A client with this name already exists'); include = false; }
+                if (emailKey) {
+                    if (seenInFile.has(emailKey)) { warnings.push('Duplicate email in this file'); include = false; }
+                    seenInFile.add(emailKey);
+                }
+                return { line: i + 2, draft, errors, warnings, include };
+            });
+            if (table.length - 1 > MAX_IMPORT_ROWS) {
+                setParseError(`Only the first ${MAX_IMPORT_ROWS} rows are shown. Import the rest in another file.`);
+            }
+            setRows(parsed);
+        } catch (err) {
+            setParseError(`Could not read the file: ${getErrorMessage(err)}`);
+        }
+    };
+
+    const toggleRow = (line: number) => setRows((prev) => prev?.map((r) => (r.line === line && !r.errors.length ? { ...r, include: !r.include } : r)) ?? prev);
+
+    const selectedRows = (rows || []).filter((r) => r.include && !r.errors.length);
+
+    const runImport = async () => {
+        if (!userId) { setResult({ imported: 0, tone: 'danger', text: 'You are signed out. Please sign in again.' }); return; }
+        if (!selectedRows.length) return;
+        setBusy(true);
+        setProgress(0);
+        let imported = 0;
+        const toRow = (d: ClientDraft) => ({
+            id: crypto.randomUUID(),
+            user_id: userId,
+            name: d.name,
+            email: d.email,
+            phone: d.phone,
+            address: d.address,
+            notes: d.notes,
+        });
+        try {
+            for (let i = 0; i < selectedRows.length; i += 100) {
+                const chunk = selectedRows.slice(i, i + 100);
+                const { error } = await supabase.from('clients').insert(chunk.map((r) => toRow(r.draft)));
+                if (!error) {
+                    imported += chunk.length;
+                    setProgress(imported);
+                    continue;
+                }
+                if (isPlanLimitError(error)) {
+                    // The whole chunk was rolled back: add one by one until the limit is reached.
+                    for (const r of chunk) {
+                        const one = await supabase.from('clients').insert(toRow(r.draft));
+                        if (one.error) {
+                            const limit = isPlanLimitError(one.error);
+                            setResult({
+                                imported,
+                                tone: 'warning',
+                                upgrade: limit,
+                                text: limit
+                                    ? `Imported ${imported} of ${selectedRows.length} clients. ${getErrorMessage(one.error)}`
+                                    : `Imported ${imported} of ${selectedRows.length}. Stopped at line ${r.line}: ${getErrorMessage(one.error)}`,
+                            });
+                            return;
+                        }
+                        imported++;
+                        setProgress(imported);
+                    }
+                    continue;
+                }
+                setResult({
+                    imported,
+                    tone: imported ? 'warning' : 'danger',
+                    text: `Imported ${imported} of ${selectedRows.length}. ${getErrorMessage(error)}`,
+                });
+                return;
+            }
+            setResult({ imported, tone: 'success', text: `Imported ${imported} client${imported === 1 ? '' : 's'}.` });
+        } finally {
+            setBusy(false);
+            onImported(imported);
+        }
+    };
+
+    const errorCount = (rows || []).filter((r) => r.errors.length).length;
+    const warnCount = (rows || []).filter((r) => !r.errors.length && r.warnings.length).length;
+
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            locked={busy}
+            size="xl"
+            title="Import clients from CSV"
+            description="Export a spreadsheet as CSV (Excel, Google Sheets, QuickBooks…). Columns: Name, Email, Phone, Address, Notes."
+            footer={
+                result ? (
+                    <>
+                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={reset}>Import another file</button>
+                        <button type="button" className="btn btn-primary min-h-[40px]" onClick={onClose}>Done</button>
+                    </>
+                ) : (
+                    <>
+                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={onClose} disabled={busy}>Cancel</button>
+                        <button type="button" className="btn btn-primary min-h-[40px]" onClick={runImport} disabled={busy || !selectedRows.length}>
+                            {busy ? <Spinner label={`Importing ${progress}/${selectedRows.length}…`} /> : `Import ${selectedRows.length} client${selectedRows.length === 1 ? '' : 's'}`}
+                        </button>
+                    </>
+                )
+            }
+        >
+            <div className="space-y-4">
+                {result && (
+                    <Notice
+                        tone={result.tone}
+                        title={result.tone === 'success' ? 'Import complete' : 'Import stopped'}
+                        action={result.upgrade && onUpgrade ? <button type="button" className="btn btn-primary btn-sm min-h-[36px]" onClick={onUpgrade}>Upgrade</button> : undefined}
+                    >
+                        {result.text}
+                    </Notice>
+                )}
+
+                {!result && (
+                    <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border bg-muted/30 p-4 sm:flex-row sm:items-center">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <UploadImageIcon className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{fileName || 'Choose a .csv file'}</p>
+                            <p className="text-xs text-muted-foreground">Up to {MAX_IMPORT_ROWS.toLocaleString()} rows, 5 MB. Nothing is saved until you confirm.</p>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                            <label className="btn btn-primary min-h-[40px] cursor-pointer">
+                                <UploadImageIcon className="h-4 w-4" /> {fileName ? 'Choose another' : 'Choose file'}
+                                <input
+                                    ref={inputRef}
+                                    type="file"
+                                    accept=".csv,text/csv"
+                                    className="sr-only"
+                                    onChange={(e) => onFile(e.target.files?.[0])}
+                                    disabled={busy}
+                                />
+                            </label>
+                            <button type="button" className="btn btn-ghost min-h-[40px]" onClick={downloadTemplate}>
+                                <DownloadIcon className="h-4 w-4" /> Template
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {parseError && <Notice tone="warning">{parseError}</Notice>}
+
+                {rows && !result && (
+                    <>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                            <span className="badge badge-primary">{selectedRows.length} ready to import</span>
+                            {warnCount > 0 && <span className="badge badge-warning">{warnCount} with warnings</span>}
+                            {errorCount > 0 && <span className="badge badge-danger">{errorCount} skipped (errors)</span>}
+                        </div>
+                        <ul className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+                            {rows.map((r) => (
+                                <li
+                                    key={r.line}
+                                    className={cx(
+                                        'rounded-xl border p-3',
+                                        r.errors.length ? 'border-destructive/30 bg-destructive/5' : r.warnings.length ? 'border-warning/40 bg-warning/5' : 'border-border bg-card',
+                                    )}
+                                >
+                                    <label className={cx('flex items-start gap-3', !r.errors.length && 'cursor-pointer')}>
+                                        <input
+                                            type="checkbox"
+                                            className="mt-0.5 h-5 w-5 shrink-0 accent-[hsl(var(--primary))]"
+                                            checked={r.include && !r.errors.length}
+                                            disabled={!!r.errors.length || busy}
+                                            onChange={() => toggleRow(r.line)}
+                                            aria-label={`Import line ${r.line}`}
+                                        />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="flex flex-wrap items-baseline gap-x-2">
+                                                <span className="font-semibold text-foreground">{r.draft.name || <em className="text-muted-foreground">No name</em>}</span>
+                                                <span className="text-xs text-muted-foreground">line {r.line}</span>
+                                            </span>
+                                            <span className="mt-0.5 block break-words text-xs text-muted-foreground">
+                                                {[r.draft.email, r.draft.phone, r.draft.address].filter(Boolean).join(' · ') || 'No contact details'}
+                                            </span>
+                                            {[...r.errors, ...r.warnings].map((m) => (
+                                                <span key={m} className={cx('mt-1 flex items-center gap-1 text-xs font-medium', r.errors.includes(m) ? 'text-destructive' : 'text-warning')}>
+                                                    <XCircleIcon className="h-3.5 w-3.5 shrink-0" /> {m}
+                                                </span>
+                                            ))}
+                                        </span>
+                                    </label>
+                                </li>
+                            ))}
+                        </ul>
+                    </>
+                )}
+
+                {!rows && !result && !parseError && (
+                    <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+                        <p className="font-semibold text-foreground">Tips</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                            <li>The first row must contain column names. "First name" + "Last name" columns are combined.</li>
+                            <li>Rows whose email already belongs to a client are unchecked so you don't get duplicates.</li>
+                            <li>Comma, semicolon and tab separated files work.</li>
+                        </ul>
+                        <button type="button" className="btn btn-ghost btn-sm mt-2 min-h-[36px]" onClick={() => copyToClipboard('Name,Email,Phone,Address,Notes')}>
+                            <CopyIcon className="h-4 w-4" /> Copy header row
+                        </button>
+                    </div>
+                )}
+            </div>
+        </Modal>
     );
 };
 

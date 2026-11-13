@@ -1,249 +1,548 @@
-
-import React, { useState, useEffect } from 'react';
-import type { UserProfile, EmailTemplate } from '../types';
-import { BackArrowIcon, SunIcon, MoonIcon, DropletIcon, LanguageIcon, CreditCardIcon, LogoutIcon, BriefcaseIcon, UploadImageIcon, UserIcon } from './Icons.tsx';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import type { UserProfile } from '../types';
+import {
+    SunIcon, MoonIcon, DropletIcon, LanguageIcon, CreditCardIcon, LogoutIcon, BriefcaseIcon, UploadImageIcon, UserIcon,
+    PenIcon, TrashIcon, StarIcon, ExternalLinkIcon, AlertTriangleIcon, CheckIcon, SparklesIcon,
+} from './Icons.tsx';
 import { compressImage } from '../utils/imageCompression.ts';
+import { PageHeader } from './ui/PageHeader.tsx';
+import SetupSignatureModal from './SetupSignatureModal.tsx';
+import { getDefaultSignature, setDefaultSignature } from './SignaturePad.tsx';
+import { SUPPORTED_LANGUAGES } from '../utils/translations.ts';
+import { PLANS, isPaidTier, normalizeTier, type PlanTier } from '../lib/plans.ts';
+import { SUPPORT_EMAIL, type UsageSnapshot } from '../lib/account.ts';
+
+type ThemeName = 'light' | 'dark' | 'blue';
+export type SettingsSection = 'profile' | 'company' | 'signature' | 'appearance' | 'billing' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
     profile: UserProfile;
-    onSave: (profile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => void;
+    /** Should throw on failure: the page stays open with the user's edits and shows the error. */
+    onSave: (profile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => Promise<unknown> | void;
     onBack: () => void;
-    theme: 'light' | 'dark' | 'blue';
-    setTheme: (theme: 'light' | 'dark' | 'blue') => void;
+    theme: ThemeName;
+    setTheme: (theme: ThemeName) => void;
     onLogout: () => void;
     onUpgradeClick?: () => void;
+    /** Plan usage for the meters (from RPC get_my_usage, or counted locally). */
+    usage?: UsageSnapshot | null;
+    /** Opens the billing portal. Should throw with a readable message when unavailable. */
+    onManageBilling?: () => Promise<void>;
+    /** Persists the default signature to the account (best effort, in addition to this device). */
+    onSaveSignature?: (dataUrl: string | null) => Promise<void> | void;
+    /** Permanently deletes the account. Should throw when it can't. */
+    onDeleteAccount?: () => Promise<void>;
+    /** Section to scroll to on open. */
+    initialSection?: SettingsSection;
 }
 
-const languages = [
-    "English", "Spanish", "French", "German", "Italian", "Portuguese", "Chinese", "Japanese", "Korean", "Russian"
+const THEMES: { value: ThemeName; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; swatch: string }[] = [
+    { value: 'light', label: 'Light', icon: SunIcon, swatch: 'bg-white border-zinc-200' },
+    { value: 'dark', label: 'Dark', icon: MoonIcon, swatch: 'bg-zinc-900 border-zinc-700' },
+    { value: 'blue', label: 'Blue', icon: DropletIcon, swatch: 'bg-[#0b1530] border-[#1e3a8a]' },
 ];
 
-const Settings: React.FC<SettingsProps> = ({ mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout, onUpgradeClick }) => {
-    const [profile, setProfile] = useState<UserProfile>(initialProfile || {
-        id: '', email: '', name: '', companyName: '', logoUrl: '', profilePictureUrl: '', address: '', phone: '', website: '',
-        jobTitle: '', subscriptionTier: 'Basic', language: 'English'
-    });
+const SECTIONS: { id: SettingsSection; label: string }[] = [
+    { id: 'profile', label: 'Profile' },
+    { id: 'company', label: 'Company' },
+    { id: 'signature', label: 'Signature' },
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'billing', label: 'Plan & billing' },
+    { id: 'account', label: 'Account' },
+];
 
-    // Files
-    // Files
+const editableKeys: (keyof UserProfile)[] = ['name', 'companyName', 'email', 'phone', 'website', 'address', 'jobTitle', 'language', 'logoUrl', 'profilePictureUrl'];
+
+const formatDate = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+};
+
+const Section: React.FC<{ id: SettingsSection; title: string; description?: string; children: React.ReactNode; footer?: React.ReactNode; tone?: 'danger' }> = ({ id, title, description, children, footer, tone }) => (
+    <section id={`settings-${id}`} className={`card scroll-mt-24 ${tone === 'danger' ? 'border-destructive/30' : ''}`} aria-labelledby={`settings-${id}-title`}>
+        <div className="border-b border-border px-4 py-4 sm:px-6">
+            <h2 id={`settings-${id}-title`} className={`text-base font-semibold ${tone === 'danger' ? 'text-destructive' : ''}`}>{title}</h2>
+            {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
+        </div>
+        <div className="p-4 sm:p-6">{children}</div>
+        {footer && <div className="flex flex-col-reverse gap-2 border-t border-border px-4 py-3 sm:flex-row sm:justify-end sm:px-6">{footer}</div>}
+    </section>
+);
+
+const Meter: React.FC<{ label: string; used: number; limit: number | null }> = ({ label, used, limit }) => (
+    <div>
+        <div className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-semibold">{used}{limit !== null ? <span className="font-normal text-muted-foreground"> / {limit}</span> : <span className="font-normal text-muted-foreground"> · unlimited</span>}</span>
+        </div>
+        {limit !== null && (
+            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div className={`h-full rounded-full ${used >= limit ? 'bg-warning' : 'bg-primary'}`} style={{ width: `${Math.min(100, (used / Math.max(1, limit)) * 100)}%` }} />
+            </div>
+        )}
+    </div>
+);
+
+const Settings: React.FC<SettingsProps> = ({
+    mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout, onUpgradeClick,
+    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection,
+}) => {
+    const [profile, setProfile] = useState<UserProfile>(initialProfile);
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [profilePicFile, setProfilePicFile] = useState<File | null>(null);
-
-    // Previews
     const [logoPreview, setLogoPreview] = useState<string>(initialProfile?.logoUrl || '');
     const [profilePicPreview, setProfilePicPreview] = useState<string>(initialProfile?.profilePictureUrl || '');
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [imageError, setImageError] = useState<string | null>(null);
+    const [signature, setSignature] = useState<string>('');
+    const [showSignatureModal, setShowSignatureModal] = useState(false);
+    const [billingBusy, setBillingBusy] = useState(false);
+    const [billingError, setBillingError] = useState<string | null>(null);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteText, setDeleteText] = useState('');
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const baselineRef = useRef<UserProfile>(initialProfile);
 
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-
+    // Re-sync from the app only when there are no unsaved edits (never drop the user's typing).
     useEffect(() => {
-        if (initialProfile) {
+        if (!initialProfile) return;
+        const dirtyNow = editableKeys.some(k => (profile as any)[k] !== (baselineRef.current as any)[k]) || logoFile || profilePicFile;
+        baselineRef.current = initialProfile;
+        if (!dirtyNow) {
             setProfile(initialProfile);
             setLogoPreview(initialProfile.logoUrl || '');
             setProfilePicPreview(initialProfile.profilePictureUrl || '');
-            if (initialProfile.name) {
-                const parts = initialProfile.name.split(' ');
-                setFirstName(parts[0]);
-                setLastName(parts.slice(1).join(' '));
-            }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialProfile]);
 
+    // Default signature: this device first, then the account copy.
     useEffect(() => {
-        if (mode === 'profile') {
-            setProfile(prev => ({ ...prev, name: `${firstName} ${lastName}`.trim() }));
-        }
-    }, [firstName, lastName, mode]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setProfile(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'profile') => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            try {
-                const compressed = await compressImage(file);
-                const previewUrl = URL.createObjectURL(compressed);
-
-                if (type === 'logo') {
-                    setLogoFile(compressed);
-                    setLogoPreview(previewUrl);
-                } else {
-                    setProfilePicFile(compressed);
-                    setProfilePicPreview(previewUrl);
-                }
-            } catch (e) {
-                console.error("Error compressing image", e);
-                alert("Failed to process image");
-            }
-        }
-    };
+        const local = getDefaultSignature(initialProfile?.id);
+        const remote = (initialProfile as any)?.defaultSignatureUrl as string | undefined;
+        if (!local && remote && remote.startsWith('data:image/')) setDefaultSignature(initialProfile.id, remote);
+        setSignature(local || remote || '');
+    }, [initialProfile?.id, (initialProfile as any)?.defaultSignatureUrl]);
 
     useEffect(() => {
-        return () => {
-            if (logoPreview && logoPreview.startsWith('blob:')) URL.revokeObjectURL(logoPreview);
-            if (profilePicPreview && profilePicPreview.startsWith('blob:')) URL.revokeObjectURL(profilePicPreview);
-        };
+        const target = initialSection || (mode === 'profile' ? 'profile' : null);
+        if (!target) return;
+        const t = setTimeout(() => document.getElementById(`settings-${target}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+        return () => clearTimeout(t);
+    }, [initialSection, mode]);
+
+    useEffect(() => () => {
+        if (logoPreview.startsWith('blob:')) URL.revokeObjectURL(logoPreview);
+        if (profilePicPreview.startsWith('blob:')) URL.revokeObjectURL(profilePicPreview);
     }, [logoPreview, profilePicPreview]);
 
-    const handleSaveChanges = () => {
-        onSave(profile, logoFile, profilePicFile);
+    const [firstName, lastName] = useMemo(() => {
+        const parts = (profile.name || '').trim().split(/\s+/);
+        return [parts[0] || '', parts.slice(1).join(' ')];
+    }, [profile.name]);
+
+    const dirty = useMemo(
+        () => editableKeys.some(k => ((profile as any)[k] || '') !== ((baselineRef.current as any)[k] || '')) || !!logoFile || !!profilePicFile,
+        [profile, logoFile, profilePicFile],
+    );
+
+    useEffect(() => {
+        if (!savedAt) return;
+        const t = setTimeout(() => setSavedAt(null), 3000);
+        return () => clearTimeout(t);
+    }, [savedAt]);
+
+    useEffect(() => {
+        if (!dirty) return;
+        const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [dirty]);
+
+    const update = (key: keyof UserProfile, value: string) => {
+        setSavedAt(null);
+        setProfile(prev => ({ ...prev, [key]: value }));
     };
 
-    if (!profile) return <div className="p-8 text-center">Loading...</div>;
+    const setName = (first: string, last: string) => update('name', `${first} ${last}`.replace(/\s+$/, '').replace(/^\s+/, ''));
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'profile') => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        setImageError(null);
+        if (!file.type.startsWith('image/')) { setImageError('Please choose an image file (PNG, JPG or WebP).'); return; }
+        if (file.size > 10 * 1024 * 1024) { setImageError('That image is larger than 10 MB. Please choose a smaller one.'); return; }
+        try {
+            const compressed = await compressImage(file);
+            const previewUrl = URL.createObjectURL(compressed);
+            setSavedAt(null);
+            if (type === 'logo') { setLogoFile(compressed); setLogoPreview(previewUrl); }
+            else { setProfilePicFile(compressed); setProfilePicPreview(previewUrl); }
+        } catch {
+            setImageError('We could not read that image. Try a different file.');
+        }
+    };
+
+    const handleSaveChanges = async () => {
+        setSaving(true);
+        setSaveError(null);
+        try {
+            await onSave(
+                { ...profile, logoUrl: logoPreview ? profile.logoUrl : '', profilePictureUrl: profilePicPreview ? profile.profilePictureUrl : '' },
+                logoFile,
+                profilePicFile,
+            );
+            setLogoFile(null);
+            setProfilePicFile(null);
+            baselineRef.current = profile;
+            setSavedAt(Date.now());
+        } catch (err: any) {
+            setSaveError(err?.message || 'Your changes could not be saved. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const discardChanges = () => {
+        setProfile(baselineRef.current);
+        setLogoFile(null);
+        setProfilePicFile(null);
+        setLogoPreview(baselineRef.current.logoUrl || '');
+        setProfilePicPreview(baselineRef.current.profilePictureUrl || '');
+        setSaveError(null);
+    };
+
+    const saveSignature = async (dataUrl: string | null) => {
+        setDefaultSignature(initialProfile.id, dataUrl || '');
+        setSignature(dataUrl || '');
+        try { await onSaveSignature?.(dataUrl); } catch { /* device copy is kept; the app reports sync errors */ }
+    };
+
+    const plan: PlanTier = normalizeTier((initialProfile as any)?.plan || initialProfile?.subscriptionTier);
+    const paid = isPaidTier(plan);
+    const status: string = (initialProfile as any)?.subscriptionStatus || (paid ? 'active' : 'none');
+    const periodEnd: string | null = (initialProfile as any)?.subscriptionPeriodEnd || null;
+
+    const openBilling = async () => {
+        if (!onManageBilling) return;
+        setBillingBusy(true);
+        setBillingError(null);
+        try { await onManageBilling(); }
+        catch (err: any) { setBillingError(err?.message || 'Could not open the billing portal.'); }
+        finally { setBillingBusy(false); }
+    };
+
+    const confirmDelete = async () => {
+        if (deleteText.trim().toUpperCase() !== 'DELETE' || !onDeleteAccount) return;
+        setDeleteBusy(true);
+        setDeleteError(null);
+        try { await onDeleteAccount(); }
+        catch (err: any) { setDeleteError(err?.message || 'We could not delete your account automatically.'); setDeleteBusy(false); }
+    };
+
+    const statusBadge = (() => {
+        switch (status) {
+            case 'active': return <span className="badge badge-success">Active</span>;
+            case 'past_due': return <span className="badge badge-warning">Payment due</span>;
+            case 'cancelled': return <span className="badge badge-muted">Cancelled</span>;
+            case 'paused': return <span className="badge badge-muted">Paused</span>;
+            default: return null;
+        }
+    })();
+
+    const periodLine = paid && periodEnd
+        ? (status === 'cancelled' ? `Access ends on ${formatDate(periodEnd)}` : `Renews on ${formatDate(periodEnd)}`)
+        : null;
 
     return (
-        <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-            <header className="flex items-center pb-4 border-b border-border mb-6 gap-2">
-                <Button variant="ghost" size="sm" onClick={onBack} className="w-12 h-12 p-0 flex items-center justify-center" aria-label="Back">
-                    <BackArrowIcon className="h-9 w-9" />
-                </Button>
-                <h1 className="text-2xl font-bold">{mode === 'settings' ? 'Settings' : 'My Profile'}</h1>
-            </header>
+        <div className="page max-w-5xl pb-32">
+            <PageHeader title={mode === 'profile' ? 'Profile & settings' : 'Settings'} subtitle="Your details appear on every document you send." onBack={onBack} />
 
-            <main className="flex-1 overflow-y-auto space-y-6 animate-fade-in-down max-w-3xl mx-auto w-full pb-10">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[200px_1fr]">
+                <nav className="hidden lg:block" aria-label="Settings sections">
+                    <ul className="sticky top-24 space-y-1">
+                        {SECTIONS.map(s => (
+                            <li key={s.id}>
+                                <button
+                                    type="button"
+                                    onClick={() => document.getElementById(`settings-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                >
+                                    {s.label}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </nav>
 
-                {mode === 'settings' && (
-                    <>
-                        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card border-blue-200 dark:border-border">
-                            <CardHeader><CardTitle className="text-blue-950 dark:text-foreground">Company Information</CardTitle><CardDescription>Update your company details for invoices.</CardDescription></CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="flex flex-col space-y-1.5"><Label htmlFor="companyName">Company Name</Label><Input id="companyName" name="companyName" value={profile.companyName || ''} onChange={handleChange} /></div>
-                                    <div className="flex flex-col space-y-1.5"><Label htmlFor="email">Company Email</Label><Input id="email" type="email" name="email" value={profile.email || ''} onChange={handleChange} /></div>
-                                    <div className="flex flex-col space-y-1.5"><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" name="phone" value={profile.phone || ''} onChange={handleChange} /></div>
-                                    <div className="flex flex-col space-y-1.5"><Label htmlFor="website">Website</Label><Input id="website" name="website" value={profile.website || ''} onChange={handleChange} /></div>
-                                    <div className="md:col-span-2 flex flex-col space-y-1.5"><Label htmlFor="address">Address</Label><Input id="address" name="address" value={profile.address || ''} onChange={handleChange} /></div>
+                <div className="min-w-0 space-y-6">
+                    {/* Profile */}
+                    <Section id="profile" title="Profile" description="Your name and photo.">
+                        <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+                            <div className="flex flex-col items-center gap-2">
+                                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
+                                    {profilePicPreview ? <img src={profilePicPreview} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-10 w-10 text-muted-foreground" />}
+                                </div>
+                                <label className="btn btn-sm btn-ghost cursor-pointer">
+                                    <UploadImageIcon className="h-4 w-4" /> Change photo
+                                    <input type="file" accept="image/*" className="sr-only" onChange={(e) => handleFileChange(e, 'profile')} />
+                                </label>
+                                {profilePicPreview && (
+                                    <button type="button" className="text-xs text-muted-foreground hover:text-destructive" onClick={() => { setProfilePicFile(null); setProfilePicPreview(''); setProfile(p => ({ ...p, profilePictureUrl: '' })); }}>
+                                        Remove
+                                    </button>
+                                )}
+                            </div>
+                            <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label htmlFor="firstName" className="label">First name</label>
+                                    <input id="firstName" className="input" value={firstName} onChange={(e) => setName(e.target.value, lastName)} autoComplete="given-name" />
+                                </div>
+                                <div>
+                                    <label htmlFor="lastName" className="label">Last name</label>
+                                    <input id="lastName" className="input" value={lastName} onChange={(e) => setName(firstName, e.target.value)} autoComplete="family-name" />
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <label htmlFor="jobTitle" className="label">Job title</label>
+                                    <div className="relative">
+                                        <BriefcaseIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                        <input id="jobTitle" className="input pl-10" value={profile.jobTitle || ''} onChange={(e) => update('jobTitle', e.target.value)} placeholder="e.g. General contractor" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </Section>
 
-                                    {/* Company Logo Upload */}
-                                    <div className="md:col-span-2 flex flex-col space-y-1.5">
-                                        <Label htmlFor="logoUrl">Company Logo</Label>
-                                        <div className="flex items-start gap-4">
-                                            <div className="flex-1">
-                                                <div className="relative">
-                                                    <Input id="logoUrl" type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'logo')} className="pl-10 pt-2" />
-                                                    <UploadImageIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                                </div>
-                                                <p className="mt-2 text-xs text-muted-foreground">This logo will appear on all your documents (Invoices, Estimates, etc.).</p>
-                                            </div>
-                                            {logoPreview && (
-                                                <div className="p-2 bg-white/50 dark:bg-muted rounded-md border border-blue-200 dark:border-border">
-                                                    <img src={logoPreview} alt="Logo Preview" className="h-16 w-auto object-contain" />
-                                                </div>
-                                            )}
+                    {/* Company */}
+                    <Section id="company" title="Company" description="Shown in the header of your invoices, estimates and reports.">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <label htmlFor="companyName" className="label">Company name</label>
+                                <input id="companyName" className="input" value={profile.companyName || ''} onChange={(e) => update('companyName', e.target.value)} autoComplete="organization" />
+                            </div>
+                            <div>
+                                <label htmlFor="email" className="label">Business email</label>
+                                <input id="email" type="email" className="input" value={profile.email || ''} onChange={(e) => update('email', e.target.value)} autoComplete="email" />
+                            </div>
+                            <div>
+                                <label htmlFor="phone" className="label">Phone</label>
+                                <input id="phone" type="tel" className="input" value={profile.phone || ''} onChange={(e) => update('phone', e.target.value)} autoComplete="tel" />
+                            </div>
+                            <div>
+                                <label htmlFor="website" className="label">Website</label>
+                                <input id="website" className="input" value={profile.website || ''} onChange={(e) => update('website', e.target.value)} placeholder="https://" autoComplete="url" />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <label htmlFor="address" className="label">Address</label>
+                                <input id="address" className="input" value={profile.address || ''} onChange={(e) => update('address', e.target.value)} autoComplete="street-address" />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <span className="label">Logo</span>
+                                <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border p-4 sm:flex-row sm:items-center">
+                                    <div className="flex h-16 w-32 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-white">
+                                        {logoPreview ? <img src={logoPreview} alt="Company logo" className="max-h-full max-w-full object-contain" /> : <span className="text-xs text-zinc-400">No logo</span>}
+                                    </div>
+                                    <div className="flex-1 text-sm text-muted-foreground">PNG or JPG, ideally on a white or transparent background.</div>
+                                    <div className="flex gap-2">
+                                        <label className="btn btn-sm btn-outline cursor-pointer">
+                                            <UploadImageIcon className="h-4 w-4" /> {logoPreview ? 'Replace' : 'Upload'}
+                                            <input type="file" accept="image/*" className="sr-only" onChange={(e) => handleFileChange(e, 'logo')} />
+                                        </label>
+                                        {logoPreview && (
+                                            <button type="button" className="btn btn-sm btn-ghost text-destructive" onClick={() => { setLogoFile(null); setLogoPreview(''); setProfile(p => ({ ...p, logoUrl: '' })); }}>
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {imageError && <p role="alert" className="mt-3 text-sm text-destructive">{imageError}</p>}
+                    </Section>
+
+                    {/* Signature */}
+                    <Section id="signature" title="Default signature" description="Offered when you sign a document, so you don't have to draw it every time. It's only added when you choose it.">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                            <div className="flex h-24 w-full max-w-xs items-center justify-center rounded-xl border border-border bg-white px-3">
+                                {signature ? <img src={signature} alt="Your saved signature" className="max-h-20 max-w-full object-contain" /> : <span className="text-sm text-zinc-400">No signature saved</span>}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button type="button" className="btn btn-outline" onClick={() => setShowSignatureModal(true)}>
+                                    <PenIcon className="h-4 w-4" /> {signature ? 'Change signature' : 'Add signature'}
+                                </button>
+                                {signature && (
+                                    <button type="button" className="btn btn-ghost text-destructive" onClick={() => saveSignature(null)}>
+                                        <TrashIcon className="h-4 w-4" /> Remove
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </Section>
+
+                    {/* Appearance */}
+                    <Section id="appearance" title="Appearance & language">
+                        <div className="space-y-6">
+                            <div>
+                                <span className="label">Theme</span>
+                                <div className="grid grid-cols-3 gap-2 sm:max-w-md" role="radiogroup" aria-label="Theme">
+                                    {THEMES.map(({ value, label, icon: Icon, swatch }) => (
+                                        <button
+                                            key={value}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={theme === value}
+                                            onClick={() => setTheme(value)}
+                                            className={`flex flex-col items-center gap-2 rounded-2xl border p-3 text-sm font-medium transition ${theme === value ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:bg-muted'}`}
+                                        >
+                                            <span className={`flex h-10 w-full items-center justify-center rounded-lg border ${swatch}`}>
+                                                <Icon className={`h-4 w-4 ${value === 'light' ? 'text-amber-500' : 'text-sky-300'}`} />
+                                            </span>
+                                            <span className="flex items-center gap-1">{theme === value && <CheckIcon className="h-3.5 w-3.5 text-primary" />}{label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground">Applied right away and remembered on this device.</p>
+                            </div>
+                            <div className="sm:max-w-xs">
+                                <label htmlFor="language" className="label flex items-center gap-1.5"><LanguageIcon className="h-3.5 w-3.5" /> Language</label>
+                                <select id="language" className="input" value={profile.language || 'English'} onChange={(e) => update('language', e.target.value)}>
+                                    {SUPPORTED_LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                    </Section>
+
+                    {/* Billing */}
+                    <Section id="billing" title="Plan & billing">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="flex items-start gap-3">
+                                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${paid ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                                    {plan === 'ai' ? <SparklesIcon className="h-5 w-5" /> : paid ? <StarIcon className="h-5 w-5" /> : <CreditCardIcon className="h-5 w-5" />}
+                                </span>
+                                <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <h3 className="text-lg font-bold">{PLANS[plan].name}</h3>
+                                        {statusBadge}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">{periodLine || PLANS[plan].tagline}</p>
+                                    {status === 'past_due' && (
+                                        <p className="mt-1 flex items-center gap-1.5 text-sm text-warning"><AlertTriangleIcon className="h-4 w-4" /> Your last payment failed. Update your payment method to keep Premium.</p>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-2 sm:items-end">
+                                {paid ? (
+                                    <button type="button" className="btn btn-outline" onClick={openBilling} disabled={billingBusy || !onManageBilling}>
+                                        {billingBusy ? 'Opening...' : <>Manage billing <ExternalLinkIcon className="h-4 w-4" /></>}
+                                    </button>
+                                ) : (
+                                    <button type="button" className="btn btn-primary" onClick={onUpgradeClick}>
+                                        <StarIcon className="h-4 w-4" /> Upgrade
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        {billingError && <p role="alert" className="mt-3 text-sm text-destructive">{billingError}</p>}
+
+                        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                            <Meter label="New jobs this month" used={usage?.jobsThisMonth ?? 0} limit={usage?.limits.jobs ?? null} />
+                            <Meter label="Saved clients" used={usage?.clientsTotal ?? 0} limit={usage?.limits.clients ?? null} />
+                            <Meter label="Emails sent this month" used={usage?.emailsThisMonth ?? 0} limit={usage?.limits.emails ?? null} />
+                            <Meter label="AI requests this month" used={usage?.aiThisMonth ?? 0} limit={usage?.limits.ai ?? null} />
+                        </div>
+                        {!paid && usage?.limits.docs != null && (
+                            <p className="mt-4 text-xs text-muted-foreground">Free plan: up to {usage.limits.docs} new documents per job each month.</p>
+                        )}
+                        {usage && !usage.fromServer && (
+                            <p className="mt-2 text-xs text-muted-foreground">Usage counted from the data loaded on this device.</p>
+                        )}
+                    </Section>
+
+                    {/* Account */}
+                    <Section id="account" title="Account" tone="danger">
+                        <div className="space-y-5">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p className="font-medium">Log out</p>
+                                    <p className="text-sm text-muted-foreground">Sign out and clear your data from this device.</p>
+                                </div>
+                                <button type="button" className="btn btn-outline" onClick={onLogout}><LogoutIcon className="h-4 w-4" /> Log out</button>
+                            </div>
+                            <div className="border-t border-border pt-5">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p className="font-medium text-destructive">Delete account</p>
+                                        <p className="text-sm text-muted-foreground">Permanently delete your account, jobs, documents and clients. This can't be undone.</p>
+                                    </div>
+                                    {!deleteOpen && (
+                                        <button type="button" className="btn btn-danger" onClick={() => { setDeleteOpen(true); setDeleteText(''); setDeleteError(null); }}>
+                                            <TrashIcon className="h-4 w-4" /> Delete account
+                                        </button>
+                                    )}
+                                </div>
+                                {deleteOpen && (
+                                    <div className="mt-4 space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                                        {paid && <p className="text-sm text-foreground">Your paid subscription will be cancelled as part of the deletion.</p>}
+                                        <label htmlFor="delete-confirm" className="block text-sm">Type <strong>DELETE</strong> to confirm.</label>
+                                        <input id="delete-confirm" className="input max-w-xs" value={deleteText} onChange={(e) => setDeleteText(e.target.value)} autoComplete="off" />
+                                        {deleteError && (
+                                            <p role="alert" className="text-sm text-destructive">
+                                                {deleteError}{' '}
+                                                <a className="font-semibold underline" href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Delete my ContractorDocs account')}&body=${encodeURIComponent(`Please delete my account (${initialProfile.email || initialProfile.id}) and all its data.`)}`}>
+                                                    Email support to delete it
+                                                </a>.
+                                            </p>
+                                        )}
+                                        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                                            <button type="button" className="btn btn-outline" onClick={() => setDeleteOpen(false)} disabled={deleteBusy}>Cancel</button>
+                                            <button type="button" className="btn btn-danger" onClick={confirmDelete} disabled={deleteBusy || deleteText.trim().toUpperCase() !== 'DELETE'}>
+                                                {deleteBusy ? 'Deleting...' : 'Permanently delete'}
+                                            </button>
                                         </div>
                                     </div>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
-                        </Card>
+                                )}
+                            </div>
+                        </div>
+                    </Section>
+                </div>
+            </div>
 
-                        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card border-blue-200 dark:border-border">
-                            <CardHeader><CardTitle className="text-blue-950 dark:text-foreground">Appearance & Language</CardTitle></CardHeader>
-                            <CardContent className="space-y-6">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 border border-blue-200 dark:border-border rounded-lg gap-4 bg-white/30 dark:bg-transparent">
-                                    <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2 text-blue-900 dark:text-foreground"><SunIcon className="w-4 h-4" /> Theme</span></div>
-                                    <div className="flex items-center gap-2 bg-secondary p-1 rounded-lg self-end sm:self-auto">
-                                        <button
-                                            onClick={() => setTheme('light')}
-                                            className={`flex items-center gap-2 px-3 py-2 rounded-md transition-all ${theme === 'light' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground hover:bg-background/50'}`}
-                                            title="Light Mode"
-                                        >
-                                            <SunIcon className="h-5 w-5" />
-                                            <span className="text-xs font-medium hidden sm:inline">Light</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setTheme('blue')}
-                                            className={`flex items-center gap-2 px-3 py-2 rounded-md transition-all ${theme === 'blue' ? 'bg-card shadow-sm text-blue-500' : 'text-muted-foreground hover:bg-background/50'}`}
-                                            title="Blue Mode"
-                                        >
-                                            <DropletIcon className="h-5 w-5" />
-                                            <span className="text-xs font-medium hidden sm:inline">Blue</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setTheme('dark')}
-                                            className={`flex items-center gap-2 px-3 py-2 rounded-md transition-all ${theme === 'dark' ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground hover:bg-background/50'}`}
-                                            title="Dark Mode"
-                                        >
-                                            <MoonIcon className="h-5 w-5" />
-                                            <span className="text-xs font-medium hidden sm:inline">Dark</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between p-2 border border-blue-200 dark:border-border rounded-lg bg-white/30 dark:bg-transparent">
-                                    <div className="flex flex-col space-y-1"><span className="font-medium flex items-center gap-2 text-blue-900 dark:text-foreground"><LanguageIcon className="w-4 h-4" /> Language</span></div>
-                                    <select name="language" value={profile.language || 'English'} onChange={handleChange} className="h-10 rounded-md border border-input bg-background px-3 py-1 text-sm focus:ring-2 focus:ring-ring">
-                                        {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
-                                    </select>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
-                        </Card>
-                    </>
-                )}
+            {/* Sticky save bar */}
+            {(dirty || saveError || savedAt) && (
+                <div className="fixed inset-x-0 bottom-16 z-30 px-4 md:bottom-4">
+                    <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border border-border bg-popover p-3 shadow-lift sm:flex-row sm:items-center sm:justify-between">
+                        <p className={`text-sm ${saveError ? 'text-destructive' : 'text-muted-foreground'}`} role={saveError ? 'alert' : 'status'}>
+                            {saveError ? saveError : dirty ? 'You have unsaved changes.' : 'All changes saved.'}
+                        </p>
+                        {dirty && (
+                            <div className="flex gap-2">
+                                <button type="button" className="btn btn-ghost flex-1 sm:flex-none" onClick={discardChanges} disabled={saving}>Discard</button>
+                                <button type="button" className="btn btn-primary flex-1 sm:flex-none" onClick={handleSaveChanges} disabled={saving}>
+                                    {saving && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
+                                    {saving ? 'Saving...' : 'Save changes'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
-                {mode === 'profile' && (
-                    <>
-                        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card border-blue-200 dark:border-border">
-                            <CardHeader><CardTitle className="text-blue-950 dark:text-foreground">Personal Details</CardTitle></CardHeader>
-                            <CardContent>
-                                <div className="flex flex-col md:flex-row gap-6 mb-6 items-start">
-                                    {/* Profile Picture Upload */}
-                                    <div className="flex flex-col items-center gap-2">
-                                        <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-blue-200 dark:border-border bg-white dark:bg-muted flex items-center justify-center relative group">
-                                            {profilePicPreview ? (
-                                                <img src={profilePicPreview} alt="Profile" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <UserIcon className="w-10 h-10 text-blue-300 dark:text-muted-foreground" />
-                                            )}
-                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onClick={() => document.getElementById('profilePicInput')?.click()}>
-                                                <UploadImageIcon className="w-6 h-6 text-white" />
-                                            </div>
-                                        </div>
-                                        <Input id="profilePicInput" type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'profile')} className="hidden" />
-                                        <Button variant="ghost" size="sm" onClick={() => document.getElementById('profilePicInput')?.click()} className="text-xs text-blue-600 dark:text-foreground">Change Photo</Button>
-                                    </div>
-
-                                    <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="flex flex-col space-y-1.5"><Label htmlFor="firstName">First Name</Label><Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
-                                        <div className="flex flex-col space-y-1.5"><Label htmlFor="lastName">Last Name</Label><Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
-                                        <div className="flex flex-col space-y-1.5 md:col-span-2">
-                                            <Label htmlFor="jobTitle">Job Title</Label>
-                                            <div className="relative"><BriefcaseIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input id="jobTitle" name="jobTitle" value={profile.jobTitle || ''} onChange={handleChange} className="pl-9" placeholder="e.g. General Contractor" /></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="flex justify-end"><Button onClick={handleSaveChanges}>Save Changes</Button></CardFooter>
-                        </Card>
-
-                        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card border-blue-200 dark:border-border">
-                            <CardHeader><CardTitle className="text-blue-950 dark:text-foreground">Subscription Plan</CardTitle></CardHeader>
-                            <CardContent>
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-blue-200 dark:border-border rounded-lg bg-white/30 dark:bg-card">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`p-3 rounded-full shrink-0 ${profile.subscriptionTier === 'Premium' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600 dark:bg-gray-100 dark:text-gray-600'}`}><CreditCardIcon className="h-6 w-6" /></div>
-                                        <div><h3 className="font-bold text-lg text-blue-900 dark:text-foreground">{profile.subscriptionTier || 'Basic'} Plan</h3><p className="text-sm text-blue-700/70 dark:text-muted-foreground">{profile.subscriptionTier === 'Premium' ? 'You have access to all premium features.' : 'Upgrade to Premium to unlock all features.'}</p></div>
-                                    </div>
-                                    {profile.subscriptionTier !== 'Premium' && <Button variant="default" onClick={onUpgradeClick} className="w-full sm:w-auto">Upgrade</Button>}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="border-destructive/50 bg-red-50/50 dark:bg-card">
-                            <CardHeader><CardTitle className="text-destructive flex items-center gap-2"><LogoutIcon className="h-5 w-5" /> Account Actions</CardTitle></CardHeader>
-                            <CardContent><div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4"><p className="text-sm text-muted-foreground">Sign out of your account on this device.</p><Button variant="destructive" onClick={onLogout} className="w-full sm:w-auto">Log Out</Button></div></CardContent>
-                        </Card>
-                    </>
-                )}
-            </main>
+            {showSignatureModal && (
+                <SetupSignatureModal
+                    initialDataUrl={signature || undefined}
+                    userId={initialProfile.id}
+                    title="Your default signature"
+                    description="Saved to your account for quick signing. It's only added to a document when you choose it."
+                    onClose={() => setShowSignatureModal(false)}
+                    onSave={(url) => { saveSignature(url); }}
+                />
+            )}
         </div>
     );
 };

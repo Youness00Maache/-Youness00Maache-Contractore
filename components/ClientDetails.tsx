@@ -1,388 +1,1304 @@
-import React, { useState, useMemo } from 'react';
-import { Client, Job, FormData as FormDataType, FormType } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/Card.tsx';
-import { Button } from './ui/Button.tsx';
+/**
+ * Client details page + shared client UI (form modal, request-approval modal, action menu)
+ * used by ClientsView. Self-sufficient: loads its own linked jobs/documents (client_id with
+ * name fallback for legacy rows, COMM-011) through utils/clientLinks.ts.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase.ts';
+import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
 import {
-    BackArrowIcon, UsersIcon, EstimateIcon, ChangeOrderIcon, InvoiceIcon,
-    BriefcaseIcon, TruckIcon, CalendarIcon, MailIcon, HomeIcon,
-    GlobeIcon, CheckIcon, CopyIcon, PenIcon, CheckCircleIcon
+    approvalUrl,
+    copyToClipboard,
+    documentLabel,
+    ensureApprovalToken,
+    ensurePortalKey,
+    fetchClientDocuments,
+    fetchClientJobs,
+    isExpired,
+    portalUrl,
+    regenerateApprovalToken,
+    regeneratePortalKey,
+    type ClientDocSummary,
+    type ClientJobSummary,
+} from '../utils/clientLinks.ts';
+import { Client, FormType, type FormData as FormDataType, type Job, type UserProfile } from '../types.ts';
+import {
+    Avatar,
+    ConfirmDialog,
+    EmptyState,
+    Modal,
+    Notice,
+    PageHeader,
+    SkeletonRows,
+    Spinner,
+    StatusBadge,
+    cx,
+    getErrorMessage,
+    isPlanLimitError,
+} from './commsKit.tsx';
+import {
+    BriefcaseIcon,
+    CalendarIcon,
+    ChangeOrderIcon,
+    CheckCircleIcon,
+    CheckIcon,
+    CopyIcon,
+    EditIcon,
+    EstimateIcon,
+    FileTextIcon,
+    GlobeIcon,
+    InvoiceIcon,
+    MailIcon,
+    MapPinIcon,
+    MoreVerticalIcon,
+    PenIcon,
+    PlusIcon,
+    RefreshCwIcon,
+    SendIcon,
+    SmartphoneIcon,
+    TrashIcon,
+    DailyReportIcon,
+    WorkOrderIcon,
+    WarrantyIcon,
+    ReceiptIcon,
+    TruckIcon,
+    NoteIcon,
 } from './Icons.tsx';
 
-interface ClientDetailsProps {
-    client: Client;
-    jobs: Job[];
-    docs: FormDataType[];
-    onBack: () => void;
-    onNavigateToJob: (jobId: string) => void;
-    onNavigateToDoc: (formId: string, jobId: string, type: FormType) => void;
+/* =====================================================================
+   Shared types & helpers (also imported by ClientsView)
+   ===================================================================== */
+
+/** What CommunicationView reads from `prefillData`. */
+export interface CommunicationPrefill {
+    clientId?: string;
+    clientName?: string;
+    clientEmail?: string;
+    documentIds?: string[];
+    subject?: string;
+    body?: string;
 }
 
-const ClientDetails: React.FC<ClientDetailsProps> = ({
-    client,
-    jobs,
-    docs,
-    onBack,
-    onNavigateToJob,
-    onNavigateToDoc
-}) => {
-    const [activeTab, setActiveTab] = useState<'overview' | 'projects' | 'documents'>('overview');
-    const [copiedPortal, setCopiedPortal] = useState(false);
+export const CLIENT_COLUMNS = 'id, user_id, name, email, phone, address, notes, portal_key, created_at';
+export const TEMP_TAG = '[TEMPORARY]';
+export const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
 
-    // Sort data by date (newest first)
-    const sortedDocs = useMemo(() => {
-        return [...docs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    }, [docs]);
+export interface ClientDraft {
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    notes: string;
+}
 
-    const sortedJobs = useMemo(() => {
-        return [...jobs].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-    }, [jobs]);
+export const EMPTY_DRAFT: ClientDraft = { name: '', email: '', phone: '', address: '', notes: '' };
 
-    // Timeline for Overview (Mix of latest Jobs and Docs)
-    const timeline = useMemo(() => {
-        const jobItems = sortedJobs.map(j => ({ type: 'job', date: j.startDate, data: j }));
-        const docItems = sortedDocs.map(d => ({ type: 'doc', date: d.createdAt, data: d }));
-        return [...jobItems, ...docItems]
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-            .slice(0, 5);
-    }, [sortedJobs, sortedDocs]);
+export const isTemporaryClient = (c: Pick<Client, 'notes'> | null | undefined) => !!c?.notes && c.notes.includes(TEMP_TAG);
+export const stripTempTag = (notes?: string | null) => String(notes || '').replace(TEMP_TAG, '').trim();
+export const firstName = (name?: string | null) => String(name || '').trim().split(/\s+/)[0] || 'there';
 
-    const copyPortalLink = () => {
-        if (!client.portal_key) return;
-        const url = `${window.location.origin}?portal=${client.portal_key}`;
-        navigator.clipboard.writeText(url);
-        setCopiedPortal(true);
-        setTimeout(() => setCopiedPortal(false), 2000);
+export const draftFromClient = (c: Partial<Client> | null | undefined): ClientDraft => ({
+    name: c?.name || '',
+    email: c?.email || '',
+    phone: c?.phone || '',
+    address: c?.address || '',
+    notes: c?.notes || '',
+});
+
+const cleanDraft = (d: ClientDraft): ClientDraft => ({
+    name: d.name.trim().replace(/\s+/g, ' '),
+    email: d.email.trim(),
+    phone: d.phone.trim(),
+    address: d.address.trim(),
+    notes: d.notes.trim(),
+});
+
+export function validateClientDraft(d: ClientDraft): Partial<Record<keyof ClientDraft, string>> {
+    const errors: Partial<Record<keyof ClientDraft, string>> = {};
+    if (!d.name.trim()) errors.name = 'Name is required.';
+    else if (d.name.trim().length > 200) errors.name = 'Name is too long (200 characters max).';
+    if (d.email.trim() && !EMAIL_RE.test(d.email.trim())) errors.email = 'Enter a valid email address.';
+    return errors;
+}
+
+/** Inserts a client and returns the saved row. Keeps the DB message (so `PLAN_LIMIT:` is detectable). */
+export async function insertClient(draft: ClientDraft, userId: string): Promise<Client> {
+    const row = { id: crypto.randomUUID(), user_id: userId, ...cleanDraft(draft) };
+    const { data, error } = await supabase.from('clients').insert(row).select(CLIENT_COLUMNS).single();
+    if (error) throw new Error(error.message || 'Could not save the client.');
+    return data as Client;
+}
+
+/** Updates only the editable columns. */
+export async function updateClient(id: string, draft: ClientDraft): Promise<Client> {
+    const { data, error } = await supabase
+        .from('clients')
+        .update(cleanDraft(draft))
+        .eq('id', id)
+        .select(CLIENT_COLUMNS)
+        .single();
+    if (error) throw new Error(error.message || 'Could not update the client.');
+    return data as Client;
+}
+
+export async function deleteClients(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const { error } = await supabase.from('clients').delete().in('id', ids);
+    if (error) throw new Error(error.message || 'Could not delete.');
+}
+
+/** Resolves the currently signed-in user id (prop first, then the stored session). */
+export function useUserId(session?: { user?: { id?: string } } | null): string | null {
+    const [uid, setUid] = useState<string | null>(session?.user?.id || null);
+    useEffect(() => {
+        if (session?.user?.id) { setUid(session.user.id); return; }
+        let alive = true;
+        supabase.auth.getSession().then(({ data }) => {
+            if (alive) setUid(data.session?.user?.id || null);
+        }).catch(() => { /* stays null; actions show a sign-in message */ });
+        return () => { alive = false; };
+    }, [session?.user?.id]);
+    return uid;
+}
+
+/** Returns a function that opens the Communication page with a prefill. */
+export function useCommunicationNavigator(onNavigateToCommunication?: (prefill: CommunicationPrefill) => void) {
+    const navigate = useNavigate();
+    return useCallback((prefill: CommunicationPrefill) => {
+        if (onNavigateToCommunication) onNavigateToCommunication(prefill);
+        else navigate('/communication', { state: { prefillData: prefill } });
+    }, [navigate, onNavigateToCommunication]);
+}
+
+/** Parses 'YYYY-MM-DD' as a local date (no UTC shift); other ISO strings normally. */
+export const parseDate = (value?: string | null): Date | null => {
+    if (!value) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+};
+
+export const fmtDate = (value?: string | null, withTime = false): string => {
+    const d = parseDate(value);
+    if (!d) return '';
+    return withTime
+        ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const MONEY_TYPES = new Set<string>([FormType.Invoice, FormType.Estimate, FormType.ChangeOrder]);
+
+export const docTotal = (doc: ClientDocSummary): number => {
+    if (Array.isArray(doc.data.lineItems) && doc.data.lineItems.length) {
+        return computeDocumentTotals(doc.data as any).total;
+    }
+    return toNumber(doc.data.amount);
+};
+
+export const DocTypeIcon: React.FC<{ type: string; className?: string }> = ({ type, className }) => {
+    const map: Record<string, any> = {
+        [FormType.Invoice]: InvoiceIcon,
+        [FormType.Estimate]: EstimateIcon,
+        [FormType.ChangeOrder]: ChangeOrderIcon,
+        [FormType.DailyJobReport]: DailyReportIcon,
+        [FormType.WorkOrder]: WorkOrderIcon,
+        [FormType.Warranty]: WarrantyIcon,
+        [FormType.Receipt]: ReceiptIcon,
+        [FormType.PurchaseOrder]: TruckIcon,
+        [FormType.Note]: NoteIcon,
     };
+    const Icon = map[type] || FileTextIcon;
+    return <Icon className={className} />;
+};
 
-    const getDocIcon = (type: FormType) => {
-        switch (type) {
-            case FormType.Invoice: return InvoiceIcon;
-            case FormType.Estimate: return EstimateIcon;
-            case FormType.ChangeOrder: return ChangeOrderIcon;
-            case FormType.PurchaseOrder: return TruckIcon;
-            default: return InvoiceIcon; // Fallback
-        }
-    };
+/** Signed / declined state of an estimate or change order (lightweight data). */
+export const approvalState = (doc: ClientDocSummary): 'signed' | 'declined' | 'expired' | 'open' => {
+    const status = String(doc.data.status || '');
+    if (doc.data.clientSignedAt || status === 'Accepted') return 'signed';
+    if (doc.data.clientDeclinedAt || status === 'Rejected') return 'declined';
+    if (doc.type === FormType.Estimate && isExpired(doc.data.expiryDate)) return 'expired';
+    return 'open';
+};
 
-    const getDocTitle = (form: FormDataType) => {
-        const d = form.data as any;
-        return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || ((d.receiptNumber) ? `Receipt #${d.receiptNumber}` : null) || form.type;
-    };
+/* =====================================================================
+   ActionMenu: small accessible kebab menu (touch friendly)
+   ===================================================================== */
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'active': return 'bg-green-500';
-            case 'completed': return 'bg-blue-500';
-            case 'paused': return 'bg-orange-500';
-            default: return 'bg-gray-400';
-        }
-    };
+export interface ActionMenuItem {
+    label: string;
+    icon?: React.ReactNode;
+    onClick: () => void;
+    destructive?: boolean;
+    disabled?: boolean;
+}
 
-    const TabButton = ({ id, label, icon: Icon }: { id: typeof activeTab, label: string, icon: any }) => (
-        <button
-            onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 transition-all duration-200 font-medium text-sm ${activeTab === id
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
-                : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30'
-                }`}
-        >
-            <Icon className={`w-4 h-4 ${activeTab === id ? 'text-blue-600 dark:text-blue-400' : ''}`} />
-            {label}
-        </button>
+export const ActionMenu: React.FC<{
+    items: ActionMenuItem[];
+    label?: string;
+    trigger?: React.ReactNode;
+    triggerClassName?: string;
+    align?: 'left' | 'right';
+}> = ({ items, label = 'More actions', trigger, triggerClassName, align = 'right' }) => {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const onDown = (e: MouseEvent | TouchEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('touchstart', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('touchstart', onDown);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+
+    return (
+        <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
+            <button
+                type="button"
+                aria-label={label}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className={triggerClassName || 'btn btn-ghost h-10 w-10 shrink-0 rounded-full p-0 text-muted-foreground'}
+            >
+                {trigger || <MoreVerticalIcon className="h-5 w-5" />}
+            </button>
+            {open && (
+                <div
+                    role="menu"
+                    className={cx(
+                        'absolute top-full z-40 mt-1 w-56 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lift animate-fade-in',
+                        align === 'right' ? 'right-0' : 'left-0',
+                    )}
+                >
+                    {items.map((item) => (
+                        <button
+                            key={item.label}
+                            type="button"
+                            role="menuitem"
+                            disabled={item.disabled}
+                            onClick={() => { setOpen(false); item.onClick(); }}
+                            className={cx(
+                                'flex min-h-[40px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50',
+                                item.destructive ? 'text-destructive hover:bg-destructive/10' : 'hover:bg-muted',
+                            )}
+                        >
+                            {item.icon && <span className="flex h-4 w-4 items-center justify-center">{item.icon}</span>}
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
+};
 
-    const StatsCard = ({ label, value, icon: Icon, colorClass }: { label: string, value: string | number, icon: any, colorClass: string }) => (
-        <div className="bg-card/50 backdrop-blur-sm border rounded-xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
-            <div className={`p-3 rounded-full bg-opacity-10 ${colorClass.replace('text-', 'bg-')}`}>
-                <Icon className={`w-6 h-6 ${colorClass}`} />
-            </div>
-            <div>
-                <p className="text-sm text-muted-foreground font-medium">{label}</p>
-                <p className="text-2xl font-bold tracking-tight">{value}</p>
-            </div>
+/* =====================================================================
+   ClientFormModal: add & edit (COMM-021, COMM-022)
+   ===================================================================== */
+
+export const ClientFormModal: React.FC<{
+    open: boolean;
+    mode: 'add' | 'edit';
+    initial?: Partial<ClientDraft>;
+    clientId?: string;
+    userId: string | null;
+    onClose: () => void;
+    onSaved: (client: Client, mode: 'add' | 'edit') => void;
+    onUpgrade?: () => void;
+    /** Error to show when the modal opens (e.g. an AI auto-insert that hit the plan limit). */
+    initialError?: string | null;
+}> = ({ open, mode, initial, clientId, userId, onClose, onSaved, onUpgrade, initialError }) => {
+    const [draft, setDraft] = useState<ClientDraft>(EMPTY_DRAFT);
+    const [temporary, setTemporary] = useState(false);
+    const [errors, setErrors] = useState<Partial<Record<keyof ClientDraft, string>>>({});
+    const [busy, setBusy] = useState(false);
+    const [submitError, setSubmitError] = useState<string | null>(null);
+    const [planLimit, setPlanLimit] = useState(false);
+
+    useEffect(() => {
+        if (!open) return;
+        const base = { ...EMPTY_DRAFT, ...(initial || {}) } as ClientDraft;
+        setTemporary(String(base.notes || '').includes(TEMP_TAG));
+        setDraft({ ...base, notes: stripTempTag(base.notes) });
+        setErrors({});
+        setBusy(false);
+        setPlanLimit(!!initialError && isPlanLimitError(initialError));
+        setSubmitError(initialError ? getErrorMessage(initialError) : null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+
+    const set = (key: keyof ClientDraft) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const value = e.target.value;
+        setDraft((d) => ({ ...d, [key]: value }));
+        if (errors[key]) setErrors((er) => ({ ...er, [key]: undefined }));
+    };
+
+    const submit = async (e?: React.FormEvent) => {
+        e?.preventDefault();
+        if (busy) return;
+        const finalDraft: ClientDraft = {
+            ...draft,
+            notes: temporary ? `${TEMP_TAG} ${stripTempTag(draft.notes)}`.trim() : stripTempTag(draft.notes),
+        };
+        const v = validateClientDraft(finalDraft);
+        setErrors(v);
+        if (Object.keys(v).length) return;
+        if (mode === 'add' && !userId) { setSubmitError('You are signed out. Please sign in again.'); return; }
+        setBusy(true);
+        setSubmitError(null);
+        setPlanLimit(false);
+        try {
+            const saved = mode === 'edit' && clientId
+                ? await updateClient(clientId, finalDraft)
+                : await insertClient(finalDraft, userId as string);
+            onSaved(saved, mode);
+        } catch (err) {
+            if (isPlanLimitError(err)) setPlanLimit(true);
+            setSubmitError(getErrorMessage(err, 'Could not save the client. Please try again.'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const field = (key: keyof ClientDraft, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+        <div>
+            <label className="label" htmlFor={`client-${key}`}>{label}</label>
+            <input
+                id={`client-${key}`}
+                className={cx('input min-h-[44px]', errors[key] && 'border-destructive focus:border-destructive focus:ring-destructive/15')}
+                value={draft[key]}
+                onChange={set(key)}
+                aria-invalid={!!errors[key]}
+                aria-describedby={errors[key] ? `client-${key}-err` : undefined}
+                {...props}
+            />
+            {errors[key] && <p id={`client-${key}-err`} className="mt-1 text-xs font-medium text-destructive">{errors[key]}</p>}
         </div>
     );
 
     return (
-        <div className="w-full h-full bg-background text-foreground flex flex-col animate-in fade-in slide-in-from-right-4 duration-300">
-            {/* Header Section */}
-            <header className="relative overflow-hidden rounded-b-3xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-xl mb-8 -mx-4 md:-mx-8 md:-mt-8 p-8 pt-12 md:p-12">
-                <div className="absolute top-0 right-0 p-32 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-                <div className="absolute bottom-0 left-0 p-24 bg-black/10 rounded-full blur-2xl -ml-12 -mb-12 pointer-events-none"></div>
-
-                <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-                    <div className="flex items-center gap-6">
-                        <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-3xl font-bold border-2 border-white/30 shadow-inner">
-                            {client.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-3 mb-1">
-                                <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{client.name}</h1>
-                                {client.portal_key && (
-                                    <span className="bg-green-400/20 text-green-100 border border-green-400/30 text-xs px-2 py-0.5 rounded-full flex items-center gap-1 font-medium backdrop-blur-sm">
-                                        <GlobeIcon className="w-3 h-3" /> Portal Active
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-blue-100 flex items-center gap-2 text-sm md:text-base">
-                                <UsersIcon className="w-4 h-4 opacity-70" /> Client Profile
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                        <Button
-                            variant="secondary"
-                            className="bg-white/10 hover:bg-white/20 text-white border-white/20 backdrop-blur-md shadow-lg"
-                            onClick={onBack}
-                        >
-                            <BackArrowIcon className="w-4 h-4 mr-2" /> Back
-                        </Button>
-                        <Button
-                            className="bg-white/10 hover:bg-white/20 text-white border-white/20 backdrop-blur-md shadow-lg"
-                            onClick={() => alert("Get Approval feature coming soon to this view")}
-                        >
-                            <CheckIcon className="w-4 h-4 mr-2" /> Get Approval
-                        </Button>
-                        {client.portal_key && (
-                            <Button
-                                className="bg-white text-blue-700 hover:bg-blue-50 shadow-lg font-semibold"
-                                onClick={copyPortalLink}
-                            >
-                                {copiedPortal ? <CheckIcon className="w-4 h-4 mr-2" /> : <GlobeIcon className="w-4 h-4 mr-2" />}
-                                {copiedPortal ? 'Link Copied' : 'Portal Link'}
-                            </Button>
-                        )}
-                    </div>
+        <Modal
+            open={open}
+            onClose={onClose}
+            locked={busy}
+            title={mode === 'edit' ? 'Edit client' : 'Add client'}
+            description={mode === 'edit' ? 'Changes apply to new documents. Existing documents keep their printed details.' : 'Save a client to reuse their details on estimates, invoices and emails.'}
+            footer={
+                <>
+                    <button type="button" className="btn btn-outline min-h-[44px]" onClick={onClose} disabled={busy}>Cancel</button>
+                    <button type="submit" form="client-form" className="btn btn-primary min-h-[44px]" disabled={busy}>
+                        {busy ? <Spinner label="Saving…" /> : mode === 'edit' ? 'Save changes' : 'Add client'}
+                    </button>
+                </>
+            }
+        >
+            <form id="client-form" onSubmit={submit} className="space-y-4" noValidate>
+                {submitError && (
+                    <Notice
+                        tone={planLimit ? 'warning' : 'danger'}
+                        title={planLimit ? 'Free plan limit reached' : 'Could not save'}
+                        action={planLimit && onUpgrade ? (
+                            <button type="button" className="btn btn-primary btn-sm min-h-[36px]" onClick={onUpgrade}>Upgrade</button>
+                        ) : undefined}
+                    >
+                        {submitError}
+                    </Notice>
+                )}
+                {field('name', 'Name *', { placeholder: 'Full name or company', autoComplete: 'off', 'data-autofocus': true } as any)}
+                <div className="grid gap-4 sm:grid-cols-2">
+                    {field('email', 'Email', { type: 'email', inputMode: 'email', placeholder: 'client@example.com', autoComplete: 'off' })}
+                    {field('phone', 'Phone', { type: 'tel', inputMode: 'tel', placeholder: '(555) 123-4567', autoComplete: 'off' })}
                 </div>
-
-                {/* Stats Row integrated into header bottom or separate? Let's separate for cleanliness below header in grid */}
-            </header>
-
-            <div className="px-4 md:px-8 pb-12 max-w-7xl mx-auto w-full space-y-8">
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6 relative z-20">
-                    <StatsCard
-                        label="Active Projects"
-                        value={jobs.filter(j => j.status === 'active').length}
-                        icon={BriefcaseIcon}
-                        colorClass="text-blue-600"
-                    />
-                    <StatsCard
-                        label="Total Documents"
-                        value={docs.length}
-                        icon={InvoiceIcon}
-                        colorClass="text-purple-600"
-                    />
-                    <StatsCard
-                        label="Interactions"
-                        value={timeline.length + "+"}
-                        icon={CalendarIcon}
-                        colorClass="text-orange-500"
-                    />
-                    <StatsCard
-                        label="Client Since"
-                        value={client.created_at ? new Date(client.created_at).getFullYear() : new Date().getFullYear()}
-                        icon={CheckCircleIcon}
-                        colorClass="text-green-600"
+                {field('address', 'Address', { placeholder: 'Street, city, state, ZIP', autoComplete: 'off' })}
+                <div>
+                    <label className="label" htmlFor="client-notes">Notes</label>
+                    <textarea
+                        id="client-notes"
+                        className="input min-h-[88px] resize-y"
+                        value={draft.notes}
+                        onChange={set('notes')}
+                        placeholder="Gate code, preferred contact time, anything useful…"
+                        rows={3}
                     />
                 </div>
+                <label className="flex min-h-[40px] cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2 text-sm">
+                    <input
+                        type="checkbox"
+                        className="h-5 w-5 accent-[hsl(var(--primary))]"
+                        checked={temporary}
+                        onChange={(e) => setTemporary(e.target.checked)}
+                    />
+                    <span>
+                        <span className="font-medium text-foreground">Temporary client</span>
+                        <span className="block text-xs text-muted-foreground">Walk-ins and one-off jobs. You can convert them later.</span>
+                    </span>
+                </label>
+            </form>
+        </Modal>
+    );
+};
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    {/* Sidebar */}
-                    <div className="lg:col-span-4 space-y-6">
-                        <Card className="overflow-hidden border-t-4 border-t-blue-500 shadow-md">
-                            <CardHeader className="bg-muted/10 pb-4">
-                                <CardTitle className="text-lg flex items-center gap-2">
-                                    <UsersIcon className="w-5 h-5 text-blue-500" /> Contact Details
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-5 pt-6">
-                                <div className="group">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Email</p>
-                                    <div className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/30 group-hover:bg-secondary/50 transition-colors">
-                                        <MailIcon className="w-5 h-5 text-blue-500 shrink-0" />
-                                        <p className="text-sm font-medium truncate select-all">{client.email || 'N/A'}</p>
-                                    </div>
-                                </div>
-                                <div className="group">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Phone</p>
-                                    <div className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/30 group-hover:bg-secondary/50 transition-colors">
-                                        <UsersIcon className="w-5 h-5 text-green-500 shrink-0" /> {/* Fallback icon since PhoneIcon missing */}
-                                        <p className="text-sm font-medium select-all">{client.phone || 'N/A'}</p>
-                                    </div>
-                                </div>
-                                <div className="group">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Address</p>
-                                    <div className="flex items-start gap-3 p-2.5 rounded-lg bg-secondary/30 group-hover:bg-secondary/50 transition-colors">
-                                        <HomeIcon className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
-                                        <p className="text-sm font-medium leading-snug">{client.address || 'N/A'}</p>
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+/* =====================================================================
+   RequestApprovalModal (COMM-012 link UI, COMM-021)
+   ===================================================================== */
 
-                        {client.notes && (
-                            <Card className="shadow-sm">
-                                <CardHeader className="pb-3">
-                                    <CardTitle className="text-base flex items-center gap-2">
-                                        <PenIcon className="w-4 h-4 text-muted-foreground" /> Notes
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-sm text-muted-foreground bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-lg border border-yellow-100 dark:border-yellow-900/20 whitespace-pre-wrap leading-relaxed">
-                                        {client.notes}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-                    </div>
+export const RequestApprovalModal: React.FC<{
+    open: boolean;
+    client: Client | null;
+    onClose: () => void;
+    onEmail: (prefill: CommunicationPrefill) => void;
+    onNavigateToNewDoc?: (type: FormType, clientId: string) => void;
+}> = ({ open, client, onClose, onEmail, onNavigateToNewDoc }) => {
+    const [docs, setDocs] = useState<ClientDocSummary[] | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [busyId, setBusyId] = useState<string | null>(null);
+    const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [manualLink, setManualLink] = useState<{ id: string; url: string } | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [info, setInfo] = useState<string | null>(null);
+    const [confirmRegen, setConfirmRegen] = useState<ClientDocSummary | null>(null);
+    const [regenBusy, setRegenBusy] = useState(false);
+    const [regenError, setRegenError] = useState<string | null>(null);
 
-                    {/* Main Content */}
-                    <div className="lg:col-span-8 flex flex-col">
-                        <div className="flex items-center gap-2 border-b mb-6 overflow-x-auto no-scrollbar">
-                            <TabButton id="overview" label="Overview" icon={HomeIcon} />
-                            <TabButton id="projects" label="Projects" icon={BriefcaseIcon} />
-                            <TabButton id="documents" label="Documents" icon={InvoiceIcon} />
-                        </div>
+    const load = useCallback(async () => {
+        if (!client) return;
+        setDocs(null);
+        setLoadError(null);
+        try {
+            const jobs = await fetchClientJobs(client);
+            const list = await fetchClientDocuments(client, {
+                jobIds: jobs.map((j) => j.id),
+                types: [FormType.Estimate, FormType.ChangeOrder],
+            });
+            setDocs(list);
+        } catch (err) {
+            setLoadError(getErrorMessage(err, 'Could not load documents.'));
+            setDocs([]);
+        }
+    }, [client]);
 
-                        <div className="flex-1 min-h-[400px]">
-                            {/* OVERVIEW TAB */}
-                            {activeTab === 'overview' && (
-                                <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-                                    <div>
-                                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                                            <CalendarIcon className="w-5 h-5 text-blue-500" /> Recent Activity
-                                        </h3>
-                                        {timeline.length === 0 ? (
-                                            <div className="p-8 text-center border rounded-xl bg-muted/5 text-muted-foreground">
-                                                No recent activity found.
+    useEffect(() => {
+        if (open && client) {
+            setActionError(null);
+            setInfo(null);
+            setManualLink(null);
+            setCopiedId(null);
+            load();
+        }
+    }, [open, client, load]);
+
+    const linkFor = async (doc: ClientDocSummary): Promise<string> => {
+        // Always ask the server: an old token may belong to a link that expired (60 days) and gets reissued.
+        const token = await ensureApprovalToken(doc.id);
+        if (token !== doc.publicToken) {
+            setDocs((prev) => prev?.map((d) => (d.id === doc.id ? { ...d, publicToken: token } : d)) ?? prev);
+        }
+        return approvalUrl(token);
+    };
+
+    const copyLink = async (doc: ClientDocSummary) => {
+        setBusyId(doc.id);
+        setActionError(null);
+        setInfo(null);
+        try {
+            const url = await linkFor(doc);
+            const ok = await copyToClipboard(url);
+            if (ok) {
+                setCopiedId(doc.id);
+                setManualLink(null);
+                window.setTimeout(() => setCopiedId((cur) => (cur === doc.id ? null : cur)), 2500);
+            } else {
+                setManualLink({ id: doc.id, url });
+            }
+        } catch (err) {
+            setActionError(getErrorMessage(err));
+        } finally {
+            setBusyId(null);
+        }
+    };
+
+    const emailLink = async (doc: ClientDocSummary) => {
+        if (!client) return;
+        setBusyId(doc.id);
+        setActionError(null);
+        try {
+            const url = await linkFor(doc);
+            const label = documentLabel(doc.type, doc.data);
+            onEmail({
+                clientId: client.id,
+                clientName: client.name,
+                clientEmail: client.email || undefined,
+                documentIds: [doc.id],
+                subject: `Please review and approve ${label}`,
+                body: `Hi ${firstName(client.name)},\n\nPlease review and approve ${label} here:\n${url}\n\nThank you!`,
+            });
+        } catch (err) {
+            setActionError(getErrorMessage(err));
+        } finally {
+            setBusyId(null);
+        }
+    };
+
+    const doRegenerate = async () => {
+        if (!confirmRegen) return;
+        setRegenBusy(true);
+        setRegenError(null);
+        try {
+            const token = await regenerateApprovalToken(confirmRegen.id);
+            setDocs((prev) => prev?.map((d) => (d.id === confirmRegen.id ? { ...d, publicToken: token } : d)) ?? prev);
+            setInfo(`New link created for ${documentLabel(confirmRegen.type, confirmRegen.data)}. The old link no longer works.`);
+            setManualLink(null);
+            setConfirmRegen(null);
+        } catch (err) {
+            setRegenError(getErrorMessage(err));
+        } finally {
+            setRegenBusy(false);
+        }
+    };
+
+    const newDocButtons = onNavigateToNewDoc && client ? (
+        <div className="flex flex-col gap-2 sm:flex-row">
+            <button type="button" className="btn btn-primary min-h-[40px]" onClick={() => { onClose(); onNavigateToNewDoc(FormType.Estimate, client.id); }}>
+                <PlusIcon className="h-4 w-4" /> New estimate
+            </button>
+            <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => { onClose(); onNavigateToNewDoc(FormType.ChangeOrder, client.id); }}>
+                <PlusIcon className="h-4 w-4" /> New change order
+            </button>
+        </div>
+    ) : undefined;
+
+    return (
+        <>
+            <Modal
+                open={open && !!client}
+                onClose={onClose}
+                size="lg"
+                title="Request approval"
+                description={client ? <>Send {client.name} a secure link to review and sign an estimate or change order. No login needed.</> : undefined}
+                footer={<button type="button" className="btn btn-outline min-h-[40px]" onClick={onClose}>Close</button>}
+            >
+                <div className="space-y-3">
+                    {actionError && <Notice tone="danger" onClose={() => setActionError(null)}>{actionError}</Notice>}
+                    {info && <Notice tone="success" onClose={() => setInfo(null)}>{info}</Notice>}
+                    {loadError && (
+                        <Notice tone="danger" title="Could not load documents" action={<button type="button" className="btn btn-outline btn-sm min-h-[36px]" onClick={load}>Retry</button>}>
+                            {loadError}
+                        </Notice>
+                    )}
+                    {docs === null ? (
+                        <SkeletonRows rows={3} />
+                    ) : docs.length === 0 && !loadError ? (
+                        <EmptyState
+                            icon={<EstimateIcon className="h-6 w-6" />}
+                            title="No estimates or change orders yet"
+                            description="Create one for this client, then come back here to send it for approval."
+                            action={newDocButtons}
+                        />
+                    ) : (
+                        <ul className="space-y-3">
+                            {docs.map((doc) => {
+                                const state = approvalState(doc);
+                                const label = documentLabel(doc.type, doc.data);
+                                const total = docTotal(doc);
+                                return (
+                                    <li key={doc.id} className="rounded-xl border border-border bg-card p-3 sm:p-4">
+                                        <div className="flex items-start gap-3">
+                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                                                <DocTypeIcon type={doc.type} className="h-5 w-5" />
                                             </div>
-                                        ) : (
-                                            <div className="relative border-l-2 border-muted ml-4 space-y-6 pb-2">
-                                                {timeline.map((item, idx) => {
-                                                    const isJob = item.type === 'job';
-                                                    const date = new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-
-                                                    return (
-                                                        <div key={idx} className="relative pl-6">
-                                                            <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-background ${isJob ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
-                                                            <div className="bg-card border rounded-lg p-3 shadow-sm hover:shadow-md transition-all cursor-pointer"
-                                                                onClick={() => isJob ? onNavigateToJob((item.data as Job).id) : onNavigateToDoc((item.data as FormDataType).id, (item.data as FormDataType).jobId, (item.data as FormDataType).type)}>
-                                                                <div className="flex justify-between items-start">
-                                                                    <div>
-                                                                        <span className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 block ${isJob ? 'text-blue-600' : 'text-purple-600'}`}>
-                                                                            {isJob ? 'Project Started' : (item.data as FormDataType).type}
-                                                                        </span>
-                                                                        <p className="font-semibold text-sm">
-                                                                            {isJob ? (item.data as Job).name : getDocTitle(item.data as FormDataType)}
-                                                                        </p>
-                                                                    </div>
-                                                                    <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">{date}</span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="truncate font-semibold text-foreground">{label}</p>
+                                                    <StatusBadge status={state === 'expired' ? 'Expired' : state === 'declined' ? 'Declined' : state === 'signed' ? 'Signed' : (doc.data.status || 'Draft')} />
+                                                </div>
+                                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                                    {doc.data.title && doc.data.title !== label ? `${doc.data.title} · ` : ''}
+                                                    {fmtDate(doc.createdAt)}
+                                                    {total > 0 ? ` · ${formatMoney(total)}` : ''}
+                                                </p>
+                                                {state === 'signed' && (
+                                                    <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-success">
+                                                        <CheckCircleIcon className="h-3.5 w-3.5" />
+                                                        Signed by {doc.data.clientSignerName || client?.name || 'the client'}{doc.data.clientSignedAt ? ` on ${fmtDate(doc.data.clientSignedAt, true)}` : ''}
+                                                    </p>
+                                                )}
+                                                {state === 'declined' && (
+                                                    <p className="mt-1 text-xs font-medium text-destructive">
+                                                        Declined{doc.data.clientDeclinedAt ? ` on ${fmtDate(doc.data.clientDeclinedAt, true)}` : ''}. Edit it or create a new version to ask again.
+                                                    </p>
+                                                )}
+                                                {state === 'expired' && (
+                                                    <p className="mt-1 text-xs font-medium text-warning">
+                                                        Expired on {fmtDate(doc.data.expiryDate)}. Update the expiry date on the estimate to send it again.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {state === 'open' && (
+                                            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                                <button
+                                                    type="button"
+                                                    className={cx('btn min-h-[40px]', copiedId === doc.id ? 'btn-secondary text-success' : 'btn-outline')}
+                                                    onClick={() => copyLink(doc)}
+                                                    disabled={busyId === doc.id}
+                                                >
+                                                    {copiedId === doc.id ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+                                                    {copiedId === doc.id ? 'Link copied' : 'Copy link'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary min-h-[40px]"
+                                                    onClick={() => emailLink(doc)}
+                                                    disabled={busyId === doc.id}
+                                                >
+                                                    <SendIcon className="h-4 w-4" /> Email link
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-ghost min-h-[40px]"
+                                                    onClick={() => { setRegenError(null); setConfirmRegen(doc); }}
+                                                    disabled={busyId === doc.id}
+                                                >
+                                                    <RefreshCwIcon className="h-4 w-4" /> New link
+                                                </button>
                                             </div>
                                         )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* PROJECTS TAB */}
-                            {activeTab === 'projects' && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-200">
-                                    {sortedJobs.length === 0 ? (
-                                        <div className="col-span-full p-12 text-center border-2 border-dashed rounded-xl text-muted-foreground">
-                                            <BriefcaseIcon className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                                            <p>No projects associated with this client.</p>
-                                        </div>
-                                    ) : (
-                                        sortedJobs.map(job => (
-                                            <div
-                                                key={job.id}
-                                                onClick={() => onNavigateToJob(job.id)}
-                                                className="group relative bg-card hover:bg-gradient-to-br hover:from-card hover:to-blue-50/50 dark:hover:to-blue-900/20 border rounded-xl p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer overflow-hidden"
-                                            >
-                                                <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                                    <BriefcaseIcon className="w-16 h-16 text-blue-600 rotate-12" />
-                                                </div>
-                                                <div className="relative z-10">
-                                                    <div className="flex justify-between items-start mb-3">
-                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 font-bold text-lg shadow-sm`}>
-                                                            {job.name.charAt(0)}
-                                                        </div>
-                                                        <span className={`text-xs px-2 py-1 rounded-full font-medium border capitalize ${getStatusColor(job.status)} bg-opacity-10 text-opacity-90 border-opacity-20`}>
-                                                            {job.status}
-                                                        </span>
-                                                    </div>
-                                                    <h3 className="font-bold text-lg mb-1 truncate group-hover:text-blue-600 transition-colors">{job.name}</h3>
-                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                        <CalendarIcon className="w-3.5 h-3.5" />
-                                                        {new Date(job.startDate).toLocaleDateString()}
-                                                    </div>
-                                                </div>
+                                        {manualLink?.id === doc.id && (
+                                            <div className="mt-3">
+                                                <label className="label" htmlFor={`manual-link-${doc.id}`}>Copy this link</label>
+                                                <input
+                                                    id={`manual-link-${doc.id}`}
+                                                    readOnly
+                                                    className="input font-mono text-xs"
+                                                    value={manualLink.url}
+                                                    onFocus={(e) => e.currentTarget.select()}
+                                                />
                                             </div>
-                                        ))
-                                    )}
-                                </div>
-                            )}
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                    {docs && docs.length > 0 && newDocButtons && (
+                        <div className="border-t border-border pt-3">{newDocButtons}</div>
+                    )}
+                </div>
+            </Modal>
+            <ConfirmDialog
+                open={!!confirmRegen}
+                title="Create a new approval link?"
+                message={<p>The link you shared before for <strong className="text-foreground">{confirmRegen ? documentLabel(confirmRegen.type, confirmRegen.data) : ''}</strong> will stop working. Use this if a link was sent to the wrong person.</p>}
+                confirmLabel="Create new link"
+                busy={regenBusy}
+                error={regenError}
+                onConfirm={doRegenerate}
+                onCancel={() => setConfirmRegen(null)}
+            />
+        </>
+    );
+};
 
-                            {/* DOCUMENTS TAB */}
-                            {activeTab === 'documents' && (
-                                <div className="space-y-3 animate-in fade-in zoom-in-95 duration-200">
-                                    {sortedDocs.length === 0 ? (
-                                        <div className="p-12 text-center border-2 border-dashed rounded-xl text-muted-foreground">
-                                            <InvoiceIcon className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                                            <p>No documents found.</p>
-                                        </div>
-                                    ) : (
-                                        sortedDocs.map(doc => {
-                                            const Icon = getDocIcon(doc.type);
-                                            const data = doc.data as any;
+/* =====================================================================
+   ClientDetails page
+   ===================================================================== */
 
-                                            return (
-                                                <div
-                                                    key={doc.id}
-                                                    onClick={() => onNavigateToDoc(doc.id, doc.jobId, doc.type)}
-                                                    className="flex items-center p-4 border rounded-xl bg-card hover:bg-secondary/40 hover:border-blue-200 dark:hover:border-blue-900 transition-all cursor-pointer group"
-                                                >
-                                                    <div className="p-3 rounded-xl bg-secondary group-hover:bg-white dark:group-hover:bg-card shadow-sm mr-4 transition-colors">
-                                                        <Icon className="w-6 h-6 text-muted-foreground group-hover:text-blue-600 transition-colors" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex justify-between items-center mb-0.5">
-                                                            <p className="font-semibold text-foreground group-hover:text-blue-600 transition-colors truncate pr-4">
-                                                                {getDocTitle(doc)}
-                                                            </p>
-                                                            {data.status && (
-                                                                <span className="text-xs font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground uppercase tracking-wide">
-                                                                    {data.status}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                                            <span className="font-medium text-foreground/70">{doc.type}</span>
-                                                            <span>•</span>
-                                                            <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity px-2">
-                                                        <BackArrowIcon className="w-4 h-4 text-blue-400 rotate-180" />
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
-                                    )}
+interface ClientDetailsProps {
+    client: Client;
+    onBack: () => void;
+    userProfile?: UserProfile | null;
+    userId?: string | null;
+    onClientUpdated?: (client: Client) => void;
+    onClientDeleted?: (clientId: string) => void;
+    onNavigateToJob?: (jobId: string) => void;
+    onNavigateToDoc?: (formId: string, jobId: string, type: FormType) => void;
+    onNavigateToNewDoc?: (type: FormType, clientId: string) => void;
+    onNavigateToCommunication?: (prefill: CommunicationPrefill) => void;
+    onUpgradeClick?: () => void;
+    /** @deprecated ignored: the page loads linked jobs/documents itself (client_id with name fallback). */
+    jobs?: Job[];
+    /** @deprecated ignored. */
+    docs?: FormDataType[];
+}
+
+type Tab = 'overview' | 'jobs' | 'documents';
+
+const ClientDetails: React.FC<ClientDetailsProps> = ({
+    client: clientProp,
+    onBack,
+    userProfile,
+    userId: userIdProp,
+    onClientUpdated,
+    onClientDeleted,
+    onNavigateToJob,
+    onNavigateToDoc,
+    onNavigateToNewDoc,
+    onNavigateToCommunication,
+    onUpgradeClick,
+}) => {
+    const [client, setClient] = useState<Client>(clientProp);
+    useEffect(() => { setClient(clientProp); }, [clientProp]);
+
+    const sessionUserId = useUserId(null);
+    const userId = userIdProp || sessionUserId;
+    const goToCommunication = useCommunicationNavigator(onNavigateToCommunication);
+
+    const [tab, setTab] = useState<Tab>('overview');
+    const [jobs, setJobs] = useState<ClientJobSummary[] | null>(null);
+    const [docs, setDocs] = useState<ClientDocSummary[] | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+
+    const [showEdit, setShowEdit] = useState(false);
+    const [showApproval, setShowApproval] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+
+    const [portalBusy, setPortalBusy] = useState(false);
+    const [portalCopied, setPortalCopied] = useState(false);
+    const [portalError, setPortalError] = useState<string | null>(null);
+    const [portalInfo, setPortalInfo] = useState<string | null>(null);
+    const [confirmPortalRegen, setConfirmPortalRegen] = useState(false);
+    const [portalRegenError, setPortalRegenError] = useState<string | null>(null);
+
+    const [editingNotes, setEditingNotes] = useState(false);
+    const [notesDraft, setNotesDraft] = useState('');
+    const [notesBusy, setNotesBusy] = useState(false);
+    const [notesError, setNotesError] = useState<string | null>(null);
+
+    const load = useCallback(async () => {
+        setLoadError(null);
+        setJobs(null);
+        setDocs(null);
+        try {
+            const j = await fetchClientJobs(client);
+            setJobs(j);
+            const d = await fetchClientDocuments(client, { jobIds: j.map((x) => x.id) });
+            setDocs(d);
+        } catch (err) {
+            setLoadError(getErrorMessage(err, 'Could not load this client’s jobs and documents.'));
+            setJobs((prev) => prev ?? []);
+            setDocs((prev) => prev ?? []);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client.id, client.name]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const applyClientUpdate = (updated: Client) => {
+        setClient(updated);
+        onClientUpdated?.(updated);
+    };
+
+    /* ---------- stats ---------- */
+    const stats = useMemo(() => {
+        const invoices = (docs || []).filter((d) => d.type === FormType.Invoice);
+        const billable = invoices.filter((d) => !['Draft', 'Cancelled'].includes(String(d.data.status || 'Draft')));
+        const invoiced = billable.reduce((s, d) => s + docTotal(d), 0);
+        const outstanding = invoices
+            .filter((d) => ['Sent', 'Overdue'].includes(String(d.data.status || '')))
+            .reduce((s, d) => s + docTotal(d), 0);
+        const openJobs = (jobs || []).filter((j) => j.status === 'active' || j.status === 'paused').length;
+        return { invoiced, outstanding, openJobs, documents: (docs || []).length };
+    }, [docs, jobs]);
+
+    const timeline = useMemo(() => {
+        const items: Array<{ kind: 'job'; date: string; job: ClientJobSummary } | { kind: 'doc'; date: string; doc: ClientDocSummary }> = [];
+        (jobs || []).forEach((job) => items.push({ kind: 'job', date: job.createdAt || job.startDate || '', job }));
+        (docs || []).forEach((doc) => items.push({
+            kind: 'doc',
+            date: doc.data.clientSignedAt || doc.data.clientDeclinedAt || doc.createdAt,
+            doc,
+        }));
+        return items
+            .filter((i) => parseDate(i.date))
+            .sort((a, b) => (parseDate(b.date)!.getTime() - parseDate(a.date)!.getTime()))
+            .slice(0, 6);
+    }, [jobs, docs]);
+
+    /* ---------- portal link ---------- */
+    const copyPortal = async () => {
+        setPortalBusy(true);
+        setPortalError(null);
+        setPortalInfo(null);
+        try {
+            const hadKey = !!client.portal_key;
+            const key = await ensurePortalKey(client);
+            if (!hadKey) applyClientUpdate({ ...client, portal_key: key });
+            const ok = await copyToClipboard(portalUrl(key));
+            if (ok) {
+                setPortalCopied(true);
+                window.setTimeout(() => setPortalCopied(false), 2500);
+            } else {
+                setPortalInfo('Copying is blocked by your browser. Select the link above and copy it manually.');
+            }
+        } catch (err) {
+            setPortalError(getErrorMessage(err));
+        } finally {
+            setPortalBusy(false);
+        }
+    };
+
+    const createPortal = async () => {
+        setPortalBusy(true);
+        setPortalError(null);
+        try {
+            const key = await ensurePortalKey(client);
+            applyClientUpdate({ ...client, portal_key: key });
+        } catch (err) {
+            setPortalError(getErrorMessage(err));
+        } finally {
+            setPortalBusy(false);
+        }
+    };
+
+    const regeneratePortal = async () => {
+        setPortalBusy(true);
+        setPortalRegenError(null);
+        try {
+            const key = await regeneratePortalKey(client.id);
+            applyClientUpdate({ ...client, portal_key: key });
+            setConfirmPortalRegen(false);
+            setPortalInfo('New portal link created. The old link no longer works.');
+        } catch (err) {
+            setPortalRegenError(getErrorMessage(err));
+        } finally {
+            setPortalBusy(false);
+        }
+    };
+
+    const company = userProfile?.companyName?.trim() || '';
+
+    const emailPortal = async () => {
+        setPortalError(null);
+        try {
+            const hadKey = !!client.portal_key;
+            const key = await ensurePortalKey(client);
+            if (!hadKey) applyClientUpdate({ ...client, portal_key: key });
+            goToCommunication({
+                clientId: client.id,
+                clientName: client.name,
+                clientEmail: client.email || undefined,
+                subject: `Your documents from ${company || 'your contractor'}`,
+                body: `Hi ${firstName(client.name)},\n\nYou can view, download and sign your documents${company ? ` from ${company}` : ''} anytime here:\n${portalUrl(key)}\n\nThank you!`,
+            });
+        } catch (err) {
+            setPortalError(getErrorMessage(err));
+        }
+    };
+
+    const emailClient = () => goToCommunication({ clientId: client.id, clientName: client.name, clientEmail: client.email || undefined });
+
+    /* ---------- notes ---------- */
+    const startNotes = () => {
+        setNotesDraft(stripTempTag(client.notes));
+        setNotesError(null);
+        setEditingNotes(true);
+    };
+    const saveNotes = async () => {
+        setNotesBusy(true);
+        setNotesError(null);
+        try {
+            const text = notesDraft.trim();
+            const notes = isTemporaryClient(client) ? `${TEMP_TAG} ${text}`.trim() : text;
+            const { data, error } = await supabase.from('clients').update({ notes }).eq('id', client.id).select(CLIENT_COLUMNS).single();
+            if (error) throw new Error(error.message);
+            applyClientUpdate(data as Client);
+            setEditingNotes(false);
+        } catch (err) {
+            setNotesError(getErrorMessage(err, 'Could not save notes.'));
+        } finally {
+            setNotesBusy(false);
+        }
+    };
+
+    /* ---------- delete ---------- */
+    const doDelete = async () => {
+        setDeleteBusy(true);
+        setDeleteError(null);
+        try {
+            await deleteClients([client.id]);
+            setConfirmDelete(false);
+            onClientDeleted?.(client.id);
+            if (!onClientDeleted) onBack();
+        } catch (err) {
+            setDeleteError(getErrorMessage(err));
+        } finally {
+            setDeleteBusy(false);
+        }
+    };
+
+    const openDoc = (doc: ClientDocSummary) => onNavigateToDoc?.(doc.id, doc.jobId, doc.type as FormType);
+    const openJob = (job: ClientJobSummary) => onNavigateToJob?.(job.id);
+
+    const temporary = isTemporaryClient(client);
+    const notesText = stripTempTag(client.notes);
+
+    /* ---------- render helpers ---------- */
+    const docRow = (doc: ClientDocSummary) => {
+        const label = documentLabel(doc.type, doc.data);
+        const showMoney = MONEY_TYPES.has(doc.type);
+        const total = showMoney ? docTotal(doc) : 0;
+        const state = doc.type === FormType.Estimate || doc.type === FormType.ChangeOrder ? approvalState(doc) : null;
+        const Wrapper: any = onNavigateToDoc ? 'button' : 'div';
+        return (
+            <li key={doc.id}>
+                <Wrapper
+                    {...(onNavigateToDoc ? { type: 'button', onClick: () => openDoc(doc) } : {})}
+                    className={cx('flex w-full min-h-[56px] items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors', onNavigateToDoc && 'hover:border-primary/40 hover:bg-muted/40')}
+                >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                        <DocTypeIcon type={doc.type} className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-foreground">{label}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                            {doc.data.title && doc.data.title !== label ? `${doc.data.title} · ` : ''}{fmtDate(doc.createdAt)}
+                            {state === 'signed' && doc.data.clientSignedAt ? ` · Signed ${fmtDate(doc.data.clientSignedAt)}` : ''}
+                        </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                        {showMoney && total > 0 && <span className="text-sm font-semibold tabular-nums text-foreground">{formatMoney(total)}</span>}
+                        <StatusBadge status={state === 'signed' ? 'Signed' : state === 'declined' ? 'Declined' : state === 'expired' ? 'Expired' : (doc.data.status || null) || (showMoney ? 'Draft' : doc.type)} />
+                    </div>
+                </Wrapper>
+            </li>
+        );
+    };
+
+    const jobRow = (job: ClientJobSummary) => {
+        const Wrapper: any = onNavigateToJob ? 'button' : 'div';
+        return (
+            <li key={job.id}>
+                <Wrapper
+                    {...(onNavigateToJob ? { type: 'button', onClick: () => openJob(job) } : {})}
+                    className={cx('flex w-full min-h-[56px] items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors', onNavigateToJob && 'hover:border-primary/40 hover:bg-muted/40')}
+                >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        <BriefcaseIcon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-foreground">{job.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                            {job.startDate ? `Starts ${fmtDate(job.startDate)}` : fmtDate(job.createdAt)}
+                            {job.endDate ? ` · Ends ${fmtDate(job.endDate)}` : ''}
+                        </p>
+                    </div>
+                    <StatusBadge status={job.status === 'active' ? 'In progress' : job.status.charAt(0).toUpperCase() + job.status.slice(1)} />
+                </Wrapper>
+            </li>
+        );
+    };
+
+    const loading = jobs === null || docs === null;
+
+    const newDocActions = onNavigateToNewDoc ? (
+        <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => onNavigateToNewDoc(FormType.Estimate, client.id)}>
+                <PlusIcon className="h-4 w-4" /> New estimate
+            </button>
+            <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => onNavigateToNewDoc(FormType.Invoice, client.id)}>
+                <PlusIcon className="h-4 w-4" /> New invoice
+            </button>
+        </div>
+    ) : null;
+
+    const tabs: Array<{ id: Tab; label: string; count?: number }> = [
+        { id: 'overview', label: 'Overview' },
+        { id: 'jobs', label: 'Jobs', count: jobs?.length },
+        { id: 'documents', label: 'Documents', count: docs?.length },
+    ];
+
+    return (
+        <div className="page animate-fade-in">
+            <PageHeader
+                onBack={onBack}
+                title={client.name}
+                badge={temporary ? <span className="badge badge-warning">Temporary</span> : undefined}
+                subtitle={client.created_at ? `Client since ${fmtDate(client.created_at)}` : 'Client profile'}
+                actions={
+                    <>
+                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowEdit(true)}>
+                            <EditIcon className="h-4 w-4" /> Edit
+                        </button>
+                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowApproval(true)}>
+                            <PenIcon className="h-4 w-4" /> Request approval
+                        </button>
+                        <button type="button" className="btn btn-primary min-h-[40px]" onClick={emailClient}>
+                            <MailIcon className="h-4 w-4" /> Email client
+                        </button>
+                        <ActionMenu
+                            label="More client actions"
+                            items={[
+                                { label: portalCopied ? 'Portal link copied' : 'Copy portal link', icon: <GlobeIcon className="h-4 w-4" />, onClick: copyPortal },
+                                { label: 'Email portal link', icon: <SendIcon className="h-4 w-4" />, onClick: emailPortal },
+                                { label: 'Delete client', icon: <TrashIcon className="h-4 w-4" />, onClick: () => { setDeleteError(null); setConfirmDelete(true); }, destructive: true },
+                            ]}
+                        />
+                    </>
+                }
+            />
+
+            {loadError && (
+                <Notice tone="danger" title="Some information could not be loaded" className="mb-4" action={<button type="button" className="btn btn-outline btn-sm min-h-[36px]" onClick={load}>Retry</button>}>
+                    {loadError}
+                </Notice>
+            )}
+
+            <div className="grid gap-6 lg:grid-cols-12">
+                {/* Sidebar: contact, portal, notes */}
+                <aside className="space-y-4 lg:col-span-4">
+                    <section className="card card-pad">
+                        <div className="flex items-center gap-3">
+                            <Avatar name={client.name} className="h-12 w-12 text-base" />
+                            <div className="min-w-0">
+                                <p className="truncate font-semibold text-foreground">{client.name}</p>
+                                <p className="text-xs text-muted-foreground">Contact details</p>
+                            </div>
+                        </div>
+                        <dl className="mt-4 space-y-1">
+                            <ContactLine icon={<MailIcon className="h-4 w-4" />} label="Email" value={client.email} href={client.email ? `mailto:${client.email}` : undefined} />
+                            <ContactLine icon={<SmartphoneIcon className="h-4 w-4" />} label="Phone" value={client.phone} href={client.phone ? `tel:${client.phone.replace(/[^\d+]/g, '')}` : undefined} />
+                            <ContactLine
+                                icon={<MapPinIcon className="h-4 w-4" />}
+                                label="Address"
+                                value={client.address}
+                                href={client.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(client.address)}` : undefined}
+                                external
+                            />
+                        </dl>
+                        <button type="button" className="btn btn-ghost btn-sm mt-2 min-h-[40px] w-full" onClick={() => setShowEdit(true)}>
+                            <EditIcon className="h-4 w-4" /> Edit details
+                        </button>
+                    </section>
+
+                    <section className="card card-pad">
+                        <div className="flex items-center gap-2">
+                            <GlobeIcon className="h-5 w-5 text-primary" />
+                            <h2 className="font-semibold text-foreground">Client portal</h2>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">One private link where {firstName(client.name)} can view, download and sign documents.</p>
+                        {portalError && <Notice tone="danger" className="mt-3" onClose={() => setPortalError(null)}>{portalError}</Notice>}
+                        {portalInfo && <Notice tone="success" className="mt-3" onClose={() => setPortalInfo(null)}>{portalInfo}</Notice>}
+                        {client.portal_key ? (
+                            <>
+                                <input
+                                    readOnly
+                                    aria-label="Portal link"
+                                    className="input mt-3 truncate font-mono text-xs"
+                                    value={portalUrl(client.portal_key)}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                    <button type="button" className={cx('btn min-h-[40px]', portalCopied ? 'btn-secondary text-success' : 'btn-outline')} onClick={copyPortal} disabled={portalBusy}>
+                                        {portalCopied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+                                        {portalCopied ? 'Copied' : 'Copy'}
+                                    </button>
+                                    <a className="btn btn-outline min-h-[40px]" href={portalUrl(client.portal_key)} target="_blank" rel="noopener noreferrer">
+                                        <GlobeIcon className="h-4 w-4" /> Open
+                                    </a>
+                                    <button type="button" className="btn btn-outline min-h-[40px]" onClick={emailPortal}>
+                                        <SendIcon className="h-4 w-4" /> Email
+                                    </button>
+                                    <button type="button" className="btn btn-ghost min-h-[40px]" onClick={() => { setPortalRegenError(null); setConfirmPortalRegen(true); }} disabled={portalBusy}>
+                                        <RefreshCwIcon className="h-4 w-4" /> New link
+                                    </button>
                                 </div>
+                            </>
+                        ) : (
+                            <button type="button" className="btn btn-primary mt-3 min-h-[40px] w-full" onClick={createPortal} disabled={portalBusy}>
+                                {portalBusy ? <Spinner label="Creating…" /> : <><GlobeIcon className="h-4 w-4" /> Create portal link</>}
+                            </button>
+                        )}
+                    </section>
+
+                    <section className="card card-pad">
+                        <div className="flex items-center justify-between gap-2">
+                            <h2 className="font-semibold text-foreground">Notes</h2>
+                            {!editingNotes && (
+                                <button type="button" className="btn btn-ghost btn-sm min-h-[36px]" onClick={startNotes}>
+                                    <EditIcon className="h-4 w-4" /> {notesText ? 'Edit' : 'Add'}
+                                </button>
                             )}
                         </div>
+                        {editingNotes ? (
+                            <div className="mt-3 space-y-2">
+                                <textarea
+                                    className="input min-h-[120px] resize-y"
+                                    value={notesDraft}
+                                    onChange={(e) => setNotesDraft(e.target.value)}
+                                    aria-label="Client notes"
+                                    autoFocus
+                                    placeholder="Private notes about this client. Never shown to the client."
+                                />
+                                {notesError && <Notice tone="danger">{notesError}</Notice>}
+                                <div className="flex justify-end gap-2">
+                                    <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => setEditingNotes(false)} disabled={notesBusy}>Cancel</button>
+                                    <button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={saveNotes} disabled={notesBusy}>
+                                        {notesBusy ? <Spinner label="Saving…" /> : 'Save notes'}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : notesText ? (
+                            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{notesText}</p>
+                        ) : (
+                            <p className="mt-2 text-sm text-muted-foreground">No notes yet. Notes are private and never shown to the client.</p>
+                        )}
+                    </section>
+                </aside>
+
+                {/* Main content */}
+                <div className="min-w-0 space-y-4 lg:col-span-8">
+                    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                        <StatTile label="Open jobs" value={loading ? null : String(stats.openJobs)} icon={<BriefcaseIcon className="h-5 w-5" />} />
+                        <StatTile label="Documents" value={loading ? null : String(stats.documents)} icon={<FileTextIcon className="h-5 w-5" />} />
+                        <StatTile label="Invoiced" value={loading ? null : formatMoney(stats.invoiced)} icon={<InvoiceIcon className="h-5 w-5" />} />
+                        <StatTile label="Outstanding" value={loading ? null : formatMoney(stats.outstanding)} icon={<CalendarIcon className="h-5 w-5" />} tone={stats.outstanding > 0 ? 'warning' : undefined} />
                     </div>
+
+                    <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted p-1" role="tablist" aria-label="Client sections">
+                        {tabs.map((t) => (
+                            <button
+                                key={t.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={tab === t.id}
+                                onClick={() => setTab(t.id)}
+                                className={cx(
+                                    'min-h-[40px] flex-1 whitespace-nowrap rounded-lg px-3 text-sm font-semibold transition-colors',
+                                    tab === t.id ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                            >
+                                {t.label}{typeof t.count === 'number' ? ` (${t.count})` : ''}
+                            </button>
+                        ))}
+                    </div>
+
+                    {loading ? (
+                        <SkeletonRows rows={4} />
+                    ) : tab === 'overview' ? (
+                        <section className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h2 className="font-semibold text-foreground">Recent activity</h2>
+                                {newDocActions}
+                            </div>
+                            {timeline.length === 0 ? (
+                                <EmptyState
+                                    icon={<CalendarIcon className="h-6 w-6" />}
+                                    title="No activity yet"
+                                    description="Jobs and documents for this client will show up here."
+                                    action={newDocActions || undefined}
+                                />
+                            ) : (
+                                <ul className="space-y-2">
+                                    {timeline.map((item) => item.kind === 'job' ? jobRow(item.job) : docRow(item.doc))}
+                                </ul>
+                            )}
+                        </section>
+                    ) : tab === 'jobs' ? (
+                        <section>
+                            {(jobs || []).length === 0 ? (
+                                <EmptyState icon={<BriefcaseIcon className="h-6 w-6" />} title="No jobs for this client" description="Jobs linked to this client appear here." />
+                            ) : (
+                                <ul className="space-y-2">{(jobs || []).map(jobRow)}</ul>
+                            )}
+                        </section>
+                    ) : (
+                        <section className="space-y-3">
+                            {newDocActions && <div className="flex justify-end">{newDocActions}</div>}
+                            {(docs || []).length === 0 ? (
+                                <EmptyState icon={<FileTextIcon className="h-6 w-6" />} title="No documents yet" description="Estimates, invoices and reports for this client appear here." />
+                            ) : (
+                                <ul className="space-y-2">{(docs || []).map(docRow)}</ul>
+                            )}
+                        </section>
+                    )}
                 </div>
             </div>
+
+            <ClientFormModal
+                open={showEdit}
+                mode="edit"
+                clientId={client.id}
+                initial={draftFromClient(client)}
+                userId={userId}
+                onClose={() => setShowEdit(false)}
+                onSaved={(saved) => {
+                    setShowEdit(false);
+                    applyClientUpdate(saved);
+                    if (saved.name !== client.name) load();
+                }}
+                onUpgrade={onUpgradeClick}
+            />
+            <RequestApprovalModal
+                open={showApproval}
+                client={client}
+                onClose={() => setShowApproval(false)}
+                onEmail={(prefill) => { setShowApproval(false); goToCommunication(prefill); }}
+                onNavigateToNewDoc={onNavigateToNewDoc}
+            />
+            <ConfirmDialog
+                open={confirmPortalRegen}
+                title="Create a new portal link?"
+                message={<p>The current portal link stops working right away. Anyone you sent it to will need the new link.</p>}
+                confirmLabel="Create new link"
+                busy={portalBusy}
+                error={portalRegenError}
+                onConfirm={regeneratePortal}
+                onCancel={() => setConfirmPortalRegen(false)}
+            />
+            <ConfirmDialog
+                open={confirmDelete}
+                title={`Delete ${client.name}?`}
+                message={<p>The client's portal link stops working. Jobs and documents are kept.</p>}
+                confirmLabel="Delete client"
+                destructive
+                busy={deleteBusy}
+                error={deleteError}
+                onConfirm={doDelete}
+                onCancel={() => setConfirmDelete(false)}
+            />
         </div>
     );
 };
+
+const ContactLine: React.FC<{ icon: React.ReactNode; label: string; value?: string | null; href?: string; external?: boolean }> = ({ icon, label, value, href, external }) => (
+    <div className="flex min-h-[40px] items-start gap-3 rounded-lg px-1 py-1.5">
+        <span className="mt-0.5 text-muted-foreground">{icon}</span>
+        <div className="min-w-0 flex-1">
+            <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+            <dd className="break-words text-sm text-foreground">
+                {value ? (
+                    href ? (
+                        <a className="font-medium text-primary hover:underline" href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>{value}</a>
+                    ) : value
+                ) : <span className="text-muted-foreground">Not provided</span>}
+            </dd>
+        </div>
+    </div>
+);
+
+const StatTile: React.FC<{ label: string; value: string | null; icon: React.ReactNode; tone?: 'warning' }> = ({ label, value, icon, tone }) => (
+    <div className="card p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-2 text-muted-foreground">
+            <span className="text-xs font-medium">{label}</span>
+            <span className={cx(tone === 'warning' ? 'text-warning' : 'text-primary')}>{icon}</span>
+        </div>
+        {value === null ? (
+            <div className="skeleton mt-2 h-6 w-16" />
+        ) : (
+            <p className="mt-1 truncate text-lg font-bold tabular-nums text-foreground sm:text-xl">{value}</p>
+        )}
+    </div>
+);
 
 export default ClientDetails;

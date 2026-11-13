@@ -1,804 +1,200 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormType } from './types.ts';
-import type { UserProfile, Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, Notification, InventoryItem, InventoryHistoryItem, SavedItem } from './types.ts';
-import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
-import Login from './components/Login.tsx';
-import UpgradeModal from './components/UpgradeModal.tsx';
+import type { Job, FormData as FormDataType, InvoiceData, DailyJobReportData, NoteData, WorkOrderData, TimeSheetData, MaterialLogData, EstimateData, ExpenseLogData, WarrantyData, ReceiptData, ChangeOrderData, PurchaseOrderData, Client, InventoryItem, SavedItem, UserProfile } from './types.ts';
+import type { Session, User } from '@supabase/supabase-js';
+
+// ── App shell (CORE) ─────────────────────────────────────────────────────────
 import ConfirmationModal from './components/ConfirmationModal.tsx';
-import SignaturePad from './components/SignaturePad.tsx';
-import Signup from './components/Signup.tsx';
-import UpdatePassword from './components/UpdatePassword.tsx';
 import SelectDocType from './components/SelectDocType.tsx';
-import InvoiceForm from './components/InvoiceForm.tsx';
-import DailyJobReportForm from './components/DailyJobReportForm.tsx';
-import NoteForm from './components/NoteForm.tsx';
-import WorkOrderForm from './components/WorkOrderForm.tsx';
-import TimeSheetForm from './components/TimeSheetForm.tsx';
-import MaterialLogForm from './components/MaterialLogForm.tsx';
-import EstimateForm from './components/EstimateForm.tsx';
-import ExpenseLogForm from './components/ExpenseLogForm.tsx';
-import WarrantyForm from './components/WarrantyForm.tsx';
-import ReceiptForm from './components/ReceiptForm.tsx';
-import ChangeOrderForm from './components/ChangeOrderForm.tsx';
-import PurchaseOrderForm from './components/PurchaseOrderForm.tsx';
-
-import Settings from './components/Settings.tsx';
-import ClientsView from './components/ClientsView.tsx';
-import AnalyticsView from './components/AnalyticsView.tsx';
-import ForumView from './components/ForumView.tsx';
-import CalendarView from './components/CalendarView.tsx';
-import CommunicationView from './components/CommunicationView.tsx';
-import GmailCallback from './components/GmailCallback.tsx';
-import InventoryView from './components/InventoryView.tsx';
-import PriceBookView from './components/PriceBookView.tsx';
-import ProfitCalculatorView from './components/ProfitCalculatorView.tsx';
-import PortalView from './components/PortalView.tsx';
-import DocumentApprovalView from './components/DocumentApprovalView.tsx';
-import Dock from './components/Dock.tsx';
-import JobForm from './components/JobForm.tsx';
-import Welcome from './components/Welcome.tsx';
-import PrivacyPolicy from './components/PrivacyPolicy.tsx';
-import TermsOfService from './components/TermsOfService.tsx';
-import Security from './components/Security.tsx';
-
-import { HomeIcon, SettingsIcon, PlusIcon, BackArrowIcon, UserIcon, AppLogo, SearchIcon, UsersIcon, CheckCircleIcon, XCircleIcon, ClockIcon, CreditCardIcon, InvoiceIcon, DailyReportIcon, TimeSheetIcon, MaterialLogIcon, EstimateIcon, ExpenseLogIcon, WarrantyIcon, NoteIcon, ReceiptIcon, WorkOrderIcon, BarChartIcon, MessageSquareIcon, CalendarIcon, ChangeOrderIcon, TruckIcon, BriefcaseIcon, MailIcon, BoxIcon, TagIcon, CalculatorIcon, ChevronDownIcon, TrashIcon, AlertTriangleIcon, StarIcon, CopyIcon, FilterIcon } from './components/Icons.tsx';
-import { Button } from './components/ui/Button.tsx';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/Card.tsx';
-import { Label } from './components/ui/Label.tsx';
-import { Input } from './components/ui/Input.tsx';
-import { JobCard } from './components/JobCard.tsx';
-import { DocumentCard } from './components/DocumentCard.tsx';
+import AppNav, { type NavDestination, type NavSection } from './components/AppNav.tsx';
+import DashboardScreen from './components/DashboardScreen.tsx';
+import JobDetailsScreen from './components/JobDetailsScreen.tsx';
 import { DuplicateJobModal } from './components/DuplicateJobModal.tsx';
-import { translations } from './utils/translations.ts';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { Toaster, toast } from './components/Toast.tsx';
+import { AuthMessage, AppSplash, LoadErrorScreen } from './components/AppStates.tsx';
+import { PageSkeleton } from './components/ui/Skeleton.tsx';
+import { EmptyState } from './components/ui/EmptyState.tsx';
+import { WifiOffIcon, AlertTriangleIcon, BriefcaseIcon, SparklesIcon } from './components/Icons.tsx';
+
+// ── AI (owned by the AI engineer) ────────────────────────────────────────────
+import { DashboardMasterAIButton } from './components/DashboardMasterAIButton.tsx';
+import { useAIAssistant } from './src/hooks/useAIAssistant.ts';
+const AIAssistantPanel = lazy(() => import('./src/ai/components/AssistantPanel.tsx'));
+
+// ── Data & helpers ───────────────────────────────────────────────────────────
+import { supabase, invokeFunction } from './lib/supabase.ts';
+import {
+    DOCUMENT_METADATA_COLUMNS, DOCUMENT_PAGE_SIZE, RECENT_DOCUMENTS_LIMIT, mapDocumentRow, isLightweightDocument,
+    mergeDocuments, fetchFullDocument, fetchFullDocuments, primeDocumentCache, invalidateDocument, clearDocumentCache,
+    isUnseenClientSignedDocument, buildDuplicateDocumentData, assertFullDocument, stripLightweightFlag,
+} from './lib/documents.ts';
+import {
+    type AppProfile, type UsageSnapshot, type ThemeName, THEME_STORAGE_KEY, loadProfileRow, mapProfileRow, fetchUsage,
+    limitsForTier, isPlanLimitError, planLimitMessage, describeError, clearUserBrowserStorage, rememberPostLoginRedirect,
+    consumePostLoginRedirect, normalizeTheme, isMissingColumnError,
+} from './lib/account.ts';
+import { isPaidTier, normalizeTier } from './lib/plans.ts';
+import { getBillingPortalUrl } from './lib/billing.ts';
+import { getTranslations } from './utils/translations.ts';
+import { parseView, type AppView } from './lib/routes.ts';
 import { dbApi } from './utils/db.ts';
 import { compressImage } from './utils/imageCompression.ts';
 
-// Initialize Supabase client with provided credentials
-const supabaseUrl = 'https://iauteblvljppwzsxloyd.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdXRlYmx2bGpwcHd6c3hsb3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1OTk0MTIsImV4cCI6MjA3NjE3NTQxMn0.W2Xu9TuO6odsnF5eK7iLPqV4KB0wVWXzmM2ofnKZw70';
-
-// Use window.supabase for legacy script tag support as requested previously
-const supabase: SupabaseClient = (window as any).supabase ? (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
-
-const SQL_SETUP_SCRIPT = `-- This script sets up and fixes your database schema.
--- Run this script in your Supabase SQL Editor.
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- 1. PROFILES
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT,
-  name TEXT,
-  company_name TEXT,
-  logo_url TEXT,
-  profile_picture_url TEXT,
-  address TEXT,
-  phone TEXT,
-  website TEXT,
-  job_title TEXT,
-  subscription_tier TEXT DEFAULT 'Basic',
-  language TEXT DEFAULT 'English',
-  email_templates JSONB DEFAULT '{}'::jsonb,
-  theme TEXT,
-  gmail_access_token TEXT,
-  gmail_refresh_token TEXT,
-  email_usage INTEGER DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Ensure columns exist if table already created
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'gmail_access_token') THEN
-        ALTER TABLE public.profiles ADD COLUMN gmail_access_token TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'gmail_refresh_token') THEN
-        ALTER TABLE public.profiles ADD COLUMN gmail_refresh_token TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_usage') THEN
-        ALTER TABLE public.profiles ADD COLUMN email_usage INTEGER DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'email_usage_month') THEN
-        ALTER TABLE public.profiles ADD COLUMN email_usage_month TEXT;
-    END IF;
-END $$;
-
--- 1.5 USER CREDENTIALS (NEW: Gmail Persistence)
-CREATE TABLE IF NOT EXISTS public.user_credentials (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, provider)
-);
-ALTER TABLE public.user_credentials ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage their own credentials" ON public.user_credentials;
-CREATE POLICY "Users can manage their own credentials" ON public.user_credentials FOR ALL USING (auth.uid() = user_id);
-
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can view all profiles" ON public.profiles;
-CREATE POLICY "Users can view all profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
-DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
-CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
-DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
-CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
--- 2. CLIENTS (Updated with Portal Key)
-CREATE TABLE IF NOT EXISTS public.clients (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  address TEXT,
-  notes TEXT,
-  portal_key TEXT DEFAULT encode(gen_random_bytes(16), 'hex'),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Ensure portal_key exists
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'clients' AND column_name = 'portal_key') THEN
-        ALTER TABLE public.clients ADD COLUMN portal_key TEXT DEFAULT encode(gen_random_bytes(16), 'hex');
-    END IF;
-END $$;
-
-ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage their own clients" ON public.clients;
-CREATE POLICY "Users can manage their own clients" ON public.clients FOR ALL USING (auth.uid() = user_id);
-
--- 3. JOBS
-CREATE TABLE IF NOT EXISTS public.jobs (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  client_name TEXT,
-  client_address TEXT,
-  start_date DATE,
-  end_date DATE,
-  status TEXT DEFAULT 'active',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage their own jobs" ON public.jobs;
-CREATE POLICY "Users can manage their own jobs" ON public.jobs FOR ALL USING (auth.uid() = user_id);
-
--- 4. DOCUMENTS (Updated with public_token)
-CREATE TABLE IF NOT EXISTS public.documents (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  job_id UUID NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  data JSONB NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  public_token UUID DEFAULT gen_random_uuid()
-);
-
--- Ensure public_token exists
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'public_token') THEN
-        ALTER TABLE public.documents ADD COLUMN public_token UUID DEFAULT gen_random_uuid();
-    END IF;
-END $$;
-
-ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage their own documents" ON public.documents;
-CREATE POLICY "Users can manage their own documents" ON public.documents FOR ALL USING (auth.uid() = user_id);
-
--- 5. SAVED ITEMS (Price Book)
-CREATE TABLE IF NOT EXISTS public.saved_items (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  description TEXT,
-  rate NUMERIC DEFAULT 0,
-  unit_cost NUMERIC DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.saved_items ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage saved items" ON public.saved_items;
-CREATE POLICY "Users can manage saved items" ON public.saved_items FOR ALL USING (auth.uid() = user_id);
-
--- 6. INVENTORY
-CREATE TABLE IF NOT EXISTS public.inventory (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  quantity INTEGER DEFAULT 0,
-  category TEXT,
-  low_stock_threshold INTEGER DEFAULT 5,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.inventory ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage their own inventory" ON public.inventory;
-CREATE POLICY "Users can manage their own inventory" ON public.inventory FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
--- 7. FORUM & NOTIFICATIONS (Skipped for brevity, assumed existing)
-
--- 8. STORAGE (Logos)
-INSERT INTO storage.buckets (id, name, public) VALUES ('logos', 'logos', true) ON CONFLICT (id) DO NOTHING;
-UPDATE storage.buckets SET public = true WHERE id = 'logos';
-DROP POLICY IF EXISTS "Allow public view access to logos" ON storage.objects;
-CREATE POLICY "Allow public view access to logos" ON storage.objects FOR SELECT USING (bucket_id = 'logos');
-DROP POLICY IF EXISTS "Allow users to upload their own logo" ON storage.objects;
-CREATE POLICY "Allow users to upload their own logo" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'logos' AND auth.role() = 'authenticated');
-
--- 9. PORTAL FUNCTIONS
-CREATE OR REPLACE FUNCTION get_portal_data(p_key text)
-RETURNS json
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_client_id uuid;
-  v_user_id uuid;
-  v_client_data json;
-  v_contractor_data json;
-  v_documents json;
-BEGIN
-  -- Find client by key
-  SELECT id, user_id INTO v_client_id, v_user_id FROM public.clients WHERE portal_key = p_key LIMIT 1;
-  
-  IF v_client_id IS NULL THEN
-    RETURN json_build_object('error', 'Invalid portal key');
-  END IF;
-
-  -- Get Client Data
-  SELECT row_to_json(c) INTO v_client_data FROM public.clients c WHERE id = v_client_id;
-  
-  -- Get Contractor Profile
-  SELECT row_to_json(p) INTO v_contractor_data FROM public.profiles p WHERE id = v_user_id;
-
-  -- Get Documents related to this client name (Simple text match for MVP)
-  -- Note: Ideally documents would link to client_id, but current schema links to job_id.
-  -- We'll fetch docs where the JSON data->>'clientName' matches client name.
-  SELECT json_agg(d) INTO v_documents 
-  FROM public.documents d 
-  WHERE d.user_id = v_user_id 
-  AND d.data->>'clientName' = (v_client_data->>'name');
-
-  RETURN json_build_object(
-    'client', v_client_data,
-    'contractor', v_contractor_data,
-    'documents', COALESCE(v_documents, '[]'::json)
-  );
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION sign_document_via_portal(p_key text, p_doc_id uuid, p_signature text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_client_id uuid;
-BEGIN
-  -- Validate Key
-  SELECT id INTO v_client_id FROM public.clients WHERE portal_key = p_key LIMIT 1;
-  IF v_client_id IS NULL THEN
-    RAISE EXCEPTION 'Invalid portal key';
-  END IF;
-
-  -- Update Document
-  UPDATE public.documents 
-  SET data = jsonb_set(
-      jsonb_set(data, '{signatureUrl}', to_jsonb(p_signature)),
-      '{status}', '"Accepted"'
-  )
-  WHERE id = p_doc_id;
-END;
-$$;
-
--- 10. APPROVAL LINK FUNCTIONS
-CREATE OR REPLACE FUNCTION get_document_by_token(doc_token uuid)
-RETURNS json
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_doc record;
-  v_contractor_data json;
-BEGIN
-  -- Find Document
-  SELECT * INTO v_doc FROM public.documents WHERE public_token = doc_token LIMIT 1;
-  
-  IF v_doc.id IS NULL THEN
-    RETURN json_build_object('error', 'Document not found');
-  END IF;
-
-  -- Get Contractor Profile
-  SELECT row_to_json(p) INTO v_contractor_data FROM public.profiles p WHERE id = v_doc.user_id;
-
-  RETURN json_build_object(
-    'document', row_to_json(v_doc),
-    'contractor', v_contractor_data
-  );
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION approve_document_by_token(doc_token uuid, p_signature text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_doc_id uuid;
-BEGIN
-  -- Find doc ID
-  SELECT id INTO v_doc_id FROM public.documents WHERE public_token = doc_token LIMIT 1;
-  
-  IF v_doc_id IS NULL THEN
-    RAISE EXCEPTION 'Document not found';
-  END IF;
-
-  -- Update Document
-  UPDATE public.documents 
-  SET data = jsonb_set(
-      jsonb_set(data, '{signatureUrl}', to_jsonb(p_signature)),
-      '{status}', '"Accepted"'
-  )
-  WHERE id = v_doc_id;
-END;
-$$;
-
--- 10.5 UPDATE INVENTORY SCHEMA (New Columns)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'unit') THEN
-        ALTER TABLE public.inventory ADD COLUMN unit TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'cost_price') THEN
-        ALTER TABLE public.inventory ADD COLUMN cost_price NUMERIC DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'supplier') THEN
-        ALTER TABLE public.inventory ADD COLUMN supplier TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inventory' AND column_name = 'location') THEN
-        ALTER TABLE public.inventory ADD COLUMN location TEXT;
-    END IF;
-END $$;
-
--- 11. INVENTORY HISTORY
-CREATE TABLE IF NOT EXISTS public.inventory_history (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  item_id UUID NOT NULL REFERENCES public.inventory(id) ON DELETE CASCADE,
-  action TEXT NOT NULL,
-  quantity_change INTEGER NOT NULL,
-  notes TEXT,
-  job_id UUID REFERENCES public.jobs(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.inventory_history ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage their own inventory history" ON public.inventory_history;
-CREATE POLICY "Users can manage their own inventory history" ON public.inventory_history FOR ALL USING (auth.uid() = user_id);
-
--- 11B. RPC: Adjust inventory atomically (used by Invoices)
-DROP FUNCTION IF EXISTS public.adjust_inventory(uuid, integer, uuid, text);
-CREATE OR REPLACE FUNCTION public.adjust_inventory(
-  p_item_id uuid,
-  p_delta integer,
-  p_job_id uuid DEFAULT NULL,
-  p_context text DEFAULT NULL
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_user_id uuid;
-  v_prev_qty integer;
-  v_next_qty integer;
-BEGIN
-  v_user_id := auth.uid();
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated';
-  END IF;
-
-  SELECT quantity
-  INTO v_prev_qty
-  FROM public.inventory
-  WHERE id = p_item_id
-    AND user_id = v_user_id
-  FOR UPDATE;
-
-  IF v_prev_qty IS NULL THEN
-    RAISE EXCEPTION 'Inventory item not found';
-  END IF;
-
-  v_next_qty := v_prev_qty + COALESCE(p_delta, 0);
-  IF v_next_qty < 0 THEN
-    RAISE EXCEPTION 'Insufficient stock';
-  END IF;
-
-  UPDATE public.inventory
-  SET quantity = v_next_qty
-  WHERE id = p_item_id
-    AND user_id = v_user_id;
-
-  INSERT INTO public.inventory_history (
-    user_id,
-    item_id,
-    action,
-    quantity_change,
-    notes,
-    job_id
-  ) VALUES (
-    v_user_id,
-    p_item_id,
-    CASE WHEN p_delta < 0 THEN 'deduct' ELSE 'restock' END,
-    p_delta,
-    p_context,
-    p_job_id
-  );
-END;
-$$;
-
--- 11C. Document-linked inventory automation (legacy JSON documents)
-DROP FUNCTION IF EXISTS public.apply_document_inventory_delta(uuid, uuid, jsonb, integer, uuid, text);
-CREATE OR REPLACE FUNCTION public.apply_document_inventory_delta(
-  p_user_id uuid,
-  p_doc_id uuid,
-  p_line_items jsonb,
-  p_direction integer,
-  p_job_id uuid DEFAULT NULL,
-  p_context text DEFAULT NULL
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  li jsonb;
-  v_item_id uuid;
-  v_qty integer;
-  v_prev integer;
-  v_next integer;
-BEGIN
-  IF p_line_items IS NULL OR jsonb_typeof(p_line_items) <> 'array' THEN
-    RETURN;
-  END IF;
-
-  FOR li IN SELECT * FROM jsonb_array_elements(p_line_items)
-  LOOP
-    IF li ? 'track_inventory' AND lower(COALESCE(li->>'track_inventory', 'true')) = 'false' THEN
-      CONTINUE;
-    END IF;
-
-    BEGIN
-      v_item_id := COALESCE(NULLIF(li->>'inventoryItemId', ''), NULLIF(li->>'item_id', ''))::uuid;
-    EXCEPTION WHEN others THEN
-      v_item_id := NULL;
-    END;
-
-    IF v_item_id IS NULL THEN
-      CONTINUE;
-    END IF;
-
-    BEGIN
-      v_qty := CEIL(COALESCE(NULLIF(li->>'quantity','')::numeric, 0))::integer;
-    EXCEPTION WHEN others THEN
-      v_qty := 0;
-    END;
-    IF v_qty <= 0 THEN
-      CONTINUE;
-    END IF;
-
-    SELECT quantity
-    INTO v_prev
-    FROM public.inventory
-    WHERE id = v_item_id
-      AND user_id = p_user_id
-    FOR UPDATE;
-
-    IF v_prev IS NULL THEN
-      CONTINUE;
-    END IF;
-
-    v_next := v_prev + (p_direction * v_qty);
-    IF v_next < 0 THEN
-      RAISE EXCEPTION 'Insufficient stock for item %', v_item_id;
-    END IF;
-
-    UPDATE public.inventory
-    SET quantity = v_next
-    WHERE id = v_item_id
-      AND user_id = p_user_id;
-
-    INSERT INTO public.inventory_history (
-      user_id,
-      item_id,
-      action,
-      quantity_change,
-      notes,
-      job_id
-    ) VALUES (
-      p_user_id,
-      v_item_id,
-      CASE WHEN (p_direction * v_qty) < 0 THEN 'deduct' ELSE 'restock' END,
-      (p_direction * v_qty),
-      COALESCE(p_context, '') || ' doc:' || p_doc_id::text,
-      p_job_id
-    );
-  END LOOP;
-END;
-$$;
-
-DROP FUNCTION IF EXISTS public.trg_documents_invoice_inventory();
-CREATE OR REPLACE FUNCTION public.trg_documents_invoice_inventory()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  old_status text;
-  new_status text;
-  is_old_committed boolean;
-  is_new_committed boolean;
-  v_job_id uuid;
-  v_context text;
-BEGIN
-  IF TG_OP = 'INSERT' THEN
-    IF NEW.type NOT IN ('Invoice', 'Estimate', 'Change Order') THEN
-      RETURN NEW;
-    END IF;
-
-    new_status := COALESCE(NEW.data->>'status', 'Draft');
-    is_new_committed := lower(new_status) IN ('approved','accepted','paid');
-    v_context := lower(NEW.type) || ':' || COALESCE(NEW.data->>'invoiceNumber', NEW.data->>'estimateNumber', NEW.data->>'changeOrderNumber', NEW.id::text);
-
-    IF is_new_committed THEN
-      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, NEW.data->'lineItems', -1, NEW.job_id, v_context);
-    END IF;
-
-    RETURN NEW;
-  END IF;
-
-  IF TG_OP = 'UPDATE' THEN
-    IF NEW.type NOT IN ('Invoice', 'Estimate', 'Change Order') THEN
-      RETURN NEW;
-    END IF;
-
-    old_status := COALESCE(OLD.data->>'status', 'Draft');
-    new_status := COALESCE(NEW.data->>'status', 'Draft');
-
-    -- Define when inventory should be committed
-    is_old_committed := lower(old_status) IN ('approved','accepted','paid');
-    is_new_committed := lower(new_status) IN ('approved','accepted','paid');
-
-    v_job_id := NULL;
-    BEGIN
-      v_job_id := NEW.job_id;
-    EXCEPTION WHEN others THEN
-      v_job_id := NULL;
-    END;
-
-    v_context := lower(NEW.type) || ':' || COALESCE(NEW.data->>'invoiceNumber', NEW.data->>'estimateNumber', NEW.data->>'changeOrderNumber', NEW.id::text);
-
-    IF (NOT is_old_committed) AND is_new_committed THEN
-      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, NEW.data->'lineItems', -1, v_job_id, v_context);
-    END IF;
-
-    IF is_old_committed AND (NOT is_new_committed) THEN
-      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, OLD.data->'lineItems', +1, v_job_id, v_context);
-    END IF;
-
-    IF is_old_committed AND is_new_committed AND OLD.data->'lineItems' IS DISTINCT FROM NEW.data->'lineItems' THEN
-      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, OLD.data->'lineItems', +1, v_job_id, v_context);
-      PERFORM public.apply_document_inventory_delta(NEW.user_id, NEW.id, NEW.data->'lineItems', -1, v_job_id, v_context);
-    END IF;
-
-    RETURN NEW;
-  END IF;
-
-  IF TG_OP = 'DELETE' THEN
-    IF OLD.type NOT IN ('Invoice', 'Estimate', 'Change Order') THEN
-      RETURN OLD;
-    END IF;
-
-    old_status := COALESCE(OLD.data->>'status', 'Draft');
-    is_old_committed := lower(old_status) IN ('approved','accepted','paid');
-    v_context := lower(OLD.type) || ':' || COALESCE(OLD.data->>'invoiceNumber', OLD.data->>'estimateNumber', OLD.data->>'changeOrderNumber', OLD.id::text);
-
-    IF is_old_committed THEN
-      PERFORM public.apply_document_inventory_delta(OLD.user_id, OLD.id, OLD.data->'lineItems', +1, OLD.job_id, v_context);
-    END IF;
-
-    RETURN OLD;
-  END IF;
-
-  RETURN COALESCE(NEW, OLD);
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_documents_invoice_inventory_update ON public.documents;
-CREATE TRIGGER trg_documents_invoice_inventory_update
-AFTER UPDATE OF data ON public.documents
-FOR EACH ROW
-EXECUTE FUNCTION public.trg_documents_invoice_inventory();
-
-DROP TRIGGER IF EXISTS trg_documents_invoice_inventory_insert ON public.documents;
-CREATE TRIGGER trg_documents_invoice_inventory_insert
-AFTER INSERT ON public.documents
-FOR EACH ROW
-EXECUTE FUNCTION public.trg_documents_invoice_inventory();
-
-DROP TRIGGER IF EXISTS trg_documents_invoice_inventory_delete ON public.documents;
-CREATE TRIGGER trg_documents_invoice_inventory_delete
-AFTER DELETE ON public.documents
-FOR EACH ROW
-EXECUTE FUNCTION public.trg_documents_invoice_inventory();
-
-NOTIFY pgrst, 'reload config';
-`;
-
-const DbSetupScreen: React.FC<{ sqlScript: string }> = ({ sqlScript }) => {
-    return (
-        <div className="flex items-center justify-center min-h-screen bg-background p-4 md:p-8">
-            <Card className="max-w-4xl w-full animate-fade-in-down">
-                <CardHeader>
-                    <CardTitle className="text-2xl text-destructive">Database Update Required</CardTitle>
-                    <CardDescription>
-                        To enable Price Book, Client Portal, and Inventory, please run this script.
-                        <br /><br />
-                        <strong>This script is safe and will NOT delete your data.</strong>
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-4">
-                        <div>
-                            <Label htmlFor="sql-script">SQL Script</Label>
-                            <textarea
-                                id="sql-script"
-                                readOnly
-                                value={sqlScript}
-                                className="mt-1 w-full h-96 p-3 font-mono text-xs bg-muted rounded-md border focus:ring-2 focus:ring-primary"
-                                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                            />
-                        </div>
-                        <div>
-                            <h4 className="font-semibold">Instructions:</h4>
-                            <ol className="list-decimal list-inside text-sm text-muted-foreground mt-2 space-y-1">
-                                <li>Go to your <a href="https://app.supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Supabase Dashboard</a>.</li>
-                                <li>Click on <strong>SQL Editor</strong> (left sidebar).</li>
-                                <li>Click <strong>+ New query</strong>.</li>
-                                <li>Paste the script above and click <strong>Run</strong>.</li>
-                                <li>Come back here and refresh the page.</li>
-                            </ol>
-                        </div>
-                    </div>
-                </CardContent>
-                <CardFooter className="flex-col items-center gap-4">
-                    <Button onClick={() => window.location.reload()} className="w-full">
-                        Refresh Page
-                    </Button>
-                </CardFooter>
-            </Card>
-        </div>
-    );
+// ── Lazy screens (INFRA-005: keep the first load small) ──────────────────────
+const Login = lazy(() => import('./components/Login.tsx'));
+const Signup = lazy(() => import('./components/Signup.tsx'));
+const UpdatePassword = lazy(() => import('./components/UpdatePassword.tsx'));
+const JobForm = lazy(() => import('./components/JobForm.tsx'));
+const Settings = lazy(() => import('./components/Settings.tsx'));
+const BillingSuccess = lazy(() => import('./components/BillingSuccess.tsx'));
+const UpgradeModal = lazy(() => import('./components/UpgradeModal.tsx'));
+const JobFinancialsModal = lazy(() => import('./components/JobFinancialsModal.tsx'));
+const InvoiceForm = lazy(() => import('./components/InvoiceForm.tsx'));
+const DailyJobReportForm = lazy(() => import('./components/DailyJobReportForm.tsx'));
+const NoteForm = lazy(() => import('./components/NoteForm.tsx'));
+const WorkOrderForm = lazy(() => import('./components/WorkOrderForm.tsx'));
+const TimeSheetForm = lazy(() => import('./components/TimeSheetForm.tsx'));
+const MaterialLogForm = lazy(() => import('./components/MaterialLogForm.tsx'));
+const EstimateForm = lazy(() => import('./components/EstimateForm.tsx'));
+const ExpenseLogForm = lazy(() => import('./components/ExpenseLogForm.tsx'));
+const WarrantyForm = lazy(() => import('./components/WarrantyForm.tsx'));
+const ReceiptForm = lazy(() => import('./components/ReceiptForm.tsx'));
+const ChangeOrderForm = lazy(() => import('./components/ChangeOrderForm.tsx'));
+const PurchaseOrderForm = lazy(() => import('./components/PurchaseOrderForm.tsx'));
+const ClientsView = lazy(() => import('./components/ClientsView.tsx'));
+const AnalyticsView = lazy(() => import('./components/AnalyticsView.tsx'));
+const ForumView = lazy(() => import('./components/ForumView.tsx'));
+const CalendarView = lazy(() => import('./components/CalendarView.tsx'));
+const CommunicationView = lazy(() => import('./components/CommunicationView.tsx'));
+const GmailCallback = lazy(() => import('./components/GmailCallback.tsx'));
+const InventoryView = lazy(() => import('./components/InventoryView.tsx'));
+const PriceBookView = lazy(() => import('./components/PriceBookView.tsx'));
+const ProfitCalculatorView = lazy(() => import('./components/ProfitCalculatorView.tsx'));
+const PortalView = lazy(() => import('./components/PortalView.tsx'));
+const DocumentApprovalView = lazy(() => import('./components/DocumentApprovalView.tsx'));
+const DocumentAIQAHarness = lazy(() => import('./components/DocumentAIQAHarness.tsx'));
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const JOB_COLUMN_SETS = [
+    'id, user_id, name, client_name, client_address, start_date, end_date, status, worker_name, client_id, created_at',
+    'id, user_id, name, client_name, client_address, start_date, end_date, status, worker_name, created_at',
+    'id, user_id, name, client_name, client_address, start_date, end_date, status, created_at',
+];
+const JOBS_LIMIT = 1000;
+const CLIENT_COLUMNS = 'id, user_id, name, email, phone, address, notes, portal_key, created_at';
+const CLIENTS_LIMIT = 500;
+const INVENTORY_COLUMN_SETS = [
+    'id, user_id, name, quantity, category, unit, cost_price, supplier, location, low_stock_threshold, created_at, is_assembly, assembly_items',
+    'id, user_id, name, quantity, category, unit, cost_price, supplier, location, low_stock_threshold, created_at',
+];
+const INVENTORY_LIMIT = 500;
+const SAVED_ITEM_COLUMN_SETS = [
+    'id, user_id, name, description, rate, unit_cost, category, category_id, type, images, taxable, sku, markup, is_assembly, assembly_items, is_favorite, last_used_at, use_count, created_at',
+    'id, user_id, name, description, rate, unit_cost, category, created_at',
+];
+const SAVED_ITEMS_LIMIT = 300;
+const JOB_STATUSES: Job['status'][] = ['active', 'paused', 'completed', 'inactive'];
+
+type AppJob = Job & { clientId?: string | null };
+
+const normalizeJobStatus = (s: unknown): Job['status'] => (JOB_STATUSES.includes(s as Job['status']) ? (s as Job['status']) : 'active');
+
+const mapJobRow = (j: any): AppJob => ({
+    id: j.id,
+    userId: j.user_id,
+    name: j.name || '',
+    clientName: j.client_name || '',
+    clientAddress: j.client_address || '',
+    startDate: j.start_date || '',
+    endDate: j.end_date || null,
+    status: normalizeJobStatus(j.status),
+    workerName: j.worker_name || undefined,
+    createdAt: j.created_at,
+    clientId: j.client_id ?? null,
+});
+
+const localYmd = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const isThisMonth = (iso?: string | null) => {
+    if (!iso) return false;
+    const d = new Date(iso);
+    const now = new Date();
+    return !Number.isNaN(d.getTime()) && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 };
 
-
-// Helper to upload a file to Supabase Storage
-const uploadFile = async (bucket: string, file: File, userId: string, isPublicUpload: boolean = false): Promise<string> => {
-    if (!navigator.onLine) {
-        throw new Error("Cannot upload file while offline");
+/** Runs a select, retrying with fewer columns while the database is missing optional ones. */
+async function selectWithFallback<T = any>(table: string, columnSets: string[], build: (query: any) => PromiseLike<{ data: any; error: any }>): Promise<{ data: T[] | null; error: any }> {
+    let lastError: any = null;
+    for (const columns of columnSets) {
+        const { data, error } = await build(supabase.from(table).select(columns));
+        if (!error) return { data: (data || []) as T[], error: null };
+        lastError = error;
+        if (!isMissingColumnError(error)) break;
     }
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}/${Date.now()}.${fileExt}`;
+    return { data: null, error: lastError };
+}
 
-    const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
-    if (error) {
-        console.error('Error uploading file:', error);
-        throw error;
-    }
-    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
-    return data.publicUrl;
+/** Uploads to `<bucket>/<uid>/<prefix>-<time>.<ext>` (owner folder) and returns the public URL. */
+const uploadFile = async (bucket: string, file: File, userId: string, prefix = 'file'): Promise<string> => {
+    if (!navigator.onLine) throw new Error("You're offline. Reconnect to upload images.");
+    const ext = (file.name.split('.').pop() || file.type.split('/')[1] || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    const path = `${userId}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: false, contentType: file.type || undefined, cacheControl: '3600' });
+    if (error) throw new Error(error.message || 'Upload failed');
+    return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 };
 
+/** React key of a not-yet-saved form; reused after its first save so the form isn't remounted. */
+const newFormKey = (formType: string, prefillData: any, routeKey: string) => `new-${formType}-${prefillData?.__draftId ?? routeKey}`;
+
+/** Reference-number field per document type (used to suggest the next number in forms). */
+const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
+    [FormType.Invoice]: 'invoiceNumber',
+    [FormType.Estimate]: 'estimateNumber',
+    [FormType.DailyJobReport]: 'reportNumber',
+    [FormType.WorkOrder]: 'workOrderNumber',
+    [FormType.Warranty]: 'warrantyNumber',
+    [FormType.ChangeOrder]: 'changeOrderNumber',
+    [FormType.PurchaseOrder]: 'poNumber',
+    [FormType.Receipt]: 'receiptNumber',
+};
+
+const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
+const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType'];
+
+const navSectionFor = (screen: AppView['screen']): NavSection => {
+    switch (screen) {
+        case 'dashboard': case 'jobDetails': case 'createJob': case 'selectDocType': return 'dashboard';
+        case 'clients': return 'clients';
+        case 'communication': return 'communication';
+        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': return 'tools';
+        case 'forum': return 'forum';
+        case 'settings': case 'profile': return 'settings';
+        default: return 'none';
+    }
+};
 
 const App: React.FC = () => {
-    type AppView =
-        | { screen: 'welcome' }
-        | { screen: 'auth'; authScreen: 'login' | 'signup' | 'checkEmail' }
-        | { screen: 'updatePassword' }
-        | { screen: 'dashboard' }
-        | { screen: 'jobDetails'; jobId: string }
-        | { screen: 'createJob'; returnTo?: 'dashboard' | 'calendar' }
-        | { screen: 'selectDocType'; jobId: string }
-        | { screen: 'form'; formType: FormType; jobId: string; formId: string | null }
-        | { screen: 'settings' }
-        | { screen: 'profile' }
-        | { screen: 'clients' }
-        | { screen: 'analytics' }
-        | { screen: 'calendar' }
-        | { screen: 'communication' }
-        | { screen: 'inventory' }
-        | { screen: 'pricebook' }
-        | { screen: 'profitCalculator' }
-        | { screen: 'forum'; postId?: string }
-        | { screen: 'privacy' }
-        | { screen: 'terms' }
-        | { screen: 'security' }
-        | { screen: 'gmailCallback' };
-
-    const [session, setSession] = useState<Session | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [loadingMessage, setLoadingMessage] = useState('Initializing...');
     const location = useLocation();
     const navigate = useNavigate();
 
-    const view: AppView = React.useMemo(() => {
-        const params = new URLSearchParams(location.search);
-        const portalKey = params.get('portal');
-        const approvalToken = params.get('approval_token');
+    // Public client links (no login): read straight from the URL, before any auth redirect (CORE-038).
+    const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+    const portalKey = urlParams.get('portal');
+    const approvalToken = urlParams.get('approval_token');
 
-        if (portalKey || approvalToken) {
-            return { screen: 'welcome' };
-        }
-
-        const path = location.pathname.replace(/\/$/, '') || '/dashboard';
-
-        if (path === '/privacy') return { screen: 'privacy' };
-        if (path === '/terms') return { screen: 'terms' };
-        if (path === '/security') return { screen: 'security' };
-        if (path === '/update-password') return { screen: 'updatePassword' };
-        if (path === '/dashboard') return { screen: 'dashboard' };
-        if (path === '/settings') return { screen: 'settings' };
-        if (path === '/profile') return { screen: 'profile' };
-        if (path === '/clients') return { screen: 'clients' };
-        if (path === '/analytics') return { screen: 'analytics' };
-        if (path === '/calendar') return { screen: 'calendar' };
-        if (path === '/communication') return { screen: 'communication' };
-        if (path === '/inventory') return { screen: 'inventory' };
-        if (path === '/pricebook') return { screen: 'pricebook' };
-        if (path === '/calculator') return { screen: 'profitCalculator' };
-        if (path === '/forum') return { screen: 'forum' };
-        if (path === '/gmail-callback') return { screen: 'gmailCallback' };
-
-        if (path.startsWith('/auth/')) {
-            const authScreen = path.split('/')[2];
-            return { screen: 'auth', authScreen: authScreen as any };
-        }
-
-        if (path.startsWith('/forum/')) {
-            return { screen: 'forum', postId: path.split('/')[2] };
-        }
-
-        if (path.startsWith('/jobs')) {
-            const parts = path.split('/');
-            if (parts[2] === 'create') {
-                const rt = params.get('returnTo') as 'dashboard' | 'calendar' | undefined;
-                return { screen: 'createJob', returnTo: rt };
-            }
-            if (parts[3] === 'select-doc') {
-                return { screen: 'selectDocType', jobId: parts[2] };
-            }
-            if (parts[3] === 'forms') {
-                return { screen: 'form', jobId: parts[2], formType: parts[4] as FormType, formId: parts[5] || null };
-            }
-            if (parts[2]) {
-                return { screen: 'jobDetails', jobId: parts[2] };
-            }
-        }
-
-        if (path === '/welcome') return { screen: 'welcome' };
-
-        return { screen: 'dashboard' }; // default fallback instead of welcome
-    }, [location.pathname, location.search]);
+    const view: AppView = useMemo(
+        () => parseView(location.pathname, location.search, location.state),
+        [location.pathname, location.search, location.state],
+    );
 
     const setView = (newView: AppView) => {
         switch (newView.screen) {
-            case 'welcome': navigate('/welcome'); break;
-            case 'privacy': navigate('/privacy'); break;
-            case 'terms': navigate('/terms'); break;
-            case 'security': navigate('/security'); break;
+            case 'root': case 'welcome': navigate('/'); break;
+            case 'notFound': navigate('/dashboard'); break;
             case 'updatePassword': navigate('/update-password'); break;
             case 'auth': navigate(`/auth/${newView.authScreen}`); break;
             case 'dashboard': navigate('/dashboard'); break;
@@ -811,152 +207,175 @@ const App: React.FC = () => {
             case 'inventory': navigate('/inventory'); break;
             case 'pricebook': navigate('/pricebook'); break;
             case 'profitCalculator': navigate('/calculator'); break;
-            case 'forum': navigate(newView.postId ? `/forum/${newView.postId}` : '/forum'); break;
-            case 'createJob': navigate(`/jobs/create${newView.returnTo ? `?returnTo=${newView.returnTo}` : ''}`); break;
+            case 'forum': navigate(newView.postId ? `/forum/${encodeURIComponent(newView.postId)}` : '/forum'); break;
+            case 'gmailCallback': navigate('/gmail-callback'); break;
+            case 'billingSuccess': navigate('/billing/success'); break;
+            case 'qaAiDocuments': navigate('/qa-ai-documents'); break;
+            case 'createJob': navigate(`/jobs/create${newView.returnTo ? `?returnTo=${newView.returnTo}` : ''}`, newView.prefillData ? { state: { prefillData: newView.prefillData } } : undefined); break;
             case 'selectDocType': navigate(`/jobs/${newView.jobId}/select-doc`); break;
-            case 'form': navigate(`/jobs/${newView.jobId}/forms/${newView.formType}${newView.formId ? `/${newView.formId}` : ''}`); break;
+            case 'form': {
+                const encodedType = encodeURIComponent(newView.formType);
+                const path = `/jobs/${newView.jobId}/forms/${encodedType}${newView.formId ? `/${newView.formId}` : ''}`;
+                navigate(path, { state: { prefillData: newView.prefillData } });
+                break;
+            }
             case 'jobDetails': navigate(`/jobs/${newView.jobId}`); break;
         }
     };
 
-    const [profile, setProfile] = useState<UserProfile | null>(null);
-    const [jobs, setJobs] = useState<Job[]>([]);
+    // ── Session & account state ──────────────────────────────────────────────
+    const [session, setSession] = useState<Session | null>(null);
+    const [authReady, setAuthReady] = useState(false);
+    const [profile, setProfile] = useState<AppProfile | null>(null);
+    const [profileStatus, setProfileStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+    const [jobs, setJobs] = useState<AppJob[]>([]);
+    const [jobsLoaded, setJobsLoaded] = useState(false);
     const [forms, setForms] = useState<FormDataType[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
+
+    // AI assistant state lives in useAIAssistant (called with the AI-owned render helpers below).
+
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
-    const [inventoryHistory, setInventoryHistory] = useState<InventoryHistoryItem[]>([]);
     const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
-    const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [showJobFinancials, setShowJobFinancials] = useState<boolean>(false);
-
-    // External Access State
-    const [portalKey, setPortalKey] = useState<string | null>(null);
-    const [approvalToken, setApprovalToken] = useState<string | null>(null);
-
+    const [documentPagination, setDocumentPagination] = useState<Record<string, { offset: number; hasMore: boolean; loading: boolean; loaded: boolean }>>({});
+    const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+    const [usingCachedData, setUsingCachedData] = useState(false);
     const [notificationCount, setNotificationCount] = useState(0);
-    const clientNotificationCount = React.useMemo(() => {
-        return forms.filter(f => {
-            const d = f.data as any;
-            return (d.status === 'Accepted' || d.clientSignatureUrl) && !d.viewedByProvider;
-        }).length;
-    }, [forms]);
+    const [formLoad, setFormLoad] = useState<{ id: string; error: string | null } | null>(null);
+    const [formReloadNonce, setFormReloadNonce] = useState(0);
 
-    const markDocumentsAsViewed = async (clientId: string) => {
-        const client = clients.find(c => c.id === clientId);
-        if (!client) return;
-
-        const docsToUpdate = forms.filter(f => {
-            const d = f.data as any;
-            return d.clientName === client.name && (d.status === 'Accepted' || d.clientSignatureUrl) && !d.viewedByProvider;
-        });
-
-        if (docsToUpdate.length === 0) return;
-
-        for (const doc of docsToUpdate) {
-            const updatedData = { ...doc.data, viewedByProvider: true };
-            await supabase
-                .from('documents')
-                .update({ data: updatedData })
-                .eq('id', doc.id);
-        }
-
-        // Update local state is faster than fetch
-        setForms(prev => prev.map(f => {
-            const d = f.data as any;
-            if (d.clientName === client.name && (d.status === 'Accepted' || d.clientSignatureUrl)) {
-                return { ...f, data: { ...d, viewedByProvider: true } };
-            }
-            return f;
-        }));
-    };
-
-    const [dbSetupError, setDbSetupError] = useState<string | null>(null);
-
-    const [theme, setTheme] = useState<'light' | 'dark' | 'blue'>(() => {
-        const savedTheme = localStorage.getItem('theme');
-        return (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'blue') ? (savedTheme as 'light' | 'dark' | 'blue') : 'dark';
+    const [theme, setThemeState] = useState<ThemeName>(() => {
+        try { return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY)) || 'light'; } catch { return 'light'; }
     });
+    const deviceThemeChosenRef = useRef<boolean>((() => { try { return !!normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY)); } catch { return false; } })());
 
-    const [searchQuery, setSearchQuery] = useState('');
-    const [docSearchQuery, setDocSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('All');
-    const [clientFilter, setClientFilter] = useState('All');
-    const [docTypeFilter, setDocTypeFilter] = useState('All');
-
-    const [showToolsMenu, setShowToolsMenu] = useState(false);
-
-    // Upgrade / Subscription State
+    // Upgrade / subscription
     const [showGlobalUpgrade, setShowGlobalUpgrade] = useState(false);
     const [upgradeFeature, setUpgradeFeature] = useState('');
 
-    // Delete Confirmation State
-    const [showDeleteJobModal, setShowDeleteJobModal] = useState(false);
+    // Delete confirmations
     const [jobToDelete, setJobToDelete] = useState<string | null>(null);
-    const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
     const [docToDelete, setDocToDelete] = useState<string | null>(null);
+    const showDeleteJobModal = jobToDelete !== null;
+    const showDeleteDocModal = docToDelete !== null;
+    const [showJobFinancials, setShowJobFinancials] = useState(false);
 
-    // Duplicate Job State
-    const [showDuplicateJobModal, setShowDuplicateJobModal] = useState(false);
-    const [jobToDuplicate, setJobToDuplicate] = useState<Job | null>(null);
+    // Refs that callbacks read (avoid stale closures in long-lived listeners)
+    const sessionUserIdRef = useRef<string | null>(null);
+    sessionUserIdRef.current = session?.user?.id ?? null;
+    const loadedUserIdRef = useRef<string | null>(null);
+    const loadSeqRef = useRef(0);
+    const loggingOutRef = useRef(false);
+    const docPagRef = useRef(documentPagination);
+    docPagRef.current = documentPagination;
+    const savingFormPromiseRef = useRef<Promise<false | { id: string; public_token: string | null }> | null>(null);
+    /** Saved new documents keep the React key they had while new, so the form doesn't remount after its first save. */
+    const formKeyAliasRef = useRef<Record<string, string>>({});
+    const newFormIdRef = useRef<{ key: string; id: string } | null>(null);
 
-    const FREE_LIMITS = { jobs: 6, clients: 15, docs: 12 };
+    const plan = profile?.plan ?? 'free';
+    const paid = isPaidTier(plan);
 
-    const handleUpgradeSuccess = async () => {
-        if (!session) return;
-        await supabase.from('profiles').update({ subscription_tier: 'Premium' }).eq('id', session.user.id);
-        setProfile(prev => prev ? ({ ...prev, subscriptionTier: 'Premium' }) : null);
-        setShowGlobalUpgrade(false);
-        alert("Upgrade Successful! You are now a Premium user.");
+    const openUpgrade = useCallback((reason?: string) => {
+        setUpgradeFeature(reason || '');
+        setShowGlobalUpgrade(true);
+    }, []);
+
+    /** Shows the upgrade modal for DB `PLAN_LIMIT:` errors; returns true when handled. */
+    const handlePlanLimit = (error: unknown): boolean => {
+        if (!isPlanLimitError(error)) return false;
+        openUpgrade(planLimitMessage(error));
+        return true;
     };
 
-    const checkLimit = (type: 'jobs' | 'clients' | 'docs', contextId?: string): boolean => {
-        if (profile?.subscriptionTier === 'Premium') return true;
-        let count = 0;
+    const clientNotificationCount = useMemo(() => forms.filter(isUnseenClientSignedDocument).length, [forms]);
+    const lowStockCount = useMemo(
+        () => inventory.filter(item => !(item as any).is_assembly && Number(item.quantity || 0) <= Number(item.low_stock_threshold ?? 5)).length,
+        [inventory],
+    );
 
-        const currentMonth = new Date().getMonth();
-        const currentYear = new Date().getFullYear();
-
-        const isCurrentMonth = (dateStr?: string) => {
-            if (!dateStr) return true;
-            const d = new Date(dateStr);
-            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    /** Usage for meters: server numbers when `get_my_usage()` exists, otherwise counted locally (display only). */
+    const effectiveUsage: UsageSnapshot = useMemo(() => {
+        if (usage) return usage;
+        return {
+            tier: plan,
+            status: profile?.subscriptionStatus ?? 'none',
+            jobsThisMonth: jobs.filter(j => isThisMonth(j.createdAt)).length,
+            clientsTotal: clients.length,
+            emailsThisMonth: profile?.emailUsage ?? 0,
+            aiThisMonth: 0,
+            limits: limitsForTier(plan),
+            fromServer: false,
         };
+    }, [usage, plan, profile?.subscriptionStatus, profile?.emailUsage, jobs, clients.length]);
 
-        if (type === 'jobs') count = jobs.filter(j => isCurrentMonth(j.createdAt || j.startDate)).length;
-        else if (type === 'clients') count = clients.filter(c => isCurrentMonth(c.created_at)).length;
-        else if (type === 'docs') {
-            const contextForms = contextId ? forms.filter(f => f.jobId === contextId) : forms;
-            count = contextForms.filter(f => isCurrentMonth(f.createdAt)).length;
+    /**
+     * UX pre-check only; the database enforces the same limits (PLAN_LIMIT errors open the upgrade modal).
+     * Job/client counts block only when they come from `get_my_usage()`; local counts are for display.
+     * Per-job document counts are local (loaded documents can only under-count, so this never blocks wrongly).
+     */
+    const checkLimit = (type: 'jobs' | 'clients' | 'docs', contextId?: string): boolean => {
+        if (paid) return true;
+        if (type !== 'docs' && !effectiveUsage.fromServer) return true;
+        const limits = effectiveUsage.limits;
+        let count = 0;
+        let limit: number | null = null;
+        let message = '';
+        if (type === 'jobs') {
+            count = effectiveUsage.jobsThisMonth;
+            limit = limits.jobs;
+            message = `You've created ${count} of ${limit} jobs this month on the Free plan.`;
+        } else if (type === 'clients') {
+            count = effectiveUsage.clientsTotal;
+            limit = limits.clients;
+            message = `You've saved ${count} of ${limit} clients on the Free plan.`;
+        } else {
+            count = forms.filter(f => (!contextId || f.jobId === contextId) && isThisMonth(f.createdAt)).length;
+            limit = limits.docs;
+            message = `This job already has ${count} of ${limit} documents this month on the Free plan.`;
         }
-
-        console.log(`[DEBUG] Checking monthly limit for ${type}: count=${count}, limit=${FREE_LIMITS[type]}`);
-
-        if (count >= FREE_LIMITS[type]) {
-            setUpgradeFeature(`${FREE_LIMITS[type]} ${type} limit per month (Free Plan). You have created ${count} this month.`);
-            setShowGlobalUpgrade(true);
+        if (limit !== null && count >= limit) {
+            openUpgrade(message);
             return false;
         }
         return true;
     };
 
+    // Duplicate Job State
+    const [showDuplicateJobModal, setShowDuplicateJobModal] = useState(false);
+    const [jobToDuplicate, setJobToDuplicate] = useState<Job | null>(null);
+
+    // ── Theme (light | dark | blue), persisted in localStorage `theme` ─────────
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const pk = params.get('portal');
-        const at = params.get('approval_token');
+        const root = window.document.documentElement;
+        root.classList.remove('light', 'dark', 'blue');
+        root.classList.add(theme);
+        if (theme === 'dark' || theme === 'blue') root.classList.add('dark');
+        root.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+        try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* ignore */ }
+    }, [theme]);
 
-        if (pk) {
-            setPortalKey(pk);
-            setLoading(false);
-        } else if (at) {
-            setApprovalToken(at);
-            setLoading(false);
+    const handleThemeChange = (next: ThemeName) => {
+        deviceThemeChosenRef.current = true;
+        setThemeState(next);
+        setProfile(prev => (prev ? { ...prev, theme: next } : prev));
+        const uid = sessionUserIdRef.current;
+        if (uid && navigator.onLine) {
+            supabase.from('profiles').update({ theme: next }).eq('id', uid).then(() => undefined, () => undefined);
         }
-    }, []);
+    };
 
+    // ── Online / offline (read-only cache; nothing is queued, CORE-016) ───────
     useEffect(() => {
         const handleOnline = () => {
             setIsOnline(true);
-            syncOfflineData();
+            const user = session?.user;
+            if (user && sessionUserIdRef.current === user.id) {
+                toast.success('Back online.');
+                loadAccountData(user, { silent: true });
+            }
         };
         const handleOffline = () => setIsOnline(false);
         window.addEventListener('online', handleOnline);
@@ -965,325 +384,398 @@ const App: React.FC = () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
-    }, [session]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user?.id]);
 
-    const syncOfflineData = async () => {
-        // ... existing sync logic ...
-        fetchData();
+    // ── Auth bootstrap: one listener, reads refs (no stale closures) ──────────
+    const resetUserState = useCallback(() => {
+        loadSeqRef.current++;
+        loadedUserIdRef.current = null;
+        setProfile(null);
+        setProfileStatus('idle');
+        setLoadError(null);
+        setUsage(null);
+        setJobs([]);
+        setJobsLoaded(false);
+        setForms([]);
+        setClients([]);
+        setInventory([]);
+        setSavedItems([]);
+        setDocumentPagination({});
+        setNotificationCount(0);
+        // (AI assistant resets itself when the signed-in user changes.)
+        clearDocumentCache();
+    }, []);
+
+    useEffect(() => {
+        let mounted = true;
+        supabase.auth.getSession()
+            .then(({ data }) => {
+                if (!mounted) return;
+                setSession(data.session);
+            })
+            .catch(() => undefined)
+            .finally(() => { if (mounted) setAuthReady(true); });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+            if (!mounted) return;
+            if (event === 'PASSWORD_RECOVERY' && window.location.pathname !== '/update-password') {
+                navigate('/update-password', { replace: true });
+            }
+            setSession(prev => (prev && nextSession && prev.access_token === nextSession.access_token && prev.user.id === nextSession.user.id ? prev : nextSession));
+            setAuthReady(true);
+            if (event === 'SIGNED_OUT') {
+                resetUserState();
+                if (!loggingOutRef.current) toast.info('You have been signed out.');
+            }
+        });
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // ── Routing guards (aliases, login redirect with return path, `/` → dashboard) ─
+    useEffect(() => {
+        const path = location.pathname.replace(/\/+$/, '');
+        if (path === '/login' || path === '/signup') {
+            navigate({ pathname: `/auth${path}`, search: location.search }, { replace: true });
+        }
+    }, [location.pathname, location.search, navigate]);
+
+    useEffect(() => {
+        if (!authReady || portalKey || approvalToken || loggingOutRef.current) return;
+        const fullPath = location.pathname + location.search;
+        if (session) {
+            if (view.screen === 'auth' || view.screen === 'root' || view.screen === 'welcome') {
+                navigate(consumePostLoginRedirect() || '/dashboard', { replace: true });
+            } else if (view.screen === 'notFound') {
+                navigate('/dashboard', { replace: true });
+            }
+        } else if (!PUBLIC_SCREENS.includes(view.screen)) {
+            rememberPostLoginRedirect(fullPath);
+            navigate('/auth/login', { replace: true });
+        } else if (view.screen === 'root' || view.screen === 'welcome' || view.screen === 'notFound') {
+            // `/` belongs to the marketing site; if the app is rendered there without a session, show login.
+            navigate('/auth/login', { replace: true });
+        }
+    }, [authReady, session, view.screen, portalKey, approvalToken, location.pathname, location.search, navigate]);
+
+    // ── Data loading ─────────────────────────────────────────────────────────
+    const loadJobs = async (userId: string) => {
+        const { data, error } = await selectWithFallback('jobs', JOB_COLUMN_SETS, q => q.eq('user_id', userId).order('created_at', { ascending: false }).limit(JOBS_LIMIT));
+        if (error) throw error;
+        return (data || []).map(mapJobRow);
     };
 
-    useEffect(() => {
-        const root = window.document.documentElement;
-        root.classList.remove('light', 'dark', 'blue');
-        root.classList.add(theme);
-        if (theme === 'dark' || theme === 'blue') root.classList.add('dark');
-        localStorage.setItem('theme', theme);
-    }, [theme]);
+    const loadClients = useCallback(async (userId: string) => {
+        const { data, error } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('user_id', userId).order('name').range(0, CLIENTS_LIMIT - 1);
+        if (error) throw error;
+        if (sessionUserIdRef.current === userId) setClients((data || []) as Client[]);
+        return (data || []) as Client[];
+    }, []);
 
-    useEffect(() => {
-        if ((!portalKey && !approvalToken) && !supabase) {
-            setLoading(false);
+    const loadInventory = useCallback(async (userId: string) => {
+        const { data, error } = await selectWithFallback<InventoryItem>('inventory', INVENTORY_COLUMN_SETS, q => q.eq('user_id', userId).order('name').limit(INVENTORY_LIMIT));
+        if (!error && data && sessionUserIdRef.current === userId) setInventory(data);
+        return data || [];
+    }, []);
+
+    const loadSavedItems = useCallback(async (userId: string) => {
+        const { data, error } = await selectWithFallback<SavedItem>('saved_items', SAVED_ITEM_COLUMN_SETS, q => q.eq('user_id', userId).order('name').limit(SAVED_ITEMS_LIMIT));
+        if (!error && data && sessionUserIdRef.current === userId) setSavedItems(data);
+        return data || [];
+    }, []);
+
+    const loadRecentDocuments = useCallback(async (userId: string) => {
+        const { data, error } = await supabase
+            .from('documents')
+            .select(DOCUMENT_METADATA_COLUMNS)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .range(0, RECENT_DOCUMENTS_LIMIT - 1);
+        if (error) throw error;
+        const mapped = (data || []).map((row: any) => mapDocumentRow(row));
+        // Merge, never replace: keeps per-job pages and full documents that are open (CORE-007).
+        if (sessionUserIdRef.current === userId) setForms(prev => mergeDocuments(prev, mapped));
+        return mapped;
+    }, []);
+
+    const refreshUsage = useCallback(async () => {
+        const snap = await fetchUsage().catch(() => null);
+        if (!sessionUserIdRef.current) return;
+        setUsage(snap);
+        if (snap) setProfile(prev => (prev ? { ...prev, emailUsage: snap.emailsThisMonth } : prev));
+    }, []);
+
+    const writeCache = (userId: string, payload: { profile?: AppProfile; jobs?: AppJob[]; clients?: Client[]; documents?: FormDataType[] }) => {
+        // Best effort, never blocks the UI. Read-only offline cache (no secrets are stored).
+        (async () => {
+            try {
+                if (payload.profile) await dbApi.replaceAll('profile', [{ ...payload.profile, id: userId }]);
+                if (payload.jobs) await dbApi.replaceAll('jobs', payload.jobs);
+                if (payload.clients) await dbApi.replaceAll('clients', payload.clients);
+                if (payload.documents) await dbApi.putMany('documents', payload.documents.filter(d => isLightweightDocument(d)));
+            } catch { /* cache is optional */ }
+        })();
+    };
+
+    const loadFromCache = async (userId: string): Promise<boolean> => {
+        try {
+            const [cachedProfiles, cachedJobs, cachedClients, cachedDocs] = await Promise.all([
+                dbApi.getAll('profile'), dbApi.getAll('jobs'), dbApi.getAll('clients'), dbApi.getAll('documents'),
+            ]);
+            const cachedProfile = cachedProfiles.find(p => p?.id === userId);
+            if (!cachedProfile) return false;
+            const myJobs = cachedJobs.filter(j => j?.userId === userId) as AppJob[];
+            const jobIds = new Set(myJobs.map(j => j.id));
+            setProfile({ ...mapProfileRow({ id: userId }), ...cachedProfile });
+            setJobs(myJobs);
+            setJobsLoaded(true);
+            setClients(cachedClients.filter(c => c?.user_id === userId));
+            setForms(mergeDocuments([], cachedDocs.filter(d => d && !String(d.id).startsWith('full:') && jobIds.has(d.jobId))));
+            setUsingCachedData(true);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    const loadAccountData = async (user: User, options: { silent?: boolean } = {}) => {
+        const seq = ++loadSeqRef.current;
+        const isCurrent = () => loadSeqRef.current === seq && sessionUserIdRef.current === user.id;
+        if (!options.silent) {
+            setProfileStatus(prev => (prev === 'ready' ? 'ready' : 'loading'));
+            setLoadError(null);
+        }
+
+        if (!navigator.onLine) {
+            const ok = await loadFromCache(user.id);
+            if (!isCurrent()) return;
+            if (ok) setProfileStatus('ready');
+            else {
+                setProfileStatus('error');
+                setLoadError("You're offline and this device has no saved copy of your account yet. Reconnect to continue.");
+            }
             return;
         }
-        if (!portalKey && !approvalToken) {
-            const isRecovery = window.location.hash.includes('type=recovery');
 
-            supabase.auth.getSession().then(({ data: { session } }) => {
-                setSession(session);
-                if (session) {
-                    if (session.provider_token) {
-                        localStorage.setItem('google_provider_token', session.provider_token);
-                    }
-                    // HARDENED GUARD: If we are on update-password or in a recovery flow, STAY PUT.
-                    if (isRecovery || window.location.pathname === '/update-password') {
-                        if (window.location.pathname !== '/update-password') navigate('/update-password');
-                    } else if (window.location.pathname === '/' || window.location.pathname === '/welcome' || window.location.pathname.startsWith('/auth/')) {
-                        setView({ screen: 'dashboard' });
-                    }
-                } else {
-                    setLoading(false);
-                }
-            });
-
-            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-                setSession(session);
-                const isRecoveryEvent = _event === 'PASSWORD_RECOVERY' || window.location.hash.includes('type=recovery');
-
-                // PRIORITIZE RECOVERY: If this is a recovery event OR we are already on the update-password page, 
-                // do not allow other auth events (like SIGNED_IN) to redirect us to the dashboard.
-                if (isRecoveryEvent || window.location.pathname === '/update-password') {
-                    if (window.location.pathname !== '/update-password') navigate('/update-password');
-                    setLoading(false);
-                    return;
-                }
-
-                if (session) {
-                    if (session.provider_token) {
-                        localStorage.setItem('google_provider_token', session.provider_token);
-
-                        // PERSIST TOKENS (Profile for Legacy, user_credentials for Persistence)
-                        const tokenData = {
-                            gmail_access_token: session.provider_token,
-                            gmail_refresh_token: session.provider_refresh_token
-                        };
-
-                        // Update Profiles
-                        supabase.from('profiles').update(tokenData).eq('id', session.user.id);
-
-                        // Update User Credentials Table
-                        supabase.from('user_credentials').upsert({
-                            user_id: session.user.id,
-                            provider: 'google',
-                            access_token: session.provider_token,
-                            refresh_token: session.provider_refresh_token,
-                            updated_at: new Date().toISOString()
-                        }, { onConflict: 'user_id,provider' }).then(({ error }) => {
-                            if (!error) fetchData(); // Refresh profile state to reflect linked status
-                        });
-                    }
-
-                    // Normal authenticated routing - ONLY redirect if on a guest page
-                    if (window.location.pathname === '/' || window.location.pathname === '/welcome' || window.location.pathname.startsWith('/auth/')) {
-                        setView({ screen: 'dashboard' });
-                    }
-                } else {
-                    setProfile(null);
-                    setJobs([]);
-                    setForms([]);
-                    setClients([]);
-                    setInventory([]);
-                    setSavedItems([]);
-
-                    const path = window.location.pathname.replace(/\/$/, '');
-                    if (!['/privacy', '/terms', '/security'].includes(path)) {
-                        setView({ screen: 'welcome' });
-                    }
-
-                    setLoading(false);
-                }
-            });
-
-            return () => subscription.unsubscribe();
-        }
-    }, [portalKey, approvalToken]);
-
-    const fetchData = async () => {
-        if (!session) return;
-
-        if (!profile) {
-            setLoading(true);
-            setLoadingMessage('Loading profile...');
-        }
-
-        const user = session.user;
-        let currentProfile: UserProfile | null = null;
-
-        if (navigator.onLine) {
-            const { data: profileData, error: profileError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', user.id)
-                .single();
-
-            if (profileError && profileError.code !== 'PGRST116') {
-                if (/relation "public.profiles" does not exist|invalid input syntax|schema cache/i.test(profileError.message)) {
-                    setDbSetupError(SQL_SETUP_SCRIPT);
-                    setLoading(false);
-                    return;
-                }
+        let loadedProfile: AppProfile;
+        try {
+            loadedProfile = await loadProfileRow(user, theme);
+        } catch (err) {
+            if (!isCurrent()) return;
+            if (!options.silent && await loadFromCache(user.id)) {
+                if (!isCurrent()) return;
+                setProfileStatus('ready');
+                toast.error(`Could not reach the server, showing saved data. ${describeError(err)}`);
+                return;
             }
+            setProfileStatus(prev => (options.silent && prev === 'ready' ? 'ready' : 'error'));
+            setLoadError(describeError(err, 'We could not load your account. Please try again.'));
+            return;
+        }
+        if (!isCurrent()) return;
+        setProfile(prev => ({ ...loadedProfile, emailUsage: prev?.emailUsage ?? loadedProfile.emailUsage }));
+        setProfileStatus('ready');
+        setUsingCachedData(false);
+        if (!deviceThemeChosenRef.current && loadedProfile.theme) setThemeState(loadedProfile.theme);
 
-            if (profileData) {
-                const currentMonthStr = new Date().toISOString().substring(0, 7);
-                let newEmailUsage = profileData.email_usage || 0;
-                let newEmailUsageMonth = profileData.email_usage_month || currentMonthStr;
+        const [jobsRes, docsRes, clientsRes] = await Promise.allSettled([
+            loadJobs(user.id),
+            loadRecentDocuments(user.id),
+            loadClients(user.id),
+            loadInventory(user.id),
+            loadSavedItems(user.id),
+            refreshUsage(),
+        ]);
+        if (!isCurrent()) return;
 
-                if (newEmailUsageMonth !== currentMonthStr) {
-                    newEmailUsage = 0;
-                    newEmailUsageMonth = currentMonthStr;
-                    supabase.from('profiles').update({
-                        email_usage: 0,
-                        email_usage_month: currentMonthStr
-                    }).eq('id', user.id).then(() => { });
-                }
-
-                currentProfile = {
-                    id: profileData.id,
-                    email: profileData.email,
-                    name: profileData.name,
-                    companyName: profileData.company_name,
-                    logoUrl: profileData.logo_url,
-                    profilePictureUrl: profileData.profile_picture_url,
-                    address: profileData.address,
-                    phone: profileData.phone,
-                    website: profileData.website,
-                    jobTitle: profileData.job_title,
-                    subscriptionTier: profileData.subscription_tier as 'Basic' | 'Premium',
-                    language: profileData.language,
-                    emailTemplates: profileData.email_templates,
-                    theme: profileData.theme,
-                    emailUsage: newEmailUsage,
-                    gmailAccessToken: profileData.gmail_access_token,
-                    gmailRefreshToken: profileData.gmail_refresh_token
-                };
-
-                // Fallback: Check user_credentials if profile tokens are missing
-                if (!currentProfile.gmailAccessToken) {
-                    const { data: creds } = await supabase
-                        .from('user_credentials')
-                        .select('access_token, refresh_token')
-                        .eq('user_id', user.id)
-                        .eq('provider', 'google')
-                        .maybeSingle();
-
-                    if (creds) {
-                        currentProfile.gmailAccessToken = creds.access_token;
-                        currentProfile.gmailRefreshToken = creds.refresh_token;
-                    }
-                }
-
-                if (profileData.theme) {
-                    setTheme(profileData.theme as 'light' | 'dark' | 'blue');
-                }
-                await dbApi.put('profile', currentProfile);
-            } else if (!profileError || profileError.code === 'PGRST116') {
-                // Create profile logic...
-                // Simplified for brevity, reusing existing logic
-                const metaName = user.user_metadata?.full_name || user.user_metadata?.name;
-                const { data: newProfileData } = await supabase.from('profiles').insert({
-                    id: user.id,
-                    email: user.email,
-                    name: metaName || 'User',
-                    company_name: 'My Company',
-                    theme: theme,
-                }).select().single();
-                if (newProfileData) {
-                    currentProfile = {
-                        id: newProfileData.id,
-                        email: newProfileData.email,
-                        name: newProfileData.name,
-                        companyName: newProfileData.company_name,
-                        logoUrl: '',
-                        profilePictureUrl: '',
-                        address: '',
-                        phone: '',
-                        website: '',
-                        subscriptionTier: 'Basic',
-                        theme: theme,
-                        emailUsage: 0
-                    }
-                }
-            }
+        if (jobsRes.status === 'fulfilled') {
+            setJobs(jobsRes.value);
         } else {
-            const cachedProfiles = await dbApi.getAll('profile');
-            if (cachedProfiles.length > 0) {
-                currentProfile = cachedProfiles[0];
-                if (currentProfile?.theme) setTheme(currentProfile.theme);
-            }
+            toast.error(`Could not load your jobs. ${describeError(jobsRes.reason)}`, { action: { label: 'Retry', onClick: () => loadAccountData(user) } });
         }
-        setProfile(currentProfile);
+        setJobsLoaded(true);
+        if (docsRes.status === 'rejected') toast.error(`Could not load recent documents. ${describeError(docsRes.reason)}`);
 
-        // Jobs
-        if (navigator.onLine) {
-            const { data: jobsData } = await supabase.from('jobs').select('*').eq('user_id', user.id);
-            if (jobsData) {
-                const mappedJobs = jobsData.map(j => ({ ...j, startDate: j.start_date, endDate: j.end_date, clientName: j.client_name, clientAddress: j.client_address, userId: j.user_id, workerName: j.worker_name, createdAt: j.created_at }));
-                setJobs(mappedJobs);
-                await dbApi.clear('jobs');
-                for (const j of mappedJobs) await dbApi.put('jobs', j);
-            }
-        } else {
-            const cachedJobs = await dbApi.getAll('jobs');
-            setJobs(cachedJobs);
-        }
-
-        // Forms
-        if (navigator.onLine) {
-            const { data: formsData } = await supabase
-                .from('documents')
-                .select('id, user_id, job_id, type, data, created_at, public_token')
-                .eq('user_id', user.id);
-            if (formsData) {
-                // Include public_token in mappedForms
-                const mappedForms = formsData.map(f => ({ ...f, jobId: f.job_id, createdAt: f.created_at, public_token: f.public_token }));
-                setForms(mappedForms);
-                await dbApi.clear('documents');
-                for (const f of mappedForms) await dbApi.put('documents', f);
-            }
-        } else {
-            const cachedForms = await dbApi.getAll('documents');
-            setForms(cachedForms);
-        }
-
-        // Clients
-        if (navigator.onLine) {
-            const { data: clientsData, error: clientError } = await supabase
-                .from('clients')
-                .select('id, user_id, name, email, phone, address, notes, portal_key, created_at')
-                .eq('user_id', user.id);
-            if (clientsData) {
-                setClients(clientsData);
-                await dbApi.clear('clients');
-                for (const c of clientsData) await dbApi.put('clients', c);
-            } else if (clientError && /column ".*" does not exist/i.test(clientError.message)) {
-                setDbSetupError(SQL_SETUP_SCRIPT);
-            }
-        } else {
-            const cachedClients = await dbApi.getAll('clients');
-            setClients(cachedClients);
-        }
-
-        // Inventory
-        if (navigator.onLine) {
-            const { data: invData } = await supabase.from('inventory').select('*').eq('user_id', user.id).order('name');
-            if (invData) {
-                setInventory(invData);
-                await dbApi.clear('inventory');
-                for (const i of invData) await dbApi.put('inventory', i);
-            }
-        } else {
-            const cachedInventory = await dbApi.getAll('inventory');
-            setInventory(cachedInventory);
-        }
-
-        // Inventory History
-        if (navigator.onLine) {
-            const { data: histData } = await supabase.from('inventory_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100);
-            if (histData) setInventoryHistory(histData);
-        }
-
-        // Saved Items (Price Book)
-        if (navigator.onLine) {
-            const { data: savedData, error: savedError } = await supabase.from('saved_items').select('*').eq('user_id', user.id).order('name');
-            if (savedData) {
-                setSavedItems(savedData);
-                // Cache logic for saved items could be added here
-            } else if (savedError && savedError.message.includes('relation "public.saved_items" does not exist')) {
-                setDbSetupError(SQL_SETUP_SCRIPT);
-            }
-        }
-
-        setLoading(false);
+        writeCache(user.id, {
+            profile: loadedProfile,
+            jobs: jobsRes.status === 'fulfilled' ? jobsRes.value : undefined,
+            clients: clientsRes.status === 'fulfilled' ? clientsRes.value : undefined,
+            documents: docsRes.status === 'fulfilled' ? docsRes.value : undefined,
+        });
     };
 
     useEffect(() => {
-        if (session) fetchData();
-    }, [session]);
+        const user = session?.user;
+        if (!user) return;
+        if (loadedUserIdRef.current === user.id) return;
+        if (loadedUserIdRef.current) resetUserState(); // a different account signed in: drop the previous user's data
+        loadedUserIdRef.current = user.id;
+        loadAccountData(user);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user?.id]);
 
-    // Auth Handlers (Login, Signup, Google)
+    // Background jobs once per session: recurring invoices (VIEW-039) and community unread badge (VIEW-043).
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || profileStatus !== 'ready' || !navigator.onLine) return;
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            try {
+                const mod: any = await import('./services/recurringService.ts');
+                const run = mod.runDueRecurringInvoices || mod.generateDueRecurringInvoices;
+                const result = typeof run === 'function' ? await run() : 0;
+                const created = typeof result === 'number' ? result : Number(result?.created ?? result?.count ?? 0);
+                if (!cancelled && created > 0 && sessionUserIdRef.current === uid) {
+                    toast.info(`${created} recurring ${created === 1 ? 'invoice was' : 'invoices were'} created.`);
+                    loadRecentDocuments(uid).catch(() => undefined);
+                }
+            } catch { /* optional feature */ }
+        }, 1500);
+        return () => { cancelled = true; clearTimeout(timer); };
+    }, [session?.user?.id, profileStatus, loadRecentDocuments]);
+
+    const refreshForumBadge = useCallback(async () => {
+        if (!sessionUserIdRef.current || !navigator.onLine) return;
+        try {
+            const mod: any = await import('./components/ForumView.tsx');
+            if (typeof mod.fetchForumUnreadCount === 'function') {
+                const n = await mod.fetchForumUnreadCount();
+                if (sessionUserIdRef.current) setNotificationCount(Number(n) || 0);
+            }
+        } catch { /* optional */ }
+    }, []);
+
+    useEffect(() => {
+        if (profileStatus !== 'ready') return;
+        const timer = setTimeout(refreshForumBadge, 2500);
+        return () => clearTimeout(timer);
+    }, [profileStatus, view.screen, refreshForumBadge]);
+
+    // ── Documents per job / full document loading ─────────────────────────────
+    const loadDocumentsForJob = useCallback(async (jobId: string, reset = false) => {
+        if (!sessionUserIdRef.current || !jobId) return;
+        if (!navigator.onLine) {
+            setDocumentPagination(prev => ({ ...prev, [jobId]: { offset: prev[jobId]?.offset || 0, hasMore: false, loading: false, loaded: true } }));
+            return;
+        }
+        const current = docPagRef.current[jobId];
+        if (current?.loading) return;
+        const from = reset ? 0 : (current?.offset || 0);
+        setDocumentPagination(prev => ({ ...prev, [jobId]: { offset: from, hasMore: prev[jobId]?.hasMore ?? true, loading: true, loaded: prev[jobId]?.loaded ?? false } }));
+        const { data, error } = await supabase
+            .from('documents')
+            .select(DOCUMENT_METADATA_COLUMNS)
+            .eq('job_id', jobId)
+            .order('created_at', { ascending: false })
+            .range(from, from + DOCUMENT_PAGE_SIZE - 1);
+        if (error) {
+            toast.error(`Could not load documents. ${describeError(error)}`);
+            setDocumentPagination(prev => ({ ...prev, [jobId]: { offset: from, hasMore: true, loading: false, loaded: true } }));
+            return;
+        }
+        const mapped = (data || []).map((row: any) => mapDocumentRow(row));
+        setForms(prev => {
+            let base = prev;
+            if (reset && mapped.length < DOCUMENT_PAGE_SIZE) {
+                // The first page is the whole list: drop documents of this job that were deleted elsewhere.
+                const fresh = new Set(mapped.map(d => d.id));
+                base = prev.filter(f => f.jobId !== jobId || fresh.has(f.id));
+            }
+            return mergeDocuments(base, mapped);
+        });
+        setDocumentPagination(prev => ({ ...prev, [jobId]: { offset: from + mapped.length, hasMore: mapped.length === DOCUMENT_PAGE_SIZE, loading: false, loaded: true } }));
+    }, []);
+
+    const viewJobId = view.screen === 'jobDetails' || view.screen === 'selectDocType' || view.screen === 'form' ? view.jobId : null;
+    useEffect(() => {
+        if (viewJobId && session?.user?.id && profileStatus === 'ready') loadDocumentsForJob(viewJobId, true);
+    }, [viewJobId, session?.user?.id, profileStatus, loadDocumentsForJob]);
+
+    const openFormId = view.screen === 'form' ? view.formId : null;
+    const openForm = openFormId ? forms.find(f => f.id === openFormId) : undefined;
+    const openFormIsFull = !!openForm && !isLightweightDocument(openForm);
+
+    useEffect(() => {
+        if (!openFormId || openFormIsFull || !session?.user?.id) return;
+        let cancelled = false;
+        setFormLoad({ id: openFormId, error: null });
+        (async () => {
+            try {
+                let full: FormDataType | null = null;
+                if (navigator.onLine) {
+                    full = await fetchFullDocument(openFormId, { force: formReloadNonce > 0 });
+                    dbApi.put('documents', { ...full, id: `full:${full.id}`, docId: full.id }).catch(() => undefined);
+                } else {
+                    const cached = await dbApi.get('documents', `full:${openFormId}`).catch(() => undefined);
+                    if (cached) full = { ...cached, id: cached.docId } as FormDataType;
+                }
+                if (cancelled) return;
+                if (!full) throw new Error("This document isn't saved on this device. Reconnect to open it.");
+                const loaded = full;
+                setForms(prev => mergeDocuments(prev.filter(f => f.id !== loaded.id), [loaded]));
+                setFormLoad(null);
+            } catch (err) {
+                if (!cancelled) setFormLoad({ id: openFormId, error: describeError(err, 'Could not open this document.') });
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [openFormId, openFormIsFull, session?.user?.id, formReloadNonce]);
+
+    // Deep links to "new document" respect the free plan (CORE-024); the DB enforces it too.
+    useEffect(() => {
+        if (profileStatus !== 'ready' || paid) return;
+        const isNewDoc = view.screen === 'selectDocType' || (view.screen === 'form' && !view.formId && !view.prefillData);
+        if (!isNewDoc || !viewJobId || !docPagRef.current[viewJobId]?.loaded) return;
+        if (!checkLimit('docs', viewJobId)) navigate(`/jobs/${viewJobId}`, { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [view.screen, viewJobId, profileStatus, paid, documentPagination[viewJobId || '']?.loaded]);
+
+    // Duplicate-job modal: make sure the job's documents are loaded (CORE-026).
+    const duplicateCandidateForms = useMemo(
+        () => (jobToDuplicate ? forms.filter(f => f.jobId === jobToDuplicate.id) : []),
+        [forms, jobToDuplicate?.id],
+    );
+    useEffect(() => {
+        if (showDuplicateJobModal && jobToDuplicate && !docPagRef.current[jobToDuplicate.id]?.loaded) {
+            loadDocumentsForJob(jobToDuplicate.id, true);
+        }
+    }, [showDuplicateJobModal, jobToDuplicate?.id, loadDocumentsForJob]);
+
+    // ── Auth handlers ────────────────────────────────────────────────────────
     const handleLogin = async (email: string, pass: string) => {
-        if (!navigator.onLine) { alert("You must be online to log in."); return; }
-        const { error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
+        if (!navigator.onLine) throw new Error("You're offline. Connect to the internet to log in.");
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass });
         if (error) throw error;
     };
+
     const handleSignup = async (email: string, pass: string) => {
-        const { error } = await supabase.auth.signUp({ email: email, password: pass });
+        if (!navigator.onLine) throw new Error("You're offline. Connect to the internet to sign up.");
+        const { data, error } = await supabase.auth.signUp({
+            email: email.trim(),
+            password: pass,
+            options: { emailRedirectTo: `${window.location.origin}/auth/login` },
+        });
         if (error) throw error;
-        setView({ screen: 'auth', authScreen: 'checkEmail' });
+        try { sessionStorage.setItem('signup_email', email.trim()); } catch { /* ignore */ }
+        // With email confirmation off, Supabase returns a session and the route guard opens the dashboard.
+        if (!data.session) navigate('/auth/checkEmail', { replace: true });
+    };
+
+    const handleResendConfirmation = async () => {
+        let email = '';
+        try { email = sessionStorage.getItem('signup_email') || ''; } catch { /* ignore */ }
+        if (!email) { navigate('/auth/signup'); return; }
+        const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${window.location.origin}/auth/login` } });
+        if (error) toast.error(describeError(error));
+        else toast.success(`We sent a new link to ${email}.`);
     };
 
     const handleResetPassword = async (email: string) => {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
             redirectTo: `${window.location.origin}/update-password`,
         });
         if (error) throw error;
@@ -1292,1169 +784,991 @@ const App: React.FC = () => {
     const handleUpdatePassword = async (password: string) => {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
-        setView({ screen: 'dashboard' });
+        toast.success('Your password was updated.');
+        navigate('/dashboard', { replace: true });
     };
 
     const handleLoginWithGoogle = async () => {
-        await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+        const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/auth/login` } });
+        if (error) throw error;
     };
-    const handleConnectGmail = async () => {
-        // Step 2: Build a Direct Google OAuth URL
-        const GOOGLE_CLIENT_ID = '292965678575-p8smva2vfeguocsppjr45r05jsvhggjo.apps.googleusercontent.com';
-        const REDIRECT_URI = `${window.location.origin}/gmail-callback`;
-        const SCOPE = 'https://www.googleapis.com/auth/gmail.send email profile';
 
-        const rootUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-        const options = {
-            redirect_uri: REDIRECT_URI,
-            client_id: GOOGLE_CLIENT_ID,
-            access_type: 'offline',
-            response_type: 'code',
-            prompt: 'consent select_account',
-            scope: SCOPE,
-        };
-
-        const qs = new URLSearchParams(options);
-        window.location.assign(`${rootUrl}?${qs.toString()}`);
-    };
-    const handleDisconnectGmail = async () => {
-        if (!session) return;
-
-        // 1. Clear from profiles table
-        const { error: profileError } = await supabase.from('profiles').update({
-            gmail_access_token: null,
-            gmail_refresh_token: null
-        }).eq('id', session.user.id);
-
-        // 2. Also clear from user_credentials if it exists
-        try {
-            await supabase.from('user_credentials').delete().eq('user_id', session.user.id).eq('provider', 'google');
-        } catch (e) {
-            // Table might not exist yet, which is fine
-        }
-
-        if (profileError) {
-            console.error("Error disconnecting Gmail:", profileError);
-        } else {
-            setProfile(prev => prev ? { ...prev, gmailAccessToken: undefined, gmailRefreshToken: undefined } : null);
-        }
-    };
+    /** Logout clears everything the previous user left on this device (CORE-008, CORE-028). */
     const handleLogout = async () => {
-        if (navigator.onLine) await supabase.auth.signOut();
-        localStorage.removeItem('app_view_state');
-        localStorage.removeItem('google_provider_token');
-        setSession(null);
-        setView({ screen: 'welcome' });
+        loggingOutRef.current = true;
+        try {
+            await supabase.auth.signOut({ scope: navigator.onLine ? 'global' : 'local' });
+        } catch {
+            try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* ignore */ }
+        }
+        clearDocumentCache();
+        clearUserBrowserStorage();
+        try { await dbApi.clearAll(); } catch { /* ignore */ }
+        // Full reload: drops every in-memory cache (AI conversations included) and shows the marketing site.
+        window.location.replace('/');
     };
 
-    // Nav Handlers
+    // ── Navigation helpers (also used by the AI action handler) ──────────────
     const navigateToDashboard = () => setView({ screen: 'dashboard' });
     const navigateToSettings = () => setView({ screen: 'settings' });
     const navigateToNewDoc = (jobId: string) => {
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to create documents."); return; }
         if (checkLimit('docs', jobId)) setView({ screen: 'selectDocType', jobId });
     };
-    const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard') => {
-        if (checkLimit('jobs')) setView({ screen: 'createJob', returnTo });
+    const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard', prefillData?: Record<string, unknown>) => {
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to create jobs."); return; }
+        if (checkLimit('jobs')) setView({ screen: 'createJob', returnTo: returnTo === 'calendar' ? 'calendar' : undefined, prefillData });
     };
-    const navigateToClients = () => setView({ screen: 'clients' });
-    const navigateToInventory = () => setView({ screen: 'inventory' });
     const navigateToPriceBook = () => setView({ screen: 'pricebook' });
     const navigateToCalculator = () => setView({ screen: 'profitCalculator' });
     const navigateToAnalytics = () => setView({ screen: 'analytics' });
     const navigateToCalendar = () => setView({ screen: 'calendar' });
-    const navigateToCommunication = () => setView({ screen: 'communication' });
-    const navigateToForum = (postId?: string) => setView({ screen: 'forum', postId });
 
-    // Data Handlers
-    const handleUpdateAppLogo = async (file: File): Promise<string> => { return ''; }; // Placeholder for brevity
+    const canGoBack = () => ((window.history.state as any)?.idx ?? 0) > 0;
+
+    /** Opens a saved document; `fromJob` lets its Back button return to the job page with history.back(). */
+    const openDocument = (form: FormDataType, fromJob = false) => {
+        navigate(`/jobs/${form.jobId}/forms/${encodeURIComponent(form.type)}/${form.id}`, { state: { fromJob } });
+    };
+
+    const handleNavDestination = (dest: NavDestination) => {
+        switch (dest) {
+            case 'dashboard': navigate('/dashboard'); break;
+            case 'clients': navigate('/clients'); break;
+            case 'communication': navigate('/communication'); break;
+            case 'inventory': navigate('/inventory'); break;
+            case 'pricebook': navigate('/pricebook'); break;
+            case 'calendar': navigate('/calendar'); break;
+            case 'calculator': navigate('/calculator'); break;
+            case 'analytics': navigate('/analytics'); break;
+            case 'forum': navigate('/forum'); break;
+            case 'settings': navigate('/settings'); break;
+            case 'profile': navigate('/profile'); break;
+            case 'billing': navigate('/settings#billing'); break;
+        }
+    };
+
+    // ── Profile / settings handlers ──────────────────────────────────────────
     const handleUploadDocumentImage = async (file: File): Promise<string> => {
-        if (!session) return '';
+        const uid = sessionUserIdRef.current;
+        if (!uid) return '';
         try {
             const compressed = await compressImage(file);
-            return await uploadFile('logos', compressed, session.user.id, true);
+            return await uploadFile('logos', compressed, uid, 'doc');
         } catch (e) {
-            console.error("Failed to upload image", e);
+            toast.error(`Image upload failed. ${describeError(e)}`);
             return '';
         }
     };
-    const handleSaveProfile = async (updatedProfile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
-        if (!session) return;
-        setLoading(true);
-        let newLogoUrl = updatedProfile.logoUrl;
-        let newProfilePicUrl = updatedProfile.profilePictureUrl;
 
+    /** Saves profile fields. Throws so Settings keeps the edits and shows the error (CORE-021, VIEW-010). */
+    const handleSaveProfile = async (updated: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) throw new Error('Please sign in again.');
+        if (!navigator.onLine) throw new Error("You're offline. Your changes are still here; save again when you reconnect.");
+        let logoUrl = updated.logoUrl || '';
+        let pictureUrl = updated.profilePictureUrl || '';
         try {
-            if (logoFile) newLogoUrl = await uploadFile('logos', logoFile, session.user.id, true);
-            if (profilePicFile) newProfilePicUrl = await uploadFile('logos', profilePicFile, session.user.id, true);
-        } catch (error) { setLoading(false); return; }
-
-        const profileForDb = {
-            id: session.user.id,
-            name: updatedProfile.name,
-            company_name: updatedProfile.companyName,
-            email: updatedProfile.email,
-            phone: updatedProfile.phone,
-            address: updatedProfile.address,
-            website: updatedProfile.website,
-            logo_url: newLogoUrl,
-            profile_picture_url: newProfilePicUrl,
-            job_title: updatedProfile.jobTitle,
-            language: updatedProfile.language,
-            email_templates: updatedProfile.emailTemplates,
-            theme: theme,
+            if (logoFile) logoUrl = await uploadFile('logos', logoFile, uid, 'logo');
+            if (profilePicFile) pictureUrl = await uploadFile('logos', profilePicFile, uid, 'avatar');
+        } catch (err) {
+            throw new Error(`Image upload failed: ${describeError(err)}`);
+        }
+        const row = {
+            name: (updated.name || '').trim(),
+            company_name: (updated.companyName || '').trim(),
+            email: (updated.email || '').trim(),
+            phone: (updated.phone || '').trim(),
+            address: (updated.address || '').trim(),
+            website: (updated.website || '').trim(),
+            logo_url: logoUrl || null,
+            profile_picture_url: pictureUrl || null,
+            job_title: (updated.jobTitle || '').trim(),
+            language: updated.language || 'English',
+            email_templates: updated.emailTemplates ?? {},
+            theme,
             updated_at: new Date().toISOString(),
         };
+        const { error } = await supabase.from('profiles').update(row).eq('id', uid);
+        if (error) throw new Error(describeError(error, 'Your changes could not be saved.'));
+        setProfile(prev => (prev ? { ...prev, ...updated, logoUrl, profilePictureUrl: pictureUrl, theme } : prev));
+        toast.success('Settings saved.');
+    };
 
-        const { data, error } = await supabase.from('profiles').upsert(profileForDb).select().single();
-        if (!error && data) {
-            setProfile({ ...updatedProfile, logoUrl: newLogoUrl, profilePictureUrl: newProfilePicUrl });
-            setView({ screen: 'dashboard' });
+    const handleSaveSignature = async (dataUrl: string | null) => {
+        const uid = sessionUserIdRef.current;
+        if (!uid || !navigator.onLine) return;
+        const { error } = await supabase.from('profiles').update({ default_signature_url: dataUrl }).eq('id', uid);
+        if (error && !isMissingColumnError(error)) toast.error(`Signature saved on this device only. ${describeError(error)}`);
+        else if (!error) setProfile(prev => (prev ? { ...prev, defaultSignatureUrl: dataUrl || undefined } : prev));
+        toast.success(dataUrl ? 'Default signature saved.' : 'Default signature removed.');
+    };
+
+    const handleManageBilling = async () => {
+        const url = await getBillingPortalUrl();
+        if (!url) throw new Error('The billing portal is not available right now. Please contact support to change or cancel your plan.');
+        window.location.assign(url);
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!navigator.onLine) throw new Error("You're offline.");
+        try {
+            await invokeFunction('delete-account', {});
+        } catch {
+            throw new Error("Automatic account deletion isn't available right now.");
         }
-        setLoading(false);
+        loggingOutRef.current = true;
+        try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* ignore */ }
+        clearDocumentCache();
+        clearUserBrowserStorage();
+        try { await dbApi.clearAll(); } catch { /* ignore */ }
+        window.location.replace('/');
     };
 
-    const handleEmailSent = async () => {
-        if (!session || !profile) return;
-        const currentMonthStr = new Date().toISOString().substring(0, 7);
-        const newCount = (profile.emailUsage || 0) + 1;
-        setProfile({ ...profile, emailUsage: newCount });
-        await supabase.from('profiles').update({ email_usage: newCount, email_usage_month: currentMonthStr }).eq('id', session.user.id);
+    const handleEmailSent = () => {
+        // The gmail-auth function records email usage server-side; just refresh the meters.
+        refreshUsage();
     };
 
-    const handleUploadForumImage = async (file: File): Promise<string> => { return uploadFile('forum', file, session!.user.id, true); }
-    const handleSaveJob = async (jobData: any, skipNavigation: boolean = false): Promise<string> => {
-        if (!session) return '';
-
-        // Conflict Detection
-        if (jobData.workerName && jobData.workerName.trim() !== '') {
-            const startDate = new Date(jobData.startDate);
-            const endDate = jobData.endDate ? new Date(jobData.endDate) : startDate;
-
-            const conflict = jobs.find(j => {
-                if (!j.workerName || j.workerName.toLowerCase() !== jobData.workerName.toLowerCase()) return false;
-                if (j.status !== 'active') return false;
-                const jStart = new Date(j.startDate);
-                const jEnd = j.endDate ? new Date(j.endDate) : jStart;
-
-                // Check for date overlap (inclusive)
-                return (jStart <= endDate && jEnd >= startDate);
-            });
-
-            if (conflict) {
-                alert(`Conflict Detected!\nWorker "${jobData.workerName}" is already scheduled for job "${conflict.name}" during these dates.`);
-                return ''; // Prevent saving
+    // ── Jobs ─────────────────────────────────────────────────────────────────
+    const insertJobRow = async (row: Record<string, unknown>): Promise<AppJob> => {
+        let payload = { ...row };
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const { data, error } = await supabase.from('jobs').insert(payload).select(JOB_COLUMN_SETS[2]).single();
+            if (!error) return mapJobRow({ ...payload, ...((data as any) || {}) });
+            if (isMissingColumnError(error)) {
+                if ('client_id' in payload && /client_id/i.test(error.message || '')) { const { client_id, ...rest } = payload as any; payload = rest; continue; }
+                if ('worker_name' in payload && /worker_name/i.test(error.message || '')) { const { worker_name, ...rest } = payload as any; payload = rest; continue; }
             }
+            throw error;
         }
+        throw new Error('Could not create the job.');
+    };
 
-        const newJob = { id: crypto.randomUUID(), user_id: session.user.id, ...jobData, status: 'active', worker_name: jobData.workerName };
-        const { error } = await supabase.from('jobs').insert(newJob);
+    const findClientIdByName = (name?: string | null): string | null => {
+        if (!name) return null;
+        const n = name.trim().toLowerCase();
+        return clients.find(c => (c.name || '').trim().toLowerCase() === n)?.id ?? null;
+    };
 
+    const handleUpdateJobStatus = async (jobId: string, newStatus: Job['status']) => {
+        if (!JOB_STATUSES.includes(newStatus)) return;
+        const prevJob = jobs.find(j => j.id === jobId);
+        if (!prevJob || prevJob.status === newStatus) return;
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to change the job status."); return; }
+        setJobs(p => p.map(j => (j.id === jobId ? { ...j, status: newStatus } : j)));
+        const { error } = await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
         if (error) {
-            console.error('Failed to create job', error);
-            if (error.code === '42703' || error.message?.includes('worker_name')) {
-                // Fallback if missing column in schema
-                const fallbackJob = { ...newJob };
-                delete (fallbackJob as any).worker_name;
-                delete (fallbackJob as any).workerName;
-                await supabase.from('jobs').insert(fallbackJob);
-            }
+            setJobs(p => p.map(j => (j.id === jobId ? { ...j, status: prevJob.status } : j)));
+            toast.error(`Could not update the job status. ${describeError(error)}`);
         }
+    };
 
-        fetchData(); // Refresh
-        if (!skipNavigation) {
-            if (view.screen === 'createJob' && view.returnTo === 'calendar') {
-                setView({ screen: 'calendar' });
-            } else {
-                setView({ screen: 'dashboard' });
-            }
+    /**
+     * Creates a job (snake_case columns, CORE-005). Throws on failure (JobForm shows the message).
+     * Called with an existing job (`id` + `status`) it updates that job's status instead (CORE-006).
+     */
+    const handleSaveJob = async (jobData: any, skipNavigation: boolean = false): Promise<string> => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) throw new Error('Please sign in again.');
+        if (jobData?.id && jobs.some(j => j.id === jobData.id)) {
+            if (jobData.status) await handleUpdateJobStatus(jobData.id, normalizeJobStatus(jobData.status));
+            return jobData.id;
         }
-        return newJob.id;
-    };
-    const handleUpdateJobStatus = async (jobId: string, newStatus: any) => {
-        await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
-        setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
-    };
-    const handleSaveForm = async (formData: any) => {
-        if (!session) return;
-        if (view.screen !== 'form') return;
+        if (!navigator.onLine) throw new Error("You're offline. Reconnect to create the job.");
+        if (!checkLimit('jobs')) throw new Error('You have reached the Free plan job limit for this month.');
 
-        const formRecord: any = {
-            id: view.formId || crypto.randomUUID(),
-            user_id: session.user.id,
-            job_id: view.jobId,
-            type: view.formType,
-            data: formData
+        const name = String(jobData?.name || '').trim();
+        if (!name) throw new Error('Please enter a job name.');
+        const clientName = String(jobData?.clientName || '').trim();
+        const row: Record<string, unknown> = {
+            id: crypto.randomUUID(),
+            user_id: uid,
+            name,
+            client_name: clientName || null,
+            client_address: String(jobData?.clientAddress || '').trim() || null,
+            start_date: jobData?.startDate || localYmd(),
+            end_date: jobData?.endDate || null,
+            status: 'active',
+            worker_name: String(jobData?.workerName || '').trim() || null,
         };
+        const clientId = jobData?.clientId || findClientIdByName(clientName);
+        if (clientId) row.client_id = clientId;
 
-        // Inventory Deduction Logic (Phase 3)
-        if (view.formType === FormType.MaterialLog && (formData as any).deductInventory) {
-            const matData = formData as MaterialLogData;
-            console.log("Processing Inventory Deduction for Material Log...");
+        let created: AppJob;
+        try {
+            created = await insertJobRow(row);
+        } catch (error) {
+            if (handlePlanLimit(error)) throw new Error(planLimitMessage(error));
+            throw new Error(`Could not create the job. ${describeError(error)}`);
+        }
+        setJobs(prev => [created, ...prev.filter(j => j.id !== created.id)]);
+        refreshUsage();
+        toast.success(`Job "${created.name}" created.`);
 
-            for (const item of matData.items) {
-                if (item.inventoryItemId) {
-                    // Deduct stock
-                    await handleAllocateInventory(item.inventoryItemId, view.jobId, item.quantity);
-                }
-            }
-
-            // Disable flag after processing so it doesn't run again on next save
-            formData.deductInventory = false;
+        // Worker scheduling overlap: a heads-up, not a blocker (CORE-030).
+        if (created.workerName) {
+            const start = created.startDate;
+            const end = created.endDate || start;
+            const overlap = jobs.find(j => j.status === 'active' && j.workerName && j.workerName.toLowerCase() === created.workerName!.toLowerCase()
+                && (j.startDate || '') <= (end || '') && ((j.endDate || j.startDate) || '') >= (start || ''));
+            if (overlap) toast.info(`${created.workerName} is also scheduled on "${overlap.name}" during these dates.`);
         }
 
-        const { error: saveError } = await supabase.from('documents').upsert(formRecord);
-        if (saveError) {
-            const message = saveError.message || 'Document could not be saved.';
-            alert(message.includes('Insufficient stock')
-                ? 'Insufficient stock for one or more inventory-linked items. Please reduce the quantity and try again.'
-                : `Save failed: ${message}`);
-            return;
+        if (!skipNavigation) {
+            if (view.screen === 'createJob' && view.returnTo === 'calendar') navigate('/calendar', { replace: true });
+            else navigate(`/jobs/${created.id}`, { replace: true });
         }
-        await fetchData();
-        setView({ screen: 'jobDetails', jobId: view.jobId });
-    };
-    const handleAddClient = async (clientData: any) => {
-        if (!session) return null;
-        const newClient = { id: crypto.randomUUID(), user_id: session.user.id, ...clientData };
-        await supabase.from('clients').insert(newClient);
-        fetchData();
-        return newClient;
-    };
-    const handleUpdateClient = async (updatedClient: any) => {
-        if (!session) return;
-        await supabase.from('clients').update(updatedClient).eq('id', updatedClient.id);
-        fetchData();
-    };
-    const handleDeleteClient = async (id: string) => {
-        await supabase.from('clients').delete().eq('id', id);
-        fetchData();
+        return created.id;
     };
 
     const handleDeleteJob = async () => {
-        if (!jobToDelete || !session) return;
-        await supabase.from('jobs').delete().eq('id', jobToDelete);
-        // Associated documents will be deleted by ON DELETE CASCADE in DB
-        fetchData();
-        setJobToDelete(null);
-        setShowDeleteJobModal(false);
-    };
-
-    const handleDuplicateDoc = async (form: FormDataType) => {
-        if (!session) return;
-        if (!checkLimit('docs', form.jobId)) return;
-
-        const d = form.data as any;
-        const newDocData = {
-            ...d,
-            status: 'Draft',
-            clientSignatureUrl: null,
-            viewedByProvider: false,
-            title: d.title ? `${d.title} (Copy)` : undefined,
-            invoiceNumber: d.invoiceNumber ? `${d.invoiceNumber}-COPY` : undefined,
-            estimateNumber: d.estimateNumber ? `${d.estimateNumber}-COPY` : undefined,
-            reportNumber: d.reportNumber ? `${d.reportNumber}-COPY` : undefined,
-            workOrderNumber: d.workOrderNumber ? `${d.workOrderNumber}-COPY` : undefined,
-            warrantyNumber: d.warrantyNumber ? `${d.warrantyNumber}-COPY` : undefined,
-            changeOrderNumber: d.changeOrderNumber ? `${d.changeOrderNumber}-COPY` : undefined,
-            poNumber: d.poNumber ? `${d.poNumber}-COPY` : undefined,
-            receiptNumber: d.receiptNumber ? `${d.receiptNumber}-COPY` : undefined,
-        };
-
-        const formRecord = {
-            id: crypto.randomUUID(),
-            user_id: session.user.id,
-            job_id: form.jobId,
-            type: form.type,
-            data: newDocData,
-            created_at: new Date().toISOString()
-        };
-
-        const { error } = await supabase.from('documents').insert(formRecord);
+        const id = jobToDelete;
+        if (!id) return;
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to delete jobs."); throw new Error('offline'); }
+        const { error } = await supabase.from('jobs').delete().eq('id', id);
         if (error) {
-            alert("Duplicate Failed: " + error.message);
-        } else {
-            fetchData();
+            toast.error(`Could not delete the job. ${describeError(error)}`);
+            throw error;
         }
+        const job = jobs.find(j => j.id === id);
+        setJobs(prev => prev.filter(j => j.id !== id));
+        setForms(prev => {
+            prev.filter(f => f.jobId === id).forEach(f => invalidateDocument(f.id));
+            return prev.filter(f => f.jobId !== id);
+        });
+        setDocumentPagination(prev => { const next = { ...prev }; delete next[id]; return next; });
+        dbApi.delete('jobs', id).catch(() => undefined);
+        refreshUsage();
+        toast.success(job ? `Job "${job.name}" deleted.` : 'Job deleted.');
+        if (viewJobId === id) navigate('/dashboard', { replace: true });
     };
 
     const handleDuplicateJob = async (jobName: string, clientId: string | null, clientName: string, selectedDocIds: string[]) => {
-        if (!session || !jobToDuplicate) return;
+        const uid = sessionUserIdRef.current;
+        const source = jobToDuplicate;
+        if (!uid || !source) return;
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to duplicate jobs."); throw new Error('offline'); }
+        if (!checkLimit('jobs')) throw new Error('limit');
 
-        const newJobData = {
-            name: jobName,
-            clientName: clientName,
-            clientAddress: clientId ? clients.find(c => c.id === clientId)?.address || '' : jobToDuplicate.clientAddress,
-            startDate: new Date().toISOString().split('T')[0],
+        const client = clientId ? clients.find(c => c.id === clientId) : undefined;
+        const row: Record<string, unknown> = {
+            id: crypto.randomUUID(),
+            user_id: uid,
+            name: jobName.trim() || `${source.name} (Copy)`,
+            client_name: clientName || source.clientName || null,
+            client_address: client ? (client.address || null) : (source.clientAddress || null),
+            start_date: localYmd(),
+            end_date: null,
+            status: 'active',
+            worker_name: source.workerName || null,
         };
-        const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
+        const linkedClientId = clientId || (source as AppJob).clientId || findClientIdByName(clientName);
+        if (linkedClientId) row.client_id = linkedClientId;
 
-        await supabase.from('jobs').insert({
-            id: newJob.id,
-            user_id: session.user.id,
-            name: newJob.name,
-            client_name: newJob.clientName,
-            client_address: newJob.clientAddress,
-            start_date: newJob.startDate
-        });
-
-        // Duplicate selected docs
-        const docsToDuplicate = forms.filter(f => selectedDocIds.includes(f.id));
-        for (const doc of docsToDuplicate) {
-            const newDocId = crypto.randomUUID();
-            const newDocData = { ...doc.data };
-
-            // Append (Copy) to title or reference numbers if applicable
-            if ((newDocData as any).title) (newDocData as any).title = `${(newDocData as any).title} (Copy)`;
-            if ((newDocData as any).invoiceNumber) (newDocData as any).invoiceNumber = `${(newDocData as any).invoiceNumber}-COPY`;
-            if ((newDocData as any).estimateNumber) (newDocData as any).estimateNumber = `${(newDocData as any).estimateNumber}-COPY`;
-
-            // Default status back to Draft so we don't accidentally double-commit inventory or financials
-            if ((newDocData as any).status) {
-                if (['sent', 'paid', 'approved', 'accepted'].includes((newDocData as any).status.toLowerCase())) {
-                    (newDocData as any).status = 'Draft';
-                }
-            }
-
-            // Override client and project details to match the new assignment
-            if ('clientName' in newDocData) (newDocData as any).clientName = newJobData.clientName;
-            if ('clientAddress' in newDocData) (newDocData as any).clientAddress = newJobData.clientAddress;
-            if ('projectName' in newDocData) (newDocData as any).projectName = newJobData.name;
-
-            const formRecord: any = {
-                id: newDocId,
-                user_id: session.user.id,
-                job_id: newJob.id,
-                type: doc.type,
-                data: newDocData
-            };
-            await supabase.from('documents').insert(formRecord);
+        let created: AppJob;
+        try {
+            created = await insertJobRow(row);
+        } catch (error) {
+            if (!handlePlanLimit(error)) toast.error(`Could not duplicate the job. ${describeError(error)}`);
+            throw error;
         }
+        setJobs(prev => [created, ...prev]);
 
-        fetchData();
+        let copied = 0;
+        if (selectedDocIds.length) {
+            try {
+                const fullDocs = await fetchFullDocuments(selectedDocIds);
+                const records = fullDocs.map(doc => ({
+                    id: crypto.randomUUID(),
+                    user_id: uid,
+                    job_id: created.id,
+                    type: doc.type,
+                    data: buildDuplicateDocumentData(doc.data as Record<string, any>, {
+                        ...('clientName' in (doc.data as any) ? { clientName: created.clientName } : {}),
+                        ...('clientAddress' in (doc.data as any) ? { clientAddress: created.clientAddress } : {}),
+                        ...('projectName' in (doc.data as any) ? { projectName: created.name } : {}),
+                    }),
+                }));
+                if (records.length) {
+                    const { error } = await supabase.from('documents').insert(records);
+                    if (error) throw error;
+                    copied = records.length;
+                    const now = new Date().toISOString();
+                    const mapped = records.map(r => mapDocumentRow({ ...r, created_at: now }, true));
+                    mapped.forEach(primeDocumentCache);
+                    setForms(prev => mergeDocuments(prev, mapped));
+                }
+            } catch (error) {
+                if (!handlePlanLimit(error)) toast.error(`The job was copied, but its documents were not. ${describeError(error)}`);
+            }
+        }
+        refreshUsage();
         setShowDuplicateJobModal(false);
         setJobToDuplicate(null);
+        toast.success(copied ? `Job duplicated with ${copied} ${copied === 1 ? 'document' : 'documents'}.` : 'Job duplicated.');
+        navigate(`/jobs/${created.id}`);
+    };
+
+    // ── Documents ────────────────────────────────────────────────────────────
+    const handleDocumentsViewed = (ids: string[]) => {
+        const idSet = new Set(ids);
+        setForms(prev => prev.map(f => (idSet.has(f.id) ? { ...f, data: { ...(f.data as any), viewedByProvider: true } } : f)));
+    };
+
+    const handleDuplicateDoc = async (form: FormDataType) => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) return;
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to duplicate documents."); return; }
+        if (!checkLimit('docs', form.jobId)) return;
+        try {
+            const full = await fetchFullDocument(form.id);
+            const record = {
+                id: crypto.randomUUID(),
+                user_id: uid,
+                job_id: full.jobId,
+                type: full.type,
+                data: buildDuplicateDocumentData(full.data as Record<string, any>),
+            };
+            const { error } = await supabase.from('documents').insert(record);
+            if (error) throw error;
+            const mapped = mapDocumentRow({ ...record, created_at: new Date().toISOString() }, true);
+            primeDocumentCache(mapped);
+            setForms(prev => mergeDocuments(prev, [mapped]));
+            toast.success('Copied as a new draft.');
+        } catch (error) {
+            if (!handlePlanLimit(error)) toast.error(`Could not duplicate the document. ${describeError(error)}`);
+        }
     };
 
     const handleDeleteDoc = async () => {
-        if (!docToDelete || !session) return;
-        await supabase.from('documents').delete().eq('id', docToDelete);
-        fetchData();
-        setDocToDelete(null);
-        setShowDeleteDocModal(false);
-    };
-
-    // New handler for "Quick Create" from Client screen
-    const handleNavigateToNewDoc = async (type: FormType, clientId: string) => {
-        if (!session) return;
-
-        const client = clients.find(c => c.id === clientId);
-        if (!client) return;
-
-        let activeJob = jobs.find(j => j.clientName === client.name && j.status === 'active');
-        let jobId = activeJob?.id;
-
-        if (!activeJob) {
-            const newJobData = {
-                name: `${client.name} - General`,
-                clientName: client.name,
-                clientAddress: client.address || '',
-                startDate: new Date().toISOString().split('T')[0],
-            };
-            const newJob = { id: crypto.randomUUID(), userId: session.user.id, ...newJobData, status: 'active', endDate: null } as Job;
-
-            await supabase.from('jobs').insert({
-                id: newJob.id,
-                user_id: session.user.id,
-                name: newJob.name,
-                client_name: newJob.clientName,
-                client_address: newJob.clientAddress,
-                start_date: newJob.startDate
-            });
-
-            setJobs(prev => [...prev, newJob]);
-            jobId = newJob.id;
-        }
-
-        setView({ screen: 'form', formType: type, jobId: jobId!, formId: null });
-    };
-
-    // Price Book Handlers
-    // Price Book Handlers (Robus & Fallback Enabled)
-    const handleAddSavedItem = async (item: any) => {
-        if (!session) return;
-
-        // 1. Try Full Save (Elite Mode)
-        const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...item };
-        const { error } = await supabase.from('saved_items').insert(newItem);
-
+        const id = docToDelete;
+        if (!id) return;
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to delete documents."); throw new Error('offline'); }
+        const { error } = await supabase.from('documents').delete().eq('id', id);
         if (error) {
-            console.error("Price Book Save Error (Full):", error);
+            toast.error(`Could not delete the document. ${describeError(error)}`);
+            throw error;
+        }
+        invalidateDocument(id);
+        setForms(prev => prev.filter(f => f.id !== id));
+        dbApi.delete('documents', id).catch(() => undefined);
+        dbApi.delete('documents', `full:${id}`).catch(() => undefined);
+        toast.success('Document deleted.');
+        if (view.screen === 'form' && view.formId === id) navigate(`/jobs/${view.jobId}`, { replace: true });
+    };
 
-            // 2. Check for Schema Mismatch (Missing Columns)
-            // Postgres error 42703: undefined_column, or general 400 Bad Request from Supabase
-            if (error.message?.includes('column') || error.code === '42703' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
-                alert("⚠️ Database Schema Outdated\n\nSaving in 'Basic Mode' because your database hasn't been updated with the SQL script yet.\n\nAdvanced features (Assemblies, Images, etc.) were NOT saved.\n\nPlease run 'REPAIR_PRICEBOOK.sql' in Supabase to fix this permanently.");
+    /**
+     * `onSave` for the 12 forms. Resolves `false` when nothing was saved (offline, plan limit, DB error: a toast says why)
+     * and `{ id, public_token }` when saved. Never throws. The form stays open on the saved document (its URL is
+     * replaced, so Back/refresh reopen it instead of replaying an AI draft, CORE-010).
+     */
+    const handleSaveForm = async (formData: any): Promise<false | { id: string; public_token: string | null }> => {
+        if (!session || view.screen !== 'form') return false;
+        if (savingFormPromiseRef.current) return savingFormPromiseRef.current; // auto-save + click share one save (CORE-034)
+        if (!navigator.onLine) {
+            toast.error("You're offline. Your document is still open; save again when you're back online.");
+            return false;
+        }
+        const run = async (): Promise<false | { id: string; public_token: string | null }> => {
+            // A new document keeps one id for its whole route visit, so retries/double saves update the same row.
+            if (!view.formId && (!newFormIdRef.current || newFormIdRef.current.key !== location.key)) {
+                newFormIdRef.current = { key: location.key, id: crypto.randomUUID() };
+            }
+            const docId = view.formId || newFormIdRef.current!.id;
+            const existing = forms.find(f => f.id === docId);
+            // Inventory: the database moves stock for Material Logs (while data.deductInventory is true), accepted
+            // estimates/change orders and paid invoices, idempotently per document line. The browser never adjusts it.
+            const touchesStock = view.formType === FormType.MaterialLog
+                ? Boolean(formData?.deductInventory) || Boolean((existing?.data as any)?.deductInventory)
+                : [FormType.Invoice, FormType.Estimate, FormType.ChangeOrder].includes(view.formType);
 
-                // 3. Fallback Save (Basic Mode)
-                const basicItem = {
-                    id: newItem.id,
-                    user_id: newItem.user_id,
-                    name: newItem.name,
-                    description: newItem.description,
-                    rate: newItem.rate,
-                    // Handle cost/unit_cost alias
-                    unit_cost: newItem.unit_cost || newItem.cost || 0,
-                    category: newItem.category
-                };
+            const dataToSave = stripLightweightFlag({
+                ...formData,
+                ...((formData as any).isAiDrafted || (formData as any).isAiGenerated || view.prefillData?.isAiDrafted
+                    ? { isAiGenerated: true }
+                    : {}),
+            });
+            assertFullDocument({ data: dataToSave });
 
-                const { error: fallbackError } = await supabase.from('saved_items').insert(basicItem);
+            const job = jobs.find(j => j.id === view.jobId);
+            const record: Record<string, unknown> = {
+                id: docId,
+                user_id: session.user.id,
+                job_id: view.jobId,
+                type: view.formType,
+                data: dataToSave,
+            };
+            const linkedClientId = job?.clientId || findClientIdByName((dataToSave as any).clientName || job?.clientName);
+            if (linkedClientId) record.client_id = linkedClientId;
 
-                if (fallbackError) {
-                    alert("❌ Save Failed (Even in Basic Mode): " + fallbackError.message);
-                    return; // Stop here
-                }
-            } else {
-                // Other error (Permission, etc.)
-                alert("❌ Save Failed: " + error.message);
+            let { data: savedRow, error: saveError } = await supabase.from('documents').upsert(record).select('public_token').maybeSingle();
+            if (saveError && 'client_id' in record && isMissingColumnError(saveError)) {
+                delete record.client_id;
+                ({ data: savedRow, error: saveError } = await supabase.from('documents').upsert(record).select('public_token').maybeSingle());
+            }
+            if (saveError) {
+                if (handlePlanLimit(saveError)) return false;
+                const message = saveError.message || 'Document could not be saved.';
+                toast.error(/insufficient stock/i.test(message)
+                    ? 'Not enough stock for one or more inventory items. Reduce the quantity and try again.'
+                    : `Save failed. ${describeError(saveError)}`);
+                return false;
+            }
+
+            const publicToken: string | null = (savedRow as any)?.public_token ?? existing?.public_token ?? null;
+            const savedForm = mapDocumentRow({ ...record, created_at: existing?.createdAt ?? new Date().toISOString(), public_token: publicToken }, true);
+            primeDocumentCache(savedForm);
+            setForms(prev => mergeDocuments(prev.filter(f => f.id !== savedForm.id), [savedForm]));
+            dbApi.put('documents', { ...savedForm, id: `full:${savedForm.id}`, docId: savedForm.id }).catch(() => undefined);
+            toast.success(existing ? `${view.formType} saved.` : `${view.formType} created.`);
+            if (touchesStock && sessionUserIdRef.current) loadInventory(sessionUserIdRef.current).catch(() => undefined);
+
+            // Swap the "new document" history entry (and its AI prefill state) for the saved document. The form keeps
+            // its React key, so it stays mounted with its "Saved" state and the new approval link (CORE-010).
+            if (!view.formId || view.prefillData) {
+                formKeyAliasRef.current[docId] = newFormKey(view.formType, view.prefillData, location.key);
+                navigate(`/jobs/${view.jobId}/forms/${encodeURIComponent(view.formType)}/${docId}`, { replace: true, state: { fromJob: (location.state as any)?.fromJob ?? true } });
+            }
+            newFormIdRef.current = null;
+            // (AI drafts are opened one at a time from the assistant; there is no AI queue to drain.)
+            return { id: docId, public_token: publicToken };
+        };
+        const pending = run().catch((err): false => {
+            toast.error(describeError(err, 'Document could not be saved.'));
+            return false;
+        });
+        savingFormPromiseRef.current = pending;
+        try {
+            return await pending;
+        } finally {
+            savingFormPromiseRef.current = null;
+        }
+    };
+
+    /** Quick "new document for client" from the Clients screen: reuses the client's active job or creates one. */
+    const handleNavigateToNewDoc = async (type: FormType, clientId: string) => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) return;
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to create documents."); return; }
+        let client = clients.find(c => c.id === clientId);
+        if (!client) {
+            try { const { fetchClientById } = await import('./utils/clientLinks.ts'); client = (await fetchClientById(clientId)) || undefined; } catch { client = undefined; }
+        }
+        if (!client) { toast.error('Client not found.'); return; }
+        const activeJob = jobs.find(j => j.status === 'active' && (j.clientId === client!.id || j.clientName === client!.name));
+        let jobId = activeJob?.id;
+        if (!jobId) {
+            if (!checkLimit('jobs')) return;
+            try {
+                const created = await insertJobRow({
+                    id: crypto.randomUUID(),
+                    user_id: uid,
+                    name: `${client.name} - General`,
+                    client_name: client.name,
+                    client_address: client.address || null,
+                    start_date: localYmd(),
+                    status: 'active',
+                    client_id: client.id,
+                });
+                setJobs(prev => [created, ...prev]);
+                refreshUsage();
+                jobId = created.id;
+            } catch (error) {
+                if (!handlePlanLimit(error)) toast.error(`Could not create a job for ${client.name}. ${describeError(error)}`);
                 return;
             }
         }
-
-        // Refresh Data
-        const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
-        if (data) setSavedItems(data);
+        if (!checkLimit('docs', jobId)) return;
+        setView({ screen: 'form', formType: type, jobId, formId: null });
     };
 
-    const handleUpdateSavedItem = async (item: SavedItem) => {
-        if (!session) return;
-
-        // 1. Try Full Update
-        const { error } = await supabase.from('saved_items').update(item).eq('id', item.id);
-
-        if (error) {
-            console.error("Price Book Update Error:", error);
-            if (error.message?.includes('column') || error.code === '42703' || error.message?.includes('does not exist')) {
-                alert("⚠️ Database Schema Outdated\n\nUpdate performed in 'Basic Mode'. Some fields were disregarded.\nPlease run the SQL repair script.");
-
-                // Fallback Update
-                const basicItem = {
-                    name: item.name,
-                    description: item.description,
-                    rate: item.rate,
-                    unit_cost: item.unit_cost || item.cost,
-                    category: item.category
-                };
-                await supabase.from('saved_items').update(basicItem).eq('id', item.id);
-            } else {
-                alert("❌ Update Failed: " + error.message);
-            }
-        }
-
-        // Refresh
-        const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
-        if (data) setSavedItems(data);
-    };
-
-    const handleDeleteSavedItem = async (id: string) => {
-        const { error } = await supabase.from('saved_items').delete().eq('id', id);
-        if (error) {
-            alert("Delete Failed: " + error.message);
-            return;
-        }
-        setSavedItems(prev => prev.filter(i => i.id !== id));
-    };
-
-    const handleDuplicateSavedItem = async (item: SavedItem) => {
-        if (!session) return;
-        const { id, created_at, user_id, ...rest } = item;
-        const { error } = await supabase.from('saved_items').insert({
-            ...rest,
-            name: `${item.name} (Copy)`,
-            user_id: session.user.id,
-            id: crypto.randomUUID(),
-        });
-
-        if (error) {
-            alert("Duplicate Failed: " + error.message);
-        } else {
-            // Refresh
-            const { data } = await supabase.from('saved_items').select('*').eq('user_id', session.user.id).order('name');
-            if (data) setSavedItems(data);
+    const handleAddJobFromInventory = async (data: Partial<Job>): Promise<Job | null> => {
+        try {
+            const id = await handleSaveJob(data, true);
+            return jobs.find(j => j.id === id) || ({ id, name: data.name || '', clientName: data.clientName || '', clientAddress: data.clientAddress || '', startDate: data.startDate || localYmd(), endDate: null, status: 'active', userId: sessionUserIdRef.current || '' } as Job);
+        } catch (error) {
+            toast.error(describeError(error));
+            return null;
         }
     };
 
-    // Inventory Handlers
-    const handleLogInventoryAction = async (itemId: string, action: 'add' | 'remove' | 'update' | 'restock' | 'job_allocation', quantityChange: number, notes?: string, jobId?: string) => {
-        if (!session) return;
-        const historyItem = { id: crypto.randomUUID(), user_id: session.user.id, item_id: itemId, action, quantity_change: quantityChange, notes, job_id: jobId, created_at: new Date().toISOString() };
-        await supabase.from('inventory_history').insert(historyItem);
-        setInventoryHistory(prev => [historyItem as InventoryHistoryItem, ...prev]);
-    };
+    const t = getTranslations(profile?.language);
 
-    const handleAddInventoryItem = async (itemData: any) => {
-        if (!session) return;
-        const newItem = { id: crypto.randomUUID(), user_id: session.user.id, ...itemData };
-        await supabase.from('inventory').insert(newItem);
-        await handleLogInventoryAction(newItem.id, 'add', newItem.quantity, 'Initial stock');
-        fetchData();
-    };
-    const handleUpdateInventoryItem = async (item: InventoryItem) => {
-        // Find old item to calculate diff
-        const oldItem = inventory.find(i => i.id === item.id);
-        const diff = item.quantity - (oldItem?.quantity || 0);
+    // ── AI-OWNED (AI engineer): assistant hook + render helpers placed by CORE in the page headers. ──
+    // The assistant only proposes; every side effect runs from an explicit click inside the panel.
+    const ai = useAIAssistant({
+        session,
+        profile,
+        jobs,
+        clients,
+        forms,
+        inventory,
+        checkLimit,
+        onUpgrade: openUpgrade,
+        updateJobStatus: handleUpdateJobStatus,
+        onDuplicateJob: (job: Job) => { setJobToDuplicate(job); setShowDuplicateJobModal(true); },
+        onEmailsSent: () => handleEmailSent(),
+        uploadImage: handleUploadDocumentImage,
+        refreshData: () => { const uid = sessionUserIdRef.current; if (uid) loadInventory(uid).catch(() => undefined); },
+    });
 
-        await supabase.from('inventory').update({
-            quantity: item.quantity,
-            low_stock_threshold: item.low_stock_threshold,
-            // Update new fields if passed (InventoryView sends whole item)
-            category: item.category,
-            unit: item.unit,
-            cost_price: item.cost_price,
-            supplier: item.supplier,
-            location: item.location
-        }).eq('id', item.id);
+    const renderDashboardAI = () => <DashboardMasterAIButton onOpen={ai.openDashboard} />;
 
-        if (diff !== 0) {
-            await handleLogInventoryAction(item.id, diff > 0 ? 'restock' : 'update', diff, diff > 0 ? 'Manual Restock' : 'Manual Adjustment');
-        }
+    const renderJobAIButton = (job: Job) => (
+        <button
+            type="button"
+            onClick={() => ai.openForJob(job)}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 px-3.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[.98]"
+        >
+            <SparklesIcon className="h-4 w-4" />
+            <span>Ask AI</span>
+        </button>
+    );
 
-        fetchData();
-    };
-    const handleDeleteInventoryItem = async (id: string) => {
-        await supabase.from('inventory').delete().eq('id', id);
-        // History automatically deleted by CASCADE or we keep it? CASCADE is set in SQL.
-        fetchData();
-    };
+    // The assistant panel is mounted once at the root (see <AIAssistantPanel>), for dashboard and job mode.
+    const renderJobAIModal = (_job: Job) => null;
+    // ── end AI-owned render helpers ──
 
-    const handleDuplicateInventoryItem = async (item: InventoryItem) => {
-        if (!session) return;
-        const { id, created_at, user_id, ...rest } = item;
-        const { error } = await supabase.from('inventory').insert({
-            ...rest,
-            name: `${item.name} (Copy)`,
-            user_id: session.user.id,
-            id: crypto.randomUUID(),
-        });
-        if (error) {
-            alert("Duplicate Failed: " + error.message);
-        } else {
-            fetchData();
-        }
-    };
+    // ── Screens ──────────────────────────────────────────────────────────────
+    const renderNotFoundJob = () => (
+        <div className="page">
+            <EmptyState
+                icon={BriefcaseIcon}
+                title="Job not found"
+                description="It may have been deleted, or the link is wrong."
+                action={<button type="button" className="btn btn-primary" onClick={navigateToDashboard}>Back to dashboard</button>}
+            />
+        </div>
+    );
 
-    const handleAllocateInventory = async (itemId: string, jobId: string | null, quantity: number, notes?: string) => {
-        if (!session) return;
-        const item = inventory.find(i => i.id === itemId);
-        if (!item) return;
-
-        const newQty = Math.max(0, item.quantity - quantity);
-        await supabase.from('inventory').update({ quantity: newQty }).eq('id', itemId);
-        await handleLogInventoryAction(itemId, 'job_allocation', -quantity, notes || 'Allocated', jobId || undefined);
-        fetchData();
-    };
-
-    const getTranslation = () => { return translations[profile?.language || 'English']; }
-
-    // Render logic...
-    const renderAuth = () => {
-        if (view.screen !== 'auth') return null;
-        switch (view.authScreen) {
-            case 'login': return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => setView({ screen: 'auth', authScreen: 'signup' })} onResetPassword={handleResetPassword} />;
-            case 'signup': return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => setView({ screen: 'auth', authScreen: 'login' })} />;
-            case 'checkEmail': return <div className="flex items-center justify-center min-h-screen bg-background"><Card className="w-full max-w-sm text-center"><CardHeader><CardTitle>Check your email</CardTitle></CardHeader><CardContent><p>We've sent a confirmation link.</p></CardContent></Card></div>;
-        }
-    };
-
-    const renderDashboard = () => {
-        if (!profile) return null;
-        const t = getTranslation();
-        const sq = searchQuery.toLowerCase();
-        const filteredJobs = jobs.filter(j => {
-            const matchesSearch = (j.name || '').toLowerCase().includes(sq) ||
-                (j.clientName || '').toLowerCase().includes(sq) ||
-                (j.clientAddress || '').toLowerCase().includes(sq) ||
-                (j.status || '').toLowerCase().includes(sq);
-            const matchesStatus = statusFilter === 'All' || j.status === statusFilter;
-            const matchesClient = clientFilter === 'All' || j.clientName === clientFilter;
-            return matchesSearch && matchesStatus && matchesClient;
-        });
-        const uniqueClients = Array.from(new Set(jobs.map(j => j.clientName))).filter(Boolean);
-        const getStatusColor = (status: string) => {
-            switch (status) { case 'active': return 'bg-green-500'; case 'completed': return 'bg-blue-500'; case 'paused': return 'bg-orange-500'; default: return 'bg-gray-400'; }
-        }
-        const lowStockItems = inventory.filter(item => Number(item.quantity || 0) <= Number(item.low_stock_threshold ?? 5));
-        return (
-            <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-                {/* ===== HEADER: single row on mobile, full layout on desktop ===== */}
-                <header className="flex flex-col mb-8 gap-4">
-                    {/* Top Row: Logo and Actions */}
-                    <div className="flex items-center justify-between w-full gap-2">
-                        <div className="flex items-center gap-3 min-w-0">
-                            <AppLogo className="w-10 h-10 md:w-12 md:h-12 drop-shadow-md shrink-0" />
-                            <h1 className="hidden md:block text-lg md:text-3xl font-bold truncate">{t.welcome} {profile.name.split(' ')[0]}!</h1>
-                        </div>
-                        {!isOnline && <div className="hidden md:block bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-bold animate-pulse">OFFLINE MODE</div>}
-
-                        {/* Right: Action buttons */}
-                        <div className="flex items-center gap-2 shrink-0">
-                            {profile.subscriptionTier !== 'Premium' && (
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-xs font-bold h-9 py-1.5 px-3 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
-                                    onClick={() => { setUpgradeFeature('Upgrade to Premium Plan'); setShowGlobalUpgrade(true); }}
-                                >
-                                    <StarIcon className="w-3 h-3 md:mr-1.5 fill-current" />
-                                    <span className="hidden md:inline">Upgrade</span>
-                                </Button>
-                            )}
-                            <div className="relative">
-                                <Button variant="outline" onClick={() => setShowToolsMenu(!showToolsMenu)} className="flex items-center gap-1.5 bg-card border-border h-9 px-3 relative">
-                                    {/* Desktop: text + chevron */}
-                                    <span className="hidden md:inline">Tools</span>
-                                    <ChevronDownIcon className="hidden md:block w-4 h-4 opacity-50" />
-                                    {/* Mobile: main icon + small chevron overlay */}
-                                    <div className="md:hidden relative flex items-center justify-center">
-                                        <BoxIcon className="w-5 h-5" />
-                                        <ChevronDownIcon className="absolute -bottom-1 -right-1.5 w-3 h-3 opacity-70 bg-card rounded-sm" />
-                                    </div>
-                                    {lowStockItems.length > 0 && <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
-                                </Button>
-                                {showToolsMenu && (
-                                    <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setShowToolsMenu(false)}></div>
-                                        <div className="absolute top-full right-0 mt-2 w-48 bg-popover border border-border rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 origin-top-right">
-                                            <button onClick={() => { navigateToInventory(); setShowToolsMenu(false); }} className="flex items-center justify-between w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground">
-                                                <div className="flex items-center gap-3"><BoxIcon className="w-4 h-4 text-primary" /> Inventory</div>
-                                                {lowStockItems.length > 0 && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm animate-pulse">{lowStockItems.length > 9 ? '9+' : lowStockItems.length}</span>}
-                                            </button>
-                                            <button onClick={() => { navigateToPriceBook(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><TagIcon className="w-4 h-4 text-primary" /> Price Book</button>
-                                            <button onClick={() => { navigateToCalendar(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><CalendarIcon className="w-4 h-4 text-primary" /> Calendar</button>
-                                            <button onClick={() => { navigateToCalculator(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><CalculatorIcon className="w-4 h-4 text-primary" /> Calculator</button>
-                                            <button onClick={() => { navigateToAnalytics(); setShowToolsMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2.5 text-sm hover:bg-secondary rounded-lg text-left transition-colors text-foreground"><BarChartIcon className="w-4 h-4 text-primary" /> Insights</button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-
-                            <Button variant="outline" onClick={() => navigateToForum()} className="relative bg-card border-border h-9 px-3 flex items-center gap-1.5 shrink-0" title="Community">
-                                <MessageSquareIcon className="w-4 h-4" />
-                                <span className="hidden md:inline">Community</span>
-                                {notificationCount > 0 && <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] text-white font-bold shadow-sm">{notificationCount > 9 ? '9+' : notificationCount}</span>}
-                            </Button>
-
-                            <Button onClick={() => navigateToCreateJob('dashboard')} className="shadow-sm h-9 px-3 shrink-0" size="sm">
-                                <PlusIcon className="w-4 h-4 md:mr-2" />
-                                <span className="hidden md:inline">{t.newJob}</span>
-                            </Button>
-
-                            <Button variant="ghost" size="icon" onClick={() => setView({ screen: 'profile' })} className="rounded-full h-9 w-9 overflow-hidden border border-border shrink-0">
-                                {profile.profilePictureUrl ? <img src={profile.profilePictureUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon className="h-5 w-5" />}
-                            </Button>
-                        </div>
-                    </div>
-                </header>
-
-                <div className="flex flex-col md:flex-row gap-3 mb-6">
-                    <div className="relative flex-1 w-full">
-                        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                        <Input placeholder="Search jobs..." className="pl-10 h-10 w-full rounded-xl bg-card border-border" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-                    </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                            className="h-10 flex-1 md:w-[140px] rounded-xl border border-border bg-card pl-3 pr-8 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer text-foreground appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat"
-                        >
-                            <option value="All">All Statuses</option>
-                            <option value="active">Active</option>
-                            <option value="paused">Paused</option>
-                            <option value="completed">Completed</option>
-                            <option value="inactive">Inactive</option>
-                        </select>
-                        <select
-                            value={clientFilter}
-                            onChange={(e) => setClientFilter(e.target.value)}
-                            className="h-10 flex-1 md:max-w-[160px] rounded-xl border border-border bg-card pl-3 pr-8 py-2 text-sm shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer truncate text-foreground appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.5rem_center] bg-[length:1.25rem_1.25rem] bg-no-repeat"
-                        >
-                            <option value="All">All Clients</option>
-                            {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <h2 className="text-xl font-semibold mb-4">{t.yourJobs}</h2>
-                {
-                    filteredJobs.length === 0 ? <Card className="text-center p-8"><CardTitle>{jobs.length === 0 ? t.noJobs : "No jobs found"}</CardTitle><CardDescription className="mt-2">{jobs.length === 0 ? t.clickNewJob : "Try a different search term"}</CardDescription></Card> : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{filteredJobs.map(job => (
-                        <JobCard
-                            key={job.id}
-                            job={job}
-                            onClick={() => setView({ screen: 'jobDetails', jobId: job.id })}
-                            onDelete={() => { setJobToDelete(job.id); setShowDeleteJobModal(true); }}
-                            onDuplicate={() => { setJobToDuplicate(job); setShowDuplicateJobModal(true); }}
-                            t={t}
-                        />
-                    ))}</div>
-                }
-            </div >
-        );
-    };
+    const renderDashboard = () => (
+        <DashboardScreen
+            userName={profile?.name || ''}
+            plan={plan}
+            jobs={jobs}
+            forms={forms}
+            clientsCount={clients.length}
+            lowStockCount={lowStockCount}
+            usage={effectiveUsage}
+            loading={!jobsLoaded}
+            t={t}
+            aiSlot={renderDashboardAI()}
+            onNewJob={() => navigateToCreateJob('dashboard')}
+            onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+            onOpenDocument={openDocument}
+            onDuplicateJob={(job) => { setJobToDuplicate(job); setShowDuplicateJobModal(true); }}
+            onDeleteJob={(job) => setJobToDelete(job.id)}
+            onUpgrade={() => openUpgrade()}
+            onOpenClients={() => navigate('/clients')}
+            onOpenInventory={() => navigate('/inventory')}
+            onOpenCalendar={() => navigate('/calendar')}
+        />
+    );
 
     const renderJobDetails = () => {
-        if (view.screen !== 'jobDetails' || !profile) return null;
+        if (view.screen !== 'jobDetails') return null;
         const job = jobs.find(j => j.id === view.jobId);
-        if (!job) return <div>Job not found!</div>;
-        const t = getTranslation();
-        const getDocTitle = (form: FormDataType) => { const d = form.data as any; return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type; };
-        const baseForms = forms.filter(f => f.jobId === job.id);
-        const jobForms = baseForms.filter(f => getDocTitle(f).toLowerCase().includes(docSearchQuery.toLowerCase()) || f.type.toLowerCase().includes(docSearchQuery.toLowerCase())).filter(f => docTypeFilter === 'All' || f.type === docTypeFilter);
-        const uniqueDocTypes = Array.from(new Set(baseForms.map(f => f.type))).filter(Boolean);
-        const getDocIcon = (type: FormType) => { switch (type) { case FormType.Invoice: return InvoiceIcon; case FormType.Estimate: return EstimateIcon; case FormType.ChangeOrder: return ChangeOrderIcon; case FormType.PurchaseOrder: return TruckIcon; default: return InvoiceIcon; } };
-        const getStatusBadge = (form: FormDataType) => { const status = (form.data as any).status; return status ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground border border-border">{status}</span> : null; };
-
+        if (!job) return jobsLoaded ? renderNotFoundJob() : <PageSkeleton rows={3} />;
+        const jobDocs = forms.filter(f => f.jobId === job.id);
+        const pag = documentPagination[job.id];
+        const client = (job.clientId ? clients.find(c => c.id === job.clientId) : undefined) || clients.find(c => c.name === job.clientName) || null;
         return (
-            <div className="w-full min-h-screen bg-background text-foreground p-4 md:p-8 pb-24">
-                {/* ===== HEADER: single row — [← Title] on left, [actions] on right ===== */}
-                <header className="flex items-center justify-between mb-6 border-b border-border pb-4 gap-2">
-                    {/* Left: Back + Job name */}
-                    <div className="flex items-center gap-2 min-w-0">
-                        <Button variant="ghost" size="sm" onClick={navigateToDashboard} className="w-9 h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
-                            <BackArrowIcon className="h-5 w-5" />
-                        </Button>
-                        <div className="min-w-0">
-                            <h1 className="text-base md:text-2xl font-bold truncate tracking-tight">{job.name}</h1>
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <UsersIcon className="w-3 h-3 shrink-0" />
-                                <span className="truncate">{job.clientName}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right: compact action bar — always a single row */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                        <select
-                            value={job.status}
-                            onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
-                            className="h-8 rounded-full border bg-card px-2 py-1 text-xs font-medium shadow-sm hover:bg-secondary focus:ring-2 focus:ring-primary/20 outline-none transition-all cursor-pointer hidden md:block"
-                        >
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                            <option value="paused">Paused</option>
-                            <option value="completed">Completed</option>
-                        </select>
-                        {/* Mobile: status as colored dot button */}
-                        <div className="md:hidden relative">
-                            <select
-                                value={job.status}
-                                onChange={(e) => handleUpdateJobStatus(job.id, e.target.value as any)}
-                                className="h-8 rounded-full border bg-card pl-2 pr-6 py-1 text-xs font-medium shadow-sm cursor-pointer outline-none appearance-none"
-                            >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                                <option value="paused">Paused</option>
-                                <option value="completed">Completed</option>
-                            </select>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            {profile.subscriptionTier !== 'Premium' && (
-                                <>
-                                    <span className="text-[10px] md:text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold shadow-sm border border-blue-200">
-                                        {jobForms.filter(f => { if (!f.createdAt) return true; const d = new Date(f.createdAt); return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear(); }).length}/{FREE_LIMITS.docs} <span className="hidden sm:inline">Docs</span>
-                                    </span>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-[10px] md:text-xs font-bold h-8 py-1 px-2.5 bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 dark:bg-white dark:text-indigo-900 rounded-full shadow-sm"
-                                        onClick={() => { setUpgradeFeature(`Upgrade to create more than ${FREE_LIMITS.docs} documents per project per month.`); setShowGlobalUpgrade(true); }}
-                                    >
-                                        <StarIcon className="w-3 h-3 md:mr-1 fill-current" />
-                                        <span className="hidden md:inline">Upgrade</span>
-                                    </Button>
-                                </>
-                            )}
-                        </div>
-                        <Button onClick={() => navigateToNewDoc(job.id)} className="rounded-full shadow-md shadow-primary/20 h-8 w-8 md:h-9 md:px-3 md:w-auto p-0" size="sm">
-                            <PlusIcon className="w-4 h-4 md:mr-2" />
-                            <span className="hidden md:inline">{t.newDocument}</span>
-                        </Button>
-                        <Button variant="outline" size="icon" className="rounded-full h-8 w-8 md:h-9 md:w-9 shrink-0 bg-purple-500/10 text-purple-600 border border-purple-500/20 hover:bg-purple-500/20 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-800" onClick={() => setShowJobFinancials(true)} title="Financials">
-                            <CalculatorIcon className="w-4 h-4" />
-                        </Button>
-                    </div>
-                </header>
-
-                {!isOnline && <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-md mb-4 text-center text-sm font-bold animate-pulse">You are OFFLINE. Documents created will sync later.</div>}
-
-                {/* Job Financials Modal */}
-                {showJobFinancials && (() => {
-                    const revenueDocs = jobForms.filter(f => f.type === FormType.Invoice && ['paid', 'approved', 'sent'].includes(((f.data as any).status || '').toLowerCase()));
-                    const totalRevenue = revenueDocs.reduce((acc, f) => acc + ((f.data as any).total || 0), 0);
-
-                    const materialDocs = jobForms.filter(f => f.type === FormType.MaterialLog);
-                    const materialCost = materialDocs.reduce((acc, f) => {
-                        return acc + (((f.data as any).materials || []) as any[]).reduce((sum, item) => sum + (item.quantity * (item.unitCost || 0)), 0);
-                    }, 0);
-
-                    const laborDocs = jobForms.filter(f => f.type === FormType.TimeSheet);
-                    const laborRate = profile.defaultLaborRate || 45; // Default fallback
-                    const laborCost = laborDocs.reduce((acc, f) => {
-                        const h = (f.data as any).hoursWorked || 0;
-                        const ot = (f.data as any).overtimeHours || 0;
-                        return acc + (h * laborRate) + (ot * laborRate * 1.5);
-                    }, 0);
-
-                    const totalCost = materialCost + laborCost;
-                    const profit = totalRevenue - totalCost;
-                    const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-
-                    const isProfitGood = profitMargin >= 30;
-                    const isProfitWarning = profitMargin > 0 && profitMargin < 15;
-                    const isLoss = profitMargin <= 0;
-
-                    return (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                            <Card className="w-full max-w-4xl shadow-2xl overflow-hidden rounded-2xl border-border/60">
-                                <CardHeader className="bg-muted/30 border-b flex flex-row items-center justify-between pb-4">
-                                    <CardTitle className="text-xl font-bold flex items-center gap-2">
-                                        <CalculatorIcon className="w-5 h-5 text-primary" />
-                                        Job Financials
-                                    </CardTitle>
-                                    <button onClick={() => setShowJobFinancials(false)} className="text-muted-foreground hover:text-foreground">
-                                        <XCircleIcon className="w-6 h-6" />
-                                    </button>
-                                </CardHeader>
-                                <CardContent className="p-6">
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <Card className="bg-gradient-to-br from-card to-card border-border shadow-sm p-4 rounded-xl flex flex-col justify-center">
-                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><InvoiceIcon className="w-4 h-4" /> Billed Revenue</span>
-                                            <span className="text-2xl font-bold mt-1">${totalRevenue.toFixed(2)}</span>
-                                        </Card>
-                                        <Card className="bg-gradient-to-br from-card to-card border-border shadow-sm p-4 rounded-xl flex flex-col justify-center">
-                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><BoxIcon className="w-4 h-4" /> Material Cost</span>
-                                            <span className="text-2xl font-bold mt-1">${materialCost.toFixed(2)}</span>
-                                        </Card>
-                                        <Card className="bg-gradient-to-br from-card to-card border-border shadow-sm p-4 rounded-xl flex flex-col justify-center">
-                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><ClockIcon className="w-4 h-4" /> Labor Cost</span>
-                                            <span className="text-xl font-bold mt-1">${laborCost.toFixed(2)}</span>
-                                            <span className="text-xs text-muted-foreground mt-0.5">Est. @ ${laborRate}/hr</span>
-                                        </Card>
-                                        <Card className={`shadow-sm p-4 rounded-xl flex flex-col justify-center border-2 ${isProfitGood ? 'border-green-500 bg-green-50/50 dark:bg-green-950/20' : (isLoss && totalRevenue > 0) ? 'border-red-500 bg-red-50/50 dark:bg-red-950/20' : isProfitWarning ? 'border-orange-500 bg-orange-50/50 dark:bg-orange-950/20' : 'border-border bg-card'}`}>
-                                            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5"><BarChartIcon className="w-4 h-4" /> Profit Margin</span>
-                                            <div className="flex items-baseline gap-2 mt-1">
-                                                <span className={`text-2xl font-bold ${isProfitGood ? 'text-green-600 dark:text-green-400' : (isLoss && totalRevenue > 0) ? 'text-red-600 dark:text-red-400' : isProfitWarning ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
-                                                    ${profit.toFixed(2)}
-                                                </span>
-                                                {totalRevenue > 0 && (
-                                                    <span className={`text-sm font-bold ${isProfitGood ? 'text-green-600 dark:text-green-400' : (isLoss && totalRevenue > 0) ? 'text-red-600 dark:text-red-400' : isProfitWarning ? 'text-orange-600 dark:text-orange-400' : 'text-foreground'}`}>
-                                                        ({profitMargin.toFixed(1)}%)
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </Card>
-                                    </div>
-                                    <div className="mt-6 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg flex items-start gap-2">
-                                        <CalculatorIcon className="w-4 h-4 text-blue-600 mt-0.5" />
-                                        <p>Profit relies on approved/paid Invoices, Time Sheets, and Material Logs logged to this project.</p>
-                                    </div>
-                                </CardContent>
-                                <CardFooter className="bg-muted/10 border-t p-4 flex justify-end">
-                                    <Button onClick={() => setShowJobFinancials(false)}>Close Summary</Button>
-                                </CardFooter>
-                            </Card>
-                        </div>
-                    );
-                })()}
-
-                <div className="space-y-6">
-
-                    <div className="flex flex-col gap-4">
-                        <h2 className="text-xl font-bold md:text-2xl">{t.projectDocs}</h2>
-
-                        <div className="flex items-center gap-2 w-full">
-                            <div className="relative flex-1">
-                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                                <Input
-                                    placeholder="Search docs..."
-                                    className="pl-9 h-11 text-sm rounded-xl bg-card border-border hover:bg-secondary/50 focus:bg-background focus:border-primary transition-all"
-                                    value={docSearchQuery}
-                                    onChange={(e) => setDocSearchQuery(e.target.value)}
-                                />
-                            </div>
-
-                            {/* Document Type Filter: Side-by-side on mobile screen */}
-                            <div className="relative shrink-0">
-                                <Button variant="outline" size="icon" className="h-11 w-11 rounded-xl bg-card border-border md:hidden" onClick={() => {
-                                    // Use a simple prompt for now or just cycle types if no modal?
-                                    // User mentioned "filter icon button" to open filter.
-                                    // I will use a simple select for now but styled as requested or just the select icon.
-                                    // Let's actually use the select but with a custom trigger appearance if needed.
-                                }}>
-                                    <FilterIcon className="w-4 h-4" />
-                                </Button>
-
-                                <select
-                                    value={docTypeFilter}
-                                    onChange={(e) => setDocTypeFilter(e.target.value)}
-                                    className="h-11 rounded-xl border border-border bg-card px-3 text-sm font-medium shadow-sm outline-none transition-all cursor-pointer text-foreground hidden md:block"
-                                >
-                                    <option value="All">All Types</option>
-                                    {uniqueDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-
-                                {/* On mobile, the select is hidden but we can make it an overlay or just a full-width select below. 
-                                    The user asked for: "Replace the selectors with a single filter icon button. Place the filter icon on the right side of the search bar." 
-                                    I will keep it simple for now: icon button that might reveal a select or just a select styled as a button on mobile. */}
-                                <select
-                                    value={docTypeFilter}
-                                    onChange={(e) => setDocTypeFilter(e.target.value)}
-                                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer md:hidden z-10"
-                                >
-                                    <option value="All">All Types</option>
-                                    {uniqueDocTypes.map(t => <option key={t} value={t} className="bg-background text-foreground py-2">{t}</option>)}
-                                </select>
-                                <style>{`
-                                    select option {
-                                        background-color: var(--background);
-                                        color: var(--foreground);
-                                        padding: 10px;
-                                    }
-                                `}</style>
-                            </div>
-                        </div>
-                    </div>
-
-                    {jobForms.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 px-4 text-center bg-muted/10 rounded-xl border border-dashed border-border">
-                            <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
-                                <BriefcaseIcon className="w-6 h-6" />
-                            </div>
-                            <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
-                            <p className="text-muted-foreground max-w-sm mt-1 mb-6">{t.noDocsYet}</p>
-                            <Button variant="outline" onClick={() => navigateToNewDoc(job.id)} className="rounded-full">
-                                Create First Document
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {jobForms.map(form => (
-                                <DocumentCard
-                                    key={form.id}
-                                    form={form}
-                                    onClick={() => setView({ screen: 'form', formType: form.type, jobId: job.id, formId: form.id })}
-                                    onDelete={() => { setDocToDelete(form.id); setShowDeleteDocModal(true); }}
-                                    onDuplicate={() => handleDuplicateDoc(form)}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div >
-            </div >
+            <JobDetailsScreen
+                key={job.id}
+                job={job}
+                client={client}
+                documents={jobDocs}
+                loadingDocuments={!pag?.loaded}
+                hasMoreDocuments={Boolean(pag?.hasMore && pag?.loaded)}
+                loadingMoreDocuments={Boolean(pag?.loading && pag?.loaded)}
+                docsThisMonth={jobDocs.filter(f => isThisMonth(f.createdAt)).length}
+                docLimit={paid ? null : effectiveUsage.limits.docs}
+                isOnline={isOnline}
+                t={t}
+                aiButton={renderJobAIButton(job)}
+                aiModal={renderJobAIModal(job)}
+                onBack={navigateToDashboard}
+                onNewDocument={() => navigateToNewDoc(job.id)}
+                onOpenDocument={(form) => openDocument(form, true)}
+                onDuplicateDocument={handleDuplicateDoc}
+                onDeleteDocument={(form) => setDocToDelete(form.id)}
+                onStatusChange={(status) => handleUpdateJobStatus(job.id, status)}
+                onLoadMore={() => loadDocumentsForJob(job.id)}
+                onOpenFinancials={() => setShowJobFinancials(true)}
+                onUpgrade={() => openUpgrade(`Free plan: ${effectiveUsage.limits.docs} documents per job each month.`)}
+            />
         );
     };
 
     const renderForm = () => {
         if (view.screen !== 'form' || !profile) return null;
-        const { formType, jobId, formId } = view;
+        const { formType, jobId, formId, prefillData } = view;
         const job = jobs.find(j => j.id === jobId);
-        const form = forms.find(f => f.id === formId);
-        if (!job) return <div>Job not found!</div>;
-        const handleCloseForm = () => setView({ screen: 'jobDetails', jobId: jobId });
+        if (!job) return jobsLoaded ? renderNotFoundJob() : <PageSkeleton rows={2} />;
+        const form = formId ? forms.find(f => f.id === formId) : undefined;
+        if (formId && (!form || isLightweightDocument(form))) {
+            const failed = formLoad?.id === formId && formLoad.error;
+            if (failed) {
+                return (
+                    <div className="page">
+                        <EmptyState
+                            icon={isOnline ? AlertTriangleIcon : WifiOffIcon}
+                            title="We couldn't open this document"
+                            description={formLoad?.error}
+                            action={
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                    <button type="button" className="btn btn-primary" onClick={() => { setFormLoad(null); setFormReloadNonce(n => n + 1); }}>Try again</button>
+                                    <button type="button" className="btn btn-outline" onClick={() => navigate(`/jobs/${jobId}`)}>Back to job</button>
+                                </div>
+                            }
+                        />
+                    </div>
+                );
+            }
+            return <PageSkeleton rows={2} label="Loading document" />;
+        }
+        const handleCloseForm = () => {
+            if ((location.state as any)?.fromJob && canGoBack()) navigate(-1);
+            else navigate(`/jobs/${jobId}`, { replace: true });
+        };
 
-        const componentKey = formId || `new-${formType}`;
-
-        // Pass public token to forms that support approval
-        const publicToken = form?.public_token;
+        const componentKey = formId ? (formKeyAliasRef.current[formId] ?? formId) : newFormKey(formType, prefillData, location.key);
+        const publicToken = form?.public_token ?? null;
+        const pf = prefillData;
+        const numberField = DOC_NUMBER_FIELD[formType];
+        const existingNumbers = numberField
+            ? forms.filter(f => f.type === formType && f.id !== formId).map(f => String((f.data as any)?.[numberField] || '')).filter(Boolean)
+            : undefined;
+        const common = {
+            job,
+            clients,
+            onSave: handleSaveForm,
+            onUploadImage: handleUploadDocumentImage,
+            prefillData: pf,
+            documentId: formId ?? undefined,
+            existingNumbers,
+        };
 
         switch (formType) {
-            case FormType.Invoice: return <InvoiceForm key={componentKey} job={job} userProfile={profile} invoice={form?.data as InvoiceData | null} onSave={handleSaveForm} onClose={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} inventoryItems={inventory} />;
-            case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} profile={profile} job={job} clients={clients} report={form?.data as DailyJobReportData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.Note: return <NoteForm key={componentKey} profile={profile} job={job} note={form?.data as NoteData | null} onSave={handleSaveForm} onBack={handleCloseForm} />;
-            case FormType.WorkOrder: return <WorkOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WorkOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.TimeSheet: return <TimeSheetForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as TimeSheetData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-
-            case FormType.MaterialLog: return <MaterialLogForm key={componentKey} job={job} profile={profile} clients={clients} inventory={inventory} data={form?.data as MaterialLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.Estimate: return <EstimateForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as EstimateData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
-
-            case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ExpenseLogData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.Warranty: return <WarrantyForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as WarrantyData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.Receipt: return <ReceiptForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ReceiptData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as ChangeOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} publicToken={publicToken} savedItems={savedItems} inventoryItems={inventory} />;
-            case FormType.PurchaseOrder: return <PurchaseOrderForm key={componentKey} job={job} profile={profile} clients={clients} data={form?.data as PurchaseOrderData | null} onSave={handleSaveForm} onBack={handleCloseForm} onUploadImage={handleUploadDocumentImage} />;
-            default: return <div className="p-8"><h2 className="text-2xl mb-4">{formType} not implemented.</h2><Button onClick={navigateToDashboard}>Back</Button></div>;
+            case FormType.Invoice: return <InvoiceForm key={componentKey} {...common} userProfile={profile} invoice={form?.data as InvoiceData | null} onClose={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
+            case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} {...common} profile={profile} report={form?.data as DailyJobReportData | null} onBack={handleCloseForm} />;
+            case FormType.Note: return <NoteForm key={componentKey} {...common} profile={profile} note={form?.data as NoteData | null} onBack={handleCloseForm} />;
+            case FormType.WorkOrder: return <WorkOrderForm key={componentKey} {...common} profile={profile} data={form?.data as WorkOrderData | null} onBack={handleCloseForm} />;
+            case FormType.TimeSheet: return <TimeSheetForm key={componentKey} {...common} profile={profile} data={form?.data as TimeSheetData | null} onBack={handleCloseForm} />;
+            case FormType.MaterialLog: return <MaterialLogForm key={componentKey} {...common} profile={profile} inventory={inventory} data={form?.data as MaterialLogData | null} onBack={handleCloseForm} />;
+            case FormType.Estimate: return <EstimateForm key={componentKey} {...common} profile={profile} data={form?.data as EstimateData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
+            case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} {...common} profile={profile} data={form?.data as ExpenseLogData | null} onBack={handleCloseForm} />;
+            case FormType.Warranty: return <WarrantyForm key={componentKey} {...common} profile={profile} data={form?.data as WarrantyData | null} onBack={handleCloseForm} />;
+            case FormType.Receipt: return <ReceiptForm key={componentKey} {...common} profile={profile} data={form?.data as ReceiptData | null} onBack={handleCloseForm} publicToken={publicToken} />;
+            case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} {...common} profile={profile} data={form?.data as ChangeOrderData | null} onBack={handleCloseForm} publicToken={publicToken} savedItems={savedItems} inventoryItems={inventory} />;
+            case FormType.PurchaseOrder: return <PurchaseOrderForm key={componentKey} {...common} profile={profile} data={form?.data as PurchaseOrderData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} />;
+            default: return renderNotFoundJob();
         }
     };
 
-    const getDockItems = () => {
-        const t = getTranslation();
-        const items: any[] = [{ icon: HomeIcon, label: t.dashboard, onClick: navigateToDashboard }];
-
-
-
-        if (view.screen === 'jobDetails') {
-            items.push({ icon: PlusIcon, label: t.newDocument, onClick: () => navigateToNewDoc((view as { jobId: string }).jobId) });
+    const renderAuth = () => {
+        if (view.screen !== 'auth') return null;
+        switch (view.authScreen) {
+            case 'signup':
+                return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => navigate('/auth/login', { replace: true })} />;
+            case 'checkEmail': {
+                let email = '';
+                try { email = sessionStorage.getItem('signup_email') || ''; } catch { /* ignore */ }
+                return (
+                    <AuthMessage
+                        title="Check your email"
+                        body={<>We sent a confirmation link to {email ? <strong className="text-foreground">{email}</strong> : 'your inbox'}. Open it to activate your account, then log in.</>}
+                        actionLabel="Back to login"
+                        onAction={() => navigate('/auth/login', { replace: true })}
+                        secondary={email ? { label: 'Resend the email', onClick: handleResendConfirmation } : undefined}
+                    />
+                );
+            }
+            default:
+                return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => navigate('/auth/signup', { replace: true })} onResetPassword={handleResetPassword} />;
         }
-        else if (view.screen === 'dashboard' || view.screen === 'clients') items.push({
-            icon: UsersIcon,
-            label: 'Clients',
-            onClick: navigateToClients,
-            badgeCount: clientNotificationCount
-        });
-
-        items.push({ icon: MailIcon, label: 'Communication', onClick: navigateToCommunication });
-
-        items.push({ icon: SettingsIcon, label: t.settings, onClick: navigateToSettings });
-        return items;
     };
 
     const renderContent = () => {
-        // 1. External Portal View (Many documents)
+        // 1. Public client links (no login).
         if (portalKey) return <PortalView supabase={supabase} portalKey={portalKey} />;
-
-        // 2. Single Document Approval View
         if (approvalToken) return <DocumentApprovalView supabase={supabase} approvalToken={approvalToken} />;
 
-        if (dbSetupError) return <DbSetupScreen sqlScript={dbSetupError} />;
-        if (loading) return <div className="flex items-center justify-center min-h-screen">{loadingMessage}</div>;
-        if (!session) {
-            if (view.screen === 'welcome') return <Welcome onGetStarted={() => setView({ screen: 'auth', authScreen: 'signup' })} onLogin={() => setView({ screen: 'auth', authScreen: 'login' })} onNavigate={(screen) => setView({ screen: screen as any })} />;
-            if (view.screen === 'privacy') return <PrivacyPolicy onBack={() => setView({ screen: 'welcome' })} />;
-            if (view.screen === 'terms') return <TermsOfService onBack={() => setView({ screen: 'welcome' })} />;
-            if (view.screen === 'security') return <Security onBack={() => setView({ screen: 'welcome' })} />;
+        if (!authReady) return <AppSplash />;
+        if (view.screen === 'qaAiDocuments' && import.meta.env.DEV) return <DocumentAIQAHarness />;
 
-            return renderAuth();
+        if (!session) {
+            if (view.screen === 'auth') return renderAuth();
+            if (view.screen === 'updatePassword') {
+                const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+                const description = hash.get('error_description');
+                return (
+                    <AuthMessage
+                        icon="warning"
+                        title="This link has expired"
+                        body={description ? `${description.replace(/\+/g, ' ')}. Request a new password reset link from the login page.` : 'Password reset links can only be used once and expire after a while. Request a new one from the login page.'}
+                        actionLabel="Back to login"
+                        onAction={() => navigate('/auth/login', { replace: true })}
+                    />
+                );
+            }
+            return <AppSplash />; // redirecting to /auth/login
         }
+
+        if (view.screen === 'updatePassword') return <UpdatePassword onUpdatePassword={handleUpdatePassword} />;
+        // The OAuth code is single-use: exchange it as soon as the session exists (no profile wait, no redirect).
+        if (view.screen === 'gmailCallback') return <GmailCallback />;
+        if (view.screen === 'auth' || view.screen === 'root' || view.screen === 'welcome' || view.screen === 'notFound') return <AppSplash />;
+
+        if (profileStatus === 'error' || (profileStatus === 'ready' && !profile)) {
+            return (
+                <LoadErrorScreen
+                    message={loadError || 'Please try again in a moment.'}
+                    offline={!isOnline}
+                    onRetry={() => session?.user && loadAccountData(session.user)}
+                    onLogout={handleLogout}
+                />
+            );
+        }
+        if (profileStatus !== 'ready' || !profile) return <PageSkeleton />;
+
         switch (view.screen) {
-            case 'updatePassword': return <UpdatePassword onUpdatePassword={handleUpdatePassword} />;
             case 'dashboard': return renderDashboard();
             case 'jobDetails': return renderJobDetails();
-            case 'createJob': return <JobForm onSave={handleSaveJob} onCancel={navigateToDashboard} supabase={supabase} session={session} jobCount={jobs.filter(j => {
-                const currentMonth = new Date().getMonth();
-                const currentYear = new Date().getFullYear();
-                if (!j.createdAt && !j.startDate) return true;
-                const d = new Date(j.createdAt || j.startDate);
-                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-            }).length} profile={profile} />;
-            case 'selectDocType': { const activeJob = jobs.find(j => j.id === view.jobId); if (!activeJob) return <div>Error</div>; return <SelectDocType onSelect={(type) => setView({ screen: 'form', formType: type, jobId: activeJob.id, formId: null })} onBack={() => setView({ screen: 'jobDetails', jobId: view.jobId })} profile={profile} docCount={forms.length} />; }
+            case 'createJob':
+                return (
+                    <JobForm
+                        onSave={(values) => handleSaveJob(values)}
+                        onCancel={() => {
+                            if (view.returnTo === 'calendar') navigate('/calendar');
+                            else if (canGoBack()) navigate(-1);
+                            else navigateToDashboard();
+                        }}
+                        clients={clients}
+                        jobCount={effectiveUsage.jobsThisMonth}
+                        jobLimit={paid || !effectiveUsage.fromServer ? null : effectiveUsage.limits.jobs}
+                        profile={profile}
+                        onUpgradeClick={() => openUpgrade(`Free plan: ${effectiveUsage.limits.jobs} new jobs per month.`)}
+                        prefillData={view.prefillData as Record<string, any> | undefined}
+                    />
+                );
+            case 'selectDocType': {
+                const activeJob = jobs.find(j => j.id === view.jobId);
+                if (!activeJob) return jobsLoaded ? renderNotFoundJob() : <PageSkeleton rows={3} />;
+                return (
+                    <SelectDocType
+                        jobName={activeJob.name}
+                        profile={profile}
+                        onSelect={(type) => navigate(`/jobs/${activeJob.id}/forms/${encodeURIComponent(type)}`, { replace: true, state: { fromJob: true } })}
+                        onBack={() => navigate(`/jobs/${activeJob.id}`, { replace: true })}
+                    />
+                );
+            }
             case 'form': return renderForm();
-            case 'settings': if (!profile) return null; return <Settings mode="settings" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
-            case 'profile': if (!profile) return null; return <Settings mode="profile" profile={profile} onSave={handleSaveProfile} onBack={navigateToDashboard} theme={theme} setTheme={setTheme} onLogout={handleLogout} onUpgradeClick={() => { setUpgradeFeature('Upgrade to Premium'); setShowGlobalUpgrade(true); }} />;
+            case 'settings':
+            case 'profile':
+                return (
+                    <Settings
+                        mode={view.screen}
+                        profile={profile}
+                        onSave={handleSaveProfile}
+                        onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                        theme={theme}
+                        setTheme={handleThemeChange}
+                        onLogout={handleLogout}
+                        onUpgradeClick={() => openUpgrade()}
+                        usage={effectiveUsage}
+                        onManageBilling={handleManageBilling}
+                        onSaveSignature={handleSaveSignature}
+                        onDeleteAccount={handleDeleteAccount}
+                        initialSection={location.hash === '#billing' ? 'billing' : undefined}
+                    />
+                );
+            case 'billingSuccess':
+                return (
+                    <BillingSuccess
+                        userId={session.user.id}
+                        onActivated={() => { if (session?.user) loadAccountData(session.user, { silent: true }); }}
+                        onGoToDashboard={() => navigate('/dashboard', { replace: true })}
+                    />
+                );
             case 'clients':
                 return <ClientsView
                     onBack={navigateToDashboard}
                     supabase={supabase}
                     session={session}
                     clients={clients}
-                    forms={forms} // Pass forms for approval flow
+                    forms={forms}
                     jobs={jobs}
                     userProfile={profile}
-                    onUpgradeClick={() => { setUpgradeFeature('Upgrade Plan'); setShowGlobalUpgrade(true); }}
-                    freeLimit={FREE_LIMITS.clients}
-                    onAddClient={async (data) => { if (checkLimit('clients')) await handleAddClient(data); }}
-                    onUpdateClient={async (data) => await handleUpdateClient(data)}
-                    onDeleteClient={handleDeleteClient}
+                    openCreateModal={view.openCreateModal}
+                    prefillData={view.prefillData}
+                    onUpgradeClick={() => openUpgrade(`Free plan: up to ${effectiveUsage.limits.clients} saved clients.`)}
+                    freeLimit={effectiveUsage.limits.clients ?? undefined}
                     isOnline={isOnline}
                     onNavigateToNewDoc={handleNavigateToNewDoc}
                     onNavigateToJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
                     onNavigateToDoc={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType })}
-                    onMarkDocumentsAsViewed={markDocumentsAsViewed}
+                    onClientsChanged={() => { const uid = sessionUserIdRef.current; if (uid) { loadClients(uid).catch(() => undefined); refreshUsage(); } }}
+                    onDocumentsViewed={handleDocumentsViewed}
                 />;
             case 'inventory':
                 return <InventoryView
+                    openAddModal={view.openAddModal}
+                    prefillData={view.prefillData}
                     userProfile={profile}
                     onBack={navigateToDashboard}
                     inventory={inventory}
-                    history={inventoryHistory}
                     jobs={jobs}
                     clients={clients}
-                    onAddItem={handleAddInventoryItem}
-                    onDuplicateItem={handleDuplicateInventoryItem}
-                    onUpdateItem={handleUpdateInventoryItem}
-                    onDeleteItem={handleDeleteInventoryItem}
-                    onAllocate={handleAllocateInventory}
-                    onAddClient={async (data) => { if (checkLimit('clients')) return await handleAddClient(data); return null; }}
-                    onAddJob={async (data) => { if (checkLimit('jobs')) { const jid = await handleSaveJob(data, true); return { id: jid } as Job; } return null; }}
+                    onAddJob={handleAddJobFromInventory}
+                    onDataChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadInventory(uid).catch(() => undefined); }}
                 />;
             case 'pricebook':
                 return <PriceBookView
                     onBack={navigateToDashboard}
                     savedItems={savedItems}
-                    onAddItem={handleAddSavedItem}
-                    onDuplicateItem={handleDuplicateSavedItem}
-                    onUpdateItem={handleUpdateSavedItem}
-                    onDeleteItem={handleDeleteSavedItem}
-                    onUploadImage={(file) => uploadFile('price-book-images', file, session!.user.id, true)}
-                    isPremium={profile?.subscriptionTier === 'Premium'}
+                    isPremium={paid}
+                    onDataChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadSavedItems(uid).catch(() => undefined); }}
+                    openAddModal={(view as any).openAddModal}
+                    prefillData={(view as any).prefillData}
                 />;
             case 'profitCalculator':
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
-            case 'analytics': return <AnalyticsView jobs={jobs} forms={forms} onBack={navigateToDashboard} />;
-            case 'calendar': return <CalendarView jobs={jobs} onBack={navigateToDashboard} onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })} onNewJob={() => navigateToCreateJob('calendar')} />;
-            case 'communication': return <CommunicationView supabase={supabase} clients={clients} forms={forms} jobs={jobs} profile={profile} session={session} onConnectGmail={handleConnectGmail} onDisconnectGmail={handleDisconnectGmail} onBack={navigateToDashboard} onEmailSent={handleEmailSent} onUpgrade={() => { setUpgradeFeature('Upgrade to Premium to send more emails.'); setShowGlobalUpgrade(true); }} />;
-            case 'gmailCallback': return <GmailCallback supabase={supabase} />;
+            case 'analytics':
+                return <AnalyticsView jobs={jobs} onBack={navigateToDashboard} />;
+            case 'calendar':
+                return <CalendarView
+                    jobs={jobs}
+                    onBack={navigateToDashboard}
+                    onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onNewJob={() => navigateToCreateJob('calendar')}
+                    onNewJobOnDate={(ymd: string) => navigateToCreateJob('calendar', { startDate: ymd })}
+                />;
+            case 'communication':
+                return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} session={session} onBack={navigateToDashboard} onEmailSent={handleEmailSent} onUpgrade={() => openUpgrade(`Free plan: ${effectiveUsage.limits.emails} emails per month.`)} prefillData={view.prefillData} />;
             case 'forum':
                 return (
                     <ForumView
                         onBack={navigateToDashboard}
-                        supabase={supabase}
                         session={session}
-                        onUploadImage={handleUploadForumImage}
                         initialPostId={view.postId}
                         onNavigate={(postId) => setView({ screen: 'forum', postId: postId || undefined })}
-                        onDbSetupNeeded={() => setDbSetupError(SQL_SETUP_SCRIPT)}
+                        onUnreadCountChange={setNotificationCount}
                     />
                 );
-            case 'privacy': return <PrivacyPolicy onBack={() => setView({ screen: 'dashboard' })} />;
-            case 'terms': return <TermsOfService onBack={() => setView({ screen: 'dashboard' })} />;
-            case 'security': return <Security onBack={() => setView({ screen: 'dashboard' })} />;
-            default: return renderDashboard();
+            default:
+                return renderDashboard();
         }
     };
 
+    const showNav = Boolean(session && profile && profileStatus === 'ready' && !portalKey && !approvalToken && !PUBLIC_SCREENS.includes(view.screen) && !NO_NAV_SCREENS.includes(view.screen));
+    const showTabBar = showNav && TAB_BAR_SCREENS.includes(view.screen);
+    const viewJob = viewJobId ? jobs.find(j => j.id === viewJobId) : undefined;
+    const tabPrimary = view.screen === 'dashboard'
+        ? { label: 'New job', onClick: () => navigateToCreateJob('dashboard') }
+        : view.screen === 'jobDetails' && viewJob
+            ? { label: 'New doc', onClick: () => navigateToNewDoc(viewJob.id) }
+            : undefined;
+
     return (
-        <main className="w-full min-h-screen bg-background overflow-x-hidden">
-            {renderContent()}
-            {session && !loading && (view.screen === 'dashboard' || view.screen === 'jobDetails' || view.screen === 'clients') && (
-                <Dock items={getDockItems()} />
+        <div className="min-h-screen bg-background text-foreground">
+            {showNav && profile && (
+                <AppNav
+                    active={navSectionFor(view.screen)}
+                    userName={profile.name || profile.companyName || ''}
+                    userEmail={session?.user?.email || profile.email}
+                    avatarUrl={profile.profilePictureUrl}
+                    plan={plan}
+                    onNavigate={handleNavDestination}
+                    onUpgrade={() => openUpgrade()}
+                    onLogout={handleLogout}
+                    primaryAction={tabPrimary}
+                    clientBadge={clientNotificationCount}
+                    forumBadge={notificationCount}
+                    lowStockCount={lowStockCount}
+                    isOnline={isOnline}
+                    showTabBar={showTabBar}
+                />
             )}
-            <UpgradeModal
-                isOpen={showGlobalUpgrade}
-                onClose={() => setShowGlobalUpgrade(false)}
-                featureName={upgradeFeature}
-                onUpgrade={handleUpgradeSuccess}
-                userId={session?.user?.id}
-            />
+            {showNav && (!isOnline || usingCachedData) && (
+                <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-center text-sm text-foreground" role="status">
+                    <WifiOffIcon className="mr-1.5 inline h-4 w-4 align-[-3px] text-warning" />
+                    {!isOnline
+                        ? "You're offline. Showing data saved on this device; changes can't be saved until you reconnect."
+                        : 'Showing data saved on this device. Some information may be out of date.'}
+                </div>
+            )}
+
+            <main className={`overflow-x-clip ${showTabBar ? 'pb-24 md:pb-0' : ''}`}>
+                <ErrorBoundary resetKey={location.pathname} onHome={() => navigate('/dashboard')}>
+                    <Suspense fallback={view.screen === 'auth' || !session ? <AppSplash /> : <PageSkeleton />}>
+                        {renderContent()}
+                    </Suspense>
+                </ErrorBoundary>
+            </main>
+
+            {/* AI-OWNED: the assistant panel (dashboard + job mode), lazy-loaded on first open. */}
+            {session && ai.isOpen && (
+                <ErrorBoundary resetKey="ai-assistant" onHome={ai.close}>
+                    <Suspense fallback={null}>
+                        <AIAssistantPanel assistant={ai} />
+                    </Suspense>
+                </ErrorBoundary>
+            )}
+
+            {showGlobalUpgrade && (
+                <Suspense fallback={null}>
+                    <UpgradeModal
+                        isOpen={showGlobalUpgrade}
+                        onClose={() => setShowGlobalUpgrade(false)}
+                        featureName={upgradeFeature}
+                        userId={session?.user?.id}
+                        currentTier={plan}
+                    />
+                </Suspense>
+            )}
 
             <ConfirmationModal
                 isOpen={showDeleteJobModal}
-                onClose={() => setShowDeleteJobModal(false)}
+                onClose={() => setJobToDelete(null)}
                 onConfirm={handleDeleteJob}
-                title="Delete Job"
-                message="Are you sure you want to delete this job? All associated documents (Invoices, Estimates, etc.) will be permanently deleted. This action cannot be undone."
-                confirmLabel="Delete"
+                title="Delete job?"
+                message={<>This permanently deletes <strong className="text-foreground">{jobs.find(j => j.id === jobToDelete)?.name || 'this job'}</strong> and all of its documents (invoices, estimates, reports). This can't be undone.</>}
+                confirmLabel="Delete job"
                 isDestructive={true}
             />
 
             <ConfirmationModal
                 isOpen={showDeleteDocModal}
-                onClose={() => setShowDeleteDocModal(false)}
+                onClose={() => setDocToDelete(null)}
                 onConfirm={handleDeleteDoc}
-                title="Delete Document"
-                message="Are you sure you want to permanently delete this document? This action cannot be undone."
+                title="Delete document?"
+                message="This permanently deletes the document. This can't be undone."
                 confirmLabel="Delete"
                 isDestructive={true}
             />
 
             <DuplicateJobModal
                 isOpen={showDuplicateJobModal}
-                onClose={() => setShowDuplicateJobModal(false)}
+                onClose={() => { setShowDuplicateJobModal(false); setJobToDuplicate(null); }}
                 onDuplicate={handleDuplicateJob}
                 job={jobToDuplicate}
-                forms={forms.filter(f => f.jobId === jobToDuplicate?.id)}
+                forms={duplicateCandidateForms}
                 clients={clients}
+                loadingDocuments={Boolean(jobToDuplicate && !documentPagination[jobToDuplicate.id]?.loaded)}
             />
-        </main>
+
+            {showJobFinancials && viewJob && (
+                <Suspense fallback={null}>
+                    <JobFinancialsModal job={viewJob} defaultLaborRate={profile?.defaultLaborRate} onClose={() => setShowJobFinancials(false)} />
+                </Suspense>
+            )}
+
+            <Toaster />
+        </div>
     );
 };
 
 export default App;
-
-// Build Trigger: 2026-05-16 - Deployment fix for merge conflicts.

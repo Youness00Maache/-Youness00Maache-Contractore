@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from './ui/Card';
-import { Button } from './ui/Button';
+import React, { useState, useEffect, useRef } from 'react';
 import { XCircleIcon, CopyIcon } from './Icons';
-import { Job, Client, FormData, FormType } from '../types';
+import { Job, Client, FormData } from '../types';
+import { getDocumentTitle } from '../lib/documents.ts';
 
 interface DuplicateJobModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onDuplicate: (jobName: string, clientId: string | null, clientName: string, selectedDocIds: string[]) => void;
+    /** May return a promise; the modal shows progress and stays open if it throws. */
+    onDuplicate: (jobName: string, clientId: string | null, clientName: string, selectedDocIds: string[]) => void | Promise<unknown>;
     job: Job | null;
     forms: FormData[];
     clients: Client[];
+    /** True while the job's documents are still being loaded. */
+    loadingDocuments?: boolean;
 }
 
 export const DuplicateJobModal: React.FC<DuplicateJobModalProps> = ({
@@ -19,126 +21,147 @@ export const DuplicateJobModal: React.FC<DuplicateJobModalProps> = ({
     onDuplicate,
     job,
     forms,
-    clients
+    clients,
+    loadingDocuments = false,
 }) => {
     const [jobName, setJobName] = useState('');
     const [selectedClientId, setSelectedClientId] = useState<string>('');
     const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+    const [busy, setBusy] = useState(false);
+    const initializedForRef = useRef<string | null>(null);
+    const docsInitializedRef = useRef(false);
 
+    // Initialize only when the modal opens for a job (CORE-026: re-renders must not reset what the user typed).
     useEffect(() => {
-        if (isOpen && job) {
-            setJobName(`${job.name} (Copy)`);
-            const clientMatch = clients.find(c => c.name === job.clientName);
-            setSelectedClientId(clientMatch ? clientMatch.id : '');
-            setSelectedDocIds(new Set(forms.map(f => f.id)));
+        if (!isOpen || !job) {
+            initializedForRef.current = null;
+            docsInitializedRef.current = false;
+            return;
         }
-    }, [isOpen, job, forms, clients]);
+        if (initializedForRef.current === job.id) return;
+        initializedForRef.current = job.id;
+        docsInitializedRef.current = false;
+        setJobName(`${job.name} (Copy)`);
+        const clientMatch = clients.find(c => c.name === job.clientName);
+        setSelectedClientId(clientMatch ? clientMatch.id : '');
+        setBusy(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, job?.id]);
+
+    // Select all documents once they have loaded.
+    useEffect(() => {
+        if (!isOpen || !job || loadingDocuments || docsInitializedRef.current) return;
+        docsInitializedRef.current = true;
+        setSelectedDocIds(new Set(forms.map(f => f.id)));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, job?.id, loadingDocuments, forms.length]);
 
     if (!isOpen || !job) return null;
 
     const handleToggleDoc = (docId: string) => {
-        const next = new Set(selectedDocIds);
-        if (next.has(docId)) {
-            next.delete(docId);
-        } else {
-            next.add(docId);
-        }
-        setSelectedDocIds(next);
+        setSelectedDocIds(prev => {
+            const next = new Set(prev);
+            if (next.has(docId)) next.delete(docId); else next.add(docId);
+            return next;
+        });
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         const client = clients.find(c => c.id === selectedClientId);
-        onDuplicate(
-            jobName,
-            client ? client.id : null,
-            client ? client.name : job.clientName, // Fallback if no matching client found but still want original
-            Array.from(selectedDocIds)
-        );
-    };
-
-    const handleSelectAll = (selectAll: boolean) => {
-        if (selectAll) {
-            setSelectedDocIds(new Set(forms.map(f => f.id)));
-        } else {
-            setSelectedDocIds(new Set());
+        setBusy(true);
+        try {
+            await onDuplicate(
+                jobName.trim(),
+                client ? client.id : null,
+                client ? client.name : job.clientName,
+                forms.filter(f => selectedDocIds.has(f.id)).map(f => f.id),
+            );
+        } catch {
+            // caller shows the error; keep the modal open
+        } finally {
+            setBusy(false);
         }
     };
 
-    const getDocTitle = (form: FormData) => {
-        const d = form.data as any;
-        return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber || d.changeOrderNumber || d.poNumber || form.type;
-    };
+    const allSelected = forms.length > 0 && forms.every(f => selectedDocIds.has(f.id));
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <Card className="w-full max-w-lg shadow-2xl overflow-hidden rounded-2xl border-border/60">
-                <CardHeader className="bg-muted/30 border-b flex flex-row items-center justify-between pb-4">
-                    <CardTitle className="text-xl font-bold flex items-center gap-2">
-                        <CopyIcon className="w-5 h-5 text-primary" />
-                        Duplicate Job
-                    </CardTitle>
-                    <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-                        <XCircleIcon className="w-6 h-6" />
+        <div className="modal-backdrop z-[110]" onClick={() => { if (!busy) onClose(); }} role="presentation">
+            <div className="modal-panel flex flex-col" role="dialog" aria-modal="true" aria-labelledby="dup-title" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                    <h2 id="dup-title" className="flex items-center gap-2 text-lg font-bold">
+                        <CopyIcon className="h-5 w-5 text-primary" />
+                        Duplicate job
+                    </h2>
+                    <button type="button" onClick={onClose} disabled={busy} className="rounded-xl p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close">
+                        <XCircleIcon className="h-5 w-5" />
                     </button>
-                </CardHeader>
-                <CardContent className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                </div>
+
+                <div className="space-y-4 overflow-y-auto px-5 py-5">
                     <div>
-                        <label className="block text-sm font-medium mb-1">New Job Name</label>
-                        <input
-                            type="text"
-                            value={jobName}
-                            onChange={(e) => setJobName(e.target.value)}
-                            className="w-full border rounded-lg px-3 py-2 bg-background flex h-10 border-input text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        />
+                        <label htmlFor="dup-name" className="label">New job name</label>
+                        <input id="dup-name" type="text" value={jobName} onChange={(e) => setJobName(e.target.value)} className="input" />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium mb-1">Client</label>
-                        <select
-                            value={selectedClientId}
-                            onChange={(e) => setSelectedClientId(e.target.value)}
-                            className="w-full border rounded-lg px-3 py-2 bg-background flex h-10 border-input text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                            <option value="">Select a Client...</option>
+                        <label htmlFor="dup-client" className="label">Client</label>
+                        <select id="dup-client" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)} className="input">
+                            <option value="">{job.clientName ? `Same as original (${job.clientName})` : 'No client'}</option>
                             {clients.map(c => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                         </select>
                     </div>
 
-                    {forms.length > 0 && (
-                        <div className="mt-4 border-t pt-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <label className="block text-sm font-medium">Include Documents</label>
-                                <div className="text-xs space-x-2">
-                                    <button onClick={() => handleSelectAll(true)} className="text-primary hover:underline">Select All</button>
-                                    <span>|</span>
-                                    <button onClick={() => handleSelectAll(false)} className="text-muted-foreground hover:underline">None</button>
-                                </div>
+                    <div className="border-t border-border pt-4">
+                        <div className="mb-2 flex items-center justify-between">
+                            <span className="label mb-0">Copy documents</span>
+                            {forms.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="text-xs font-semibold text-primary hover:underline"
+                                    onClick={() => setSelectedDocIds(allSelected ? new Set() : new Set(forms.map(f => f.id)))}
+                                >
+                                    {allSelected ? 'Select none' : 'Select all'}
+                                </button>
+                            )}
+                        </div>
+                        {loadingDocuments ? (
+                            <div className="space-y-2" aria-busy="true">
+                                {[0, 1, 2].map(i => <div key={i} className="skeleton h-12 w-full rounded-xl" />)}
                             </div>
-                            <div className="space-y-2">
+                        ) : forms.length === 0 ? (
+                            <p className="rounded-xl bg-muted px-3 py-3 text-sm text-muted-foreground">This job has no documents. Only the job will be copied.</p>
+                        ) : (
+                            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
                                 {forms.map(form => (
-                                    <label key={form.id} className="flex items-center gap-3 p-2 bg-secondary/30 rounded-lg cursor-pointer hover:bg-secondary/50">
+                                    <label key={form.id} className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2 transition hover:bg-muted">
                                         <input
                                             type="checkbox"
                                             checked={selectedDocIds.has(form.id)}
                                             onChange={() => handleToggleDoc(form.id)}
-                                            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                            className="h-4 w-4 rounded border-input accent-[hsl(var(--primary))]"
                                         />
-                                        <div>
-                                            <p className="text-sm font-medium">{form.type}</p>
-                                            <p className="text-xs text-muted-foreground">{getDocTitle(form)}</p>
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium">{getDocumentTitle(form)}</p>
+                                            <p className="text-xs text-muted-foreground">{form.type}</p>
                                         </div>
                                     </label>
                                 ))}
                             </div>
-                        </div>
-                    )}
-                </CardContent>
-                <CardFooter className="bg-muted/10 border-t p-4 flex justify-end gap-3">
-                    <Button variant="outline" onClick={onClose}>Cancel</Button>
-                    <Button onClick={handleSubmit} disabled={!jobName.trim()}>Duplicate</Button>
-                </CardFooter>
-            </Card>
+                        )}
+                        <p className="mt-2 text-xs text-muted-foreground">Copies start as drafts, without client signatures or approvals.</p>
+                    </div>
+                </div>
+
+                <div className="flex flex-col-reverse gap-2 border-t border-border px-5 py-4 sm:flex-row sm:justify-end">
+                    <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+                    <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={!jobName.trim() || busy || loadingDocuments}>
+                        {busy && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
+                        {busy ? 'Duplicating...' : 'Duplicate'}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };

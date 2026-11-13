@@ -1,0 +1,25 @@
+# ContractorDocs: public marketing pages and guides are open to crawlers; the signed-in app is not.
+User-agent: *
+Allow: /
+Disallow: /app.html
+Disallow: /auth/
+Disallow: /update-password
+Disallow: /dashboard
+Disallow: /jobs
+Disallow: /clients
+Disallow: /communication
+Disallow: /inventory
+Disallow: /pricebook
+Disallow: /calculator
+Disallow: /analytics
+Disallow: /calendar
+Disallow: /forum
+Disallow: /settings
+Disallow: /profile
+Disallow: /gmail-callback
+Disallow: /billing/
+Disallow: /qa-ai-documents
+Disallow: /*?portal=
+Disallow: /*?approval_token=
+
+Sitemap: https://www.contractordocs.app/sitemap.xml

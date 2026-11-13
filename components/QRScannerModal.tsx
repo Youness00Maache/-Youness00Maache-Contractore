@@ -1,88 +1,120 @@
-import React, { useEffect, useState } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { XCircleIcon } from './Icons';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { CameraIcon } from './Icons.tsx';
+import { Modal } from './viewKit.tsx';
 
 interface QRScannerModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    onScanSuccess: (decodedText: string) => void;
+  isOpen: boolean;
+  onClose: () => void;
+  /** Receives the raw decoded text (use parseInventoryCode to get an item id). */
+  onScanSuccess: (decodedText: string) => void;
+  title?: string;
 }
 
-const QRScannerModal: React.FC<QRScannerModalProps> = ({
-    isOpen,
-    onClose,
-    onScanSuccess,
-}) => {
-    const [scanError, setScanError] = useState<string | null>(null);
+/** Re-exported for backward compatibility; lives in utils/stockMath.ts so callers don't load the camera library. */
+export { parseInventoryCode } from '../utils/stockMath.ts';
 
-    useEffect(() => {
-        if (!isOpen) return;
+type CamState = 'starting' | 'scanning' | 'denied' | 'unavailable' | 'error';
 
-        // Configuration
-        const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0,
-            showTorchButtonIfSupported: true,
-        };
+/**
+ * Camera QR scanner. The camera starts once per open (the callback is kept in a ref, so parent
+ * re-renders never restart it: VIEW-026) and is always stopped on close/unmount.
+ */
+const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose, onScanSuccess, title = 'Scan a label' }) => {
+  const reactId = useId();
+  const regionId = `qr-region-${reactId.replace(/[^a-zA-Z0-9]/g, '')}`;
+  const cbRef = useRef(onScanSuccess);
+  cbRef.current = onScanSuccess;
+  const [state, setState] = useState<CamState>('starting');
+  const [message, setMessage] = useState('');
+  const [manual, setManual] = useState('');
 
-        const scanner = new Html5QrcodeScanner(
-            "qr-reader",
-            config,
-            false // verbose flag
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    let done = false;
+    let scanner: Html5Qrcode | null = null;
+    let started = false;
+    setState('starting');
+    setMessage('');
+
+    const start = async () => {
+      // wait one frame so the region element exists in the portal
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      if (cancelled) return;
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setState('unavailable');
+        setMessage('This browser cannot use the camera. Type the code printed under the QR instead.');
+        return;
+      }
+      try {
+        scanner = new Html5Qrcode(regionId, { verbose: false } as any);
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: (w: number, h: number) => { const s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; }, aspectRatio: 1 } as any,
+          (decoded) => {
+            if (done) return;
+            done = true;
+            if (navigator.vibrate) navigator.vibrate(60);
+            cbRef.current(decoded);
+          },
+          () => { /* frame without a code: ignore */ },
         );
+        started = true;
+        if (cancelled) { scanner.stop().catch(() => undefined); return; }
+        setState('scanning');
+      } catch (e: any) {
+        if (cancelled) return;
+        const msg = String(e?.message || e || '');
+        if (/permission|notallowed|denied/i.test(msg)) {
+          setState('denied');
+          setMessage('Camera access was blocked. Allow camera access in your browser settings, or type the code below.');
+        } else if (/notfound|no camera|requested device not found|overconstrained/i.test(msg)) {
+          setState('unavailable');
+          setMessage('No camera was found on this device. Type the code below instead.');
+        } else {
+          setState('error');
+          setMessage('The camera could not be started. Type the code below instead.');
+        }
+      }
+    };
+    start();
 
-        scanner.render(
-            (decodedText) => {
-                // We got a successful scan, stop the camera and fire callback
-                setScanError(null);
-                scanner.clear();
-                onScanSuccess(decodedText);
-            },
-            (errorMessage) => {
-                // Ignore scanning errors (like "No QR code found"), but could log if needed
-            }
-        );
+    return () => {
+      cancelled = true;
+      if (scanner) {
+        const s = scanner;
+        const stop = started ? s.stop().catch(() => undefined) : Promise.resolve();
+        stop.finally(() => { try { s.clear(); } catch { /* already cleared */ } });
+      }
+    };
+  }, [isOpen, regionId]);
 
-        // Cleanup on unmount or close
-        return () => {
-            scanner.clear().catch(e => console.log('Failed to clear scanner', e));
-        };
-    }, [isOpen, onScanSuccess]);
+  const submitManual = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manual.trim()) cbRef.current(manual.trim());
+  };
 
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div
-                className="w-full max-w-md bg-white dark:bg-card border border-white/20 dark:border-border rounded-2xl shadow-2xl p-6 relative animate-in zoom-in-95 duration-200"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors p-1 z-10"
-                >
-                    <XCircleIcon className="w-6 h-6" />
-                </button>
-
-                <div className="mb-4">
-                    <h2 className="text-xl font-bold text-foreground mb-1 pr-8">
-                        Scan Item QR Code
-                    </h2>
-                    <p className="text-muted-foreground text-sm">
-                        Position the QR code inside the frame to scan.
-                    </p>
-                </div>
-
-                {/* The div that html5-qrcode targets */}
-                <div id="qr-reader" className="w-[100%] max-w-[100%] overflow-hidden rounded-xl bg-black border-2 border-primary/20"></div>
-
-                {scanError && (
-                    <p className="text-red-500 text-sm mt-4 text-center">{scanError}</p>
-                )}
+  return (
+    <Modal open={isOpen} onClose={onClose} size="sm" title={title} description="Point the camera at the QR code on the label.">
+      <div className="space-y-4">
+        <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-black">
+          <div id={regionId} className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover" />
+          {state !== 'scanning' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white">
+              <CameraIcon className={`h-10 w-10 ${state === 'starting' ? 'animate-pulse opacity-80' : 'opacity-60'}`} />
+              <p className="text-sm">{state === 'starting' ? 'Starting camera…' : message}</p>
             </div>
+          )}
         </div>
-    );
+        <form onSubmit={submitManual} className="flex gap-2">
+          <label htmlFor={`${regionId}-manual`} className="sr-only">Code</label>
+          <input id={`${regionId}-manual`} className="input flex-1" value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Or paste the code / link" autoComplete="off" />
+          <button type="submit" className="btn btn-outline" disabled={!manual.trim()}>Open</button>
+        </form>
+      </div>
+    </Modal>
+  );
 };
 
 export default QRScannerModal;

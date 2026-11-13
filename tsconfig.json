@@ -11,7 +11,8 @@
     ],
     "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "vite/client"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,
@@ -25,5 +26,25 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "*.ts",
+    "*.tsx",
+    "components",
+    "hooks",
+    "lib",
+    "pages",
+    "services",
+    "utils",
+    "src",
+    "scripts",
+    "content"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "supabase",
+    "PROJECT_AUDIT",
+    "docs"
+  ]
 }

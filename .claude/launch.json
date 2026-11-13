@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "contractordocs-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "3010", "--strictPort", "--host", "127.0.0.1"],
+      "port": 3010,
+      "url": "http://localhost:3010"
+    }
+  ]
+}

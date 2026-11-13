@@ -1,355 +1,492 @@
-import React, { useState, useMemo } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from './ui/Card.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, PlusIcon, TrashIcon, SearchIcon, TagIcon, FolderIcon, MoreVerticalIcon, CheckIcon, BoxIcon, CopyIcon } from './Icons.tsx';
-import { SavedItem } from '../types.ts';
-import { DropdownMenu, DropdownItem } from './ui/DropdownMenu.tsx';
-import PriceBookItemDetails from './PriceBookItemDetails.tsx';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase.ts';
+import { isPaidTier, normalizeTier } from '../lib/plans.ts';
+import type { SavedItem } from '../types.ts';
+import { BoxIcon, BriefcaseIcon, CopyIcon, EditIcon, PlusIcon, SearchIcon, TagIcon, TrashIcon, UsersIcon } from './Icons.tsx';
+import PriceBookItemDetails, { type PriceBookDraft } from './PriceBookItemDetails.tsx';
+import {
+  ActionMenu, ConfirmDialog, EmptyState, GridIcon, InlineError, LayersIcon, NoticeToast, PageHeader, Pager, RowsIcon, Segmented,
+  SkeletonGrid, fetchAllPages, friendlyError, getCurrentUserId, money, ownStoragePath, uploadToOwnFolder, useNotice, withSchemaFallback,
+} from './viewKit.tsx';
+import { marginFromPrice } from '../utils/stockMath.ts';
+import { toNumber } from '../utils/money.ts';
+import { compressImage } from '../utils/imageCompression.ts';
 
 interface PriceBookViewProps {
-    onBack: () => void;
-    savedItems: SavedItem[];
-    onUpdateItem: (item: SavedItem) => Promise<void>;
-    onAddItem: (item: Omit<SavedItem, 'id' | 'user_id' | 'created_at'>) => Promise<void>;
-    onDuplicateItem: (item: SavedItem) => Promise<void>;
-    onDeleteItem: (id: string) => Promise<void>;
-    onUploadImage: (file: File) => Promise<string>;
-    isPremium: boolean;
+  onBack: () => void;
+  /** Optional seed for the first paint; the view loads every row itself. */
+  savedItems?: SavedItem[];
+  /** @deprecated ignored: the view saves through lib/supabase.ts */
+  onUpdateItem?: (item: SavedItem) => Promise<void>;
+  /** @deprecated ignored */
+  onAddItem?: (item: Omit<SavedItem, 'id' | 'user_id' | 'created_at'>) => Promise<void>;
+  /** @deprecated ignored */
+  onDuplicateItem?: (item: SavedItem) => Promise<void>;
+  /** @deprecated ignored */
+  onDeleteItem?: (id: string) => Promise<void>;
+  /** Optional uploader; by default photos go to `price-book-images/<uid>/`. */
+  onUploadImage?: (file: File) => Promise<string>;
+  isPremium?: boolean;
+  /** @deprecated ignored: every item is loaded */
+  onLoadMore?: () => Promise<void>;
+  /** @deprecated ignored */
+  hasMore?: boolean;
+  /** Called after any change so the App can refresh its cached price book (used by forms). */
+  onDataChanged?: () => void;
+  /** Open the Add dialog once on mount (AI assistant "add to price book"). Never auto-saves. */
+  openAddModal?: boolean;
+  /** Values for that Add dialog. */
+  prefillData?: { name?: string; rate?: number; unit_cost?: number; description?: string; category?: string } | null;
 }
 
-const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems, onUpdateItem, onAddItem, onDuplicateItem, onDeleteItem, onUploadImage, isPremium }) => {
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<string>('All Items');
-    const [showItemDetails, setShowItemDetails] = useState(false);
-    const [editingItem, setEditingItem] = useState<SavedItem | null>(null);
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+type Item = SavedItem & { unit?: string };
+type SortKey = 'name' | 'price-desc' | 'price-asc' | 'margin' | 'recent';
+type TypeFilter = 'all' | 'service' | 'labor' | 'material' | 'kit';
 
-    // Extract unique categories
-    const categories = useMemo(() => {
-        const cats = new Set<string>();
-        savedItems.forEach(item => {
-            if (item.category) cats.add(item.category);
-        });
-        return Array.from(cats).sort();
-    }, [savedItems]);
+const BUCKET = 'price-book-images';
+const PAGE_SIZE = 24;
+const VIEW_KEY = 'cd.pricebook.view';
 
-    const filteredItems = useMemo(() => {
-        return savedItems.filter(item => {
-            const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+const parseArray = (v: unknown): any[] => {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { /* postgres text[] literal */ }
+    if (v.startsWith('{') && v.endsWith('}')) return v.slice(1, -1).split(',').map((s) => s.replace(/^"|"$/g, '')).filter(Boolean);
+  }
+  return [];
+};
 
-            const matchesCategory = selectedCategory === 'All Items' || item.category === selectedCategory;
+const normalize = (r: any): Item => ({
+  ...r,
+  name: String(r?.name ?? ''),
+  rate: toNumber(r?.rate),
+  unit_cost: toNumber(r?.unit_cost ?? r?.cost),
+  markup: r?.markup === null || r?.markup === undefined ? undefined : toNumber(r.markup),
+  images: parseArray(r?.images).filter((u: unknown) => typeof u === 'string' && /^https?:\/\//i.test(u as string)),
+  assembly_items: parseArray(r?.assembly_items),
+  is_assembly: !!r?.is_assembly,
+  taxable: r?.taxable ?? true,
+});
 
-            return matchesSearch && matchesCategory;
-        }).sort((a, b) => a.name.localeCompare(b.name));
-    }, [savedItems, searchQuery, selectedCategory]);
+const TypeIcon: React.FC<{ item: Item; className?: string }> = ({ item, className = 'h-6 w-6' }) => {
+  if (item.is_assembly || item.type === 'bundle') return <LayersIcon className={className} />;
+  if (item.type === 'labor') return <UsersIcon className={className} />;
+  if (item.type === 'material') return <BoxIcon className={className} />;
+  return <BriefcaseIcon className={className} />;
+};
 
-    const handleEditClick = (item: SavedItem) => {
-        setEditingItem(item);
-        setShowItemDetails(true);
+const MarginChip: React.FC<{ item: Item }> = ({ item }) => {
+  if (toNumber(item.unit_cost) <= 0) return null;
+  const m = marginFromPrice(item.unit_cost, item.rate);
+  if (m === null) return null;
+  return <span className={`badge ${m < 0 ? 'badge-danger' : m < 15 ? 'badge-warning' : 'badge-success'}`}>{m}% margin</span>;
+};
+
+const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed, onUploadImage, isPremium: isPremiumProp, onDataChanged, openAddModal, prefillData }) => {
+  const [items, setItems] = useState<Item[]>(() => (seed || []).map(normalize));
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [paidTier, setPaidTier] = useState(false);
+  const { notice, notify, clear } = useNotice();
+
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [sort, setSort] = useState<SortKey>('name');
+  const [view, setView] = useState<'grid' | 'list'>(() => {
+    try { return (localStorage.getItem(VIEW_KEY) as 'grid' | 'list') || 'grid'; } catch { return 'grid'; }
+  });
+  const [page, setPage] = useState(0);
+
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<Partial<Item> | null>(null);
+  const [deleteFor, setDeleteFor] = useState<Item | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const sessionUploads = useRef<string[]>([]);
+
+  const changed = useRef(onDataChanged);
+  changed.current = onDataChanged;
+  const isPremium = !!isPremiumProp || paidTier;
+
+  useEffect(() => { try { localStorage.setItem(VIEW_KEY, view); } catch { /* ignore */ } }, [view]);
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    const uid = await getCurrentUserId();
+    setUserId(uid);
+    // select('*') keeps the list working even if an optional column is missing (VIEW-027)
+    const res = await fetchAllPages<any>((from, to) => {
+      let q = supabase.from('saved_items').select('*').order('name', { ascending: true }).range(from, to);
+      if (uid) q = q.eq('user_id', uid);
+      return q;
+    });
+    if (res.error) setLoadError(friendlyError(res.error, 'Could not load your price book.'));
+    else setItems(res.rows.map(normalize));
+    setLoading(false);
+    if (uid && !isPremiumProp) {
+      const { data } = await supabase.from('profiles').select('subscription_tier').eq('id', uid).maybeSingle();
+      setPaidTier(isPaidTier(normalizeTier((data as any)?.subscription_tier)));
+    }
+  }, [isPremiumProp]);
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of items) {
+      const c = (i.category || '').trim() || 'General';
+      counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = items.filter((i) => {
+      const cat = (i.category || '').trim() || 'General';
+      if (category !== 'all' && cat !== category) return false;
+      if (typeFilter === 'kit' && !i.is_assembly) return false;
+      if (typeFilter !== 'all' && typeFilter !== 'kit' && (i.is_assembly || (i.type || 'service') !== typeFilter)) return false;
+      if (!q) return true;
+      return [i.name, i.description, i.sku, i.category].some((v) => (v || '').toLowerCase().includes(q));
+    });
+    const byName = (a: Item, b: Item) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    return list.sort((a, b) => {
+      switch (sort) {
+        case 'price-desc': return toNumber(b.rate) - toNumber(a.rate) || byName(a, b);
+        case 'price-asc': return toNumber(a.rate) - toNumber(b.rate) || byName(a, b);
+        case 'margin': return (marginFromPrice(b.unit_cost, b.rate) ?? -1e9) - (marginFromPrice(a.unit_cost, a.rate) ?? -1e9) || byName(a, b);
+        case 'recent': return (b.created_at || '').localeCompare(a.created_at || '') || byName(a, b);
+        default: return byName(a, b);
+      }
+    });
+  }, [items, search, category, typeFilter, sort]);
+
+  useEffect(() => { setPage(0); }, [search, category, typeFilter, sort]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  // ---------------------------------------------------------------- images
+  const uploadImage = useCallback(async (file: File) => {
+    let url: string;
+    if (onUploadImage) url = await onUploadImage(file);
+    else {
+      const uid = userId ?? (await getCurrentUserId());
+      if (!uid) throw new Error('Your session has expired. Please sign in again.');
+      let toSend: File = file;
+      try { toSend = await compressImage(file); } catch { /* upload the original */ }
+      url = await uploadToOwnFolder(BUCKET, toSend, uid, file.name);
+    }
+    sessionUploads.current.push(url);
+    return url;
+  }, [onUploadImage, userId]);
+
+  /** Deletes photos from storage unless another item still uses them (duplicates share files). */
+  const removeImages = useCallback(async (urls: string[], keepFor: Item[]) => {
+    const uid = userId ?? (await getCurrentUserId());
+    if (!uid || !urls.length) return;
+    const stillUsed = new Set(keepFor.flatMap((i) => (i.images || []) as string[]));
+    const paths = urls.filter((u) => !stillUsed.has(u)).map((u) => ownStoragePath(u, BUCKET, uid)).filter((p): p is string => !!p);
+    if (paths.length) await supabase.storage.from(BUCKET).remove(paths).catch(() => undefined);
+  }, [userId]);
+
+  const closeEditor = () => {
+    // photos uploaded during a cancelled edit are orphans
+    const orphanCandidates = sessionUploads.current;
+    sessionUploads.current = [];
+    removeImages(orphanCandidates, items);
+    setEditorOpen(false);
+    setEditing(null);
+  };
+
+  // ---------------------------------------------------------------- CRUD
+  const saveItem = async (draft: PriceBookDraft) => {
+    const uid = userId ?? (await getCurrentUserId());
+    if (!uid) throw new Error('Your session has expired. Please sign in again.');
+    const payload = {
+      name: draft.name,
+      description: draft.description || null,
+      sku: draft.sku || null,
+      category: draft.category || 'General',
+      type: draft.type || 'service',
+      unit: draft.unit || null,
+      taxable: draft.taxable ?? true,
+      rate: toNumber(draft.rate),
+      unit_cost: toNumber(draft.unit_cost),
+      markup: toNumber(draft.markup),
+      images: (draft.images || []) as string[],
+      is_assembly: !!draft.is_assembly,
+      assembly_items: draft.is_assembly ? draft.assembly_items || [] : [],
     };
+    const before = editing?.id ? items.find((i) => i.id === editing.id) : undefined;
+    let result: { data: any; error: any; dropped: string[] };
+    if (before) {
+      result = await withSchemaFallback(payload, (p) => supabase.from('saved_items').update(p).eq('id', before.id).select('*').single());
+    } else {
+      const row = { id: crypto.randomUUID(), user_id: uid, ...payload };
+      result = await withSchemaFallback(row, (p) => supabase.from('saved_items').insert(p).select('*').single());
+    }
+    if (result.error) throw result.error;
+    const saved = normalize(result.data || { ...(before || {}), ...payload });
+    const nextItems = before ? items.map((i) => (i.id === saved.id ? saved : i)) : [...items, saved];
+    setItems(nextItems);
 
-    const handleAddNewClick = (isAssembly = false) => {
-        setEditingItem({ is_assembly: isAssembly } as any);
-        setShowItemDetails(true);
-    };
+    // storage cleanup: photos removed from this item and photos uploaded but not kept
+    const finalImages = new Set(payload.images);
+    const candidates = [...((before?.images || []) as string[]), ...sessionUploads.current].filter((u) => !finalImages.has(u));
+    sessionUploads.current = [];
+    removeImages(candidates, nextItems);
 
-    const handleSaveItem = async (itemData: any) => {
-        if (editingItem && editingItem.id) {
-            await onUpdateItem({ ...editingItem, ...itemData });
-        } else {
-            await onAddItem(itemData);
+    const lost = result.dropped.filter((c) => ['images', 'assembly_items', 'is_assembly'].includes(c));
+    notify(lost.length ? 'info' : 'success', lost.length ? 'Saved, but photos or kit components could not be stored yet. Please contact support.' : before ? 'Item updated.' : `"${saved.name}" added to your price book.`);
+    setEditorOpen(false);
+    setEditing(null);
+    changed.current?.();
+  };
+
+  const duplicate = async (item: Item) => {
+    const uid = userId ?? (await getCurrentUserId());
+    if (!uid) return;
+    const { id, created_at, updated_at, user_id, ...rest } = item as any;
+    const row = { ...rest, id: crypto.randomUUID(), user_id: uid, name: `${item.name} (copy)`, use_count: 0, last_used_at: null };
+    const { data, error } = await withSchemaFallback(row, (p) => supabase.from('saved_items').insert(p).select('*').single());
+    if (error) { notify('error', friendlyError(error, 'Could not duplicate the item.')); return; }
+    setItems((prev) => [...prev, normalize(data || row)]);
+    notify('success', `Duplicated as "${row.name}".`);
+    changed.current?.();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteFor) return;
+    setDeleting(true);
+    const { error } = await supabase.from('saved_items').delete().eq('id', deleteFor.id);
+    setDeleting(false);
+    if (error) { notify('error', friendlyError(error, 'Could not delete the item.')); return; }
+    const remaining = items.filter((i) => i.id !== deleteFor.id);
+    setItems(remaining);
+    removeImages((deleteFor.images || []) as string[], remaining);
+    notify('success', `"${deleteFor.name}" deleted.`);
+    setDeleteFor(null);
+    changed.current?.();
+  };
+
+  const openNew = (kit = false) => { sessionUploads.current = []; setEditing({ is_assembly: kit }); setEditorOpen(true); };
+  const openEdit = (item: Item) => { sessionUploads.current = []; setEditing(item); setEditorOpen(true); };
+
+  // AI assistant: open the Add dialog once, prefilled (never auto-saved).
+  const prefillAppliedRef = useRef(false);
+  useEffect(() => {
+    if (prefillAppliedRef.current || !openAddModal) return;
+    prefillAppliedRef.current = true;
+    const p = prefillData && !Array.isArray(prefillData) ? prefillData : {};
+    sessionUploads.current = [];
+    setEditing({
+      is_assembly: false,
+      ...(typeof p.name === 'string' ? { name: p.name } : {}),
+      ...(typeof p.description === 'string' ? { description: p.description } : {}),
+      ...(typeof p.category === 'string' ? { category: p.category } : {}),
+      ...(p.rate !== undefined ? { rate: toNumber(p.rate) } : {}),
+      ...(p.unit_cost !== undefined ? { unit_cost: toNumber(p.unit_cost) } : {}),
+    } as Partial<Item>);
+    setEditorOpen(true);
+  }, [openAddModal, prefillData]);
+
+  const menu = (item: Item) => (
+    <ActionMenu
+      label={`Actions for ${item.name}`}
+      items={[
+        { label: 'Edit', icon: <EditIcon />, onSelect: () => openEdit(item) },
+        { label: 'Duplicate', icon: <CopyIcon />, onSelect: () => duplicate(item) },
+        { label: 'Delete', icon: <TrashIcon />, destructive: true, onSelect: () => setDeleteFor(item) },
+      ]}
+    />
+  );
+
+  const filtersActive = !!search || category !== 'all' || typeFilter !== 'all';
+  const resetFilters = () => { setSearch(''); setCategory('all'); setTypeFilter('all'); };
+
+  return (
+    <div className="page">
+      <PageHeader
+        onBack={onBack}
+        icon={<TagIcon className="h-7 w-7" />}
+        title="Price book"
+        subtitle={loading ? 'Loading your items…' : `${items.length} item${items.length === 1 ? '' : 's'} · ${categories.length} categor${categories.length === 1 ? 'y' : 'ies'}`}
+        actions={
+          <>
+            <button type="button" className="btn btn-outline" onClick={() => openNew(true)}><LayersIcon className="h-4 w-4" /> New kit</button>
+            <button type="button" className="btn btn-primary" onClick={() => openNew(false)}><PlusIcon className="h-4 w-4" /> New item</button>
+          </>
         }
-        setShowItemDetails(false);
-    };
+      />
 
-    return (
-        <div className="w-full h-full bg-background flex text-foreground">
-            {/* Sidebar */}
-            <div className="w-64 border-r border-border/50 hidden md:flex flex-col bg-white/60 dark:bg-card/60 backdrop-blur-xl h-[calc(100vh-theme(spacing.16))] sticky top-0 shadow-sm">
-                <div className="p-4 border-b flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-9 h-9 p-0 rounded-full mr-1">
-                        <BackArrowIcon className="w-6 h-6" />
-                    </Button>
-                    <span className="font-bold text-lg tracking-tight">Price Book</span>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-3 space-y-1">
-                    <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                        Browser
-                    </div>
-                    <button
-                        onClick={() => setSelectedCategory('All Items')}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${selectedCategory === 'All Items' ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-sm border-l-2 border-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:translate-x-0.5'}`}
-                    >
-                        <TagIcon className="w-4 h-4" />
-                        All Items
-                        <span className="ml-auto text-xs opacity-50">{savedItems.length}</span>
-                    </button>
-
-                    <div className="h-px bg-border my-2 mx-3" />
-
-                    <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">
-                        Categories
-                    </div>
-                    {categories.length === 0 && (
-                        <div className="px-3 text-xs text-muted-foreground italic">No categories yet</div>
-                    )}
-                    {categories.map(cat => (
-                        <button
-                            key={cat}
-                            onClick={() => setSelectedCategory(cat)}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${selectedCategory === cat ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-sm border-l-2 border-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground hover:translate-x-0.5'}`}
-                        >
-                            <FolderIcon className="w-4 h-4" />
-                            {cat}
-                            <span className="ml-auto text-xs opacity-50">{savedItems.filter(i => i.category === cat).length}</span>
-                        </button>
-                    ))}
-                </div>
-
-                <div className="p-4 border-t border-border/50 bg-gradient-to-b from-transparent to-muted/30">
-                    <DropdownMenu
-                        side="top"
-                        align="left"
-                        trigger={
-                            <Button className="w-full bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:scale-[1.02] transition-all duration-200">
-                                <PlusIcon className="w-4 h-4 mr-2" /> Add Item
-                            </Button>
-                        }
-                    >
-                        <DropdownItem onClick={() => handleAddNewClick(false)}>
-                            <PlusIcon className="w-4 h-4 mr-2" /> Add Standard Item
-                        </DropdownItem>
-                        <DropdownItem onClick={() => handleAddNewClick(true)}>
-                            <BoxIcon className="w-4 h-4 mr-2" /> Create Assembly/Kit
-                        </DropdownItem>
-                    </DropdownMenu>
-                </div>
+      <div className="card mb-4 space-y-3 p-3 sm:p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="relative flex-1">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input className="input pl-9" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, description, SKU" aria-label="Search price book" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:flex">
+            <select className="input sm:w-40" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as TypeFilter)} aria-label="Type">
+              <option value="all">All types</option>
+              <option value="service">Services</option>
+              <option value="labor">Labor</option>
+              <option value="material">Materials</option>
+              <option value="kit">Kits</option>
+            </select>
+            <select className="input sm:w-44" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort">
+              <option value="name">Name A–Z</option>
+              <option value="price-desc">Price: high to low</option>
+              <option value="price-asc">Price: low to high</option>
+              <option value="margin">Best margin</option>
+              <option value="recent">Recently added</option>
+            </select>
+            <div className="col-span-2 hidden sm:block">
+              <Segmented<'grid' | 'list'> size="sm" ariaLabel="Layout" value={view} onChange={setView} options={[{ value: 'grid', label: <GridIcon className="h-4 w-4" />, title: 'Grid' }, { value: 'list', label: <RowsIcon className="h-4 w-4" />, title: 'List' }]} />
             </div>
-
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
-                {/* Mobile Header (visible only on small screens) */}
-                <div className="md:hidden p-4 border-b flex items-center justify-between bg-background">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="mr-2 w-10 h-10 p-0 rounded-full flex items-center justify-center">
-                        <BackArrowIcon className="w-6 h-6" />
-                    </Button>
-                    <h1 className="font-bold text-lg">Price Book</h1>
-                    <DropdownMenu
-                        trigger={
-                            <Button size="sm" className="rounded-full w-10 h-10 p-0">
-                                <PlusIcon className="w-6 h-6" />
-                            </Button>
-                        }
-                    >
-                        <DropdownItem onClick={() => handleAddNewClick(false)}>
-                            <PlusIcon className="w-4 h-4 mr-2" /> Add Standard Item
-                        </DropdownItem>
-                        <DropdownItem onClick={() => handleAddNewClick(true)}>
-                            <BoxIcon className="w-4 h-4 mr-2" /> Create Assembly/Kit
-                        </DropdownItem>
-                    </DropdownMenu>
-                </div>
-
-                {/* Filter Bar */}
-                <div className="p-4 md:p-6 border-b border-border/50 flex flex-col sm:flex-row gap-4 items-center justify-between bg-background/80 dark:bg-card/80 backdrop-blur-xl sticky top-0 z-10 shadow-sm">
-                    <div className="relative w-full sm:w-80">
-                        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                        <Input
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search by name, SKU, or tag..."
-                            className="pl-9 bg-white/90 dark:bg-card/90 border-border/60 focus:border-primary/50 focus:ring-primary/20 h-11 rounded-xl shadow-sm"
-                        />
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                        <div className="bg-muted/50 p-1 rounded-lg flex text-xs">
-                            <button
-                                onClick={() => setViewMode('grid')}
-                                className={`px-3 py-1.5 rounded-md font-medium transition-all ${viewMode === 'grid' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
-                            >
-                                Grid
-                            </button>
-                            <button
-                                onClick={() => setViewMode('list')}
-                                className={`px-3 py-1.5 rounded-md font-medium transition-all ${viewMode === 'list' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
-                            >
-                                List
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Content Area */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-6">
-                    <div className="mb-4 text-sm text-muted-foreground">
-                        Showing {filteredItems.length} items in <span className="font-semibold text-foreground">{selectedCategory}</span>
-                    </div>
-
-                    {filteredItems.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed rounded-xl bg-muted/5">
-                            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-                                <SearchIcon className="w-8 h-8 text-muted-foreground" />
-                            </div>
-                            <h3 className="text-lg font-medium">No items found</h3>
-                            <p className="text-muted-foreground max-w-sm mt-2">
-                                Try adjusting your search query or select a different category.
-                            </p>
-                            <DropdownMenu trigger={<Button variant="outline" className="mt-6">Create New Item</Button>}>
-                                <DropdownItem onClick={() => handleAddNewClick(false)}>Add Standard Item</DropdownItem>
-                                <DropdownItem onClick={() => handleAddNewClick(true)}>Create Assembly/Kit</DropdownItem>
-                            </DropdownMenu>
-                        </div>
-                    ) : (
-                        viewMode === 'grid' ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                {filteredItems.map(item => (
-                                    <div
-                                        key={item.id}
-                                        onClick={() => handleEditClick(item)}
-                                        className="group bg-white dark:bg-card border border-border/60 rounded-2xl overflow-hidden hover:shadow-xl hover:shadow-primary/5 hover:scale-[1.02] hover:border-primary/30 transition-all duration-300 cursor-pointer relative"
-                                    >
-                                        <div className="h-32 bg-gradient-to-br from-muted/40 to-muted/20 relative flex items-center justify-center overflow-hidden">
-                                            {item.images && item.images.length > 0 ? (
-                                                <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <div className="text-4xl opacity-20 select-none">
-                                                    {item.type === 'service' ? '🛠️' : item.type === 'material' ? '📦' : item.type === 'labor' ? '👷' : '📄'}
-                                                </div>
-                                            )}
-                                            {item.taxable && (
-                                                <span className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">Tax</span>
-                                            )}
-                                        </div>
-                                        <div className="p-4">
-                                            <div className="flex justify-between items-start mb-1">
-                                                <h3 className="font-bold text-base line-clamp-1 group-hover:text-primary transition-colors">{item.name}</h3>
-                                                <div onClick={e => e.stopPropagation()}>
-                                                    <DropdownMenu trigger={
-                                                        <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground rounded-full transition-colors bg-white/50 dark:bg-zinc-800/50 shadow-sm border border-border/50">
-                                                            <MoreVerticalIcon className="w-5 h-5" />
-                                                        </Button>
-                                                    }>
-                                                        <DropdownItem onClick={() => onDuplicateItem(item)}>
-                                                            <div className="flex items-center gap-2">
-                                                                <CopyIcon className="w-4 h-4" />
-                                                                <span>Duplicate</span>
-                                                            </div>
-                                                        </DropdownItem>
-                                                        <DropdownItem onClick={() => onDeleteItem(item.id)} destructive>
-                                                            <div className="flex items-center gap-2">
-                                                                <TrashIcon className="w-4 h-4" />
-                                                                <span>Delete</span>
-                                                            </div>
-                                                        </DropdownItem>
-                                                    </DropdownMenu>
-                                                </div>
-                                            </div>
-                                            <div className="text-xs text-muted-foreground mb-3 flex items-center gap-2">
-                                                {item.sku && <span className="font-mono bg-muted px-1 rounded">{item.sku}</span>}
-                                                <span className="truncate">{item.category || 'Uncategorized'}</span>
-                                            </div>
-
-                                            <div className="flex items-end justify-between mt-3 pt-3 border-t border-dashed border-border/40">
-                                                <div>
-                                                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Price</div>
-                                                    <div className="font-extrabold text-xl text-foreground">${item.rate.toFixed(2)}</div>
-                                                </div>
-                                                {item.unit_cost && item.unit_cost > 0 && (
-                                                    <div className="text-right">
-                                                        <div className="text-[10px] text-muted-foreground uppercase font-bold">Profit</div>
-                                                        <div className="font-medium text-sm text-green-600">${(item.rate - item.unit_cost).toFixed(2)}</div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="bg-white dark:bg-card border rounded-xl overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-muted/50 border-b">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left font-medium text-muted-foreground w-16">Image</th>
-                                            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Item Name</th>
-                                            <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Category</th>
-                                            <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">SKU</th>
-                                            <th className="px-4 py-3 text-right font-medium text-muted-foreground">Start Price</th>
-                                            <th className="px-4 py-3 text-right font-medium text-muted-foreground hidden sm:table-cell">Cost</th>
-                                            <th className="px-4 py-3 text-right font-medium text-muted-foreground w-16">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y">
-                                        {filteredItems.map(item => (
-                                            <tr key={item.id} onClick={() => handleEditClick(item)} className="hover:bg-muted/30 cursor-pointer transition-colors">
-                                                <td className="px-4 py-2">
-                                                    <div className="w-10 h-10 bg-muted rounded flex items-center justify-center overflow-hidden">
-                                                        {item.images && item.images.length > 0 ? (
-                                                            <img src={item.images[0]} alt="" className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <span className="text-xs">
-                                                                {item.type === 'service' ? '🛠️' : item.type === 'material' ? '📦' : '📄'}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-2">
-                                                    <div className="font-medium">{item.name}</div>
-                                                    <div className="text-xs text-muted-foreground sm:hidden">{item.sku}</div>
-                                                </td>
-                                                <td className="px-4 py-2 hidden sm:table-cell text-muted-foreground">{item.category}</td>
-                                                <td className="px-4 py-2 hidden sm:table-cell font-mono text-xs">{item.sku}</td>
-                                                <td className="px-4 py-2 text-right font-medium">${item.rate.toFixed(2)}</td>
-                                                <td className="px-4 py-2 text-right hidden sm:table-cell text-muted-foreground">
-                                                    {item.unit_cost ? `$${item.unit_cost.toFixed(2)}` : '-'}
-                                                </td>
-                                                <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
-                                                    <DropdownMenu trigger={
-                                                        <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground rounded-full transition-colors">
-                                                            <MoreVerticalIcon className="w-5 h-5" />
-                                                        </Button>
-                                                    }>
-                                                        <DropdownItem onClick={() => onDuplicateItem(item)}>
-                                                            <div className="flex items-center gap-2">
-                                                                <CopyIcon className="w-4 h-4" />
-                                                                <span>Duplicate</span>
-                                                            </div>
-                                                        </DropdownItem>
-                                                        <DropdownItem onClick={() => onDeleteItem(item.id)} destructive>
-                                                            <div className="flex items-center gap-2">
-                                                                <TrashIcon className="w-4 h-4" />
-                                                                <span>Delete</span>
-                                                            </div>
-                                                        </DropdownItem>
-                                                    </DropdownMenu>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )
-                    )}
-                </div>
-            </div>
-
-            <PriceBookItemDetails
-                isOpen={showItemDetails}
-                onClose={() => setShowItemDetails(false)}
-                onSave={handleSaveItem}
-                item={editingItem}
-                categories={categories.length > 0 ? categories : ['General', 'Plumbing', 'Electrical', 'HVAC', 'Materials', 'Labor']}
-                allItems={savedItems}
-                onUploadImage={onUploadImage}
-                isPremium={isPremium}
-            />
+          </div>
         </div>
-    );
+        {categories.length > 0 && (
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Categories">
+            {[['all', items.length] as [string, number], ...categories].map(([c, n]) => (
+              <button
+                key={c}
+                type="button"
+                role="tab"
+                aria-selected={category === c}
+                onClick={() => setCategory(c)}
+                className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition ${category === c ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`}
+              >
+                {c === 'all' ? 'All' : c}<span className={`text-xs ${category === c ? 'opacity-80' : 'opacity-60'}`}>{n}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <InlineError onRetry={load}>{loadError}</InlineError>
+
+      {loading && !items.length ? (
+        <SkeletonGrid count={6} />
+      ) : !items.length && !loadError ? (
+        <EmptyState
+          icon={<TagIcon />}
+          title="Your price book is empty"
+          description="Save the services, labor and materials you bill often, with your cost and markup, and add them to estimates and invoices in one tap."
+          action={<button type="button" className="btn btn-primary" onClick={() => openNew(false)}><PlusIcon className="h-4 w-4" /> Add your first item</button>}
+        />
+      ) : !filtered.length ? (
+        <EmptyState compact icon={<SearchIcon />} title="No items match" description="Try another search, category or type." action={filtersActive ? <button type="button" className="btn btn-outline" onClick={resetFilters}>Clear filters</button> : undefined} />
+      ) : view === 'grid' ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {visible.map((item) => (
+            <article key={item.id} className="card group relative flex flex-col overflow-hidden transition hover:border-primary/40 hover:shadow-card">
+              <button type="button" onClick={() => openEdit(item)} className="flex flex-1 flex-col text-left" aria-label={`Edit ${item.name}`}>
+                <div className="flex aspect-[16/9] items-center justify-center overflow-hidden bg-muted text-muted-foreground">
+                  {item.images?.[0] ? <img src={item.images[0]} alt="" loading="lazy" className="h-full w-full object-cover" /> : <TypeIcon item={item} className="h-8 w-8 opacity-60" />}
+                </div>
+                <div className="flex flex-1 flex-col p-4">
+                  <div className="mb-1 flex flex-wrap gap-1.5">
+                    {item.is_assembly && <span className="badge badge-primary">Kit</span>}
+                    {item.taxable === false && <span className="badge badge-muted">Non-taxable</span>}
+                  </div>
+                  <h3 className="line-clamp-2 pr-8 font-semibold leading-snug text-foreground">{item.name}</h3>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">{[(item.category || 'General'), item.sku].filter(Boolean).join(' · ')}</p>
+                  <div className="mt-auto flex items-end justify-between gap-2 pt-3">
+                    <div>
+                      <div className="text-lg font-bold tabular-nums text-foreground">{money(item.rate)}</div>
+                      <div className="text-xs text-muted-foreground">per {item.unit || 'each'}{toNumber(item.unit_cost) > 0 ? ` · cost ${money(item.unit_cost)}` : ''}</div>
+                    </div>
+                    <MarginChip item={item} />
+                  </div>
+                </div>
+              </button>
+              <div className="absolute right-2 top-2 rounded-full bg-card/90 shadow-soft">{menu(item)}</div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="card hidden overflow-x-auto md:block">
+            <table className="table-clean">
+              <thead>
+                <tr><th>Item</th><th>Category</th><th className="text-right">Cost</th><th className="text-right">Price</th><th>Margin</th><th className="text-right"><span className="sr-only">Actions</span></th></tr>
+              </thead>
+              <tbody>
+                {visible.map((item) => (
+                  <tr key={item.id} className="hover:bg-muted/40">
+                    <td className="max-w-[22rem]">
+                      <button type="button" onClick={() => openEdit(item)} className="flex max-w-full items-center gap-3 text-left">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
+                          {item.images?.[0] ? <img src={item.images[0]} alt="" loading="lazy" className="h-full w-full object-cover" /> : <TypeIcon item={item} className="h-5 w-5" />}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-foreground hover:text-primary">{item.name}{item.is_assembly && <span className="badge badge-primary ml-2 align-middle">Kit</span>}</span>
+                          <span className="block truncate text-xs text-muted-foreground">{item.sku ? `${item.sku} · ` : ''}{item.description || (item.type ? item.type[0].toUpperCase() + item.type.slice(1) : '')}</span>
+                        </span>
+                      </button>
+                    </td>
+                    <td className="text-muted-foreground">{item.category || 'General'}</td>
+                    <td className="text-right tabular-nums text-muted-foreground">{toNumber(item.unit_cost) > 0 ? money(item.unit_cost) : '—'}</td>
+                    <td className="text-right font-semibold tabular-nums">{money(item.rate)}<span className="text-xs font-normal text-muted-foreground"> /{item.unit || 'each'}</span></td>
+                    <td><MarginChip item={item} /></td>
+                    <td className="text-right">{menu(item)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ul className="space-y-2 md:hidden">
+            {visible.map((item) => (
+              <li key={item.id} className="card flex items-center gap-3 p-3">
+                <button type="button" onClick={() => openEdit(item)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted text-muted-foreground">
+                    {item.images?.[0] ? <img src={item.images[0]} alt="" loading="lazy" className="h-full w-full object-cover" /> : <TypeIcon item={item} className="h-5 w-5" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold text-foreground">{item.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{[(item.category || 'General'), item.sku].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  <span className="shrink-0 text-right font-semibold tabular-nums">{money(item.rate)}</span>
+                </button>
+                {menu(item)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <Pager page={safePage} pageCount={pageCount} total={filtered.length} pageSize={PAGE_SIZE} onPage={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }} noun="items" />
+      )}
+
+      <PriceBookItemDetails
+        isOpen={editorOpen}
+        onClose={closeEditor}
+        onSave={saveItem}
+        item={editing as any}
+        categories={Array.from(new Set(['General', 'Labor', 'Materials', 'Plumbing', 'Electrical', 'HVAC', ...categories.map(([c]) => c)])).sort()}
+        allItems={items}
+        onUploadImage={uploadImage}
+        isPremium={isPremium}
+      />
+
+      <ConfirmDialog
+        open={!!deleteFor}
+        title={`Delete "${deleteFor?.name ?? ''}"?`}
+        message="It will no longer be available for new documents. Documents that already use it keep their line items. This cannot be undone."
+        confirmLabel="Delete item"
+        destructive
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteFor(null)}
+      />
+
+      <NoticeToast notice={notice} onClose={clear} />
+    </div>
+  );
 };
 
 export default PriceBookView;

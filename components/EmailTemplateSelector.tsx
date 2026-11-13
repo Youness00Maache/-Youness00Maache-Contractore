@@ -1,176 +1,128 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { EMAIL_TEMPLATES, EmailTemplateDefinition, applyTemplateVariables } from '../utils/emailTemplates.ts';
-import { Card, CardHeader, CardTitle, CardContent } from './ui/Card.tsx';
-import { Button } from './ui/Button.tsx';
-import { XCircleIcon, CheckCircleIcon } from './Icons.tsx';
+import { CheckCircleIcon } from './Icons.tsx';
+import { Modal, cx } from './commsKit.tsx';
 
-const MOCK_VARS = (logoUrl?: string) => ({
-    company_name: 'Acme Contracting',
-    primary_color: '#2563eb',
-    secondary_color: '#1e40af',
-    user_name: 'Alex Johnson',
+const previewVars = (opts: { logoUrl?: string; companyName?: string; userName?: string; primaryColor?: string; secondaryColor?: string }) => ({
+    company_name: opts.companyName || 'Acme Contracting',
+    primary_color: opts.primaryColor || '#2563eb',
+    secondary_color: opts.secondaryColor || '#1e40af',
+    user_name: opts.userName || 'Alex Johnson',
     user_job_title: 'Project Lead',
-    body: `
-        <p>This is a preview of how your email will look to your clients. We use professional layouts and typography to ensure your business stands out.</p>
-        <p>All your documents, estimates, and invoices will be beautifully formatted and easy to read on any device.</p>
-    `,
-    company_address: '123 Construction Way, Suite 456',
+    body: '<p>Hi Jordan,</p><p>Thanks for choosing us. Your estimate for the kitchen remodel is attached. Let me know if you have any questions.</p><p>Best regards,</p>',
+    company_address: '123 Construction Way',
     company_phone: '(555) 123-4567',
-    company_website: 'www.acme-contracting.com',
-    logo_url: logoUrl || 'https://images.unsplash.com/photo-1541888946425-d81bb19480c5?auto=format&fit=crop&q=80&w=100&h=100'
+    company_website: 'www.example.com',
+    user_phone: '(555) 123-4567',
+    user_website: 'www.example.com',
+    logo_url: opts.logoUrl || '',
 });
 
-const TemplatePreview: React.FC<{ template: EmailTemplateDefinition, logoUrl?: string }> = ({ template, logoUrl }) => {
-    const previewHtml = applyTemplateVariables(template.html, MOCK_VARS(logoUrl));
-
-    return (
-        <div className="w-full h-full bg-white relative overflow-hidden flex items-start justify-center">
-            <iframe
-                title={template.name}
-                srcDoc={previewHtml}
-                className="border-none origin-top pointer-events-none"
-                style={{
-                    width: '600px',
-                    height: '1000px',
-                    transform: 'scale(0.55)',
-                    marginTop: '0'
-                }}
-            />
-        </div>
-    );
-};
+const TemplatePreview: React.FC<{ html: string; title: string }> = ({ html, title }) => (
+    <div className="relative h-full w-full overflow-hidden bg-white">
+        <iframe
+            title={title}
+            srcDoc={html}
+            sandbox=""
+            loading="lazy"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="pointer-events-none origin-top-left border-0"
+            style={{ width: '600px', height: '800px', transform: 'scale(0.5)' }}
+        />
+    </div>
+);
 
 interface TemplateSelectorProps {
     onSelect: (template: EmailTemplateDefinition) => void;
     onClose: () => void;
     selectedTemplateId?: string;
     logoUrl?: string;
+    companyName?: string;
+    userName?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
 }
 
-const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, onClose, selectedTemplateId, logoUrl }) => {
-    const [activeCategory, setActiveCategory] = React.useState<string>('all');
-    const [selectedId, setSelectedId] = React.useState<string | undefined>(selectedTemplateId);
+const CATEGORIES: { id: 'all' | EmailTemplateDefinition['category']; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'modern', label: 'Modern' },
+    { id: 'corporate', label: 'Corporate' },
+    { id: 'minimalist', label: 'Minimalist' },
+    { id: 'billing', label: 'Billing' },
+    { id: 'creative', label: 'Creative' },
+];
 
-    const categories = [
-        { id: 'all', label: 'All Templates', count: EMAIL_TEMPLATES.length },
-        { id: 'modern', label: '✨ Modern', count: EMAIL_TEMPLATES.filter(t => t.category === 'modern').length },
-        { id: 'corporate', label: '🏢 Corporate', count: EMAIL_TEMPLATES.filter(t => t.category === 'corporate').length },
-        { id: 'minimalist', label: '⚪ Minimalist', count: EMAIL_TEMPLATES.filter(t => t.category === 'minimalist').length },
-        { id: 'billing', label: '💼 Billing', count: EMAIL_TEMPLATES.filter(t => t.category === 'billing').length },
-        { id: 'creative', label: '🎨 Creative', count: EMAIL_TEMPLATES.filter(t => t.category === 'creative').length },
-    ];
-
-    const filteredTemplates = activeCategory === 'all'
-        ? EMAIL_TEMPLATES
-        : EMAIL_TEMPLATES.filter(t => t.category === activeCategory);
-
-    const handleSelect = (template: EmailTemplateDefinition) => {
-        setSelectedId(template.id);
-        onSelect(template);
-    };
+const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, onClose, selectedTemplateId, logoUrl, companyName, userName, primaryColor, secondaryColor }) => {
+    const [activeCategory, setActiveCategory] = useState<(typeof CATEGORIES)[number]['id']>('all');
+    const vars = useMemo(
+        () => previewVars({ logoUrl, companyName, userName, primaryColor, secondaryColor }),
+        [logoUrl, companyName, userName, primaryColor, secondaryColor],
+    );
+    const templates = activeCategory === 'all' ? EMAIL_TEMPLATES : EMAIL_TEMPLATES.filter((t) => t.category === activeCategory);
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
-            <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl relative">
-                <CardHeader className="border-b border-border flex-shrink-0 relative">
-                    <CardTitle className="text-2xl flex items-center justify-between">
-                        <span>Email Template Gallery</span>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={onClose}
-                            className="rounded-full w-10 h-10 p-0 flex items-center justify-center hover:bg-secondary"
-                        >
-                            <XCircleIcon className="w-5 h-5" />
-                        </Button>
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-2">
-                        Choose a professional design for your email. Your branding will be automatically applied.
-                    </p>
-                </CardHeader>
-
-                {/* Category Tabs */}
-                <div className="border-b border-border px-6 py-3 flex gap-2 overflow-x-auto flex-shrink-0">
-                    {categories.map(cat => (
+        <Modal
+            open
+            onClose={onClose}
+            size="xl"
+            title="Email design"
+            description="Pick a layout. Your logo, company name and colors are applied automatically."
+        >
+            <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Template categories">
+                {CATEGORIES.map((cat) => {
+                    const count = cat.id === 'all' ? EMAIL_TEMPLATES.length : EMAIL_TEMPLATES.filter((t) => t.category === cat.id).length;
+                    if (count === 0) return null;
+                    const active = activeCategory === cat.id;
+                    return (
                         <button
                             key={cat.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
                             onClick={() => setActiveCategory(cat.id)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeCategory === cat.id
-                                ? 'bg-primary text-primary-foreground shadow-sm'
-                                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                                }`}
+                            className={cx('btn btn-sm min-h-[40px] shrink-0 rounded-full', active ? 'btn-primary' : 'btn-secondary')}
                         >
-                            {cat.label} ({cat.count})
+                            {cat.label} <span className="opacity-70">{count}</span>
                         </button>
-                    ))}
-                </div>
+                    );
+                })}
+            </div>
 
-                <CardContent className="p-6 overflow-y-auto flex-1">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {filteredTemplates.map(template => {
-                            const isSelected = selectedId === template.id;
-                            return (
-                                <div
-                                    key={template.id}
-                                    onClick={() => handleSelect(template)}
-                                    className={`group relative cursor-pointer rounded-xl border-2 transition-all hover:shadow-lg ${isSelected
-                                        ? 'border-primary bg-primary/5 ring-2 ring-primary ring-offset-2'
-                                        : 'border-border hover:border-primary/50'
-                                        }`}
-                                >
-                                    {/* Preview Card */}
-                                    <div className="p-4">
-                                        <div className="aspect-[4/3] bg-white rounded-lg mb-4 flex items-start justify-center overflow-hidden relative border border-border/50 shadow-sm group-hover:shadow-md transition-all duration-300">
-                                            <TemplatePreview template={template} logoUrl={logoUrl} />
-
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-
-                                            {isSelected && (
-                                                <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-1 shadow-lg ring-2 ring-white">
-                                                    <CheckCircleIcon className="w-4 h-4" />
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <h3 className="font-bold text-sm text-foreground">{template.name}</h3>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                                                        {template.category}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Hover Overlay */}
-                                    <div className={`absolute inset-0 bg-primary/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center ${isSelected ? 'opacity-100' : ''}`}>
-                                        <Button
-                                            size="sm"
-                                            className="shadow-lg"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSelect(template);
-                                                onClose();
-                                            }}
-                                        >
-                                            {isSelected ? 'Selected' : 'Use This Template'}
-                                        </Button>
-                                    </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {templates.map((template) => {
+                    const selected = selectedTemplateId === template.id;
+                    return (
+                        <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => onSelect(template)}
+                            className={cx(
+                                'group overflow-hidden rounded-2xl border bg-card text-left transition hover:shadow-card focus-visible:ring-2 focus-visible:ring-ring',
+                                selected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
+                            )}
+                            aria-pressed={selected}
+                        >
+                            <div className="relative h-48 border-b border-border">
+                                <TemplatePreview html={applyTemplateVariables(template.html, vars)} title={template.name} />
+                                {selected && (
+                                    <span className="absolute right-2 top-2 rounded-full bg-primary p-1 text-primary-foreground shadow">
+                                        <CheckCircleIcon className="h-4 w-4" />
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex items-center justify-between gap-2 px-4 py-3">
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-foreground">{template.name}</p>
+                                    <p className="text-xs capitalize text-muted-foreground">{template.category}</p>
                                 </div>
-                            );
-                        })}
-                    </div>
-
-                    {filteredTemplates.length === 0 && (
-                        <div className="text-center py-12 text-muted-foreground">
-                            <p>No templates found in this category.</p>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-        </div>
+                                <span className={cx('badge', selected ? 'badge-primary' : 'badge-muted')}>{selected ? 'Selected' : 'Use'}</span>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
+        </Modal>
     );
 };
 

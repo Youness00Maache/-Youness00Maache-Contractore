@@ -1,8 +1,6 @@
 import React from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/Card';
-import { Button } from './ui/Button';
-import { DropdownMenu, DropdownItem } from './ui/DropdownMenu';
-import { MoreVerticalIcon, TrashIcon, CopyIcon } from './Icons';
+import { DropdownMenu, DropdownItem, DropdownSeparator } from './ui/DropdownMenu';
+import { MoreVerticalIcon, TrashIcon, CopyIcon, MapPinIcon, CalendarIcon, UserIcon, ChevronRightIcon, BriefcaseIcon } from './Icons';
 import { Job } from '../types';
 
 interface JobCardProps {
@@ -10,55 +8,105 @@ interface JobCardProps {
     onClick: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
-    t: any; // Translation object
+    /** Translation dictionary (optional; English labels are used when missing). */
+    t?: Record<string, string>;
 }
 
-const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'active': return 'bg-green-500';
-        case 'completed': return 'bg-blue-500';
-        case 'paused': return 'bg-orange-500';
-        default: return 'bg-gray-400';
-    }
-}
+export const JOB_STATUS_META: Record<Job['status'], { label: string; badge: string; dot: string }> = {
+    active: { label: 'Active', badge: 'badge-success', dot: 'bg-success' },
+    paused: { label: 'Paused', badge: 'badge-warning', dot: 'bg-warning' },
+    completed: { label: 'Completed', badge: 'badge-primary', dot: 'bg-primary' },
+    inactive: { label: 'Inactive', badge: 'badge-muted', dot: 'bg-muted-foreground' },
+};
 
-export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDuplicate, t }) => {
+export const JobStatusBadge: React.FC<{ status: Job['status'] | string | undefined; label?: string }> = ({ status, label }) => {
+    const meta = JOB_STATUS_META[(status as Job['status']) || 'active'] || JOB_STATUS_META.inactive;
     return (
-        <Card className="flex flex-col transition-transform hover:-translate-y-1 hover:shadow-lg duration-200 relative">
-            <CardHeader className="flex flex-col space-y-0 pb-1 pr-10">
-                <div className="flex-1 min-w-0">
-                    <CardTitle className="truncate text-lg mb-1.5">{job.name}</CardTitle>
-                    <CardDescription className="truncate">{job.clientName}</CardDescription>
+        <span className={`badge ${meta.badge}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
+            {label || meta.label}
+        </span>
+    );
+};
+
+export const formatShortDate = (value?: string | null): string => {
+    if (!value) return '';
+    // Plain dates (YYYY-MM-DD) are calendar days: don't shift them through UTC.
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+};
+
+export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDuplicate, t = {} }) => {
+    const start = formatShortDate(job.startDate);
+    return (
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={onClick}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+            className="card group relative flex cursor-pointer flex-col p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card focus-visible:ring-2 focus-visible:ring-ring sm:p-5"
+            aria-label={`${t.viewProject || 'Open job'}: ${job.name}`}
+        >
+            <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <BriefcaseIcon className="h-5 w-5" />
                 </div>
-            </CardHeader>
-            <div className="absolute top-3 right-3">
-                <DropdownMenu
-                    trigger={
-                        <Button variant="ghost" size="icon" className="h-8 w-8 p-0 rounded-full hover:bg-secondary">
-                            <MoreVerticalIcon className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                    }
-                >
-                    <DropdownItem onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
-                        <CopyIcon className="w-4 h-4 mr-2" />
-                        Duplicate
-                    </DropdownItem>
-                    <DropdownItem onClick={(e) => { e.stopPropagation(); onDelete(); }} destructive>
-                        <TrashIcon className="w-4 h-4 mr-2" />
-                        Delete
-                    </DropdownItem>
-                </DropdownMenu>
+                <div className="min-w-0 flex-1 pr-8">
+                    <h3 className="truncate text-base font-semibold text-foreground">{job.name || 'Untitled job'}</h3>
+                    <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+                        <UserIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{job.clientName || 'No client'}</span>
+                    </p>
+                </div>
+                <div className="absolute right-2 top-2">
+                    <DropdownMenu
+                        asButton
+                        label="Job actions"
+                        trigger={
+                            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted hover:text-foreground">
+                                <MoreVerticalIcon className="h-4 w-4" />
+                            </span>
+                        }
+                    >
+                        <DropdownItem onClick={onDuplicate}>
+                            <CopyIcon className="h-4 w-4" />
+                            Duplicate job
+                        </DropdownItem>
+                        <DropdownSeparator />
+                        <DropdownItem onClick={onDelete} destructive>
+                            <TrashIcon className="h-4 w-4" />
+                            Delete job
+                        </DropdownItem>
+                    </DropdownMenu>
+                </div>
             </div>
-            <CardContent className="flex-grow pt-4">
-                <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{job.clientAddress}</p>
-                <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${getStatusColor(job.status)} shadow-sm`}></span>
-                    <p className="text-xs font-medium text-muted-foreground capitalize">{job.status}</p>
-                </div>
-            </CardContent>
-            <CardFooter className="pt-2">
-                <Button className="w-full" onClick={onClick}>{t.viewProject}</Button>
-            </CardFooter>
-        </Card>
+
+            <div className="mt-4 space-y-1.5 text-sm text-muted-foreground">
+                {job.clientAddress && (
+                    <p className="flex items-center gap-1.5 truncate">
+                        <MapPinIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{job.clientAddress}</span>
+                    </p>
+                )}
+                {(start || job.workerName) && (
+                    <p className="flex items-center gap-1.5 truncate">
+                        <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">
+                            {start ? `Starts ${start}` : ''}{start && job.workerName ? ' · ' : ''}{job.workerName ? job.workerName : ''}
+                        </span>
+                    </p>
+                )}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+                <JobStatusBadge status={job.status} />
+                <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
+                    {t.viewProject || 'Open'}
+                    <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+            </div>
+        </div>
     );
 };

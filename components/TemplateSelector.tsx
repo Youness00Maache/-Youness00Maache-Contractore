@@ -1,366 +1,357 @@
-import React, { useState, useMemo } from 'react';
-import { Label } from './ui/Label.tsx';
-import { CheckIcon, PaletteIcon, StarIcon, RefreshCwIcon } from './Icons.tsx';
-
-// Import Template Generators
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { CheckIcon, EyeIcon, PaletteIcon, FontIcon, XCircleIcon } from './Icons.tsx';
+import { FormType } from '../types.ts';
+import type { Job, UserProfile } from '../types.ts';
 import {
-    getAdvancedHtmlTemplate,
-    getHighEndHtmlTemplate,
-    getGlassmorphismModernHtmlTemplate,
-    getPremiumMinimalistHtmlTemplate,
-    getGradientBorderPremiumHtmlTemplate
-} from '../utils/templates/documentHtmlTemplates.ts';
+  DOC_TITLES, FONT_OPTIONS, PAPER, SAMPLE_JOB, SAMPLE_PROFILE, TEMPLATES, docKindFromType, getSampleDocument,
+  getTemplateMeta, paginateDocument, pickPaperSize, pickUserFont, renderDocument, resolveTemplateId,
+  type PaperSize, type TemplateId,
+} from '../utils/templates/index.ts';
 
-import {
-    getNeonCyberpunkHtmlTemplate,
-    getLuxuryGoldNavyHtmlTemplate,
-    getOrganicNatureHtmlTemplate,
-    getGeometricBoldHtmlTemplate,
-    getPastelSoftHtmlTemplate,
-    getVintageCraftHtmlTemplate,
-    getBlueprintTechHtmlTemplate,
-    getAbstractMemphisHtmlTemplate,
-    getCrimsonNoirHtmlTemplate,
-    getWatercolorArtisticHtmlTemplate,
-    getSwissGridHtmlTemplate,
-    getSpaceOdysseyHtmlTemplate,
-    getRetroTerminalHtmlTemplate,
-    getPlayfulPopHtmlTemplate,
-    getElegantSerifHtmlTemplate
-} from '../utils/templates/allNewTemplates.ts';
+/**
+ * Document design picker: a gallery of live thumbnails (the real templates rendered with sample data),
+ * plus accent color, font and paper size controls and a full-size preview.
+ *
+ * Colors, font and paper are stored in `themeColors` ({ primary, secondary, custom, font, paper }) unless
+ * the parent passes `onFontChange`. Empty colors (or the old #000000/#666666 defaults) = the template's palette.
+ */
+export interface TemplateThemeColors {
+  primary: string;
+  secondary: string;
+  /** true once the user picked colors explicitly */
+  custom?: boolean;
+  /** FontKey ('inter', 'lora', ...) or 'template' */
+  font?: string;
+  /** 'letter' | 'a4' */
+  paper?: string;
+}
 
 interface TemplateSelectorProps {
-    selectedTemplateId: string;
-    onSelectTemplate: (id: string) => void;
-    themeColors?: { primary: string; secondary: string };
-    onColorsChange?: (colors: { primary: string; secondary: string }) => void;
+  selectedTemplateId: string;
+  onSelectTemplate: (id: string) => void;
+  themeColors?: { primary: string; secondary: string } & Partial<TemplateThemeColors>;
+  onColorsChange?: (colors: { primary: string; secondary: string }) => void;
+  /** Document type of the form (thumbnails show this type). Defaults to Invoice. */
+  documentType?: FormType | string;
+  /** The document being edited: used by the full-size preview so users see their own data. */
+  previewData?: Record<string, any> | null;
+  profile?: Partial<UserProfile> | null;
+  job?: Partial<Job> | null;
+  fontFamily?: string;
+  onFontChange?: (font: string) => void;
+  /** 'letter' | 'a4'; when omitted the choice is stored in themeColors.paper */
+  paperSize?: string;
+  onPaperChange?: (paper: 'letter' | 'a4') => void;
 }
 
-const PRIMARY_TEMPLATES = [
-    { id: 'standard', name: 'Standard' },
-    { id: 'professional', name: 'Professional' },
-    { id: 'elegant', name: 'Elegant' },
-    { id: 'warm', name: 'Warm' },
-    { id: 'retro', name: 'Retro' },
-    { id: 'modern_blue', name: 'Modern Blue' },
-    { id: 'tech', name: 'Tech' },
-    { id: 'industrial', name: 'Industrial' },
-    { id: 'minimal', name: 'Minimal' },
-    { id: 'bold', name: 'Bold' },
-];
+const SWATCHES = ['#1f3a5f', '#0b4aa8', '#1f6b6b', '#2f6b3a', '#263238', '#7a2e3a', '#d9480f', '#6d28d9'];
 
-const ADVANCED_TEMPLATES = [
-    { id: 'template_html', name: 'Modern Single' },
-    { id: 'template_html_2', name: 'High End' },
-    { id: 'template_html_2_new', name: 'Glassmorphism' },
-    { id: 'template_html_3', name: 'Minimalist Premium' },
-    { id: 'template_html_4', name: 'Gradient' },
-    { id: 'template_neon', name: 'Neon Cyberpunk' },
-    { id: 'template_luxury', name: 'Luxury Gold' },
-    { id: 'template_nature', name: 'Organic Nature' },
-    { id: 'template_geometric', name: 'Geometric Bold' },
-    { id: 'template_pastel', name: 'Pastel Soft' },
-    { id: 'template_vintage', name: 'Vintage Craft' },
-    { id: 'template_blueprint', name: 'Blueprint Tech' },
-    { id: 'template_memphis', name: 'Abstract Memphis' },
-    { id: 'template_crimson', name: 'Crimson Noir' },
-    { id: 'template_watercolor', name: 'Watercolor' },
-    { id: 'template_swiss', name: 'Swiss Grid' },
-    { id: 'template_space', name: 'Space Odyssey' },
-    { id: 'template_retro', name: 'Retro Terminal' },
-    { id: 'template_pop', name: 'Playful Pop' },
-    { id: 'template_serif', name: 'Elegant Serif' },
-];
+const isHex = (v?: string) => !!v && /^#[0-9a-f]{6}$/i.test(v);
 
-
-const STANDARD_STYLES: Record<string, any> = {
-    standard: { id: 'standard', primaryColor: '#000000', secondaryColor: '#666666', textColor: '#222222', headerColor: '#ffffff', headerTextColor: '#000000', font: 'Helvetica, sans-serif', headerFont: 'Times New Roman, serif', alternateRowColor: '#f2f2f2', borderColor: '#000000', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    professional: { id: 'professional', primaryColor: '#2c3e50', secondaryColor: '#34495e', textColor: '#2c3e50', headerColor: '#2c3e50', headerTextColor: '#ecf0f1', font: 'Times New Roman, serif', headerFont: 'Times New Roman, serif', alternateRowColor: '#eaeded', borderColor: '#bdc3c7', borderRadius: 0, showFooterLine: true, layoutType: 'certificate' },
-    elegant: { id: 'elegant', primaryColor: '#8e44ad', secondaryColor: '#9b59b6', textColor: '#4a235a', headerColor: '#ffffff', headerTextColor: '#8e44ad', font: 'Times New Roman, serif', headerFont: 'Times New Roman, serif', alternateRowColor: '#f5eef8', borderColor: '#d7bde2', borderRadius: 0, showFooterLine: false, layoutType: 'certificate' },
-    warm: { id: 'warm', primaryColor: '#d35400', secondaryColor: '#e67e22', textColor: '#5d4037', headerColor: '#fdebd0', headerTextColor: '#d35400', font: 'Helvetica, sans-serif', headerFont: 'Helvetica, sans-serif', alternateRowColor: '#fef5e7', borderColor: '#f5cba7', borderRadius: 2, showFooterLine: true, layoutType: 'certificate' },
-    retro: { id: 'retro', primaryColor: '#c0392b', secondaryColor: '#e74c3c', textColor: '#5a4d41', headerColor: '#f9e79f', headerTextColor: '#c0392b', font: 'Courier New, monospace', headerFont: 'Courier New, monospace', alternateRowColor: '#fcf3cf', borderColor: '#d35400', borderRadius: 1, showFooterLine: true, layoutType: 'certificate' },
-    modern_blue: { id: 'modern_blue', primaryColor: '#3498db', secondaryColor: '#2980b9', textColor: '#2c3e50', headerColor: '#3498db', headerTextColor: '#ffffff', font: 'Helvetica, sans-serif', headerFont: 'Helvetica, sans-serif', alternateRowColor: '#ebf5fb', borderColor: '#aed6f1', borderRadius: 4, showFooterLine: false, layoutType: 'modern' },
-    tech: { id: 'tech', primaryColor: '#16a085', secondaryColor: '#1abc9c', textColor: '#000000', headerColor: '#e8f8f5', headerTextColor: '#16a085', font: 'Courier New, monospace', headerFont: 'Courier New, monospace', alternateRowColor: '#e8f6f3', borderColor: '#48c9b0', borderRadius: 0, showFooterLine: true, layoutType: 'modern' },
-    industrial: { id: 'industrial', primaryColor: '#f39c12', secondaryColor: '#d35400', textColor: '#000000', headerColor: '#333333', headerTextColor: '#f39c12', font: 'Helvetica, sans-serif', headerFont: 'Helvetica, sans-serif', alternateRowColor: '#fcf3cf', borderColor: '#000000', borderRadius: 0, showFooterLine: true, layoutType: 'modern' },
-    minimal: { id: 'minimal', primaryColor: '#95a5a6', secondaryColor: '#7f8c8d', textColor: '#7f8c8d', headerColor: '#ffffff', headerTextColor: '#333333', font: 'Helvetica, sans-serif', headerFont: 'Helvetica, sans-serif', alternateRowColor: '#ffffff', borderColor: '#ecf0f1', borderRadius: 0, showFooterLine: false, layoutType: 'modern' },
-    bold: { id: 'bold', primaryColor: '#000000', secondaryColor: '#000000', textColor: '#000000', headerColor: '#000000', headerTextColor: '#ffffff', font: 'Helvetica, sans-serif', headerFont: 'Helvetica, sans-serif', alternateRowColor: '#e5e5e5', borderColor: '#000000', borderRadius: 6, showFooterLine: false, layoutType: 'modern' }
+/** Keeps a thumbnail unmounted until it scrolls into view (13 iframes at once is wasteful on phones). */
+const useInView = <T extends Element>(rootMargin = '200px') => {
+  const ref = useRef<T | null>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || inView) return;
+    if (typeof IntersectionObserver === 'undefined') { setInView(true); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setInView(true); io.disconnect(); }
+    }, { rootMargin });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [inView, rootMargin]);
+  return [ref, inView] as const;
 };
 
-const getTemplateHtml = (id: string, primaryColor: string, secondaryColor: string) => {
-    const dummyData = {
-        companyName: 'Acme Corp',
-        companyAddress: '123 Builder Lane',
-        logoUrl: '',
-        clientName: 'Jane Smith',
-        clientAddress: '456 Client Rd',
-        lineItems: [
-            { description: 'Service A', quantity: 10, rate: 50 },
-            { description: 'Service B', quantity: 5, rate: 100 }
-        ],
-        taxRate: 10,
-        themeColors: { primary: primaryColor, secondary: secondaryColor }
-    };
+const useWidth = <T extends HTMLElement>() => {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width] as const;
+};
 
-    const dummyProfile = {
-        companyName: 'Acme Corp',
-        address: '123 Builder Lane',
-        phone: '555-0123',
-        website: 'acme.com',
-        id: '1',
-        email: 'test@example.com',
-        name: 'John Doe',
-        logoUrl: ''
-    };
+interface ThumbProps { html: string; pageWidth: number; pageHeight: number; title: string }
 
-    const labels = {
-        date: 'Date',
-        id: 'INV #',
-        idValue: '001',
-        dateValue: '2023-10-25'
-    };
-
-    // 1. Check for Advanced HTML Templates
-    let fn = null;
-    if (id === 'template_html') fn = getAdvancedHtmlTemplate;
-    else if (id === 'template_html_2') fn = getHighEndHtmlTemplate;
-    else if (id === 'template_html_2_new') fn = getGlassmorphismModernHtmlTemplate;
-    else if (id === 'template_html_3') fn = getPremiumMinimalistHtmlTemplate;
-    else if (id === 'template_html_4') fn = getGradientBorderPremiumHtmlTemplate;
-    else if (id === 'template_neon') fn = getNeonCyberpunkHtmlTemplate;
-    else if (id === 'template_luxury') fn = getLuxuryGoldNavyHtmlTemplate;
-    else if (id === 'template_nature') fn = getOrganicNatureHtmlTemplate;
-    else if (id === 'template_geometric') fn = getGeometricBoldHtmlTemplate;
-    else if (id === 'template_pastel') fn = getPastelSoftHtmlTemplate;
-    else if (id === 'template_vintage') fn = getVintageCraftHtmlTemplate;
-    else if (id === 'template_blueprint') fn = getBlueprintTechHtmlTemplate;
-    else if (id === 'template_memphis') fn = getAbstractMemphisHtmlTemplate;
-    else if (id === 'template_crimson') fn = getCrimsonNoirHtmlTemplate;
-    else if (id === 'template_watercolor') fn = getWatercolorArtisticHtmlTemplate;
-    else if (id === 'template_swiss') fn = getSwissGridHtmlTemplate;
-    else if (id === 'template_space') fn = getSpaceOdysseyHtmlTemplate;
-    else if (id === 'template_retro') fn = getRetroTerminalHtmlTemplate;
-    else if (id === 'template_pop') fn = getPlayfulPopHtmlTemplate;
-    else if (id === 'template_serif') fn = getElegantSerifHtmlTemplate;
-
-    if (fn) {
-        return fn(dummyData, dummyProfile, 'PREVIEW', labels);
-    }
-
-    // 2. Generate Standard Template HTML (Mimic JS PDF output)
-    const style = STANDARD_STYLES[id] || STANDARD_STYLES.standard;
-    const isModern = style.layoutType === 'modern';
-
-    // Override primary color if passed in props (usually managed by parent, but here we use what's passed)
-    const pColor = primaryColor || style.primaryColor;
-    const sColor = secondaryColor || style.secondaryColor;
-
-    const fontFamily = style.font;
-    const headerFont = style.headerFont;
-
-    return `
-        <div style="width: 100%; height: 100%; font-family: ${fontFamily}; color: ${style.textColor}; position: relative; background: #fff;">
-            ${!isModern ? `
-                <div style="position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px; border: 1px solid ${style.borderColor}; pointer-events: none;"></div>
-                <div style="position: absolute; top: 12px; left: 12px; right: 12px; bottom: 12px; border: 1px solid ${style.borderColor}; pointer-events: none;"></div>
-            ` : ''}
-
-            ${isModern ? `
-                <div style="background-color: ${pColor}; height: 50px; display: flex; align-items: center; justify-content: flex-end; padding: 0 20px; color: ${style.headerTextColor};">
-                    <div style="text-align: right;">
-                        <div style="font-family: ${headerFont}; font-size: 24px; font-weight: bold;">PREVIEW</div>
-                        <div style="font-size: 10px; opacity: 0.9;">INV #001</div>
-                    </div>
-                </div>
-            ` : `
-                <div style="text-align: center; padding-top: 40px; margin-bottom: 30px;">
-                    <div style="font-family: ${headerFont}; font-size: 26px; font-weight: bold; color: #000;">PREVIEW</div>
-                    <div style="font-size: 10px; color: #666; margin-top: 5px;">INV #001 | 2023-10-25</div>
-                </div>
-            `}
-
-            <div style="padding: 20px; display: flex; justify-content: space-between; font-size: 10px;">
-                <div>
-                    <div style="font-weight: bold; margin-bottom: 4px;">FROM:</div>
-                    <div>${dummyProfile.companyName}</div>
-                    <div>${dummyProfile.address}</div>
-                </div>
-                <div>
-                    <div style="font-weight: bold; margin-bottom: 4px;">TO:</div>
-                    <div>${dummyData.clientName}</div>
-                    <div>${dummyData.clientAddress}</div>
-                </div>
-            </div>
-
-            <div style="margin: 10px 20px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
-                    <thead>
-                        <tr style="background-color: ${pColor}; color: white;">
-                            <th style="padding: 5px; text-align: left;">Description</th>
-                            <th style="padding: 5px; text-align: right;">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr style="background-color: ${style.alternateRowColor};">
-                            <td style="padding: 5px; border-bottom: 1px solid #ddd;">Service A</td>
-                            <td style="padding: 5px; text-align: right; border-bottom: 1px solid #ddd;">$500.00</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 5px; border-bottom: 1px solid #ddd;">Service B</td>
-                            <td style="padding: 5px; text-align: right; border-bottom: 1px solid #ddd;">$500.00</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div style="margin: 10px 20px; text-align: right; font-size: 10px;">
-                <div style="margin-bottom: 2px;">Subtotal: $1000.00</div>
-                <div style="font-size: 14px; font-weight: bold; color: ${pColor}; margin-top: 5px;">Total: $1100.00</div>
-            </div>
-
-            ${style.showFooterLine ? `
-                <div style="position: absolute; bottom: 40px; left: 20px; right: 20px; border-top: 1px solid ${style.borderColor}; text-align: center; padding-top: 10px; font-size: 8px; color: #999;">
-                    Thank you for your business!
-                </div>
-            ` : ''}
-        </div>
-    `;
-}
-
-const LivePreview = React.memo(({ id, color }: { id: string, color: string }) => {
-    const html = useMemo(() => getTemplateHtml(id, color, '#666666'), [id, color]);
-
-    if (!html) {
-        // Fallback for standard templates (not HTML generated yet, use placeholder)
-        return (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-white p-2 text-xs text-muted-foreground">
-                <div style={{ color: color }} className="font-bold mb-1">Standard</div>
-                <div className="w-full h-1 bg-current opacity-20 rounded mb-1" />
-                <div className="w-2/3 h-1 bg-current opacity-20 rounded" />
-            </div>
-        );
-    }
-
-    const srcDoc = `
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <style>
-                    body { margin: 0; padding: 0; overflow: hidden; transform-origin: top left; transform: scale(0.12); width: 800px; height: 1000px; }
-                    /* Force some resets */
-                    * { box-sizing: border-box; }
-                </style>
-            </head>
-            <body>
-                ${html}
-            </body>
-        </html>
-    `;
-
-    return (
+const Thumbnail = React.memo(({ html, pageWidth, pageHeight, title }: ThumbProps) => {
+  const [boxRef, width] = useWidth<HTMLDivElement>();
+  const [viewRef, inView] = useInView<HTMLDivElement>();
+  const setRefs = useCallback((el: HTMLDivElement | null) => { boxRef.current = el; viewRef.current = el; }, [boxRef, viewRef]);
+  const scale = width ? width / pageWidth : 0;
+  return (
+    <div ref={setRefs} className="relative w-full overflow-hidden bg-white" style={{ aspectRatio: `${pageWidth} / ${pageHeight}` }}>
+      {inView && scale > 0 ? (
         <iframe
-            srcDoc={srcDoc}
-            className="w-full h-full border-0 pointer-events-none select-none bg-white"
-            title={`Preview ${id}`}
-            tabIndex={-1}
+          title={title}
+          srcDoc={html}
+          sandbox=""
+          tabIndex={-1}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 border-0 select-none"
+          style={{ width: pageWidth, height: pageHeight, transform: `scale(${scale})`, transformOrigin: 'top left' }}
         />
-    );
+      ) : (
+        <div className="skeleton absolute inset-0" />
+      )}
+    </div>
+  );
 });
+Thumbnail.displayName = 'TemplateThumbnail';
+
+const PreviewModal: React.FC<{ html: string; title: string; onClose: () => void }> = ({ html, title, onClose }) => {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [height, setHeight] = useState(1200);
+  // panel is max 896px wide (sm:max-w-4xl) with up to 32px of padding; never measure the content itself
+  const available = () => (typeof window === 'undefined' ? 880 : Math.min(window.innerWidth, 896) - (window.innerWidth >= 640 ? 34 : 18));
+  const [avail, setAvail] = useState(available);
+  useEffect(() => {
+    const onResize = () => setAvail(available());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const scale = Math.min(1, avail / 880);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const onLoad = () => {
+    const doc = frameRef.current?.contentDocument;
+    if (!doc) return;
+    try {
+      const run = () => {
+        paginateDocument(doc);
+        setHeight(Math.ceil(doc.documentElement.scrollHeight) + 8);
+      };
+      const fonts = (doc as any).fonts;
+      if (fonts?.ready) Promise.race([fonts.ready, new Promise((r) => setTimeout(r, 2500))]).then(run); else run();
+    } catch {
+      /* preview stays as a single long page */
+    }
+  };
+
+  const modal = (
+    <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, height: '100dvh' }} role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
+      <div className="modal-panel flex flex-col sm:max-w-4xl" style={{ maxHeight: '92dvh' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+            <p className="text-xs text-muted-foreground">This is exactly how the PDF will look.</p>
+          </div>
+          <button type="button" onClick={onClose} className="btn btn-ghost btn-sm h-10 w-10 p-0" aria-label="Close preview">
+            <XCircleIcon className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-muted p-2 sm:p-4">
+          <div style={{ width: 880 * scale, height: height * scale, margin: '0 auto', overflow: 'hidden' }}>
+            <iframe
+              ref={frameRef}
+              title={title}
+              srcDoc={html}
+              sandbox="allow-same-origin"
+              onLoad={onLoad}
+              className="border-0 bg-transparent"
+              style={{ width: 880, height, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
+};
 
 const TemplateSelector: React.FC<TemplateSelectorProps> = ({
-    selectedTemplateId,
-    onSelectTemplate,
-    themeColors,
-    onColorsChange
+  selectedTemplateId,
+  onSelectTemplate,
+  themeColors,
+  onColorsChange,
+  documentType = FormType.Invoice,
+  previewData,
+  profile,
+  job,
+  fontFamily,
+  onFontChange,
+  paperSize,
+  onPaperChange,
 }) => {
-    const [activeTab, setActiveTab] = useState<'standard' | 'premium'>('premium');
+  const selected = resolveTemplateId(selectedTemplateId);
+  const selectedMeta = getTemplateMeta(selected);
+  const kind = docKindFromType(documentType);
+  const [showPreview, setShowPreview] = useState(false);
 
-    return (
-        <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <Label className="text-base font-semibold">Document Template</Label>
-                <div className="flex bg-muted p-1 rounded-md">
-                    <button
-                        onClick={() => setActiveTab('standard')}
-                        className={`px-3 py-1 text-xs font-medium rounded-sm transition-all ${activeTab === 'standard' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                        Standard
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('premium')}
-                        className={`px-3 py-1 text-xs font-medium rounded-sm transition-all ${activeTab === 'premium' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                        <StarIcon className="w-3 h-3 inline mr-1 mb-0.5" />
-                        Premium
-                    </button>
-                </div>
-            </div>
+  const tc: TemplateThemeColors = { primary: '', secondary: '', ...(themeColors || {}) };
+  const legacyDefault = !tc.custom && /^#?(000000|000|0000bb)$/i.test(tc.primary || '') && (!tc.secondary || /^#?(666666|666)$/i.test(tc.secondary));
+  const usesTemplateColors = !tc.primary || legacyDefault;
+  const font = pickUserFont({ fontFamily: fontFamily ?? tc.font }) || 'template';
+  const paper: PaperSize = pickPaperSize({ paperSize: paperSize ?? tc.paper });
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[400px] overflow-y-auto p-1">
-                {(activeTab === 'standard' ? PRIMARY_TEMPLATES : ADVANCED_TEMPLATES).map(template => {
-                    const isActive = selectedTemplateId === template.id;
-                    return (
-                        <div
-                            key={template.id}
-                            onClick={() => onSelectTemplate(template.id)}
-                            className={`
-                                group relative cursor-pointer rounded-xl border flex flex-col gap-2 text-center transition-all duration-200 overflow-hidden
-                                ${isActive
-                                    ? 'border-primary ring-2 ring-primary ring-offset-2'
-                                    : 'border-border hover:border-primary/50 hover:shadow-md'}
-                            `}
-                        >
-                            <div className="w-full aspect-[210/297] bg-gray-50 relative overflow-hidden">
-                                <LivePreview id={template.id} color={themeColors?.primary || '#000'} />
+  const colorsForRender = useDeferredValue(usesTemplateColors ? null : { primary: tc.primary, secondary: tc.secondary });
+  const deferredFont = useDeferredValue(font);
 
-                                {isActive && (
-                                    <div className="absolute inset-0 bg-primary/10 flex items-center justify-center backdrop-blur-[1px]">
-                                        <div className="bg-primary text-primary-foreground rounded-full p-2 shadow-lg scale-110">
-                                            <CheckIcon className="w-5 h-5" />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="w-full px-2 pb-2 h-8 flex items-center justify-center bg-white border-t">
-                                <span className={`text-xs font-medium leading-tight truncate w-full ${isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`}>
-                                    {template.name}
-                                </span>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
+  const sample = useMemo(() => getSampleDocument(kind), [kind]);
+  const thumbProfile = profile && (profile.companyName || profile.logoUrl) ? profile : SAMPLE_PROFILE;
 
-            {/* Color Picker */}
-            {onColorsChange && themeColors && (
-                <div className="flex gap-4 pt-4 border-t">
-                    <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground flex items-center gap-1"><PaletteIcon className="w-3 h-3" /> Primary Color</Label>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="color"
-                                value={themeColors.primary}
-                                onChange={(e) => onColorsChange({ ...themeColors, primary: e.target.value })}
-                                className="h-8 w-10 p-0 border rounded cursor-pointer bg-transparent"
-                            />
-                            <span className="text-xs font-mono text-muted-foreground uppercase">{themeColors.primary}</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground">Secondary Color</Label>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="color"
-                                value={themeColors.secondary}
-                                onChange={(e) => onColorsChange({ ...themeColors, secondary: e.target.value })}
-                                className="h-8 w-10 p-0 border rounded cursor-pointer bg-transparent"
-                            />
-                            <span className="text-xs font-mono text-muted-foreground uppercase">{themeColors.secondary}</span>
-                        </div>
-                    </div>
-                </div>
-            )}
+  const thumbs = useMemo(() => TEMPLATES.map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    html: renderDocument(sample.type, { ...sample.data, templateId: t.id }, thumbProfile, SAMPLE_JOB, {
+      templateId: t.id, bare: true, paper, colors: colorsForRender, font: deferredFont,
+    }).html,
+  })), [sample, thumbProfile, paper, colorsForRender, deferredFont]);
+
+  const previewHtml = useMemo(() => {
+    if (!showPreview) return '';
+    const data = previewData && Object.keys(previewData).length ? previewData : sample.data;
+    return renderDocument(sample.type, { ...data, templateId: selected }, previewData ? (profile || {}) : thumbProfile, previewData ? job : SAMPLE_JOB, {
+      templateId: selected, paper, colors: usesTemplateColors ? null : { primary: tc.primary, secondary: tc.secondary }, font,
+    }).html;
+  }, [showPreview, previewData, sample, selected, profile, thumbProfile, job, paper, usesTemplateColors, tc.primary, tc.secondary, font]);
+
+  const emit = (patch: Partial<TemplateThemeColors>) => {
+    if (!onColorsChange) return;
+    onColorsChange({ ...tc, ...patch } as TemplateThemeColors);
+  };
+  const setPrimary = (hex: string) => emit({ primary: hex, secondary: usesTemplateColors ? '' : tc.secondary, custom: true });
+  const setSecondary = (hex: string) => emit({ primary: usesTemplateColors ? selectedMeta.accent : tc.primary, secondary: hex, custom: true });
+  const resetColors = () => emit({ primary: '', secondary: '', custom: false });
+  const setFont = (f: string) => (onFontChange ? onFontChange(f) : emit({ font: f }));
+  const setPaper = (p: PaperSize) => (onPaperChange ? onPaperChange(p) : emit({ paper: p }));
+
+  const accentShown = usesTemplateColors ? selectedMeta.accent : (isHex(tc.primary) ? tc.primary : selectedMeta.accent);
+  const secondaryShown = usesTemplateColors || !isHex(tc.secondary) ? selectedMeta.secondary : tc.secondary;
+  const page = PAPER[paper];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-base font-semibold text-foreground">Document design</p>
+          <p className="text-xs text-muted-foreground">{TEMPLATES.length} designs, shown on a sample {DOC_TITLES[kind].toLowerCase()}. Your PDF matches the preview exactly.</p>
         </div>
-    );
+        <button type="button" className="btn btn-outline btn-sm h-10" onClick={() => setShowPreview(true)}>
+          <EyeIcon className="h-4 w-4" /> Preview
+        </button>
+      </div>
+
+      <div className="max-h-[560px] overflow-y-auto overscroll-contain rounded-2xl p-1">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" role="radiogroup" aria-label="Document design">
+          {thumbs.map((t) => {
+            const active = t.id === selected;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => onSelectTemplate(t.id)}
+                title={t.description}
+                className={`group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-all focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 ${active ? 'border-primary ring-2 ring-primary' : 'border-border hover:border-primary/50 hover:shadow-md'}`}
+              >
+                <Thumbnail html={t.html} pageWidth={page.width} pageHeight={page.height} title={`${t.name} preview`} />
+                {active && (
+                  <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md">
+                    <CheckIcon className="h-4 w-4" />
+                  </span>
+                )}
+                <span className="flex min-h-[44px] items-center gap-2 border-t border-border px-2.5 py-2">
+                  <span className="h-3 w-3 flex-none rounded-full border border-border" style={{ background: usesTemplateColors ? getTemplateMeta(t.id).accent : accentShown }} />
+                  <span className={`truncate text-xs font-semibold ${active ? 'text-primary' : 'text-foreground'}`}>{t.name}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {onColorsChange && (
+        <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+          <div>
+            <p className="label flex items-center gap-1"><PaletteIcon className="h-3.5 w-3.5" /> Accent color</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={resetColors}
+                className={`h-10 rounded-full border px-3 text-xs font-semibold transition ${usesTemplateColors ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
+                aria-pressed={usesTemplateColors}
+              >
+                Template colors
+              </button>
+              {SWATCHES.map((hex) => {
+                const on = !usesTemplateColors && tc.primary?.toLowerCase() === hex;
+                return (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setPrimary(hex)}
+                    aria-label={`Accent ${hex}`}
+                    aria-pressed={on}
+                    className={`h-10 w-10 rounded-full border-2 transition ${on ? 'border-foreground scale-105' : 'border-transparent hover:scale-105'}`}
+                    style={{ background: hex }}
+                  />
+                );
+              })}
+              <label className="relative flex h-10 w-10 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border" title="Custom accent color">
+                <span className="absolute inset-0" style={{ background: accentShown }} />
+                <input type="color" value={accentShown} onChange={(e) => setPrimary(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Custom accent color" />
+              </label>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <label className="relative flex h-8 w-8 cursor-pointer overflow-hidden rounded-full border border-border" title="Secondary color">
+                <span className="absolute inset-0" style={{ background: secondaryShown }} />
+                <input type="color" value={secondaryShown} onChange={(e) => setSecondary(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Secondary color" />
+              </label>
+              <span className="text-xs text-muted-foreground">Secondary color <span className="font-mono uppercase">{secondaryShown}</span></span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="label flex items-center gap-1" htmlFor="cd-template-font"><FontIcon className="h-3.5 w-3.5" /> Font</label>
+              <select id="cd-template-font" className="input h-10 py-2" value={font} onChange={(e) => setFont(e.target.value)}>
+                {FONT_OPTIONS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <p className="label">Paper size</p>
+              <div className="inline-flex rounded-xl bg-muted p-1" role="radiogroup" aria-label="Paper size">
+                {(['letter', 'a4'] as PaperSize[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    role="radio"
+                    aria-checked={paper === p}
+                    onClick={() => setPaper(p)}
+                    className={`h-9 rounded-lg px-4 text-xs font-semibold transition ${paper === p ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {PAPER[p].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPreview && previewHtml && (
+        <PreviewModal html={previewHtml} title={`${selectedMeta.name} · ${DOC_TITLES[kind]}`} onClose={() => setShowPreview(false)} />
+      )}
+    </div>
+  );
 };
 
+export type { TemplateId };
 export default TemplateSelector;

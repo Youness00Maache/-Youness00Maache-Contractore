@@ -1,91 +1,115 @@
-
+/**
+ * Read-only offline cache (IndexedDB). Owned by CORE.
+ * - One shared connection (no connection per call), closed when another tab upgrades the schema.
+ * - Every call is best-effort: a cache failure must never block the UI, so callers should `.catch(() => {})`.
+ * - Nothing here queues writes for later sync: offline mode is read-only (CORE-016).
+ */
 export const DB_NAME = 'contractor_db';
-export const DB_VERSION = 3; // Incremented version for new store
+export const DB_VERSION = 3;
+
+export const STORES = ['jobs', 'documents', 'clients', 'profile', 'offline_queue', 'inventory', 'saved_items'] as const;
+export type StoreName = typeof STORES[number];
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+const hasIndexedDB = () => typeof indexedDB !== 'undefined';
 
 export const initDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
+  if (!hasIndexedDB()) return Promise.reject(new Error('IndexedDB is not available'));
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onerror = (event) => {
-      console.error("IndexedDB error:", event);
-      reject("Error opening database");
+    request.onerror = () => {
+      dbPromise = null;
+      reject(request.error || new Error('Error opening the offline cache'));
     };
 
-    request.onsuccess = (event) => {
-      resolve((event.target as IDBOpenDBRequest).result);
+    request.onblocked = () => {
+      dbPromise = null;
+      reject(new Error('Offline cache is blocked by another open tab'));
     };
 
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      
-      // Create object stores if they don't exist
-      if (!db.objectStoreNames.contains('jobs')) {
-        db.createObjectStore('jobs', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('documents')) {
-        db.createObjectStore('documents', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('clients')) {
-        db.createObjectStore('clients', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('profile')) {
-        db.createObjectStore('profile', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('offline_queue')) {
-        db.createObjectStore('offline_queue', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('inventory')) {
-        db.createObjectStore('inventory', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('saved_items')) {
-        db.createObjectStore('saved_items', { keyPath: 'id' });
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      db.onclose = () => { dbPromise = null; };
+      resolve(db);
+    };
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      for (const name of STORES) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       }
     };
+  });
+  return dbPromise;
+};
+
+const withStore = async <T>(storeName: string, mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest | void): Promise<T> => {
+  const db = await initDB();
+  return new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const store = tx.objectStore(storeName);
+    const request = run(store);
+    tx.oncomplete = () => resolve((request ? (request as IDBRequest).result : undefined) as T);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('Offline cache transaction aborted'));
   });
 };
 
 export const dbApi = {
-  async getAll(storeName: string) {
-    const db = await initDB();
-    return new Promise<any[]>((resolve, reject) => {
-      const transaction = db.transaction(storeName, 'readonly');
-      const store = transaction.objectStore(storeName);
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+  async getAll(storeName: string): Promise<any[]> {
+    const result = await withStore<any[]>(storeName, 'readonly', store => store.getAll());
+    return Array.isArray(result) ? result : [];
+  },
+
+  async get(storeName: string, key: string): Promise<any | undefined> {
+    return withStore<any>(storeName, 'readonly', store => store.get(key));
+  },
+
+  async put(storeName: string, data: any): Promise<void> {
+    await withStore<void>(storeName, 'readwrite', store => store.put(data));
+  },
+
+  /** Writes many rows in ONE transaction. */
+  async putMany(storeName: string, rows: any[]): Promise<void> {
+    if (!rows.length) return;
+    await withStore<void>(storeName, 'readwrite', store => { rows.forEach(r => store.put(r)); });
+  },
+
+  /** Replaces the whole store content in ONE transaction. */
+  async replaceAll(storeName: string, rows: any[]): Promise<void> {
+    await withStore<void>(storeName, 'readwrite', store => {
+      store.clear();
+      rows.forEach(r => store.put(r));
     });
   },
 
-  async put(storeName: string, data: any) {
-    const db = await initDB();
-    return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(storeName, 'readwrite');
-      const store = transaction.objectStore(storeName);
-      const request = store.put(data);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+  async delete(storeName: string, key: string): Promise<void> {
+    await withStore<void>(storeName, 'readwrite', store => store.delete(key));
   },
 
-  async delete(storeName: string, key: string) {
+  async clear(storeName: string): Promise<void> {
+    await withStore<void>(storeName, 'readwrite', store => store.clear());
+  },
+
+  /** Wipes every store (used on logout so the next person on this device sees nothing). */
+  async clearAll(): Promise<void> {
+    if (!hasIndexedDB()) return;
     const db = await initDB();
-    return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(storeName, 'readwrite');
-      const store = transaction.objectStore(storeName);
-      const request = store.delete(key);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+    await new Promise<void>((resolve, reject) => {
+      const names = STORES.filter(n => db.objectStoreNames.contains(n));
+      if (!names.length) { resolve(); return; }
+      const tx = db.transaction(names, 'readwrite');
+      names.forEach(n => tx.objectStore(n).clear());
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
     });
   },
-  
-  async clear(storeName: string) {
-      const db = await initDB();
-      return new Promise<void>((resolve, reject) => {
-          const transaction = db.transaction(storeName, 'readwrite');
-          const store = transaction.objectStore(storeName);
-          const request = store.clear();
-          request.onsuccess = () => resolve();
-          request.onerror = () => reject(request.error);
-      });
-  }
 };

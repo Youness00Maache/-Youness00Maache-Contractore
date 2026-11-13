@@ -1,502 +1,354 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { Label } from './ui/Label.tsx';
-import { BackArrowIcon, PlusIcon, TrashIcon, RefreshCwIcon, CalculatorIcon, DownloadIcon, SaveIcon, FolderIcon, MoreVerticalIcon, SettingsIcon, CheckIcon, XCircleIcon, TrendingUpIcon } from './Icons.tsx';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CalculatorIcon, DownloadIcon, FolderIcon, PlusIcon, RefreshCwIcon, SaveIcon, TrashIcon, TrendingUpIcon } from './Icons.tsx';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
-import { UserProfile, FormType } from '../types';
+import { FormType, type UserProfile } from '../types.ts';
+import { ConfirmDialog, EmptyState, Field, InlineError, Modal, NoticeToast, NumberInput, PageHeader, XIcon, money, useNotice } from './viewKit.tsx';
+import { roundMoney, toNumber } from '../utils/money.ts';
+import { toLocalYMD } from '../utils/localDates.ts';
 
 interface ProfitItem {
-    id: string;
-    description: string;
-    cost: number;
-    charge: number;
+  id: string;
+  description: string;
+  cost: number;
+  charge: number;
 }
 
 interface SavedCalculation {
-    id: string;
-    name: string;
-    date: string;
-    items: ProfitItem[];
-    vatRate: number;
-    vatEnabled: boolean;
-    margin: number;
+  id: string;
+  name: string;
+  date: string;
+  items: ProfitItem[];
+  vatRate: number;
+  vatEnabled: boolean;
+  margin: number;
 }
 
 interface ProfitCalculatorViewProps {
-    onBack: () => void;
-    profile?: UserProfile;
+  onBack: () => void;
+  profile?: UserProfile;
 }
 
+const STORAGE_KEY = 'profit_calcs';
+const newRow = (description = ''): ProfitItem => ({ id: crypto.randomUUID(), description, cost: 0, charge: 0 });
+const starterRows = () => [newRow('Materials'), newRow('Labor')];
+
+/** Pure profit math (exported for reuse/tests). Margin = profit / revenue, markup = profit / cost. */
+export const profitSummary = (items: ProfitItem[], taxEnabled: boolean, taxRate: number) => {
+  const totalCost = roundMoney(items.reduce((s, i) => s + toNumber(i.cost), 0));
+  const totalCharge = roundMoney(items.reduce((s, i) => s + toNumber(i.charge), 0));
+  const profit = roundMoney(totalCharge - totalCost);
+  const margin = totalCharge > 0 ? (profit / totalCharge) * 100 : 0;
+  const markup = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+  const taxAmount = taxEnabled ? roundMoney(totalCharge * (Math.max(0, toNumber(taxRate)) / 100)) : 0;
+  return { totalCost, totalCharge, profit, margin, markup, taxAmount, totalWithTax: roundMoney(totalCharge + taxAmount) };
+};
+
+/** Price that yields `marginPct` on `cost` (0 ≤ margin < 100). */
+export const priceForMargin = (cost: number, marginPct: number) => roundMoney(toNumber(cost) / (1 - marginPct / 100));
+
+const loadSaved = (): SavedCalculation[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((c) => c && Array.isArray(c.items)) : [];
+  } catch {
+    return [];
+  }
+};
+
+const health = (margin: number, hasRevenue: boolean) => {
+  if (!hasRevenue) return { label: 'Enter your prices', className: 'badge-muted' };
+  if (margin < 0) return { label: 'Loss', className: 'badge-danger' };
+  if (margin < 15) return { label: 'Low margin', className: 'badge-danger' };
+  if (margin < 30) return { label: 'Thin margin', className: 'badge-warning' };
+  return { label: 'Healthy margin', className: 'badge-success' };
+};
+
 const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, profile }) => {
-    // Basic State
-    const [items, setItems] = useState<ProfitItem[]>([
-        { id: crypto.randomUUID(), description: 'Materials', cost: 0, charge: 0 },
-        { id: crypto.randomUUID(), description: 'Labor', cost: 0, charge: 0 }
-    ]);
+  const [items, setItems] = useState<ProfitItem[]>(starterRows);
+  const [calcName, setCalcName] = useState('');
+  const [taxEnabled, setTaxEnabled] = useState(false);
+  const [taxRate, setTaxRate] = useState(8);
+  const [targetMargin, setTargetMargin] = useState(30);
+  const [saved, setSaved] = useState<SavedCalculation[]>([]);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [loadOpen, setLoadOpen] = useState(false);
+  const [deleteFor, setDeleteFor] = useState<SavedCalculation | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const { notice, notify, clear } = useNotice();
 
-    // Advanced State
-    const [isAdvanced, setIsAdvanced] = useState(false);
-    const [vatEnabled, setVatEnabled] = useState(false);
-    const [vatRate, setVatRate] = useState(20);
+  useEffect(() => { setSaved(loadSaved()); }, []);
 
-    // Target Margin State
-    const [targetMarginMode, setTargetMarginMode] = useState(false);
-    const [targetMargin, setTargetMargin] = useState(30);
+  const persist = (list: SavedCalculation[]) => {
+    setSaved(list);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch { notify('error', 'Could not save on this device (storage is full or blocked).'); }
+  };
 
-    // Saving State
-    const [showSaveModal, setShowSaveModal] = useState(false);
-    const [showLoadModal, setShowLoadModal] = useState(false);
-    const [calcName, setCalcName] = useState('');
-    const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
+  const s = useMemo(() => profitSummary(items, taxEnabled, taxRate), [items, taxEnabled, taxRate]);
+  const h = health(s.margin, s.totalCharge > 0);
+  const dirty = items.some((i) => i.cost || i.charge || (i.description && !['Materials', 'Labor'].includes(i.description))) || items.length !== 2;
 
-    useEffect(() => {
-        const saved = localStorage.getItem('profit_calcs');
-        if (saved) {
-            try {
-                setSavedCalcs(JSON.parse(saved));
-            } catch (e) {
-                console.error("Failed to load saved calculations", e);
-            }
+  const update = (id: string, patch: Partial<ProfitItem>) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+
+  const applyTargetMargin = () => {
+    if (!Number.isFinite(targetMargin) || targetMargin < 0 || targetMargin >= 100) { setTargetError('Enter a margin from 0 to 99.9%.'); return; }
+    const withCost = items.filter((i) => toNumber(i.cost) > 0).length;
+    if (!withCost) { setTargetError('Enter your cost on at least one line first.'); return; }
+    setTargetError(null);
+    setItems((prev) => prev.map((i) => (toNumber(i.cost) > 0 ? { ...i, charge: priceForMargin(i.cost, targetMargin) } : i)));
+    notify('success', `Prices set for a ${targetMargin}% margin on ${withCost} line${withCost === 1 ? '' : 's'} with a cost.`);
+  };
+
+  const doSave = () => {
+    const name = saveName.trim();
+    if (!name) return;
+    const existing = saved.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    const calc: SavedCalculation = { id: existing?.id || crypto.randomUUID(), name, date: new Date().toISOString(), items, vatRate: taxRate, vatEnabled: taxEnabled, margin: s.margin };
+    persist([calc, ...saved.filter((c) => c.id !== calc.id)]);
+    setCalcName(name);
+    setSaveOpen(false);
+    notify('success', existing ? `"${name}" updated.` : `"${name}" saved on this device.`);
+  };
+
+  const doLoad = (calc: SavedCalculation) => {
+    setItems(calc.items.map((i) => ({ id: i.id || crypto.randomUUID(), description: String(i.description || ''), cost: toNumber(i.cost), charge: toNumber(i.charge) })));
+    setTaxEnabled(!!calc.vatEnabled);
+    setTaxRate(toNumber(calc.vatRate));
+    setCalcName(calc.name);
+    setLoadOpen(false);
+    notify('info', `Loaded "${calc.name}".`);
+  };
+
+  const reset = () => {
+    setItems(starterRows());
+    setCalcName('');
+    setTaxEnabled(false);
+    setResetOpen(false);
+  };
+
+  const exportPdf = async () => {
+    if (!profile) { notify('error', 'Your company profile is still loading. Try again in a moment.'); return; }
+    if (!s.totalCharge && !s.totalCost) { notify('error', 'Add some costs or prices before exporting.'); return; }
+    setExporting(true);
+    try {
+      const now = new Date();
+      const report = {
+        title: calcName || 'Profit & margin report',
+        reportNumber: `PC-${toLocalYMD(now).replace(/-/g, '')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`,
+        date: now.toLocaleDateString(),
+        items: items.map((i) => ({ id: i.id, description: i.description || 'Item', cost: toNumber(i.cost), charge: toNumber(i.charge) })),
+        vatEnabled: taxEnabled,
+        vatRate: taxEnabled ? taxRate : 0,
+        totalCost: s.totalCost,
+        totalRevenue: s.totalCharge,
+        grossProfit: s.profit,
+        margin: s.margin,
+        markup: s.markup,
+        taxAmount: s.taxAmount,
+        totalWithTax: s.totalWithTax,
+        notes: `Total cost ${money(s.totalCost)} · revenue ${money(s.totalCharge)} · profit ${money(s.profit)} (${s.margin.toFixed(1)}% margin).`,
+      };
+      const job = {
+        id: 'profit-calculator', userId: profile.id, name: calcName || 'Profit calculation', clientName: '', clientAddress: '',
+        startDate: toLocalYMD(now), endDate: null, status: 'active' as const, createdAt: now.toISOString(),
+      };
+      const dataUri = await generateDocumentBase64(FormType.ProfitReport, report, profile, job);
+      if (!dataUri) throw new Error('empty');
+      const link = document.createElement('a');
+      link.href = dataUri;
+      link.download = `${(calcName || 'profit-calculation').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'profit-calculation'}-${toLocalYMD(now)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      notify('success', 'PDF downloaded.');
+    } catch {
+      notify('error', 'The PDF could not be created. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="page">
+      <PageHeader
+        onBack={onBack}
+        icon={<CalculatorIcon className="h-7 w-7" />}
+        title="Profit calculator"
+        subtitle={calcName ? <>Editing <strong className="text-foreground">{calcName}</strong></> : 'Price a job and check your margin before you quote it.'}
+        actions={
+          <>
+            <button type="button" className="btn btn-outline" onClick={() => setLoadOpen(true)}><FolderIcon className="h-4 w-4" /> Saved{saved.length ? ` (${saved.length})` : ''}</button>
+            <button type="button" className="btn btn-outline" onClick={() => { setSaveName(calcName); setSaveOpen(true); }}><SaveIcon className="h-4 w-4" /> Save</button>
+            <button type="button" className="btn btn-primary" onClick={exportPdf} disabled={exporting}><DownloadIcon className="h-4 w-4" /> {exporting ? 'Creating PDF…' : 'Export PDF'}</button>
+          </>
         }
-    }, []);
+      />
 
-    const addItem = () => {
-        setItems([...items, { id: crypto.randomUUID(), description: '', cost: 0, charge: 0 }]);
-    };
-
-    const updateItem = (id: string, field: keyof ProfitItem, value: string | number) => {
-        setItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
-    };
-
-    const removeItem = (id: string) => {
-        setItems(prev => prev.filter(item => item.id !== id));
-    };
-
-    const reset = () => {
-        setItems([
-            { id: crypto.randomUUID(), description: 'Materials', cost: 0, charge: 0 },
-            { id: crypto.randomUUID(), description: 'Labor', cost: 0, charge: 0 }
-        ]);
-        setTargetMarginMode(false);
-    };
-
-    // Calculations
-    const totalCost = items.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
-    const totalCharge = items.reduce((sum, item) => sum + (Number(item.charge) || 0), 0);
-    const profit = totalCharge - totalCost;
-    const margin = totalCharge > 0 ? (profit / totalCharge) * 100 : 0;
-    const markup = totalCost > 0 ? (profit / totalCost) * 100 : 0;
-
-    const taxAmount = vatEnabled ? totalCharge * (vatRate / 100) : 0;
-    const totalWithTax = totalCharge + taxAmount;
-
-    const getMarginColor = (m: number) => {
-        if (m >= 30) return 'text-green-600 bg-green-100 dark:bg-green-900/30 border-green-200';
-        if (m >= 15) return 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 border-yellow-200';
-        return 'text-red-600 bg-red-100 dark:bg-red-900/30 border-red-200';
-    };
-
-    // Advanced Handlers
-    const calculateTargetPrice = () => {
-        if (!targetMargin || targetMargin >= 100) return;
-
-        const multiplier = 1 / (1 - (targetMargin / 100));
-
-        setItems(prev => prev.map(item => ({
-            ...item,
-            charge: Number((item.cost * multiplier).toFixed(2))
-        })));
-    };
-
-    const handleSave = () => {
-        if (!calcName) return;
-        const newCalc: SavedCalculation = {
-            id: crypto.randomUUID(),
-            name: calcName,
-            date: new Date().toISOString(),
-            items,
-            vatRate,
-            vatEnabled,
-            margin
-        };
-        const updated = [newCalc, ...savedCalcs];
-        setSavedCalcs(updated);
-        localStorage.setItem('profit_calcs', JSON.stringify(updated));
-        setShowSaveModal(false);
-        setCalcName('');
-    };
-
-    const handleLoad = (calc: SavedCalculation) => {
-        setItems(calc.items);
-        setVatEnabled(calc.vatEnabled);
-        setVatRate(calc.vatRate);
-        setShowLoadModal(false);
-    };
-
-    const handleDelete = (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        const updated = savedCalcs.filter(c => c.id !== id);
-        setSavedCalcs(updated);
-        localStorage.setItem('profit_calcs', JSON.stringify(updated));
-    };
-
-    const handleExportPdf = async () => {
-        if (!profile) return alert('Profile not loaded');
-
-        const profitReportData = {
-            title: calcName || 'Profit & Margin Report',
-            reportNumber: `RPT-${Math.floor(Math.random() * 10000)}`,
-            date: new Date().toLocaleDateString(),
-
-            items: items.map(item => ({
-                id: item.id,
-                description: item.description || 'Item',
-                cost: item.cost,
-                charge: item.charge
-            })),
-
-            vatEnabled,
-            vatRate,
-
-            totalCost,
-            totalRevenue: totalCharge,
-            grossProfit: profit,
-            margin,
-            markup,
-            taxAmount,
-            totalWithTax,
-
-            notes: `Generated from Profit Calculator. \nTotal Cost: $${totalCost.toFixed(2)} | Revenue: $${totalCharge.toFixed(2)} | Profit: $${profit.toFixed(2)}`
-        };
-
-        const fakeJob = {
-            id: 'temp',
-            name: calcName || 'Profit Calc',
-            clientName: 'Internal',
-            address: '',
-            status: 'active',
-            startDate: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            clientId: 'temp',
-            userId: profile.id
-        };
-
-        try {
-            const base64 = await generateDocumentBase64(FormType.ProfitReport, profitReportData, profile, fakeJob as any);
-            if (base64) {
-                const link = document.createElement('a');
-                link.href = base64; // generateProfitReportPDF returns datauristring directly
-                link.download = `Profit-Calc-${new Date().toISOString().split('T')[0]}.pdf`;
-                link.click();
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Failed to generate PDF');
-        }
-    };
-
-    return (
-        <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8 pb-24">
-            {/* Single-row header */}
-            <header className="flex items-center justify-between mb-8 gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 md:w-9 md:h-9 p-0 flex items-center justify-center hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
-                        <BackArrowIcon className="h-6 w-6 md:h-5 md:w-5" />
-                    </Button>
-                    <div className="min-w-0">
-                        <h1 className="text-lg md:text-2xl font-bold flex items-center gap-2 tracking-tight truncate">
-                            <CalculatorIcon className="w-5 h-5 md:w-6 md:h-6 text-primary shrink-0" /> Profit Calculator
-                        </h1>
-                        <p className="text-xs text-muted-foreground hidden md:block">Estimate job profitability.</p>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <Button
-                        variant={isAdvanced ? "default" : "outline"}
-                        onClick={() => setIsAdvanced(!isAdvanced)}
-                        className={`rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center transition-all ${isAdvanced ? 'bg-primary text-primary-foreground' : ''}`}
-                        title={isAdvanced ? 'Advanced Mode' : 'Simple Mode'}
-                    >
-                        <SettingsIcon className="w-7 h-7 md:w-4 md:h-4 md:mr-2" />
-                        <span className="hidden md:inline">{isAdvanced ? 'Advanced' : 'Simple'}</span>
-                    </Button>
-                    <Button variant="outline" onClick={() => setShowLoadModal(true)} className="rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center" title="Load">
-                        <FolderIcon className="w-7 h-7 md:w-4 md:h-4" />
-                        <span className="hidden md:inline">Load</span>
-                    </Button>
-                    <Button variant="outline" onClick={() => setShowSaveModal(true)} className="rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center" title="Save">
-                        <SaveIcon className="w-7 h-7 md:w-4 md:h-4" />
-                        <span className="hidden md:inline">Save</span>
-                    </Button>
-                    <Button variant="outline" onClick={handleExportPdf} className="rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 flex items-center justify-center text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100" title="Export PDF">
-                        <DownloadIcon className="w-7 h-7 md:w-4 md:h-4" />
-                        <span className="hidden md:inline">Export</span>
-                    </Button>
-                    <Button variant="outline" onClick={reset} className="hidden md:flex rounded-full h-12 w-12 md:h-9 md:w-auto md:px-3 p-0 items-center justify-center" title="Reset">
-                        <RefreshCwIcon className="w-7 h-7 md:w-4 md:h-4" />
-                        <span className="hidden md:inline">Reset</span>
-                    </Button>
-                </div>
-            </header>
-
-            {/* Advanced Toolbar (Mobile or extra features) */}
-            {isAdvanced && (
-                <div className="mb-6 p-4 rounded-xl bg-card border border-primary/20 shadow-sm animate-in slide-in-from-top-2">
-                    <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
-                        {/* Target Profit Section */}
-                        <div className="flex flex-wrap items-end gap-3 flex-1">
-                            <div className="flex flex-col gap-1.5 w-full sm:w-auto">
-                                <Label className="text-xs font-bold uppercase text-primary">Target Margin Mode</Label>
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        type="number"
-                                        value={targetMargin}
-                                        onChange={e => setTargetMargin(Number(e.target.value))}
-                                        className="w-24 bg-background"
-                                        min="0" max="99"
-                                    />
-                                    <span className="font-bold text-muted-foreground">%</span>
-                                </div>
-                            </div>
-                            <Button onClick={calculateTargetPrice} disabled={totalCost === 0} className="bg-primary hover:bg-primary/90 text-white shadow-md">
-                                <TrendingUpIcon className="w-4 h-4 mr-2" /> Calculate Pricing
-                            </Button>
-                            <p className="text-xs text-muted-foreground max-w-xs leading-tight">
-                                Automatically sets prices to achieve {targetMargin}% margin based on your costs.
-                            </p>
-                        </div>
-
-                        {/* VAT Section */}
-                        <div className="flex flex-col gap-2 border-l pl-6 border-border w-full md:w-auto">
-                            <div className="flex items-center justify-between gap-4">
-                                <Label className="text-sm font-medium">Tx / VAT</Label>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => setVatEnabled(!vatEnabled)}
-                                        className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 ${vatEnabled ? 'bg-primary' : 'bg-input'}`}
-                                    >
-                                        <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${vatEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
-                            </div>
-                            {vatEnabled && (
-                                <div className="flex items-center gap-2 animate-in fade-in">
-                                    <Input
-                                        type="number"
-                                        value={vatRate}
-                                        onChange={e => setVatRate(Number(e.target.value))}
-                                        className="w-16 h-8 text-sm"
-                                    />
-                                    <span className="text-sm">%</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="flex flex-col lg:flex-row gap-8 flex-1">
-                {/* Input Section */}
-                <Card className="flex-1 border-gray-400 dark:border-gray-600 flex flex-col">
-                    <CardHeader>
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <CardTitle>Line Items</CardTitle>
-                                <CardDescription>Enter your costs {isAdvanced ? 'and let us calculate the price, or enter manually' : 'and charges'}.</CardDescription>
-                            </div>
-                            {/* Mobile-only Reset button relocated here for breathing room */}
-                            <Button variant="outline" onClick={reset} className="md:hidden rounded-full h-12 w-12 p-0 flex items-center justify-center shrink-0 shadow-sm" title="Reset">
-                                <RefreshCwIcon className="w-7 h-7" />
-                            </Button>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4 flex-1 overflow-y-auto">
-                        <div className="hidden sm:grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground px-1">
-                            <div className="col-span-5">Description</div>
-                            <div className="col-span-3">Your Cost</div>
-                            <div className="col-span-3">Client Charge</div>
-                            <div className="col-span-1"></div>
-                        </div>
-
-                        {items.map((item) => (
-                            <div key={item.id} className="grid grid-cols-12 gap-2 items-center animate-in slide-in-from-left-1">
-                                <div className="col-span-12 sm:col-span-5">
-                                    <Input
-                                        value={item.description}
-                                        onChange={(e) => updateItem(item.id, 'description', e.target.value)}
-                                        placeholder="Item name"
-                                    />
-                                </div>
-                                <div className="col-span-5 sm:col-span-3">
-                                    <Input
-                                        type="number"
-                                        value={item.cost || ''}
-                                        onChange={(e) => updateItem(item.id, 'cost', parseFloat(e.target.value))}
-                                        className="bg-red-50/50 dark:bg-red-950/10 border-red-100 dark:border-red-900/30 text-red-700 dark:text-red-400"
-                                        placeholder="Cost"
-                                    />
-                                </div>
-                                <div className="col-span-6 sm:col-span-3">
-                                    <Input
-                                        type="number"
-                                        value={item.charge || ''}
-                                        onChange={(e) => updateItem(item.id, 'charge', parseFloat(e.target.value))}
-                                        className="bg-green-50/50 dark:bg-green-950/10 border-green-100 dark:border-green-900/30 text-green-700 dark:text-green-400"
-                                        placeholder="Charge"
-                                    />
-                                </div>
-                                <div className="col-span-1 flex justify-center">
-                                    <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive">
-                                        <TrashIcon className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
-
-                        <Button variant="outline" onClick={addItem} className="w-full mt-2 border-dashed border-border hover:border-primary/50 text-muted-foreground hover:text-primary">
-                            <PlusIcon className="w-4 h-4 mr-2" /> Add Item
-                        </Button>
-                    </CardContent>
-                </Card>
-
-                {/* Summary Section */}
-                <div className="lg:w-96 space-y-6">
-                    <Card className={`border-2 ${getMarginColor(margin)} bg-card shadow-lg`}>
-                        <CardHeader className="pb-2">
-                            <div className="flex justify-between items-center">
-                                <CardTitle className="text-lg">Financial Summary</CardTitle>
-                                {isAdvanced && vatEnabled && <span className="text-xs bg-muted px-2 py-1 rounded">Tax Included</span>}
-                            </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4 pt-2">
-                            <div className="flex justify-between items-center text-sm">
-                                <span className="text-muted-foreground">Total Revenue</span>
-                                <span className="font-bold text-lg">${totalCharge.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between items-center text-sm">
-                                <span className="text-muted-foreground">Total Cost</span>
-                                <span className="font-bold text-lg text-red-500">-${totalCost.toFixed(2)}</span>
-                            </div>
-
-                            {isAdvanced && vatEnabled && (
-                                <div className="flex justify-between items-center text-sm animate-in fade-in">
-                                    <span className="text-muted-foreground">Tax ({vatRate}%)</span>
-                                    <span className="font-medium text-amber-600">+${taxAmount.toFixed(2)}</span>
-                                </div>
-                            )}
-
-                            <div className="h-px bg-border my-2"></div>
-
-                            {isAdvanced && vatEnabled ? (
-                                <div className="flex flex-col gap-1">
-                                    <div className="flex justify-between items-center">
-                                        <span className="font-bold">Net Profit</span>
-                                        <span className={`font-bold text-xl ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            ${profit.toFixed(2)}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center bg-secondary/30 p-2 rounded mt-2">
-                                        <span className="font-bold text-sm">Total w/ Tax</span>
-                                        <span className="font-bold text-xl">${totalWithTax.toFixed(2)}</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex justify-between items-center">
-                                    <span className="font-bold">Net Profit</span>
-                                    <span className={`font-bold text-2xl ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                        ${profit.toFixed(2)}
-                                    </span>
-                                </div>
-                            )}
-
-                        </CardContent>
-                    </Card>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <Card className="bg-card">
-                            <CardContent className="pt-6 text-center">
-                                <div className="text-3xl font-bold mb-1">{margin.toFixed(1)}%</div>
-                                <div className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Gross Margin</div>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-card">
-                            <CardContent className="pt-6 text-center">
-                                <div className="text-3xl font-bold mb-1 text-blue-600">{markup.toFixed(1)}%</div>
-                                <div className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Markup</div>
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-xs text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-800">
-                        <p className="font-bold mb-1">💡 Margin vs Markup</p>
-                        <p><strong>Margin</strong> is the percentage of revenue that is profit.</p>
-                        <p className="mt-1"><strong>Markup</strong> is the percentage added to cost to get the selling price.</p>
-                    </div>
-                </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="space-y-5">
+          <section className="card card-pad">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Line items</h2>
+                <p className="text-xs text-muted-foreground">Your cost and what you charge the client for each part of the job.</p>
+              </div>
+              <button type="button" className="btn btn-ghost btn-sm h-10" onClick={() => (dirty ? setResetOpen(true) : reset())}><RefreshCwIcon className="h-4 w-4" /> Reset</button>
             </div>
+            <div className="hidden grid-cols-[minmax(0,1fr)_8rem_8rem_2.5rem] gap-2 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid">
+              <span>Description</span><span>Your cost</span><span>Client price</span><span />
+            </div>
+            <ul className="space-y-3 sm:space-y-2">
+              {items.map((item, idx) => {
+                const lineProfit = toNumber(item.charge) - toNumber(item.cost);
+                return (
+                  <li key={item.id} className="grid grid-cols-2 gap-2 rounded-xl border border-border p-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_2.5rem] sm:items-center sm:border-0 sm:p-0">
+                    <div className="col-span-2 flex items-center gap-2 sm:col-span-1">
+                      <label htmlFor={`pc-d-${item.id}`} className="sr-only">Description</label>
+                      <input id={`pc-d-${item.id}`} className="input" value={item.description} onChange={(e) => update(item.id, { description: e.target.value })} placeholder={`Line ${idx + 1}`} maxLength={120} />
+                      <button type="button" aria-label="Remove line" className="btn btn-ghost h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive sm:hidden" onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}><XIcon className="h-4 w-4" /></button>
+                    </div>
+                    <div>
+                      <label htmlFor={`pc-c-${item.id}`} className="mb-1 block text-xs text-muted-foreground sm:sr-only">Your cost</label>
+                      <NumberInput id={`pc-c-${item.id}`} value={item.cost} onValue={(n) => update(item.id, { cost: n })} placeholder="0.00" />
+                    </div>
+                    <div>
+                      <label htmlFor={`pc-p-${item.id}`} className="mb-1 block text-xs text-muted-foreground sm:sr-only">Client price</label>
+                      <NumberInput id={`pc-p-${item.id}`} value={item.charge} onValue={(n) => update(item.id, { charge: n })} placeholder="0.00" />
+                    </div>
+                    <button type="button" aria-label="Remove line" className="btn btn-ghost hidden h-10 w-10 p-0 text-muted-foreground hover:text-destructive sm:inline-flex" onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}><TrashIcon className="h-4 w-4" /></button>
+                    {(toNumber(item.cost) > 0 || toNumber(item.charge) > 0) && (
+                      <p className={`col-span-2 text-xs sm:col-span-4 sm:px-1 ${lineProfit < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                        Profit {money(lineProfit)}{toNumber(item.charge) > 0 ? ` · ${((lineProfit / toNumber(item.charge)) * 100).toFixed(1)}% margin` : ''}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {items.length === 0 && <EmptyState compact icon={<CalculatorIcon />} title="No lines" description="Add a line for each cost of the job." />}
+            <button type="button" className="btn btn-outline mt-4 w-full border-dashed" onClick={() => setItems((prev) => [...prev, newRow()])}><PlusIcon className="h-4 w-4" /> Add line</button>
+          </section>
 
-            {/* Save Modal */}
-            {showSaveModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowSaveModal(false)}>
-                    <Card className="w-full max-w-sm animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                        <CardHeader>
-                            <CardTitle>Save Calculation</CardTitle>
-                            <CardDescription>Save this for later reference.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Input
-                                value={calcName}
-                                onChange={e => setCalcName(e.target.value)}
-                                placeholder="Calculation Name (e.g. Kitchen Reno)"
-                                autoFocus
-                            />
-                        </CardContent>
-                        <CardFooter className="justify-end gap-2">
-                            <Button variant="ghost" onClick={() => setShowSaveModal(false)}>Cancel</Button>
-                            <Button onClick={handleSave} disabled={!calcName}>Save</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
-
-            {/* Load Modal */}
-            {showLoadModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowLoadModal(false)}>
-                    <Card className="w-full max-w-md animate-in zoom-in-95 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <CardHeader className="border-b pb-3">
-                            <CardTitle>Saved Calculations</CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0 overflow-y-auto flex-1">
-                            {savedCalcs.length === 0 ? (
-                                <div className="p-8 text-center text-muted-foreground">No saved calculations yet.</div>
-                            ) : (
-                                <div className="divide-y">
-                                    {savedCalcs.map(calc => (
-                                        <div key={calc.id} className="p-4 hover:bg-muted/50 transition-colors flex justify-between items-center cursor-pointer" onClick={() => handleLoad(calc)}>
-                                            <div>
-                                                <p className="font-bold">{calc.name}</p>
-                                                <p className="text-xs text-muted-foreground">{new Date(calc.date).toLocaleDateString()} • {calc.margin.toFixed(0)}% Margin</p>
-                                            </div>
-                                            <Button variant="ghost" size="sm" onClick={(e) => handleDelete(calc.id, e)} className="text-destructive hover:bg-destructive/10">
-                                                <TrashIcon className="w-4 h-4" />
-                                            </Button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                        <CardFooter className="justify-end pt-3 border-t">
-                            <Button variant="ghost" onClick={() => setShowLoadModal(false)}>Close</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
+          <section className="card card-pad space-y-4">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Price for a target margin</h2>
+              <p className="text-xs text-muted-foreground">Sets each line's price to cost ÷ (1 − margin). Lines without a cost keep their price.</p>
+            </div>
+            {targetError && <InlineError>{targetError}</InlineError>}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <Field label="Target margin (%)" htmlFor="pc-target" className="sm:w-48">
+                <NumberInput id="pc-target" value={targetMargin} onValue={(n) => { setTargetMargin(n); setTargetError(null); }} />
+              </Field>
+              <button type="button" className="btn btn-outline" onClick={applyTargetMargin}><TrendingUpIcon className="h-4 w-4" /> Apply to prices</button>
+            </div>
+            <div className="border-t border-border pt-4">
+              <label className="flex min-h-[40px] cursor-pointer items-center justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-medium text-foreground">Add sales tax / VAT</span>
+                  <span className="block text-xs text-muted-foreground">Tax is charged on the client price and does not change your profit.</span>
+                </span>
+                <input type="checkbox" className="h-5 w-5 accent-[hsl(var(--primary))]" checked={taxEnabled} onChange={(e) => setTaxEnabled(e.target.checked)} />
+              </label>
+              {taxEnabled && (
+                <Field label="Tax rate (%)" htmlFor="pc-tax" className="mt-2 sm:w-48">
+                  <NumberInput id="pc-tax" value={taxRate} onValue={(n) => setTaxRate(Math.min(100, n))} />
+                </Field>
+              )}
+            </div>
+          </section>
         </div>
-    );
+
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          <section className="card card-pad">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-foreground">Summary</h2>
+              <span className={`badge ${h.className}`}>{h.label}</span>
+            </div>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Client price</dt><dd className="font-semibold tabular-nums">{money(s.totalCharge)}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Your cost</dt><dd className="font-semibold tabular-nums">− {money(s.totalCost)}</dd></div>
+              <div className="flex justify-between gap-3 border-t border-border pt-2 text-base"><dt className="font-semibold">Profit</dt><dd className={`font-bold tabular-nums ${s.profit < 0 ? 'text-destructive' : 'text-success'}`}>{money(s.profit)}</dd></div>
+              {taxEnabled && (
+                <>
+                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Tax ({taxRate}%)</dt><dd className="tabular-nums">+ {money(s.taxAmount)}</dd></div>
+                  <div className="flex justify-between gap-3 rounded-xl bg-muted px-3 py-2"><dt className="font-semibold">Client pays</dt><dd className="font-bold tabular-nums">{money(s.totalWithTax)}</dd></div>
+                </>
+              )}
+            </dl>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-muted/60 p-3 text-center">
+                <div className="text-2xl font-bold tabular-nums text-foreground">{s.totalCharge > 0 ? `${s.margin.toFixed(1)}%` : '—'}</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Margin</div>
+              </div>
+              <div className="rounded-xl bg-muted/60 p-3 text-center">
+                <div className="text-2xl font-bold tabular-nums text-foreground">{s.totalCost > 0 ? `${s.markup.toFixed(1)}%` : '—'}</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Markup</div>
+              </div>
+            </div>
+          </section>
+          <section className="rounded-2xl border border-border bg-accent/50 p-4 text-xs leading-relaxed text-accent-foreground">
+            <p><strong>Margin</strong> is the share of the price you keep: profit ÷ price.</p>
+            <p className="mt-1"><strong>Markup</strong> is what you add on top of cost: profit ÷ cost. A 50% markup is a 33.3% margin.</p>
+          </section>
+        </aside>
+      </div>
+
+      <Modal
+        open={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        size="sm"
+        title="Save calculation"
+        description="Saved on this device. Use the same name to update it."
+        footer={<><button type="button" className="btn btn-outline" onClick={() => setSaveOpen(false)}>Cancel</button><button type="button" className="btn btn-primary" onClick={doSave} disabled={!saveName.trim()}>Save</button></>}
+      >
+        <form onSubmit={(e) => { e.preventDefault(); doSave(); }}>
+          <Field label="Name" htmlFor="pc-save-name">
+            <input id="pc-save-name" className="input" value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="e.g. Kitchen remodel – Smith" autoFocus maxLength={80} />
+          </Field>
+        </form>
+      </Modal>
+
+      <Modal open={loadOpen} onClose={() => setLoadOpen(false)} size="md" title="Saved calculations" description="Stored in this browser on this device." footer={<button type="button" className="btn btn-outline" onClick={() => setLoadOpen(false)}>Close</button>}>
+        {saved.length === 0 ? (
+          <EmptyState compact icon={<FolderIcon />} title="Nothing saved yet" description="Use Save to keep a calculation for later." />
+        ) : (
+          <ul className="divide-y divide-border">
+            {saved.map((c) => (
+              <li key={c.id} className="flex items-center gap-2 py-2">
+                <button type="button" className="min-w-0 flex-1 rounded-lg px-2 py-2 text-left hover:bg-muted" onClick={() => doLoad(c)}>
+                  <span className="block truncate font-semibold text-foreground">{c.name}</span>
+                  <span className="block text-xs text-muted-foreground">{new Date(c.date).toLocaleDateString()} · {toNumber(c.margin).toFixed(1)}% margin · {c.items.length} line{c.items.length === 1 ? '' : 's'}</span>
+                </button>
+                <button type="button" aria-label={`Delete ${c.name}`} className="btn btn-ghost h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive" onClick={() => setDeleteFor(c)}><TrashIcon className="h-4 w-4" /></button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        open={!!deleteFor}
+        title={`Delete "${deleteFor?.name ?? ''}"?`}
+        message="This saved calculation will be removed from this device."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => { if (deleteFor) persist(saved.filter((c) => c.id !== deleteFor.id)); setDeleteFor(null); }}
+        onCancel={() => setDeleteFor(null)}
+      />
+      <ConfirmDialog
+        open={resetOpen}
+        title="Start a new calculation?"
+        message="Your current lines will be cleared. Saved calculations are not affected."
+        confirmLabel="Reset"
+        onConfirm={reset}
+        onCancel={() => setResetOpen(false)}
+      />
+      <NoticeToast notice={notice} onClose={clear} />
+    </div>
+  );
 };
 
 export default ProfitCalculatorView;

@@ -1,164 +1,233 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import type { Client, UserProfile } from '../types.ts';
+import { BriefcaseIcon, UserIcon, CalendarIcon, StarIcon } from './Icons.tsx';
+import { PageHeader } from './ui/PageHeader.tsx';
+import { FREE_LIMITS, isPaidTier, normalizeTier } from '../lib/plans.ts';
 
-import React, { useState, useEffect } from 'react';
-import type { Job, Client, UserProfile } from '../types.ts';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, BriefcaseIcon } from './Icons.tsx';
-import UpgradeModal from './UpgradeModal.tsx';
-
-interface JobFormProps {
-  onSave: (jobData: Omit<Job, 'id' | 'userId' | 'endDate' | 'status'>) => void;
-  onCancel: () => void;
-  supabase: any;
-  session: any;
-  jobCount?: number;
-  profile?: UserProfile | null;
+export interface JobFormValues {
+  name: string;
+  clientName: string;
+  clientAddress: string;
+  startDate: string;
+  endDate?: string | null;
+  workerName?: string;
+  /** Set when an existing client was picked (jobs.client_id). */
+  clientId?: string | null;
 }
 
-const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, jobCount = 0, profile }) => {
-  const [jobName, setJobName] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [clientAddress, setClientAddress] = useState('');
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [workerName, setWorkerName] = useState('');
+interface JobFormProps {
+  /** Should throw (or reject) on failure so the form can show the error and re-enable. */
+  onSave: (jobData: JobFormValues) => Promise<unknown> | void;
+  onCancel: () => void;
+  /** Legacy: only used to load clients when `clients` is not provided. */
+  supabase?: any;
+  session?: any;
+  clients?: Client[];
+  /** Jobs created this calendar month (free-plan meter). */
+  jobCount?: number;
+  jobLimit?: number | null;
+  profile?: UserProfile | null;
+  onUpgradeClick?: () => void;
+  /** Values to start with (e.g. from the AI assistant). */
+  prefillData?: Record<string, any> | null;
+}
+
+const todayLocal = () => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const pick = (obj: Record<string, any> | null | undefined, ...keys: string[]): string => {
+  if (!obj) return '';
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+};
+
+const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, clients: clientsProp, jobCount = 0, jobLimit, profile, onUpgradeClick, prefillData }) => {
+  const [jobName, setJobName] = useState(() => pick(prefillData, 'name', 'jobName', 'projectName', 'title'));
+  const [clientName, setClientName] = useState(() => pick(prefillData, 'clientName', 'client_name', 'client'));
+  const [clientAddress, setClientAddress] = useState(() => pick(prefillData, 'clientAddress', 'client_address', 'address', 'projectAddress'));
+  const [startDate, setStartDate] = useState(() => pick(prefillData, 'startDate', 'start_date') || todayLocal());
+  const [endDate, setEndDate] = useState(() => pick(prefillData, 'endDate', 'end_date'));
+  const [workerName, setWorkerName] = useState(() => pick(prefillData, 'workerName', 'worker_name', 'worker'));
+  const [selectedClientId, setSelectedClientId] = useState<string>('new');
   const [loading, setLoading] = useState(false);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fetchedClients, setFetchedClients] = useState<Client[]>([]);
+
+  const clients = clientsProp ?? fetchedClients;
 
   useEffect(() => {
-    const fetchClients = async () => {
-      if (!session) return;
-      const { data } = await supabase.from('clients').select('*').eq('user_id', session.user.id).order('name');
-      if (data) setClients(data);
-    };
-    fetchClients();
-  }, [session]);
+    if (clientsProp || !supabase || !session?.user?.id) return;
+    let cancelled = false;
+    supabase
+      .from('clients')
+      .select('id, user_id, name, email, phone, address, notes, portal_key, created_at')
+      .eq('user_id', session.user.id)
+      .order('name')
+      .range(0, 199)
+      .then(({ data }: { data: Client[] | null }) => { if (!cancelled && data) setFetchedClients(data); });
+    return () => { cancelled = true; };
+  }, [clientsProp, supabase, session?.user?.id]);
+
+  // If the prefilled client name matches a saved client, select it.
+  useEffect(() => {
+    if (selectedClientId !== 'new' || !clientName) return;
+    const match = clients.find(c => c.name.toLowerCase() === clientName.toLowerCase());
+    if (match) {
+      setSelectedClientId(match.id);
+      if (!clientAddress && match.address) setClientAddress(match.address);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clients]);
+
+  const paid = isPaidTier(normalizeTier((profile as any)?.plan || profile?.subscriptionTier));
+  const limit = paid ? null : (jobLimit === undefined ? FREE_LIMITS.jobs : jobLimit);
+  const atLimit = limit !== null && jobCount >= limit;
 
   const handleClientSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const clientId = e.target.value;
-    if (clientId === 'new') {
+    const id = e.target.value;
+    setSelectedClientId(id);
+    if (id === 'new') {
       setClientName('');
       setClientAddress('');
-    } else {
-      const client = clients.find(c => c.id === clientId);
-      if (client) {
-        setClientName(client.name);
-        setClientAddress(client.address);
-      }
+      return;
+    }
+    const client = clients.find(c => c.id === id);
+    if (client) {
+      setClientName(client.name);
+      setClientAddress(client.address || '');
     }
   };
 
-  const handleSave = () => {
-    // Check limits
-    const isPro = profile?.subscriptionTier === 'Premium';
-    const limit = isPro ? Infinity : 6; // Basic limit is 6 active jobs
+  const dateError = useMemo(() => (endDate && startDate && endDate < startDate ? 'End date must be on or after the start date.' : null), [startDate, endDate]);
+  const canSubmit = jobName.trim() && clientName.trim() && !loading && !dateError;
 
-    if (jobCount >= limit) {
-      setShowUpgrade(true);
-      return;
-    }
-
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!canSubmit) return;
+    if (atLimit) { onUpgradeClick?.(); return; }
+    setError(null);
     setLoading(true);
-    onSave({
-      name: jobName,
-      clientName,
-      clientAddress,
-      startDate,
-      workerName,
-    });
+    try {
+      await onSave({
+        name: jobName.trim(),
+        clientName: clientName.trim(),
+        clientAddress: clientAddress.trim(),
+        startDate,
+        endDate: endDate || null,
+        workerName: workerName.trim(),
+        clientId: selectedClientId !== 'new' ? selectedClientId : null,
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Could not create the job. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-      <header className="flex items-center mb-8 gap-4">
-        <Button variant="ghost" size="sm" onClick={onCancel} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-          <BackArrowIcon className="h-6 w-6" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-            Create New Job
-          </h1>
-        </div>
-      </header>
+    <div className="page max-w-3xl">
+      <PageHeader title="New job" subtitle="A job groups the invoices, estimates and reports for one project." onBack={onCancel} />
 
-      <main className="flex-1 flex items-start justify-center overflow-y-auto">
-        <Card className="w-full max-w-2xl animate-fade-in-down shadow-xl border-blue-200 dark:border-border/50 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-card dark:to-card">
-          <CardHeader className="bg-white/40 dark:bg-muted/20 border-b border-blue-200 dark:border-border">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg text-primary">
-                <BriefcaseIcon className="w-6 h-6" />
-              </div>
-              <div>
-                <CardTitle className="text-xl text-blue-950 dark:text-foreground">Job Details</CardTitle>
-                <CardDescription>Enter the details for the new project or job.</CardDescription>
+      <form onSubmit={handleSave} className="card" noValidate>
+        {limit !== null && (
+          <div className={`flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 ${atLimit ? 'bg-warning/10' : 'bg-muted/40'}`}>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Free plan: {Math.min(jobCount, limit)} of {limit} new jobs used this month</p>
+              <div className="mt-1.5 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-border">
+                <div className={`h-full rounded-full ${atLimit ? 'bg-warning' : 'bg-primary'}`} style={{ width: `${Math.min(100, (jobCount / Math.max(1, limit)) * 100)}%` }} />
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-6 pt-6">
-            {/* Limit Warning */}
-            {profile?.subscriptionTier !== 'Premium' && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex justify-between items-center">
-                <span>Jobs This Month: {jobCount} / 6 (Free Plan Limit)</span>
-                {jobCount >= 6 && <span className="font-bold text-red-600">Limit Reached</span>}
-              </div>
+            {onUpgradeClick && (
+              <button type="button" onClick={onUpgradeClick} className="btn btn-sm btn-outline shrink-0">
+                <StarIcon className="h-3.5 w-3.5" /> Upgrade for unlimited
+              </button>
             )}
+          </div>
+        )}
 
-            <div className="flex flex-col space-y-2">
-              <Label htmlFor="jobName" className="text-base font-semibold">Job/Project Name</Label>
-              <Input id="jobName" value={jobName} onChange={(e) => setJobName(e.target.value)} placeholder="e.g., Kitchen Remodel" className="h-12 text-lg" />
+        <div className="space-y-6 p-4 sm:p-6">
+          <div>
+            <label htmlFor="jobName" className="label">Job / project name</label>
+            <div className="relative">
+              <BriefcaseIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input id="jobName" className="input pl-10" value={jobName} onChange={(e) => setJobName(e.target.value)} placeholder="e.g. Kitchen remodel" autoFocus required />
             </div>
+          </div>
 
-            <div className="p-4 bg-white/50 dark:bg-secondary/20 rounded-xl border border-blue-200 dark:border-border/50 space-y-4">
-              <h3 className="font-semibold text-sm text-blue-600 dark:text-muted-foreground uppercase tracking-wider">Client Information</h3>
-              <div className="flex flex-col space-y-1.5">
-                <Label>Select Existing Client</Label>
-                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20" onChange={handleClientSelect} defaultValue="new">
-                  <option value="new">-- Create New Client --</option>
-                  {clients.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+          <fieldset className="space-y-4 rounded-2xl border border-border p-4">
+            <legend className="px-1 text-sm font-semibold text-foreground">Client</legend>
+            {clients.length > 0 && (
+              <div>
+                <label htmlFor="clientSelect" className="label">Saved client</label>
+                <select id="clientSelect" className="input" value={selectedClientId} onChange={handleClientSelect}>
+                  <option value="new">New client (type below)</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="clientName">Client Name</Label>
-                  <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="e.g., John Doe" />
+            )}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="clientName" className="label">Client name</label>
+                <div className="relative">
+                  <UserIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    id="clientName"
+                    className="input pl-10"
+                    value={clientName}
+                    onChange={(e) => { setClientName(e.target.value); if (selectedClientId !== 'new') setSelectedClientId('new'); }}
+                    placeholder="e.g. Jane Smith"
+                    required
+                  />
                 </div>
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="clientAddress">Client Address</Label>
-                  <Input id="clientAddress" value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="e.g., 123 Main St" />
-                </div>
+              </div>
+              <div>
+                <label htmlFor="clientAddress" className="label">Job site address</label>
+                <input id="clientAddress" className="input" value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="e.g. 123 Main St" />
               </div>
             </div>
+          </fieldset>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex flex-col space-y-1.5 w-full">
-                <Label htmlFor="startDate">Start Date</Label>
-                <Input id="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </div>
-              <div className="flex flex-col space-y-1.5 w-full">
-                <Label htmlFor="workerName">Assigned Worker (Optional)</Label>
-                <Input id="workerName" value={workerName} onChange={(e) => setWorkerName(e.target.value)} placeholder="e.g., John Smith" />
-              </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <label htmlFor="startDate" className="label">Start date</label>
+              <input id="startDate" type="date" className="input" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
-          </CardContent>
-          <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 bg-white/40 dark:bg-muted/20 border-t border-blue-200 dark:border-border p-6">
-            <Button variant="outline" onClick={onCancel} className="w-full sm:w-auto h-11 px-6">Cancel</Button>
-            <Button onClick={handleSave} disabled={!jobName || !clientName || loading} className="w-full sm:w-auto h-11 px-8 shadow-lg shadow-primary/20">
-              {loading ? 'Saving...' : 'Create Job'}
-            </Button>
-          </CardFooter>
-        </Card>
-      </main>
+            <div>
+              <label htmlFor="endDate" className="label">End date <span className="normal-case font-normal">(optional)</span></label>
+              <input id="endDate" type="date" className="input" value={endDate} min={startDate || undefined} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="workerName" className="label">Assigned worker <span className="normal-case font-normal">(optional)</span></label>
+              <input id="workerName" className="input" value={workerName} onChange={(e) => setWorkerName(e.target.value)} placeholder="e.g. John" />
+            </div>
+          </div>
+          {dateError && <p className="flex items-center gap-1.5 text-sm text-destructive"><CalendarIcon className="h-4 w-4" />{dateError}</p>}
 
-      <UpgradeModal
-        isOpen={showUpgrade}
-        onClose={() => setShowUpgrade(false)}
-        featureName="Unlimited Jobs"
-      />
+          {error && (
+            <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-border p-4 sm:flex-row sm:justify-end sm:px-6">
+          <button type="button" className="btn btn-outline" onClick={onCancel} disabled={loading}>Cancel</button>
+          {atLimit ? (
+            <button type="button" className="btn btn-primary" onClick={onUpgradeClick}>
+              <StarIcon className="h-4 w-4" /> Upgrade to add more jobs
+            </button>
+          ) : (
+            <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+              {loading && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
+              {loading ? 'Creating...' : 'Create job'}
+            </button>
+          )}
+        </div>
+      </form>
     </div>
   );
 };

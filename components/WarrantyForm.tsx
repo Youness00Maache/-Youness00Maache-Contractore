@@ -1,253 +1,120 @@
-import React, { useState, useEffect } from 'react';
-import type { WarrantyData, UserProfile, Job, Client } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon, ShieldIcon } from './Icons.tsx';
+import React from 'react';
+import { FormType, type WarrantyData, type UserProfile, type Job, type Client } from '../types.ts';
 import { generateWarrantyPDF } from '../services/pdfGenerator.ts';
-import TemplateSelector from './TemplateSelector.tsx';
-import SignaturePad from './SignaturePad.tsx';
+import { WarrantyIcon, ShieldCheckIcon, BriefcaseIcon } from './Icons.tsx';
+import { FormShell } from './forms/FormShell.tsx';
+import { DateField, FieldGrid, FormSection, TextAreaField, TextField } from './forms/Fields.tsx';
+import { AIInsightsSection, ClientSection, LogoField, SignatureSection, TemplateSection } from './forms/Sections.tsx';
+import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
+import { isISODate, todayISO } from './forms/formUtils.ts';
 
 interface Props {
-  job: Job;
-  profile: UserProfile;
-  data: WarrantyData | null;
-  clients?: Client[];
-  onSave: (data: WarrantyData) => void;
-  onBack: () => void;
-  onUploadImage?: (file: File) => Promise<string>;
+    job: Job;
+    profile: UserProfile;
+    data: WarrantyData | null;
+    clients?: Client[];
+    onSave: SaveHandler<WarrantyData>;
+    onBack: () => void;
+    onUploadImage?: (file: File) => Promise<string>;
+    prefillData?: unknown;
+    documentId?: string;
+    existingNumbers?: string[];
 }
 
-const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
-  const [formData, setFormData] = useState<WarrantyData>(data || {
-    title: '',
-    warrantyNumber: `WAR-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(Math.random() * 1000)}`,
-    clientName: job.clientName || '',
-    projectAddress: job.clientAddress || '',
-    completedDate: new Date().toISOString().split('T')[0],
-    duration: '1 Year',
-    coverage: 'This warranty covers defects in workmanship and materials provided by the contractor for the duration specified above. We will repair or replace any defective work at no cost to the owner.',
-    conditions: 'This warranty does not cover damage resulting from normal wear and tear, negligence, abuse, natural disasters, or modifications made by others. Notification of any defect must be made in writing within the warranty period.',
-    signatureUrl: '',
-    logoUrl: profile.logoUrl, // Default to profile logo
-    templateId: 'standard',
-    themeColors: { primary: '#000000', secondary: '#666666' }
-  });
-  const [isDownloading, setIsDownloading] = useState(false);
+type WarrantyState = WarrantyData & { clientId?: string };
 
-  // Ensure logo syncs if profile logo changes, unless user manually changed it in this session
-  useEffect(() => {
-      if (profile.logoUrl && !data?.logoUrl) {
-          setFormData(prev => ({ ...prev, logoUrl: profile.logoUrl }));
-      }
-  }, [profile.logoUrl]);
+const DURATIONS = ['90 Days', '6 Months', '1 Year', '2 Years', '5 Years', '10 Years', 'Lifetime'];
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, existingNumbers }) => {
+    const form = useDocumentForm<WarrantyState>({
+        formType: FormType.Warranty,
+        initial: data as WarrantyState | null,
+        prefillData,
+        onSave: onSave as SaveHandler<WarrantyState>,
+        existingNumbers,
+        download: d => generateWarrantyPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID),
+        makeDefaults: () => ({
+            title: '',
+            warrantyNumber: '',
+            clientName: job.clientName || '',
+            projectAddress: job.clientAddress || '',
+            completedDate: todayISO(),
+            duration: '1 Year',
+            coverage: 'This warranty covers defects in workmanship and materials provided by the contractor for the duration specified above. We will repair or replace any defective work at no cost to the owner.',
+            conditions: 'This warranty does not cover damage resulting from normal wear and tear, negligence, abuse, natural disasters, or modifications made by others. Notification of any defect must be made in writing within the warranty period.',
+            signatureUrl: '',
+            logoUrl: profile.logoUrl || '',
+            templateId: DEFAULT_TEMPLATE_ID,
+            themeColors: { ...DEFAULT_THEME },
+        }),
+        hydrate: d => ({ ...d, logoUrl: d.logoUrl || profile.logoUrl || '', coverage: d.coverage ?? '', conditions: d.conditions ?? '' }),
+        validate: d => {
+            if (!String(d.warrantyNumber || '').trim()) return 'Add a warranty number.';
+            if (!String(d.clientName || '').trim()) return 'Add who the warranty is issued to.';
+            if (!isISODate(d.completedDate)) return 'Add the completion date.';
+            return null;
+        },
+    });
+    const { data: d, update } = form;
 
-  const handleClientSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const clientId = e.target.value;
-      if (clientId === 'custom') return; 
-      
-      const client = clients.find(c => c.id === clientId);
-      if (client) {
-          setFormData(prev => ({
-              ...prev,
-              clientName: client.name,
-              projectAddress: client.address || prev.projectAddress
-          }));
-      }
-  };
+    return (
+        <FormShell
+            title="Warranty"
+            subtitle={[d.warrantyNumber, d.clientName].filter(Boolean).join(' · ') || 'New warranty'}
+            icon={WarrantyIcon}
+            aiGenerated={Boolean((d as any).isAiGenerated)}
+            isDirty={form.isDirty}
+            saving={form.saving}
+            downloading={form.downloading}
+            justSaved={form.justSaved}
+            feedback={form.feedback}
+            onDismissFeedback={() => form.setFeedback(null)}
+            onBack={onBack}
+            onSave={form.save}
+            onDownload={form.download}
+            onSaveAndDownload={form.saveAndDownload}
+            preview={{ formType: FormType.Warranty, data: d, profile, job }}
+        >
+            <FormSection title="Warranty details" icon={ShieldCheckIcon}>
+                <FieldGrid>
+                    <TextField label="Warranty #" value={d.warrantyNumber} onChange={v => update({ warrantyNumber: v })} />
+                    <DateField label="Work completed on" value={d.completedDate} onChange={v => update({ completedDate: v })} />
+                    <TextField label="Duration" value={d.duration} onChange={v => update({ duration: v })} list="warranty-durations" placeholder="e.g. 1 Year" />
+                    <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Roof replacement warranty" />
+                </FieldGrid>
+                <datalist id="warranty-durations">{DURATIONS.map(x => <option key={x} value={x} />)}</datalist>
+            </FormSection>
 
-  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (onUploadImage) {
-          try {
-              const newUrl = await onUploadImage(file);
-              if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
-          } catch (e) {
-              console.error(e);
-          }
-      } else {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
-          };
-          reader.readAsDataURL(file);
-      }
-    }
-  };
+            <ClientSection
+                clients={clients}
+                job={job}
+                clientId={d.clientId}
+                clientName={d.clientName}
+                address={d.projectAddress}
+                addressKey="projectAddress"
+                addressLabel="Property address"
+                nameLabel="Issued to"
+                title="Customer & property"
+                description="Who is covered and where the work was done."
+                onChange={patch => update(patch as Partial<WarrantyState>)}
+            />
 
-  const handleDownload = async () => {
-    setIsDownloading(true);
-    try {
-      await generateWarrantyPDF(profile, job, formData, formData.templateId || 'standard');
-    } catch (e) { 
-        console.error(e); 
-        alert('Error generating PDF. Please try again.'); 
-    } finally { 
-        setIsDownloading(false); 
-    }
-  }
+            <FormSection title="Coverage" description="What is and isn’t covered.">
+                <TextAreaField label="Coverage" value={d.coverage} onChange={v => update({ coverage: v })} rows={5} />
+                <TextAreaField label="Conditions & exclusions" value={d.conditions} onChange={v => update({ conditions: v })} rows={5} />
+            </FormSection>
 
-  return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-         <div className="flex items-center">
-            <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                <BackArrowIcon className="h-6 w-6" />
-            </Button>
-            <div>
-                <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-                    <ShieldIcon className="w-6 h-6 text-primary" /> Warranty
-                </h1>
-            </div>
-        </div>
-      </header>
-      
-      <div className="flex-1 overflow-y-auto">
-          <Card className="max-w-3xl mx-auto w-full animate-fade-in-down">
-            <CardHeader>
-                <CardTitle>Certificate of Warranty</CardTitle>
-                <CardDescription>Create a formal guarantee for your work.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Title for Dashboard */}
-              <div className="space-y-1.5">
-                  <Label htmlFor="title">Document Title (For Dashboard)</Label>
-                  <Input 
-                    id="title" 
-                    name="title" 
-                    value={formData.title || ''} 
-                    onChange={handleChange} 
-                    placeholder="e.g. Roof Warranty - Smith" 
-                    className="font-medium"
-                  />
-              </div>
+            <FormSection title="Branding" description="Logo printed on this certificate." icon={BriefcaseIcon}>
+                <LogoField value={d.logoUrl} onChange={url => update({ logoUrl: url })} onUploadImage={onUploadImage} hint="Uses your profile logo unless you upload a different one here." />
+            </FormSection>
 
-              {/* Basic Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1.5">
-                      <Label htmlFor="warrantyNumber">Warranty ID</Label>
-                      <Input id="warrantyNumber" name="warrantyNumber" value={formData.warrantyNumber} onChange={handleChange} />
-                  </div>
-                  <div className="space-y-1.5">
-                      <Label htmlFor="completedDate">Date of Completion</Label>
-                      <Input type="date" id="completedDate" name="completedDate" value={formData.completedDate} onChange={handleChange} />
-                  </div>
-              </div>
+            <AIInsightsSection data={d.ai_visual_data} onRemove={() => update({ ai_visual_data: undefined })} />
 
-              <div className="p-4 bg-muted/30 rounded-lg border border-border/50 space-y-4">
-                  <div className="flex flex-col space-y-1.5">
-                      <Label htmlFor="clientSelect">Select Client (Auto-fill)</Label>
-                      <select 
-                        id="clientSelect" 
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        onChange={handleClientSelect}
-                        defaultValue="custom"
-                      >
-                          <option value="custom">-- Manual Entry --</option>
-                          {clients.map(c => (
-                              <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                      </select>
-                  </div>
+            <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Authorized signature" />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-1.5">
-                          <Label htmlFor="clientName">Issued To (Client)</Label>
-                          <Input id="clientName" name="clientName" value={formData.clientName} onChange={handleChange} />
-                      </div>
-                      <div className="space-y-1.5">
-                          <Label htmlFor="projectAddress">Project Location</Label>
-                          <Input id="projectAddress" name="projectAddress" value={formData.projectAddress} onChange={handleChange} />
-                      </div>
-                  </div>
-              </div>
-
-              <div className="space-y-1.5">
-                  <Label htmlFor="duration">Warranty Duration</Label>
-                  <Input id="duration" name="duration" value={formData.duration} onChange={handleChange} placeholder="e.g. 1 Year from Completion Date" className="font-medium" />
-              </div>
-
-              <div className="space-y-1.5">
-                  <Label htmlFor="coverage">Scope of Coverage</Label>
-                  <textarea 
-                    id="coverage" 
-                    name="coverage" 
-                    className="w-full min-h-[100px] p-3 rounded-md border border-input bg-background text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" 
-                    value={formData.coverage} 
-                    onChange={handleChange} 
-                    placeholder="Describe what is covered..."
-                  />
-              </div>
-
-              <div className="space-y-1.5">
-                  <Label htmlFor="conditions">Terms, Conditions & Exclusions</Label>
-                  <textarea 
-                    id="conditions" 
-                    name="conditions" 
-                    className="w-full min-h-[100px] p-3 rounded-md border border-input bg-background text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" 
-                    value={formData.conditions} 
-                    onChange={handleChange} 
-                    placeholder="Describe exceptions or conditions..."
-                  />
-              </div>
-
-              <div className="mt-6 border-t border-border pt-6 space-y-6">
-                <div className="flex flex-col space-y-1.5">
-                      <Label htmlFor="logoUrl">Company Logo</Label>
-                      <div className="flex items-start gap-4">
-                          {formData.logoUrl && (
-                              <div className="border p-2 rounded bg-muted/20">
-                                  <img src={formData.logoUrl} alt="Logo Preview" className="h-16 w-auto object-contain" />
-                              </div>
-                          )}
-                          <div className="flex-1">
-                              <Input id="logoUrl" type="file" accept="image/*" onChange={handleLogoChange} />
-                              <p className="text-xs text-muted-foreground mt-1">Defaults to your settings logo. Upload here to override for this document only.</p>
-                          </div>
-                      </div>
-                </div>
-
-                <div>
-                    <Label className="mb-3 block">Authorized Signature</Label>
-                    <div className="border rounded-md overflow-hidden">
-                        <SignaturePad 
-                            onSave={(url) => setFormData(prev => ({...prev, signatureUrl: url}))}
-                            initialDataUrl={formData.signatureUrl}
-                        />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">Sign above to validate this certificate.</p>
-                </div>
-              </div>
-
-               <div className="pt-4 border-t border-border mt-4">
-                    <TemplateSelector 
-                         selectedTemplateId={formData.templateId || 'standard'} 
-                         onSelectTemplate={(id) => setFormData(prev => ({ ...prev, templateId: id }))} 
-                         themeColors={formData.themeColors}
-                         onColorsChange={(colors) => setFormData(prev => ({ ...prev, themeColors: colors }))}
-                     />
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col sm:flex-row gap-3 justify-end bg-muted/20 p-6">
-                <Button variant="outline" onClick={() => onSave(formData)} className="w-full sm:w-auto">Save Draft</Button>
-                <div className="flex gap-2 w-full sm:w-auto">
-                    <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="flex-1 sm:flex-none">
-                        <ExportIcon className="h-4 w-4 mr-2"/> {isDownloading ? 'Generating...' : 'Download PDF'}
-                    </Button>
-                    <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading} className="flex-1 sm:flex-none">
-                        Save & Download
-                    </Button>
-                </div>
-            </CardFooter>
-          </Card>
-      </div>
-    </div>
-  );
+            <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+        </FormShell>
+    );
 };
+
 export default WarrantyForm;

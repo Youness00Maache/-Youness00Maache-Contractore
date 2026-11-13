@@ -1,70 +1,222 @@
 import React from 'react';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon } from './Icons.tsx';
+import { Link } from 'react-router-dom';
+import { LegalDocument, type LegalSection } from '../pages/components/LegalDocument.tsx';
+import { SITE } from '../content/site.ts';
+import { FREE_LIMITS } from '../lib/plans.ts';
 
 interface Props {
-    onBack: () => void;
+  /** Legacy: when rendered standalone by the app, shows a back bar. */
+  onBack?: () => void;
 }
 
-const TermsOfService: React.FC<Props> = ({ onBack }) => {
-    return (
-        <div className="min-h-screen w-full bg-slate-50 text-slate-900 font-sans">
-            <header className="fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-white/80 backdrop-blur-lg shadow-sm py-3">
-                <div className="max-w-7xl mx-auto px-6 lg:px-8">
-                    <Button variant="ghost" onClick={onBack} className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-primary">
-                        <BackArrowIcon className="w-4 h-4" /> Back to Home
-                    </Button>
-                </div>
-            </header>
+const Email = () => <a href={`mailto:${SITE.email}`}>{SITE.email}</a>;
 
-            <main>
-                <section className="relative pt-32 pb-16 text-center overflow-hidden">
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none">
-                        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-400/20 rounded-full blur-[100px] mix-blend-multiply animate-pulse"></div>
-                        <div className="absolute top-40 right-10 w-72 h-72 bg-purple-400/20 rounded-full blur-[100px] mix-blend-multiply animate-pulse" style={{ animationDelay: '1s' }}></div>
-                    </div>
-                    
-                    <h1 className="text-5xl lg:text-7xl font-bold tracking-tight text-slate-900 mb-4 leading-[1.1]">
-                        Terms of <br className="hidden lg:block" />
-                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-violet-600">Service</span>
-                    </h1>
-                    <p className="text-slate-500">Last Updated: {new Date().toLocaleDateString()}</p>
-                </section>
-                
-                <section className="pb-24">
-                    <div className="max-w-3xl mx-auto px-6 space-y-8">
-                        <div className="text-slate-600 leading-relaxed space-y-4">
-                            <p>Please read these Terms of Service carefully before using the ContractorDocs application (the "Service"). Your access to and use of the Service is conditioned on your acceptance of and compliance with these Terms.</p>
-                        
-                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">1. Service Description</h2>
-                            <p>ContractorDocs provides a suite of tools for contractors to create, manage, and share business documents. The Service is provided "as is" and we make no guarantees regarding its suitability for any particular purpose.</p>
-                        
-                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">2. User Accounts</h2>
-                            <p>You are responsible for safeguarding your account and for any activities or actions under your account. You must notify us immediately upon becoming aware of any breach of security or unauthorized use of your account.</p>
+export const TERMS_SECTIONS: LegalSection[] = [
+  {
+    id: 'agreement',
+    title: 'Agreement',
+    body: (
+      <p>
+        These Terms of Service (“Terms”) govern your use of ContractorDocs, including the website and web application (the “Service”).
+        By creating an account or using the Service you agree to these Terms and to our <Link to="/privacy">Privacy Policy</Link>. If you use
+        the Service for a business, you accept these Terms on behalf of that business.
+      </p>
+    ),
+  },
+  {
+    id: 'the-service',
+    title: 'The Service',
+    body: (
+      <p>
+        ContractorDocs lets you create, store, send and share business documents such as invoices, estimates, work orders, change orders
+        and reports; collect approvals and signatures from your clients; send email through a Gmail account you connect; and use an
+        optional AI assistant. We may improve, change or discontinue features over time; if we remove a major paid feature we will give you
+        reasonable notice.
+      </p>
+    ),
+  },
+  {
+    id: 'accounts',
+    title: 'Your account',
+    body: (
+      <ul>
+        <li>You must be at least 18 years old and able to form a binding contract.</li>
+        <li>Give accurate information and keep your login details secure. You are responsible for activity under your account.</li>
+        <li>Tell us right away at <Email /> if you suspect unauthorized access.</li>
+      </ul>
+    ),
+  },
+  {
+    id: 'plans-billing',
+    title: 'Plans, billing and cancellation',
+    body: (
+      <>
+        <p>
+          <strong>Free plan.</strong> The Free plan is free of charge and includes monthly usage limits (currently {FREE_LIMITS.jobs} new jobs per month,
+          {' '}{FREE_LIMITS.clients} saved clients, {FREE_LIMITS.docs} documents per job per month, {FREE_LIMITS.emails} emails per month and {FREE_LIMITS.ai} AI
+          requests per month). Limits are shown on the <Link to="/pricing">pricing page</Link> and may change with notice.
+        </p>
+        <p>
+          <strong>Paid plans.</strong> Premium and Premium + AI are subscriptions billed monthly or yearly in advance. Prices are listed on the
+          pricing page in US dollars; taxes may be added at checkout.
+        </p>
+        <p>
+          <strong>Merchant of record.</strong> Purchases are processed by Kelviq, which acts as the merchant of record and reseller of the
+          subscription. Kelviq handles payment, applicable sales tax or VAT, invoices and receipts, and its own terms apply to the payment
+          transaction.
+        </p>
+        <p>
+          <strong>Renewal and cancellation.</strong> Subscriptions renew automatically at the end of each billing period until cancelled. You can
+          cancel at any time from Settings; cancellation takes effect at the end of the current period, you keep paid features until then, and
+          your account then moves to the Free plan. Your documents are not deleted when you downgrade.
+        </p>
+        <p>
+          <strong>Price changes.</strong> If we change prices, we will tell you in advance and the new price will apply from your next billing
+          period after the notice.
+        </p>
+        <p>
+          <strong>Refunds.</strong> Except where required by law, payments are non-refundable and we don’t provide credits for partial periods. If
+          you believe you were charged in error, contact <Email /> and we will review it with you; approved refunds are issued through Kelviq.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'acceptable-use',
+    title: 'Acceptable use',
+    body: (
+      <>
+        <p>You agree not to:</p>
+        <ul>
+          <li>use the Service for anything illegal, fraudulent or deceptive, including fake invoices or documents meant to mislead;</li>
+          <li>send spam or unsolicited bulk email through a connected Gmail account;</li>
+          <li>upload content you don’t have the right to use, or content that is harmful, abusive or infringes others’ rights;</li>
+          <li>try to access other users’ data, probe or break our security, or overload or disrupt the Service;</li>
+          <li>resell, copy or reverse engineer the Service, or use automated means to access it except through features we provide.</li>
+        </ul>
+        <p>Forum content must be respectful and on topic. We may remove content or suspend accounts that break these rules.</p>
+      </>
+    ),
+  },
+  {
+    id: 'your-content',
+    title: 'Your content',
+    body: (
+      <>
+        <p>
+          You own the content you put into ContractorDocs, including your documents and client information. You give us a limited licence to
+          host, store, process, display and transmit it only as needed to provide the Service to you (for example to generate PDFs, send emails
+          you request, show documents in the client portal, or run the AI assistant when you use it).
+        </p>
+        <p>
+          You are responsible for your content and for having the right to share your clients’ information with us. When you share a portal or
+          approval link, anyone with the link can view the documents it shows.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'ai-assistant',
+    title: 'AI assistant',
+    body: (
+      <p>
+        The AI assistant generates drafts automatically and can make mistakes, including wrong prices, quantities, dates or wording. Always
+        review AI-generated content before you save, send or rely on it. You are responsible for the documents you send.
+      </p>
+    ),
+  },
+  {
+    id: 'not-advice',
+    title: 'Templates are not legal, tax or financial advice',
+    body: (
+      <p>
+        ContractorDocs is not a law firm, accountant or financial adviser. Templates, guides and blog articles are general information.
+        Requirements for contracts, invoices, lien waivers, warranties, licensing, taxes and e-signatures vary by location and situation.
+        You are responsible for making sure your documents meet the rules that apply to you; consult a qualified professional when in doubt.
+      </p>
+    ),
+  },
+  {
+    id: 'third-party',
+    title: 'Third-party services',
+    body: (
+      <p>
+        Some features depend on third-party services such as Google (Sign-In, Gmail and Gemini) and Kelviq. Your use of those services is also
+        subject to their terms. We are not responsible for third-party services, and features that rely on them may change if those services
+        change.
+      </p>
+    ),
+  },
+  {
+    id: 'termination',
+    title: 'Suspension and termination',
+    body: (
+      <p>
+        You can stop using the Service and delete your account at any time. We may suspend or close accounts that break these Terms, create
+        risk or legal exposure for us or others, or remain unpaid. Where reasonable, we will give notice and a chance to export your documents
+        first.
+      </p>
+    ),
+  },
+  {
+    id: 'disclaimers',
+    title: 'Disclaimers',
+    body: (
+      <p>
+        The Service is provided “as is” and “as available”. To the extent permitted by law, we disclaim all warranties, express or implied,
+        including merchantability, fitness for a particular purpose and non-infringement. We do not guarantee that the Service will be
+        uninterrupted or error-free, or that documents will be accepted by any client, court or authority. Keep your own copies of important
+        documents.
+      </p>
+    ),
+  },
+  {
+    id: 'liability',
+    title: 'Limitation of liability',
+    body: (
+      <p>
+        To the extent permitted by law, ContractorDocs will not be liable for indirect, incidental, special, consequential or punitive damages,
+        or for lost profits, revenue, data or goodwill. Our total liability for any claim relating to the Service is limited to the amount you
+        paid us in the 12 months before the claim, or US $50 if you have not paid anything. Some jurisdictions don’t allow these limits, so they
+        may not apply to you.
+      </p>
+    ),
+  },
+  {
+    id: 'indemnity',
+    title: 'Indemnity',
+    body: (
+      <p>
+        You agree to defend and indemnify ContractorDocs against claims arising from your content, your documents and dealings with your
+        clients, or your breach of these Terms, to the extent permitted by law.
+      </p>
+    ),
+  },
+  {
+    id: 'changes',
+    title: 'Changes to these Terms',
+    body: (
+      <p>
+        We may update these Terms from time to time. We will change the “Last updated” date and, for material changes, notify you by email or in
+        the app before they take effect. If you keep using the Service after changes take effect, you accept the updated Terms.
+      </p>
+    ),
+  },
+  {
+    id: 'contact',
+    title: 'Contact',
+    body: <p>Questions about these Terms: <Email />.</p>,
+  },
+];
 
-                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">3. User Content</h2>
-                            <p>You retain full ownership of all data and content you create or upload to the Service ("User Content"). We do not claim any ownership rights over your User Content.</p>
-
-                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">4. Legal Disclaimer</h2>
-                            <p>ContractorDocs is not a law firm and does not provide legal advice. The document templates provided are for informational purposes only and may not be legally compliant in your jurisdiction. You are solely responsible for ensuring that any documents you create are legally sound.</p>
-
-                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">5. Limitation of Liability</h2>
-                            <p>In no event shall ContractorDocs be liable for any indirect, incidental, special, consequential or punitive damages, including loss of profits, data, or goodwill, arising out of your use of the Service.</p>
-
-                            <h2 className="text-2xl font-bold text-slate-800 mt-8 mb-4 border-b pb-2">6. Changes to Terms</h2>
-                            <p>We reserve the right to modify these terms at any time. We will provide notice of changes by updating the "Last Updated" date. Your continued use of the Service constitutes acceptance of the revised terms.</p>
-                        </div>
-                    </div>
-                </section>
-            </main>
-
-            <footer className="bg-white border-t border-slate-200 py-8">
-                <div className="max-w-7xl mx-auto px-6 lg:px-8 text-center text-xs text-slate-500">
-                    <p>© 2024 ContractorDocs. All rights reserved.</p>
-                </div>
-            </footer>
-        </div>
-    );
-};
+const TermsOfService: React.FC<Props> = ({ onBack }) => (
+  <LegalDocument
+    title="Terms of Service"
+    updated={SITE.legalUpdated}
+    intro={<p>The rules for using ContractorDocs, written to be readable. Please read them before you sign up.</p>}
+    sections={TERMS_SECTIONS}
+    onBack={onBack}
+  />
+);
 
 export default TermsOfService;

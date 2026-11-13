@@ -1,12 +1,7 @@
-
-
-
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { GoogleIcon, AppLogo, EyeIcon, EyeOffIcon } from './Icons.tsx';
+import React, { useEffect, useState } from 'react';
+import { AuthShell, AuthField, PasswordInput, GoogleButton, OrDivider, FormMessage, friendlyAuthError } from '../pages/components/AuthShell.tsx';
+import { rememberPendingPlan } from '../pages/routes.ts';
+import { PLANS } from '../lib/plans.ts';
 
 interface SignupProps {
   onSignup: (email: string, pass: string) => Promise<void>;
@@ -14,165 +9,116 @@ interface SignupProps {
   onSwitchToLogin: () => void;
 }
 
+const MIN_PASSWORD = 8;
+
 const Signup: React.FC<SignupProps> = ({ onSignup, onLoginWithGoogle, onSwitchToLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState<{ name: string; period: string } | null>(null);
+
+  useEffect(() => {
+    // ?plan=premium|ai&period=monthly|yearly from the pricing page → localStorage `cd_pending_plan` for after signup.
+    const pending = rememberPendingPlan(window.location.search);
+    if (pending) setPendingPlan({ name: PLANS[pending.plan].name, period: pending.period });
+  }, []);
+
+  const requireConsent = (): boolean => {
+    if (agreed) return true;
+    setError('Please accept the Terms of Service and Privacy Policy to continue.');
+    return false;
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
-    if (!email || !password || !confirmPassword) {
+    if (!email.trim() || !password || !confirmPassword) {
       setError('Please fill in all fields.');
       return;
     }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+    if (password.length < MIN_PASSWORD) {
+      setError(`Use at least ${MIN_PASSWORD} characters for your password.`);
       return;
     }
-    if (password.length < 6) {
-        setError('Password must be at least 6 characters long.');
-        return;
+    if (password !== confirmPassword) {
+      setError('The passwords don’t match.');
+      return;
     }
-
+    if (!requireConsent()) return;
     setLoading(true);
     try {
-      await onSignup(email, password);
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign up.');
+      await onSignup(email.trim(), password);
+    } catch (err) {
+      setError(friendlyAuthError(err, 'Could not create your account. Please try again.'));
     } finally {
       setLoading(false);
     }
   };
-  
-  const handleGoogleLogin = async () => {
+
+  const handleGoogle = async () => {
     setError('');
+    if (!requireConsent()) return;
     setLoading(true);
     try {
       await onLoginWithGoogle();
-    } catch (err: any) {
-      let errorMessage = err.message || 'Failed to sign up with Google.';
-      if (errorMessage.toLowerCase().includes("provider is not enabled")) {
-        errorMessage = "Google Sign-In is not enabled. Please enable the Google provider in your Supabase project's Authentication settings.";
-      }
-      setError(errorMessage);
-    } finally {
-        setLoading(false);
+    } catch (err) {
+      setError(friendlyAuthError(err, 'Could not sign up with Google. Please try again.'));
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background p-4">
-      <div className="flex flex-col items-center text-center w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center">
-            <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
-            <h1 className="text-4xl font-bold mb-2 tracking-tight">ContractorDocs</h1>
-            <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
-        </div>
-        <Card className="w-full">
-          <form onSubmit={handleSignup}>
-            <CardHeader>
-              <CardTitle>Create Account</CardTitle>
-              <CardDescription>Enter your details to sign up.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col space-y-1.5 text-left">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
-                  autoComplete="email"
-                />
-              </div>
-              <div className="flex flex-col space-y-1.5 text-left">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                    autoComplete="new-password"
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-col space-y-1.5 text-left">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    disabled={loading}
-                    autoComplete="new-password"
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
-                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                  >
-                    {showConfirmPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-            </CardContent>
-            <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Creating account...' : 'Sign Up'}
-              </Button>
-              
-              <div className="relative w-full">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-
-              <Button variant="outline" type="button" className="w-full flex items-center gap-2" onClick={handleGoogleLogin} disabled={loading}>
-                <GoogleIcon className="h-4 w-4" />
-                Sign up with Google
-              </Button>
-
-              <p className="text-sm text-center text-muted-foreground">
-                Already have an account?{' '}
-                <Button variant="link" type="button" onClick={onSwitchToLogin} className="p-0 h-auto">
-                  Login
-                </Button>
-              </p>
-            </CardFooter>
-          </form>
-        </Card>
-      </div>
-    </div>
+    <AuthShell
+      title="Create your free account"
+      subtitle="Every document type included. No credit card required."
+      footer={
+        <>
+          Already have an account?{' '}
+          <button type="button" onClick={onSwitchToLogin} className="min-h-[44px] font-semibold text-primary hover:underline">Log in</button>
+        </>
+      }
+    >
+      {pendingPlan ? (
+        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">
+          You picked <strong>{pendingPlan.name}</strong>, billed {pendingPlan.period}. Create your account first; you can complete the upgrade right after.
+        </p>
+      ) : null}
+      <GoogleButton onClick={handleGoogle} disabled={loading}>Sign up with Google</GoogleButton>
+      <OrDivider />
+      <form onSubmit={handleSignup} className="space-y-4" noValidate>
+        <AuthField id="email" label="Email">
+          <input id="email" type="email" className="input h-12 text-[15px]" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} autoComplete="email" required />
+        </AuthField>
+        <AuthField id="password" label="Password">
+          <PasswordInput id="password" placeholder={`At least ${MIN_PASSWORD} characters`} value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading} autoComplete="new-password" minLength={MIN_PASSWORD} required aria-describedby="password-hint" />
+        </AuthField>
+        <AuthField id="confirmPassword" label="Confirm password">
+          <PasswordInput id="confirmPassword" placeholder="Type it again" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={loading} autoComplete="new-password" required />
+        </AuthField>
+        <p id="password-hint" className="sr-only">Use at least {MIN_PASSWORD} characters.</p>
+        <label htmlFor="agree" className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-muted-foreground">
+          <input
+            id="agree"
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => { setAgreed(e.target.checked); if (e.target.checked) setError(''); }}
+            className="mt-0.5 h-5 w-5 flex-none rounded border-input accent-[hsl(var(--primary))]"
+          />
+          <span>
+            I agree to the{' '}
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">Terms of Service</a> and{' '}
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">Privacy Policy</a>.
+          </span>
+        </label>
+        {error ? <FormMessage tone="error">{error}</FormMessage> : null}
+        <button type="submit" className="btn btn-primary h-12 w-full text-[15px]" disabled={loading}>
+          {loading ? 'Creating your account…' : 'Create account'}
+        </button>
+      </form>
+    </AuthShell>
   );
 };
 

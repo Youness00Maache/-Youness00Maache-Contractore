@@ -1,835 +1,962 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
-import { Button } from './ui/Button.tsx';
-import { Input } from './ui/Input.tsx';
-import { Label } from './ui/Label.tsx';
-import { BackArrowIcon, MessageSquareIcon, ThumbsUpIcon, ThumbsDownIcon, MessageCircleIcon, SendIcon, UploadImageIcon, XCircleIcon, CameraIcon, ClockIcon, TrendingUpIcon, PlayIcon, PenIcon, TrashIcon, BellIcon } from './Icons.tsx';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SUPABASE_URL, supabase } from '../lib/supabase.ts';
+import { BellIcon, EditIcon, MessageCircleIcon, MessageSquareIcon, PlayIcon, PlusIcon, SendIcon, ThumbsDownIcon, ThumbsUpIcon, TrashIcon, UploadImageIcon } from './Icons.tsx';
+import {
+  ActionMenu, ConfirmDialog, EmptyState, Field, FlagIcon, InlineError, Modal, NoticeToast, PageHeader, Segmented, SkeletonList, XIcon,
+  IMAGE_ACCEPT, friendlyError, getCurrentUserId, ownStoragePath, timeAgo, uploadToOwnFolder, useIsMobile, useNotice,
+} from './viewKit.tsx';
 import { compressImage } from '../utils/imageCompression.ts';
 
 interface ForumViewProps {
-    onBack: () => void;
-    supabase: any;
-    session: any;
-    onUploadImage: (file: File) => Promise<string>;
-    initialPostId?: string;
-    onNavigate: (postId: string | null) => void;
-    onDbSetupNeeded: () => void;
+  onBack: () => void;
+  /** @deprecated the shared client from lib/supabase.ts is used */
+  supabase?: unknown;
+  /** Current session (optional; the view reads the session itself when absent). */
+  session?: { user?: { id?: string } } | null;
+  /** @deprecated ignored: images are uploaded to bucket `forum/<uid>/` by the view */
+  onUploadImage?: (file: File) => Promise<string>;
+  initialPostId?: string;
+  onNavigate: (postId: string | null) => void;
+  /** @deprecated ignored: errors are shown inline, never the DB setup screen (VIEW-042) */
+  onDbSetupNeeded?: () => void;
+  /** Lets the App keep the dashboard "Community" badge in sync (VIEW-043). */
+  onUnreadCountChange?: (count: number) => void;
 }
 
+type Category = 'General' | 'Suggestion' | 'Project Showcase';
+type Tab = Category | 'My Posts';
+type SortKey = 'newest' | 'popular';
+type CommentSort = 'oldest' | 'newest' | 'top';
+type VoteType = 'up' | 'down' | null;
+
 interface Post {
-    id: string;
-    title: string;
-    content: string;
-    category: string;
-    upvotes: number;
-    downvotes: number;
-    image_url?: string;
-    youtube_url?: string;
-    created_at: string;
-    user_id: string;
-    profiles?: { name: string; profile_picture_url: string };
-    userVote?: 'up' | 'down' | null;
-    comment_count?: number;
-    score?: number;
+  id: string;
+  user_id: string;
+  title: string;
+  content: string;
+  category: string;
+  image_url?: string | null;
+  youtube_url?: string | null;
+  upvotes: number;
+  downvotes: number;
+  created_at: string;
+  comment_count: number;
+  userVote: VoteType;
 }
 
 interface Comment {
-    id: string;
-    content: string;
-    created_at: string;
-    user_id: string;
-    image_url?: string;
-    profiles?: { name: string; profile_picture_url: string };
-    upvotes: number;
-    downvotes: number;
-    userVote?: 'up' | 'down' | null;
-    score?: number;
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  image_url?: string | null;
+  upvotes: number;
+  downvotes: number;
+  created_at: string;
+  userVote: VoteType;
 }
 
-interface NotificationDetail {
-    id: string;
-    type: 'like' | 'comment';
-    post_id: string;
-    created_at: string;
-    is_read: boolean;
-    profiles: { name: string; profile_picture_url: string };
-    forum_posts: { title: string };
+interface Author { name: string | null; avatar: string | null }
+
+interface NotificationRow {
+  id: string;
+  type: string;
+  post_id: string | null;
+  source_user_id: string | null;
+  created_at: string;
+  is_read: boolean;
 }
 
-type Category = 'General' | 'Suggestion' | 'Project Showcase' | 'My Posts';
-type SortOption = 'newest' | 'popular';
+const CATEGORIES: Category[] = ['General', 'Suggestion', 'Project Showcase'];
+const TAB_HELP: Record<Tab, string> = {
+  General: 'Questions, tips and news from the trade.',
+  Suggestion: 'Ideas for new ContractorDocs features. Vote for the ones you want.',
+  'Project Showcase': 'Share photos of your latest work and get feedback.',
+  'My Posts': 'Everything you have posted.',
+};
+const POST_PAGE = 20;
+const COMMENT_PAGE = 30;
+const POST_COLUMNS = 'id,user_id,title,content,category,image_url,youtube_url,upvotes,downvotes,created_at';
+const COMMENT_COLUMNS = 'id,post_id,user_id,content,image_url,upvotes,downvotes,created_at';
+const BUCKET = 'forum';
 
-const ForumView: React.FC<ForumViewProps> = ({ onBack, supabase, session, onUploadImage, initialPostId, onNavigate, onDbSetupNeeded }) => {
-    const [activeTab, setActiveTab] = useState<Category>('General');
-    const [sortBy, setSortBy] = useState<SortOption>('newest');
-    const [commentSortBy, setCommentSortBy] = useState<SortOption>('newest');
-    const [posts, setPosts] = useState<Post[]>([]);
-    const [loading, setLoading] = useState(false);
+// ------------------------------------------------------------------------------------------------
+// Exported helper for the App's dashboard badge
+// ------------------------------------------------------------------------------------------------
 
-    const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+/** Number of unread forum notifications for the signed-in user (0 on any error). */
+export const fetchForumUnreadCount = async (): Promise<number> => {
+  const uid = await getCurrentUserId();
+  if (!uid) return 0;
+  const { count, error } = await supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('is_read', false);
+  return error ? 0 : count || 0;
+};
 
-    const [showPostModal, setShowPostModal] = useState(false);
-    const [editingPostId, setEditingPostId] = useState<string | null>(null);
-    const [postForm, setPostForm] = useState({ title: '', content: '' });
-    const [postVideoLink, setPostVideoLink] = useState('');
-    const [showVideoInput, setShowVideoInput] = useState(false);
-    const [postImage, setPostImage] = useState<File | null>(null);
-    const [postImagePreview, setPostImagePreview] = useState<string>('');
-    const [postImageSize, setPostImageSize] = useState<string>('');
-    const [originalImageSize, setOriginalImageSize] = useState<string>('');
-    const [isPosting, setIsPosting] = useState(false);
+// ------------------------------------------------------------------------------------------------
+// Safe rendering helpers
+// ------------------------------------------------------------------------------------------------
 
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [postToDelete, setPostToDelete] = useState<string | null>(null);
+const FORUM_PUBLIC_PREFIX = SUPABASE_URL ? `${SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/${BUCKET}/` : '';
 
-    const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-    const [comments, setComments] = useState<Comment[]>([]);
-    const [newComment, setNewComment] = useState('');
-    const [newCommentImage, setNewCommentImage] = useState<File | null>(null);
-    const [newCommentImagePreview, setNewCommentImagePreview] = useState<string>('');
-    const [isCommenting, setIsCommenting] = useState(false);
+/** Only images stored in our own `forum` bucket are rendered (no tracking pixels or mixed content: VIEW-044). */
+const isTrustedImage = (url?: string | null): url is string => {
+  if (!url || typeof url !== 'string') return false;
+  if (FORUM_PUBLIC_PREFIX) return url.startsWith(FORUM_PUBLIC_PREFIX);
+  return /^https:\/\//i.test(url) && url.includes(`/storage/v1/object/public/${BUCKET}/`);
+};
 
-    const [showCameraModal, setShowCameraModal] = useState(false);
-    const [cameraMode, setCameraMode] = useState<'post' | 'comment' | null>(null);
-    const videoRef = useRef<HTMLVideoElement | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const streamRef = useRef<MediaStream | null>(null);
+const isTrustedAvatar = (url?: string | null): url is string => !!url && /^https?:\/\//i.test(url) && (url.startsWith('https://') || (!!SUPABASE_URL && url.startsWith(SUPABASE_URL)));
 
-    const [showNotifications, setShowNotifications] = useState(false);
-    const [notificationList, setNotificationList] = useState<NotificationDetail[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
-    const notificationRef = useRef<HTMLDivElement>(null);
+export const getYouTubeId = (input?: string | null): string | null => {
+  if (!input) return null;
+  let url = input.trim();
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\.|^m\./, '');
+    let id: string | null = null;
+    if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+    else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+      if (u.pathname === '/watch') id = u.searchParams.get('v');
+      else {
+        const m = /^\/(embed|shorts|v|live)\/([^/?#]+)/.exec(u.pathname);
+        id = m ? m[2] : null;
+      }
+    }
+    return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+};
 
-    const categoryDescriptions: Record<Category, string> = {
-        'General': 'General discussion about the trade. Ask questions, share news, or chat with peers.',
-        'Suggestion': 'This is a suggestions forum. Users suggest features to add to the app that they think will be really cool.',
-        'Project Showcase': 'Share photos of your latest work and get feedback from the community.',
-        'My Posts': 'All posts you have created across different categories.'
+const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+
+/** Plain text with clickable http(s) links. React escapes everything, so no HTML can be injected. */
+const LinkifiedText: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
+  const parts = useMemo(() => {
+    const out: React.ReactNode[] = [];
+    let last = 0;
+    for (const m of text.matchAll(URL_RE)) {
+      let url = m[0];
+      const trail = /[.,;:!?)\]]+$/.exec(url)?.[0] || '';
+      if (trail) url = url.slice(0, -trail.length);
+      const idx = m.index ?? 0;
+      if (idx > last) out.push(text.slice(last, idx));
+      out.push(<a key={idx} href={url} target="_blank" rel="noopener noreferrer nofollow ugc" className="break-all font-medium text-primary underline decoration-primary/30 underline-offset-2 hover:decoration-primary">{url}</a>);
+      last = idx + url.length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  }, [text]);
+  return <p className={`whitespace-pre-wrap break-words ${className || ''}`}>{parts}</p>;
+};
+
+const Avatar: React.FC<{ author?: Author; size?: 'sm' | 'md' }> = ({ author, size = 'sm' }) => {
+  const dim = size === 'sm' ? 'h-7 w-7 text-xs' : 'h-9 w-9 text-sm';
+  const name = author?.name || 'Member';
+  if (isTrustedAvatar(author?.avatar)) return <img src={author!.avatar!} alt="" className={`${dim} shrink-0 rounded-full border border-border object-cover`} loading="lazy" />;
+  return <span className={`${dim} flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-accent-foreground`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || '?'}</span>;
+};
+
+const VoteControl: React.FC<{ score: number; vote: VoteType; onVote: (v: 1 | -1) => void; busy?: boolean; vertical?: boolean; size?: 'sm' | 'md' }> = ({ score, vote, onVote, busy, vertical = true, size = 'md' }) => (
+  <div className={`flex items-center ${vertical ? 'flex-col' : 'flex-row gap-1'}`} onClick={(e) => e.stopPropagation()}>
+    <button type="button" aria-label="Upvote" aria-pressed={vote === 'up'} disabled={busy} onClick={() => onVote(1)} className={`flex items-center justify-center rounded-lg transition ${size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'} ${vote === 'up' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+      <ThumbsUpIcon className="h-[18px] w-[18px]" />
+    </button>
+    <span className={`min-w-[2ch] text-center text-sm font-bold tabular-nums ${score > 0 ? 'text-foreground' : score < 0 ? 'text-destructive' : 'text-muted-foreground'}`} aria-label={`Score ${score}`}>{score}</span>
+    <button type="button" aria-label="Downvote" aria-pressed={vote === 'down'} disabled={busy} onClick={() => onVote(-1)} className={`flex items-center justify-center rounded-lg transition ${size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'} ${vote === 'down' ? 'bg-destructive/10 text-destructive' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+      <ThumbsDownIcon className="h-[18px] w-[18px]" />
+    </button>
+  </div>
+);
+
+const YouTubeEmbed: React.FC<{ url?: string | null }> = ({ url }) => {
+  const id = getYouTubeId(url);
+  if (!id) return null;
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-black">
+      <div className="relative aspect-video">
+        <iframe
+          className="absolute inset-0 h-full w-full"
+          src={`https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1`}
+          title="YouTube video"
+          loading="lazy"
+          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+        />
+      </div>
+    </div>
+  );
+};
+
+const applyVote = <T extends { upvotes: number; downvotes: number; userVote: VoteType }>(row: T, value: 1 | -1): T => {
+  const type: VoteType = value === 1 ? 'up' : 'down';
+  let { upvotes, downvotes } = row;
+  if (row.userVote === 'up') upvotes -= 1;
+  if (row.userVote === 'down') downvotes -= 1;
+  const next: VoteType = row.userVote === type ? null : type;
+  if (next === 'up') upvotes += 1;
+  if (next === 'down') downvotes += 1;
+  return { ...row, upvotes: Math.max(0, upvotes), downvotes: Math.max(0, downvotes), userVote: next };
+};
+
+const withServerScore = <T extends { upvotes: number; downvotes: number }>(row: T, score: unknown): T => {
+  const s = typeof score === 'number' ? score : typeof score === 'string' && score.trim() !== '' && Number.isFinite(Number(score)) ? Number(score) : null;
+  if (s === null || s === row.upvotes - row.downvotes) return row;
+  // keep the down count, derive ups from the authoritative score
+  return { ...row, upvotes: Math.max(0, s + row.downvotes) };
+};
+
+const normalizePost = (r: any, vote: VoteType = null): Post => ({
+  id: r.id, user_id: r.user_id, title: String(r.title ?? ''), content: String(r.content ?? ''), category: r.category || 'General',
+  image_url: r.image_url ?? null, youtube_url: r.youtube_url ?? null, upvotes: Number(r.upvotes) || 0, downvotes: Number(r.downvotes) || 0,
+  created_at: r.created_at, comment_count: Number(r.comment_count ?? (Array.isArray(r.forum_comments) ? r.forum_comments[0]?.count : 0)) || 0, userVote: vote,
+});
+
+const normalizeComment = (r: any, vote: VoteType = null): Comment => ({
+  id: r.id, post_id: r.post_id, user_id: r.user_id, content: String(r.content ?? ''), image_url: r.image_url ?? null,
+  upvotes: Number(r.upvotes) || 0, downvotes: Number(r.downvotes) || 0, created_at: r.created_at, userVote: vote,
+});
+
+interface PostDraft {
+  id?: string;
+  title: string;
+  content: string;
+  category: Category;
+  youtube: string;
+  imageUrl: string | null;
+  file: File | null;
+  preview: string | null;
+}
+
+// ================================================================================================
+
+const ForumView: React.FC<ForumViewProps> = ({ onBack, session, initialPostId, onNavigate, onUnreadCountChange }) => {
+  const isMobile = useIsMobile();
+  const { notice, notify, clear } = useNotice();
+  const [uid, setUid] = useState<string | null>(session?.user?.id ?? null);
+  const [authors, setAuthors] = useState<Record<string, Author>>({});
+  const authorsRef = useRef(authors);
+  authorsRef.current = authors;
+  const authorSource = useRef<'forum_authors' | 'profiles' | null>(null);
+
+  // list
+  const [tab, setTab] = useState<Tab>('General');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const listRequest = useRef(0);
+
+  // detail
+  const [detail, setDetail] = useState<Post | null>(null);
+  const [detailState, setDetailState] = useState<'idle' | 'loading' | 'missing' | 'error'>('idle');
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentSort, setCommentSort] = useState<CommentSort>('oldest');
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsMore, setCommentsMore] = useState(false);
+  const [reply, setReply] = useState('');
+  const [replyFile, setReplyFile] = useState<File | null>(null);
+  const [replyPreview, setReplyPreview] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
+  const replyFileRef = useRef<HTMLInputElement>(null);
+
+  // modals
+  const [draft, setDraft] = useState<PostDraft | null>(null);
+  const [savingPost, setSavingPost] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: 'post' | 'comment'; id: string; imageUrl?: string | null } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [report, setReport] = useState<{ kind: 'post' | 'comment'; id: string } | null>(null);
+  const [reportReason, setReportReason] = useState('Spam or advertising');
+  const [reportBusy, setReportBusy] = useState(false);
+  const [voting, setVoting] = useState<Record<string, boolean>>({});
+
+  // notifications
+  const [unread, setUnread] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifs, setNotifs] = useState<NotificationRow[]>([]);
+  const [notifTitles, setNotifTitles] = useState<Record<string, string>>({});
+  const [notifLoading, setNotifLoading] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+  const unreadCb = useRef(onUnreadCountChange);
+  unreadCb.current = onUnreadCountChange;
+
+  useEffect(() => {
+    if (!uid) getCurrentUserId().then((id) => id && setUid(id));
+  }, [uid]);
+
+  const setUnreadCount = useCallback((n: number) => { setUnread(n); unreadCb.current?.(n); }, []);
+
+  // ---------------------------------------------------------------- authors
+  const loadAuthors = useCallback(async (ids: (string | null | undefined)[]) => {
+    const missing = Array.from(new Set(ids.filter((id): id is string => !!id && !(id in authorsRef.current))));
+    if (!missing.length) return;
+    const tryFrom = async (table: 'forum_authors' | 'profiles') => supabase.from(table).select('id,name,profile_picture_url').in('id', missing);
+    let rows: any[] | null = null;
+    if (authorSource.current !== 'profiles') {
+      const { data, error } = await tryFrom('forum_authors');
+      if (!error) { rows = data; authorSource.current = 'forum_authors'; }
+    }
+    if (!rows) {
+      const { data, error } = await tryFrom('profiles');
+      if (!error) { rows = data; authorSource.current = 'profiles'; }
+    }
+    const next: Record<string, Author> = {};
+    for (const id of missing) next[id] = { name: null, avatar: null };
+    for (const r of rows || []) next[r.id] = { name: r.name || null, avatar: r.profile_picture_url || null };
+    setAuthors((prev) => ({ ...prev, ...next }));
+  }, []);
+
+  const authorName = (id: string) => (id === uid ? 'You' : authors[id]?.name || 'Member');
+
+  // ---------------------------------------------------------------- list
+  const fetchMyVotes = useCallback(async (postIds: string[]) => {
+    if (!uid || !postIds.length) return new Map<string, VoteType>();
+    const { data } = await supabase.from('forum_votes').select('post_id,vote_type').eq('user_id', uid).in('post_id', postIds);
+    return new Map<string, VoteType>((data || []).map((v: any) => [v.post_id, v.vote_type === 'down' ? 'down' : 'up']));
+  }, [uid]);
+
+  const loadPosts = useCallback(async (offset: number) => {
+    if (!uid) return;
+    const req = ++listRequest.current;
+    if (offset === 0) { setListLoading(true); setListError(null); } else setLoadingMore(true);
+    let q = supabase.from('forum_posts').select(`${POST_COLUMNS},forum_comments(count)`);
+    q = tab === 'My Posts' ? q.eq('user_id', uid) : q.eq('category', tab);
+    q = sort === 'popular' ? q.order('upvotes', { ascending: false }).order('created_at', { ascending: false }) : q.order('created_at', { ascending: false });
+    const { data, error } = await q.range(offset, offset + POST_PAGE - 1);
+    if (req !== listRequest.current) return;
+    if (error) {
+      setListError(friendlyError(error, 'Could not load posts.'));
+    } else {
+      const rows = data || [];
+      const votes = await fetchMyVotes(rows.map((r: any) => r.id));
+      if (req !== listRequest.current) return;
+      const mapped = rows.map((r: any) => normalizePost(r, votes.get(r.id) ?? null));
+      setPosts((prev) => (offset === 0 ? mapped : [...prev, ...mapped.filter((p) => !prev.some((x) => x.id === p.id))]));
+      setHasMore(rows.length === POST_PAGE);
+      loadAuthors(rows.map((r: any) => r.user_id));
+    }
+    setListLoading(false);
+    setLoadingMore(false);
+  }, [uid, tab, sort, fetchMyVotes, loadAuthors]);
+
+  useEffect(() => { loadPosts(0); }, [loadPosts]);
+
+  // ---------------------------------------------------------------- detail (deep link /forum/:id)
+  const loadComments = useCallback(async (postId: string, offset: number) => {
+    setCommentsLoading(true);
+    let q = supabase.from('forum_comments').select(COMMENT_COLUMNS).eq('post_id', postId);
+    q = commentSort === 'top' ? q.order('upvotes', { ascending: false }).order('created_at', { ascending: true }) : q.order('created_at', { ascending: commentSort === 'oldest' });
+    const { data, error } = await q.range(offset, offset + COMMENT_PAGE - 1);
+    if (error) { notify('error', friendlyError(error, 'Could not load comments.')); setCommentsLoading(false); return; }
+    const rows = data || [];
+    let votes = new Map<string, VoteType>();
+    if (uid && rows.length) {
+      const { data: vd } = await supabase.from('forum_comment_votes').select('comment_id,vote_type').eq('user_id', uid).in('comment_id', rows.map((r: any) => r.id));
+      votes = new Map((vd || []).map((v: any) => [v.comment_id, v.vote_type === 'down' ? 'down' : 'up']));
+    }
+    const mapped = rows.map((r: any) => normalizeComment(r, votes.get(r.id) ?? null));
+    setComments((prev) => (offset === 0 ? mapped : [...prev, ...mapped.filter((c) => !prev.some((x) => x.id === c.id))]));
+    setCommentsMore(rows.length === COMMENT_PAGE);
+    loadAuthors(rows.map((r: any) => r.user_id));
+    setCommentsLoading(false);
+  }, [commentSort, uid, notify, loadAuthors]);
+
+  useEffect(() => {
+    if (!initialPostId) { setDetail(null); setDetailState('idle'); setComments([]); return; }
+    if (!uid) return;
+    let cancelled = false;
+    const cached = posts.find((p) => p.id === initialPostId);
+    if (cached) { setDetail(cached); setDetailState('idle'); } else { setDetail(null); setDetailState('loading'); }
+    (async () => {
+      const { data, error } = await supabase.from('forum_posts').select(`${POST_COLUMNS},forum_comments(count)`).eq('id', initialPostId).maybeSingle();
+      if (cancelled) return;
+      if (error) { if (!cached) setDetailState('error'); return; }
+      if (!data) { setDetail(null); setDetailState('missing'); return; }
+      const votes = await fetchMyVotes([data.id]);
+      if (cancelled) return;
+      setDetail(normalizePost(data, votes.get(data.id) ?? null));
+      setDetailState('idle');
+      loadAuthors([data.user_id]);
+    })();
+    window.scrollTo({ top: 0 });
+    return () => { cancelled = true; };
+  }, [initialPostId, uid]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (initialPostId && uid) loadComments(initialPostId, 0);
+  }, [initialPostId, uid, commentSort]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => { if (replyPreview) URL.revokeObjectURL(replyPreview); }, [replyPreview]);
+
+  // ---------------------------------------------------------------- votes (server-side counters: VIEW-041)
+  const votePost = async (post: Post, value: 1 | -1) => {
+    if (voting[post.id]) return;
+    const optimistic = applyVote(post, value);
+    const patch = (fn: (p: Post) => Post) => {
+      setPosts((prev) => prev.map((p) => (p.id === post.id ? fn(p) : p)));
+      setDetail((d) => (d && d.id === post.id ? fn(d) : d));
     };
+    patch(() => optimistic);
+    setVoting((v) => ({ ...v, [post.id]: true }));
+    const { data, error } = await supabase.rpc('toggle_forum_vote', { p_post_id: post.id, p_value: value });
+    setVoting((v) => ({ ...v, [post.id]: false }));
+    if (error) { patch(() => post); notify('error', friendlyError(error, 'Your vote could not be saved.')); return; }
+    patch((p) => withServerScore(p, data));
+  };
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
-                setShowNotifications(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
+  const voteComment = async (c: Comment, value: 1 | -1) => {
+    if (voting[c.id]) return;
+    const optimistic = applyVote(c, value);
+    setComments((prev) => prev.map((x) => (x.id === c.id ? optimistic : x)));
+    setVoting((v) => ({ ...v, [c.id]: true }));
+    const { data, error } = await supabase.rpc('toggle_forum_comment_vote', { p_comment_id: c.id, p_value: value });
+    setVoting((v) => ({ ...v, [c.id]: false }));
+    if (error) { setComments((prev) => prev.map((x) => (x.id === c.id ? c : x))); notify('error', friendlyError(error, 'Your vote could not be saved.')); return; }
+    setComments((prev) => prev.map((x) => (x.id === c.id ? withServerScore(x, data) : x)));
+  };
 
-    const fetchNotificationCount = async () => {
-        if (!session) return;
-        const { count } = await supabase
-            .from('notifications')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', session.user.id)
-            .eq('is_read', false);
-        setUnreadCount(count || 0);
-    };
+  // ---------------------------------------------------------------- images
+  const uploadImage = async (file: File) => {
+    const id = uid ?? (await getCurrentUserId());
+    if (!id) throw new Error('Your session has expired. Please sign in again.');
+    let toSend: File = file;
+    try { toSend = await compressImage(file); } catch { /* keep original */ }
+    return uploadToOwnFolder(BUCKET, toSend, id, file.name);
+  };
+  const deleteImage = async (url?: string | null) => {
+    if (!url || !uid) return;
+    const path = ownStoragePath(url, BUCKET, uid);
+    if (path) await supabase.storage.from(BUCKET).remove([path]).catch(() => undefined);
+  };
+  const pickImage = (file: File | undefined | null, onOk: (f: File, preview: string) => void) => {
+    if (!file) return;
+    if (!IMAGE_ACCEPT.split(',').includes(file.type)) { notify('error', 'Use a JPG, PNG, WebP or GIF image.'); return; }
+    if (file.size > 15 * 1024 * 1024) { notify('error', 'That image is larger than 15 MB.'); return; }
+    onOk(file, URL.createObjectURL(file));
+  };
 
-    useEffect(() => {
-        if (session) fetchNotificationCount();
-    }, [session]);
+  // ---------------------------------------------------------------- posts CRUD
+  const openNewPost = () => {
+    setDraftError(null);
+    setDraft({ title: '', content: '', category: tab === 'My Posts' ? 'General' : tab, youtube: '', imageUrl: null, file: null, preview: null });
+  };
+  const openEditPost = (p: Post) => {
+    setDraftError(null);
+    setDraft({ id: p.id, title: p.title, content: p.content, category: (CATEGORIES.includes(p.category as Category) ? p.category : 'General') as Category, youtube: p.youtube_url || '', imageUrl: isTrustedImage(p.image_url) ? p.image_url! : null, file: null, preview: null });
+  };
+  const closeDraft = () => { if (draft?.preview) URL.revokeObjectURL(draft.preview); setDraft(null); };
 
-    const fetchNotifications = async () => {
-        if (!session) return;
-        const { data, error } = await supabase
-            .from('notifications')
-            .select(`
-              id, type, post_id, created_at, is_read,
-              profiles:source_user_id (name, profile_picture_url),
-              forum_posts:post_id (title)
-          `)
-            .eq('user_id', session.user.id)
-            .order('created_at', { ascending: false })
-            .limit(20);
+  const savePost = async () => {
+    if (!draft || !uid) return;
+    const title = draft.title.trim();
+    const content = draft.content.trim();
+    const youtube = draft.youtube.trim();
+    if (title.length < 3) { setDraftError('Add a title (at least 3 characters).'); return; }
+    if (!content && !draft.file && !draft.imageUrl && !youtube) { setDraftError('Write something or add a photo or video.'); return; }
+    if (youtube && !getYouTubeId(youtube)) { setDraftError('That YouTube link is not valid.'); return; }
+    setSavingPost(true);
+    setDraftError(null);
+    let uploaded: string | null = null;
+    try {
+      if (draft.file) uploaded = await uploadImage(draft.file);
+      const imageUrl = uploaded ?? draft.imageUrl;
+      const fields = { title, content, category: draft.category, youtube_url: youtube || null, image_url: imageUrl };
+      if (draft.id) {
+        const before = posts.find((p) => p.id === draft.id) || (detail?.id === draft.id ? detail : null);
+        const { data, error } = await supabase.from('forum_posts').update(fields).eq('id', draft.id).eq('user_id', uid).select(POST_COLUMNS).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error('You can only edit your own posts.');
+        const merge = (p: Post) => ({ ...p, ...normalizePost(data, p.userVote), comment_count: p.comment_count });
+        setPosts((prev) => prev.map((p) => (p.id === draft.id ? merge(p) : p)));
+        setDetail((d) => (d && d.id === draft.id ? merge(d) : d));
+        if (before?.image_url && before.image_url !== imageUrl) deleteImage(before.image_url);
+        notify('success', 'Post updated.');
+      } else {
+        const { data, error } = await supabase.from('forum_posts').insert({ ...fields, user_id: uid }).select(POST_COLUMNS).single();
+        if (error) throw error;
+        const created = normalizePost({ ...data, comment_count: 0 });
+        if (tab === 'My Posts' || tab === created.category) setPosts((prev) => [created, ...prev]);
+        else setTab(created.category as Category);
+        notify('success', 'Your post is live.');
+      }
+      closeDraft();
+    } catch (e) {
+      if (uploaded) deleteImage(uploaded);
+      setDraftError(friendlyError(e, 'Your post could not be saved.'));
+    } finally {
+      setSavingPost(false);
+    }
+  };
 
-        if (error) {
-            if (error.code === 'PGRST200' || error.message.includes('Could not find a relationship')) {
-                onDbSetupNeeded();
-            } else {
-                console.error("Fetch notif error", error);
-            }
-        } else if (data) {
-            setNotificationList(data);
-        }
-    };
+  const runConfirm = async () => {
+    if (!confirm || !uid) return;
+    setConfirmBusy(true);
+    const table = confirm.kind === 'post' ? 'forum_posts' : 'forum_comments';
+    const { error, count } = await supabase.from(table).delete({ count: 'exact' }).eq('id', confirm.id).eq('user_id', uid);
+    setConfirmBusy(false);
+    if (error) { notify('error', friendlyError(error, 'Could not delete.')); return; }
+    if (count === 0) { notify('error', `You can only delete your own ${confirm.kind === 'post' ? 'posts' : 'comments'}.`); setConfirm(null); return; }
+    deleteImage(confirm.imageUrl);
+    if (confirm.kind === 'post') {
+      setPosts((prev) => prev.filter((p) => p.id !== confirm.id));
+      if (detail?.id === confirm.id) onNavigate(null);
+      notify('success', 'Post deleted.');
+    } else {
+      setComments((prev) => prev.filter((c) => c.id !== confirm.id));
+      const bump = (p: Post) => ({ ...p, comment_count: Math.max(0, p.comment_count - 1) });
+      setDetail((d) => (d ? bump(d) : d));
+      setPosts((prev) => prev.map((p) => (p.id === detail?.id ? bump(p) : p)));
+      notify('success', 'Comment deleted.');
+    }
+    setConfirm(null);
+  };
 
-    const handleToggleNotifications = () => {
-        if (!showNotifications) {
-            fetchNotifications();
-        }
-        setShowNotifications(!showNotifications);
-    };
+  const sendReport = async () => {
+    if (!report || !uid) return;
+    setReportBusy(true);
+    const row = report.kind === 'post' ? { post_id: report.id, reason: reportReason, reporter_id: uid } : { comment_id: report.id, reason: reportReason, reporter_id: uid };
+    const { error } = await supabase.from('forum_reports').insert(row);
+    setReportBusy(false);
+    if (error && error.code !== '23505') {
+      notify('error', /forum_reports|does not exist|schema cache/i.test(error.message || '') ? 'Reporting is temporarily unavailable. Please email support.' : friendlyError(error, 'The report could not be sent.'));
+      return;
+    }
+    setReport(null);
+    notify('success', error ? 'You already reported this. Thanks!' : 'Thanks, our team will review it.');
+  };
 
-    const handleNotificationClick = async (note: NotificationDetail) => {
-        if (!note.is_read) {
-            await supabase.from('notifications').update({ is_read: true }).eq('id', note.id);
-            setUnreadCount(prev => Math.max(0, prev - 1));
-            setNotificationList(prev => prev.map(n => n.id === note.id ? { ...n, is_read: true } : n));
-        }
-        setShowNotifications(false);
-        onNavigate(note.post_id);
-    };
+  // ---------------------------------------------------------------- comments
+  const sendComment = async () => {
+    if (!detail || !uid || sending) return;
+    const text = reply.trim();
+    if (!text && !replyFile) return;
+    setSending(true);
+    let uploaded: string | null = null;
+    try {
+      if (replyFile) uploaded = await uploadImage(replyFile);
+      const { data, error } = await supabase.from('forum_comments').insert({ post_id: detail.id, user_id: uid, content: text, image_url: uploaded }).select(COMMENT_COLUMNS).single();
+      if (error) throw error;
+      const c = normalizeComment(data);
+      setComments((prev) => (commentSort === 'newest' ? [c, ...prev] : [...prev, c]));
+      const bump = (p: Post) => ({ ...p, comment_count: p.comment_count + 1 });
+      setDetail((d) => (d ? bump(d) : d));
+      setPosts((prev) => prev.map((p) => (p.id === detail.id ? bump(p) : p)));
+      setReply('');
+      setReplyFile(null);
+      setReplyPreview(null);
+    } catch (e) {
+      if (uploaded) deleteImage(uploaded);
+      notify('error', friendlyError(e, 'Your comment could not be posted.'));
+    } finally {
+      setSending(false);
+    }
+  };
 
-    const getYouTubeId = (url: string) => {
-        if (!url) return null;
-        try {
-            if (!url.match(/^https?:\/\//)) {
-                url = 'https://' + url;
-            }
-            const parsedUrl = new URL(url);
-            let videoId = null;
-            if (parsedUrl.hostname === 'youtu.be') {
-                videoId = parsedUrl.pathname.slice(1);
-            } else if (parsedUrl.hostname.includes('youtube.com')) {
-                if (parsedUrl.pathname === '/watch') {
-                    videoId = parsedUrl.searchParams.get('v');
-                } else if (parsedUrl.pathname.startsWith('/embed/') || parsedUrl.pathname.startsWith('/shorts/') || parsedUrl.pathname.startsWith('/v/')) {
-                    const parts = parsedUrl.pathname.split('/');
-                    videoId = parts[parts.length - 1];
-                }
-            }
-            if (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-                return videoId;
-            }
-        } catch (e) {
-            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?\/]*).*/;
-            const match = url.match(regExp);
-            if (match && match[2].length === 11) {
-                return match[2];
-            }
-        }
-        return null;
-    };
+  const saveCommentEdit = async () => {
+    if (!editingComment || !uid) return;
+    const text = editingComment.text.trim();
+    if (!text) { notify('error', 'A comment cannot be empty.'); return; }
+    const { data, error } = await supabase.from('forum_comments').update({ content: text }).eq('id', editingComment.id).eq('user_id', uid).select(COMMENT_COLUMNS).maybeSingle();
+    if (error || !data) { notify('error', error ? friendlyError(error) : 'You can only edit your own comments.'); return; }
+    setComments((prev) => prev.map((c) => (c.id === editingComment.id ? { ...c, content: String((data as any).content ?? text) } : c)));
+    setEditingComment(null);
+  };
 
-    useEffect(() => {
-        if (session) fetchPosts();
-    }, [session, activeTab, sortBy]);
+  // ---------------------------------------------------------------- notifications
+  useEffect(() => {
+    if (!uid) return;
+    fetchForumUnreadCount().then(setUnreadCount);
+  }, [uid, setUnreadCount]);
 
-    useEffect(() => {
-        if (initialPostId) {
-            if (selectedPost?.id === initialPostId) return;
-            const existing = posts.find(p => p.id === initialPostId);
-            if (existing) {
-                setSelectedPost(existing);
-            } else {
-                fetchPostDetails(initialPostId);
-            }
-        } else {
-            setSelectedPost(null);
-        }
-    }, [initialPostId, posts]);
+  const openNotifications = async () => {
+    const next = !notifOpen;
+    setNotifOpen(next);
+    if (!next || !uid) return;
+    setNotifLoading(true);
+    const { data, error } = await supabase.from('notifications').select('id,type,post_id,source_user_id,created_at,is_read').eq('user_id', uid).order('created_at', { ascending: false }).limit(30);
+    setNotifLoading(false);
+    if (error) { notify('error', friendlyError(error, 'Could not load notifications.')); return; }
+    const rows = (data || []) as NotificationRow[];
+    setNotifs(rows);
+    loadAuthors(rows.map((r) => r.source_user_id));
+    const postIds = Array.from(new Set(rows.map((r) => r.post_id).filter((id): id is string => !!id && !(id in notifTitles))));
+    if (postIds.length) {
+      const { data: pd } = await supabase.from('forum_posts').select('id,title').in('id', postIds);
+      setNotifTitles((prev) => ({ ...prev, ...Object.fromEntries((pd || []).map((p: any) => [p.id, p.title])) }));
+    }
+  };
 
-    useEffect(() => {
-        return () => {
-            if (postImagePreview) URL.revokeObjectURL(postImagePreview);
-            if (newCommentImagePreview) URL.revokeObjectURL(newCommentImagePreview);
-        };
-    }, [postImagePreview, newCommentImagePreview]);
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => { if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNotifOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); document.removeEventListener('keydown', onKey); };
+  }, [notifOpen]);
 
-    useEffect(() => {
-        if (selectedPost && session) {
-            fetchComments(selectedPost.id);
-        }
-    }, [commentSortBy, selectedPost?.id]);
+  const openNotification = async (n: NotificationRow) => {
+    setNotifOpen(false);
+    if (!n.is_read) {
+      setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+      setUnreadCount(Math.max(0, unread - 1));
+      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', n.id);
+      if (error) fetchForumUnreadCount().then(setUnreadCount);
+    }
+    if (n.post_id) onNavigate(n.post_id);
+  };
 
-    const fetchPostDetails = async (postId: string) => {
-        setLoading(true);
-        const { data: post, error } = await supabase
-            .from('forum_posts')
-            .select('*, profiles:user_id(name, profile_picture_url), forum_comments(count)')
-            .eq('id', postId)
-            .single();
+  const markAllRead = async () => {
+    if (!uid) return;
+    const { error } = await supabase.from('notifications').update({ is_read: true }).eq('user_id', uid).eq('is_read', false);
+    if (error) { notify('error', friendlyError(error)); return; }
+    setNotifs((prev) => prev.map((x) => ({ ...x, is_read: true })));
+    setUnreadCount(0);
+  };
 
-        if (post && !error) {
-            const { data: vote } = await supabase.from('forum_votes').select('vote_type').eq('post_id', postId).eq('user_id', session.user.id).single();
-
-            const formatted = {
-                ...post,
-                userVote: vote?.vote_type || null,
-                score: (post.upvotes || 0) - (post.downvotes || 0),
-                comment_count: post.forum_comments ? post.forum_comments[0]?.count : 0
-            };
-            setSelectedPost(formatted);
-        }
-        setLoading(false);
-    };
-
-    const fetchPosts = async () => {
-        setLoading(true);
-        let query = supabase.from('forum_posts').select(`*, profiles:user_id (name, profile_picture_url), forum_comments (count)`);
-        if (activeTab === 'My Posts') query = query.eq('user_id', session.user.id);
-        else query = query.eq('category', activeTab);
-
-        if (sortBy === 'newest') query = query.order('created_at', { ascending: false });
-        else query = query.order('upvotes', { ascending: false });
-
-        const { data: postsData, error: postsError } = await query;
-        if (postsError) {
-            setLoading(false);
-            return;
-        }
-
-        const { data: votesData } = await supabase.from('forum_votes').select('post_id, vote_type').eq('user_id', session.user.id);
-        const votesMap = new Map();
-        if (votesData) votesData.forEach((v: any) => votesMap.set(v.post_id, v.vote_type));
-
-        const formattedPosts = (postsData || []).map((p: any) => ({
-            ...p,
-            userVote: votesMap.get(p.id) || null,
-            score: (p.upvotes || 0) - (p.downvotes || 0),
-            comment_count: p.forum_comments ? p.forum_comments[0]?.count : 0
-        }));
-
-        if (sortBy === 'popular') formattedPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
-        else formattedPosts.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-        setPosts(formattedPosts);
-        setLoading(false);
-    };
-
-    const fetchComments = async (postId: string) => {
-        const { data: commentsData, error } = await supabase.from('forum_comments').select('*, profiles:user_id(name, profile_picture_url)').eq('post_id', postId);
-        if (error) return;
-
-        const { data: votesData } = await supabase.from('forum_comment_votes').select('comment_id, vote_type').eq('user_id', session.user.id).in('comment_id', commentsData.map((c: any) => c.id));
-        const votesMap = new Map();
-        if (votesData) votesData.forEach((v: any) => votesMap.set(v.comment_id, v.vote_type));
-
-        let formattedComments = commentsData.map((c: any) => ({
-            ...c,
-            upvotes: c.upvotes || 0,
-            downvotes: c.downvotes || 0,
-            userVote: votesMap.get(c.id) || null,
-            score: (c.upvotes || 0) - (c.downvotes || 0)
-        }));
-
-        if (commentSortBy === 'newest') formattedComments.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        else formattedComments.sort((a: any, b: any) => b.score - a.score);
-
-        setComments(formattedComments);
-    };
-
-    const createNotification = async (recipientId: string, type: 'like' | 'comment', postId: string) => {
-        if (recipientId === session.user.id) return;
-        try {
-            await supabase.from('notifications').insert({ user_id: recipientId, source_user_id: session.user.id, type, post_id: postId, is_read: false });
-        } catch (e) { console.error("Failed to send notification", e); }
-    };
-
-    const handleVote = async (postId: string, type: 'up' | 'down') => {
-        const postIndex = posts.findIndex(p => p.id === postId);
-        if (postIndex === -1 && selectedPost?.id !== postId) return;
-
-        const post = selectedPost && selectedPost.id === postId ? selectedPost : posts[postIndex];
-        const currentVote = post.userVote;
-
-        let newUpvotes = post.upvotes;
-        let newDownvotes = post.downvotes;
-
-        if (currentVote === type) {
-            if (type === 'up') newUpvotes--;
-            else newDownvotes--;
-            await supabase.from('forum_votes').delete().match({ post_id: postId, user_id: session.user.id });
-            const updatedPost = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null, score: newUpvotes - newDownvotes };
-            if (selectedPost?.id === postId) setSelectedPost(updatedPost);
-            if (postIndex !== -1) {
-                const newPosts = [...posts];
-                newPosts[postIndex] = updatedPost;
-                if (sortBy === 'popular') newPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
-                setPosts(newPosts);
-            }
-        } else {
-            if (currentVote === 'up') newUpvotes--;
-            if (currentVote === 'down') newDownvotes--;
-            if (type === 'up') { newUpvotes++; createNotification(post.user_id, 'like', post.id); }
-            else newDownvotes++;
-            await supabase.from('forum_votes').upsert({ post_id: postId, user_id: session.user.id, vote_type: type }, { onConflict: 'post_id, user_id' });
-            const updatedPost = { ...post, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type, score: newUpvotes - newDownvotes };
-            if (selectedPost?.id === postId) setSelectedPost(updatedPost);
-            if (postIndex !== -1) {
-                const newPosts = [...posts];
-                newPosts[postIndex] = updatedPost;
-                if (sortBy === 'popular') newPosts.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
-                setPosts(newPosts);
-            }
-        }
-        await supabase.from('forum_posts').update({ upvotes: newUpvotes, downvotes: newDownvotes }).eq('id', postId);
-    };
-
-    const handleCommentVote = async (commentId: string, type: 'up' | 'down') => {
-        const commentIndex = comments.findIndex(c => c.id === commentId);
-        if (commentIndex === -1) return;
-        const comment = comments[commentIndex];
-        const currentVote = comment.userVote;
-        const newComments = [...comments];
-        let newUpvotes = comment.upvotes;
-        let newDownvotes = comment.downvotes;
-
-        if (currentVote === type) {
-            if (type === 'up') newUpvotes--;
-            else newDownvotes--;
-            newComments[commentIndex] = { ...comment, upvotes: newUpvotes, downvotes: newDownvotes, userVote: null, score: newUpvotes - newDownvotes };
-            await supabase.from('forum_comment_votes').delete().match({ comment_id: commentId, user_id: session.user.id });
-        } else {
-            if (currentVote === 'up') newUpvotes--;
-            if (currentVote === 'down') newDownvotes--;
-            if (type === 'up') newUpvotes++;
-            else newDownvotes++;
-            newComments[commentIndex] = { ...comment, upvotes: newUpvotes, downvotes: newDownvotes, userVote: type, score: newUpvotes - newDownvotes };
-            await supabase.from('forum_comment_votes').upsert({ comment_id: commentId, user_id: session.user.id, vote_type: type }, { onConflict: 'comment_id, user_id' });
-        }
-        if (commentSortBy === 'popular') newComments.sort((a, b) => (b.score || 0) - (a.score || 0));
-        setComments(newComments);
-        await supabase.from('forum_comments').update({ upvotes: newUpvotes, downvotes: newDownvotes }).eq('id', commentId);
-    };
-
-    const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: 'post' | 'comment') => {
-        if (e.target.files && e.target.files[0]) {
-            const originalFile = e.target.files[0];
-            if (type === 'post') setOriginalImageSize(`${(originalFile.size / 1024).toFixed(1)} KB`);
-            try {
-                const compressedFile = await compressImage(originalFile);
-                const preview = URL.createObjectURL(compressedFile);
-                if (type === 'post') { setPostImage(compressedFile); setPostImagePreview(preview); setPostImageSize(`${(compressedFile.size / 1024).toFixed(1)} KB`); }
-                else { setNewCommentImage(compressedFile); setNewCommentImagePreview(preview); }
-            } catch (err) { alert("Could not process image."); }
-        }
-    };
-
-    const startCamera = async (mode: 'post' | 'comment') => {
-        setCameraMode(mode);
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return alert("Camera API is not supported.");
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            if (devices.filter(d => d.kind === 'videoinput').length === 0) return alert("No camera found.");
-            let stream;
-            try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); }
-            catch (e) { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
-            streamRef.current = stream; setShowCameraModal(true);
-        } catch (err: any) { alert("Error accessing camera: " + (err.message || "Unknown error")); }
-    };
-
-    const stopCamera = () => {
-        if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
-        setShowCameraModal(false); setCameraMode(null);
-    };
-
-    const videoCallbackRef = useCallback((node: HTMLVideoElement) => {
-        videoRef.current = node;
-        if (node && streamRef.current) { node.srcObject = streamRef.current; node.play().catch(e => console.log("Play error:", e)); }
-    }, [showCameraModal]);
-
-    const capturePhoto = async () => {
-        const video = videoRef.current; const canvas = canvasRef.current;
-        if (video && canvas) {
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                canvas.width = video.videoWidth; canvas.height = video.videoHeight; ctx.drawImage(video, 0, 0);
-                canvas.toBlob(async (blob) => {
-                    if (blob) {
-                        const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                        try {
-                            const compressedFile = await compressImage(file); const preview = URL.createObjectURL(compressedFile);
-                            if (cameraMode === 'post') { setPostImage(compressedFile); setPostImagePreview(preview); setOriginalImageSize(`${(file.size / 1024).toFixed(1)} KB`); setPostImageSize(`${(compressedFile.size / 1024).toFixed(1)} KB`); }
-                            else if (cameraMode === 'comment') { setNewCommentImage(compressedFile); setNewCommentImagePreview(preview); }
-                            stopCamera();
-                        } catch (err) { alert("Could not process photo."); }
-                    }
-                }, 'image/jpeg', 0.9);
-            }
-        }
-    };
-
-    const resetPostForm = () => { setShowPostModal(false); setEditingPostId(null); setPostForm({ title: '', content: '' }); setPostVideoLink(''); setShowVideoInput(false); setPostImage(null); setPostImagePreview(''); };
-    const openNewPostModal = () => { resetPostForm(); setShowPostModal(true); };
-    const openEditModal = (post: Post, e?: React.MouseEvent) => { e?.stopPropagation(); setEditingPostId(post.id); setPostForm({ title: post.title, content: post.content }); setPostVideoLink(post.youtube_url || ''); if (post.youtube_url) setShowVideoInput(true); setPostImage(null); setPostImagePreview(''); setShowPostModal(true); };
-    const initiateDeletePost = (postId: string, e?: React.MouseEvent) => { e?.stopPropagation(); setPostToDelete(postId); setShowDeleteModal(true); };
-
-    const confirmDeletePost = async () => {
-        if (!postToDelete) return;
-        setLoading(true);
-        const { error, count } = await supabase.from('forum_posts').delete({ count: 'exact' }).eq('id', postToDelete);
-        if (error) alert("Failed to delete post: " + error.message);
-        else if (count === 0) onDbSetupNeeded();
-        else { setPosts(prev => prev.filter(p => p.id !== postToDelete)); if (selectedPost?.id === postToDelete) onNavigate(null); }
-        setLoading(false); setShowDeleteModal(false); setPostToDelete(null);
-    };
-
-    const handleSavePost = async () => {
-        if (!postForm.title || !postForm.content) return;
-        const cleanVideoLink = postVideoLink.trim();
-        if (cleanVideoLink && !getYouTubeId(cleanVideoLink)) return alert("Invalid YouTube URL.");
-        setIsPosting(true);
-        try {
-            if (editingPostId) {
-                const { error } = await supabase.from('forum_posts').update({ title: postForm.title, content: postForm.content, youtube_url: cleanVideoLink }).eq('id', editingPostId);
-                if (error) throw error;
-                setPosts(prev => prev.map(p => p.id === editingPostId ? { ...p, title: postForm.title, content: postForm.content, youtube_url: cleanVideoLink } : p));
-                if (selectedPost?.id === editingPostId) setSelectedPost(prev => prev ? { ...prev, title: postForm.title, content: postForm.content, youtube_url: cleanVideoLink } : null);
-            } else {
-                let imageUrl = null; if (postImage) imageUrl = await onUploadImage(postImage);
-                const categoryToSave = activeTab === 'My Posts' ? 'General' : activeTab;
-                const { error } = await supabase.from('forum_posts').insert({ user_id: session.user.id, title: postForm.title, content: postForm.content, category: categoryToSave, image_url: imageUrl, youtube_url: cleanVideoLink });
-                if (error) throw error;
-                await fetchPosts();
-            }
-            resetPostForm();
-        } catch (error: any) { if (error.message.includes('Could not find the \'youtube_url\' column')) { alert("Database update required. Please refresh."); window.location.reload(); } else alert(`Failed to save post: ${error.message}`); }
-        finally { setIsPosting(false); }
-    };
-
-    const handleAddComment = async () => {
-        if (!newComment.trim() && !newCommentImage) return;
-        if (!selectedPost) return;
-        setIsCommenting(true);
-        let imageUrl = null;
-        try {
-            if (newCommentImage) imageUrl = await onUploadImage(newCommentImage);
-            const { data, error } = await supabase.from('forum_comments').insert({ post_id: selectedPost.id, user_id: session.user.id, content: newComment, image_url: imageUrl }).select('*, profiles:user_id(name, profile_picture_url)').single();
-            if (!error && data) {
-                const newCommentObj = { ...data, upvotes: 0, downvotes: 0, score: 0, userVote: null };
-                setComments([...comments, newCommentObj]); setNewComment(''); setNewCommentImage(null); setNewCommentImagePreview('');
-                setPosts(prev => prev.map(p => p.id === selectedPost.id ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p));
-                createNotification(selectedPost.user_id, 'comment', selectedPost.id);
-            } else if (error) alert(`Failed to comment: ${error.message}`);
-        } catch (e: any) { alert('Error posting comment: ' + e.message); }
-        finally { setIsCommenting(false); }
-    };
-
-    const renderVideoEmbed = (videoUrl?: string) => {
-        if (!videoUrl) return null;
-        const videoId = getYouTubeId(videoUrl);
-        if (!videoId) return null;
-        return (
-            <div className="mb-3 rounded-md overflow-hidden w-full bg-muted relative shadow-sm border border-border">
-                <div className="aspect-video relative">
-                    <iframe key={videoId} className="absolute top-0 left-0 w-full h-full" src={`https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1`} title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin"></iframe>
-                </div>
-                <div className="bg-card p-2 text-xs text-center border-t border-border"><a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center justify-center gap-2"><PlayIcon className="w-3 h-3" /> Watch directly on YouTube (if playback disabled)</a></div>
-            </div>
-        );
-    };
-
-    const toggleExpansion = (postId: string, type: 'title' | 'content', e: React.MouseEvent) => { e.stopPropagation(); setExpandedItems(prev => ({ ...prev, [`${postId}-${type}`]: !prev[`${postId}-${type}`] })); };
-
+  // ---------------------------------------------------------------- render pieces
+  const ownerMenu = (kind: 'post' | 'comment', row: Post | Comment) => {
+    const mine = row.user_id === uid;
     return (
-        <div className="w-full min-h-screen bg-background text-foreground flex flex-col p-4 md:p-8 pb-24 relative">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-                <div className="flex items-center w-full sm:w-auto">
-                    <Button variant="ghost" size="sm" onClick={selectedPost ? () => onNavigate(null) : onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full shrink-0" aria-label="Back">
-                        <BackArrowIcon className="h-6 w-6" />
-                    </Button>
-                    <div className="flex-1">
-                        <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight truncate">
-                            Community Forum
-                        </h1>
-                    </div>
-                </div>
-
-                {!selectedPost && (
-                    <div className="flex items-center gap-3 self-end sm:self-auto">
-                        <div className="relative" ref={notificationRef}>
-                            <Button variant="ghost" size="icon" className="rounded-full relative hover:bg-secondary" onClick={handleToggleNotifications}>
-                                <BellIcon className="w-6 h-6" />
-                                {unreadCount > 0 && <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white font-bold shadow-sm ring-2 ring-background">{unreadCount > 9 ? '9+' : unreadCount}</span>}
-                            </Button>
-                            {showNotifications && (
-                                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-popover border border-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
-                                    <div className="flex items-center justify-between p-3 border-b border-border bg-muted/30"><h3 className="font-semibold text-sm">Notifications</h3><button onClick={() => setShowNotifications(false)} className="text-muted-foreground hover:text-foreground p-1"><XCircleIcon className="w-4 h-4" /></button></div>
-                                    <div className="max-h-[60vh] overflow-y-auto">
-                                        {notificationList.length === 0 ? <div className="p-8 text-center text-muted-foreground text-sm">No notifications yet.</div> : <div className="divide-y divide-border">{notificationList.map(note => (
-                                            <div key={note.id} className={`p-3 flex gap-3 cursor-pointer transition-colors hover:bg-muted/50 ${!note.is_read ? 'bg-primary/5' : ''}`} onClick={() => handleNotificationClick(note)}>
-                                                <div className="shrink-0 pt-1">{note.profiles?.profile_picture_url ? <img src={note.profiles.profile_picture_url} className="w-8 h-8 rounded-full object-cover border border-border" alt="avatar" /> : <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center border border-border"><span className="text-xs font-bold">{note.profiles?.name?.charAt(0) || '?'}</span></div>}</div>
-                                                <div className="flex-1 min-w-0"><p className="text-sm text-foreground"><span className="font-semibold">{note.profiles?.name || 'Someone'}</span><span className="text-muted-foreground"> {note.type === 'like' ? 'liked your post' : 'commented on your post'}:</span></p><p className="text-xs font-medium text-primary truncate mt-0.5">"{note.forum_posts?.title}"</p><p className="text-[10px] text-muted-foreground mt-1">{new Date(note.created_at).toLocaleDateString()} at {new Date(note.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p></div>
-                                                {!note.is_read && <div className="self-center"><div className="w-2 h-2 rounded-full bg-blue-500"></div></div>}
-                                            </div>
-                                        ))}</div>}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        <Button onClick={openNewPostModal} className="shadow-md shadow-primary/20 rounded-full px-6">+ New Post</Button>
-                    </div>
-                )}
-            </header>
-
-            {/* Camera Modal */}
-            {showCameraModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={stopCamera}>
-                    <Card className="w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                        <CardHeader><CardTitle>Take Photo</CardTitle></CardHeader>
-                        <CardContent><video ref={videoCallbackRef} autoPlay playsInline muted className="w-full h-auto max-h-[60vh] rounded-md bg-black" /><canvas ref={canvasRef} className="hidden" /></CardContent>
-                        <CardFooter className="flex justify-end gap-2"><Button variant="outline" onClick={stopCamera}>Cancel</Button><Button onClick={capturePhoto}><CameraIcon className="w-4 h-4 mr-2" /> Capture</Button></CardFooter>
-                    </Card>
-                </div>
-            )}
-            {/* Delete Modal */}
-            {showDeleteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowDeleteModal(false)}>
-                    <Card className="w-full max-w-sm animate-in fade-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <CardHeader><CardTitle>Delete Post</CardTitle><CardDescription>Are you sure you want to delete this post?</CardDescription></CardHeader>
-                        <CardFooter className="flex justify-end gap-2"><Button variant="outline" onClick={() => setShowDeleteModal(false)}>No</Button><Button variant="destructive" onClick={confirmDeletePost}>Yes, Delete</Button></CardFooter>
-                    </Card>
-                </div>
-            )}
-
-            {/* Content */}
-            {!selectedPost ? (
-                <div className="max-w-4xl mx-auto w-full space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="flex gap-2 overflow-x-auto p-2 pb-2 no-scrollbar">
-                            {(['General', 'Suggestion', 'Project Showcase', 'My Posts'] as Category[]).map((tab) => (
-                                <button key={tab} onClick={() => setActiveTab(tab)} className={`px-5 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all ${activeTab === tab ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20 transform scale-105' : 'bg-card border border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>{tab}</button>
-                            ))}
-                        </div>
-                        <div className="flex items-center gap-2 bg-card border border-border p-1 rounded-full self-start sm:self-auto shadow-sm">
-                            <button onClick={() => setSortBy('newest')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all ${sortBy === 'newest' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:bg-muted'}`}><ClockIcon className="w-3.5 h-3.5" /> Newest</button>
-                            <button onClick={() => setSortBy('popular')} className={`px-4 py-1.5 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all ${sortBy === 'popular' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:bg-muted'}`}><TrendingUpIcon className="w-3.5 h-3.5" /> Popular</button>
-                        </div>
-                    </div>
-
-                    <div className="bg-card text-foreground px-6 py-4 rounded-2xl border border-border flex items-center gap-4 shadow-sm">
-                        <div className="p-2 bg-secondary rounded-full shadow-sm"><MessageCircleIcon className="w-6 h-6 text-primary" /></div>
-                        <p className="text-sm font-medium leading-relaxed text-muted-foreground">{categoryDescriptions[activeTab]}</p>
-                    </div>
-
-                    <div className="space-y-4">
-                        {loading ? <div className="text-center py-10 text-muted-foreground">Loading community...</div> : posts.length === 0 ? <div className="text-center py-10 bg-card rounded-lg border border-border"><p className="text-muted-foreground">No posts here yet.</p></div> : (
-                            posts.map(post => {
-                                const isContentExpanded = expandedItems[`${post.id}-content`];
-                                const isTitleExpanded = expandedItems[`${post.id}-title`];
-                                const isLongContent = post.content.length > 200 || (post.content.match(/\n/g) || []).length > 2;
-                                const isLongTitle = post.title.length > 100;
-
-                                return (
-                                    <Card key={post.id} className="hover:shadow-lg hover:border-primary/30 transition-all duration-300 cursor-pointer overflow-hidden animate-fade-in-down border-gray-400 dark:border-gray-600 group bg-card" onClick={() => onNavigate(post.id)}>
-                                        <div className="flex">
-                                            <div className="flex flex-col items-center p-4 border-r border-border gap-1 min-w-[60px]" onClick={e => e.stopPropagation()}>
-                                                <button onClick={() => handleVote(post.id, 'up')} className={`p-1.5 rounded-lg transition-colors hover:bg-white/50 dark:hover:bg-background ${post.userVote === 'up' ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'text-muted-foreground'}`}>
-                                                    <ThumbsUpIcon className="w-5 h-5" />
-                                                </button>
-                                                <span className={`text-sm font-bold font-mono my-1 ${post.score && post.score > 0 ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>{post.score}</span>
-                                                <button onClick={() => handleVote(post.id, 'down')} className={`p-1.5 rounded-lg transition-colors hover:bg-white/50 dark:hover:bg-background ${post.userVote === 'down' ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'text-muted-foreground'}`}>
-                                                    <ThumbsDownIcon className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                            <div className="flex-1 p-5 min-w-0">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div className="flex-1 pr-2 min-w-0">
-                                                        <h3
-                                                            className={`text-lg font-bold break-words whitespace-normal mb-1 group-hover:text-primary transition-colors ${!isTitleExpanded && isLongTitle ? 'line-clamp-3' : ''}`}
-                                                            style={!isTitleExpanded && isLongTitle ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}}
-                                                        >
-                                                            {post.title}
-                                                        </h3>
-                                                        {isLongTitle && <button onClick={(e) => toggleExpansion(post.id, 'title', e)} className="text-xs text-primary hover:underline font-medium focus:outline-none mb-2 block">{isTitleExpanded ? 'Show Less' : 'Show More'}</button>}
-                                                    </div>
-                                                    {session.user.id === post.user_id && (
-                                                        <div className="flex gap-1 ml-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                                                            <button onClick={(e) => openEditModal(post, e)} className="text-muted-foreground hover:text-primary p-1.5 rounded-md hover:bg-secondary"><PenIcon className="w-4 h-4" /></button>
-                                                            <button onClick={(e) => initiateDeletePost(post.id, e)} className="text-muted-foreground hover:text-destructive p-1.5 rounded-md hover:bg-secondary"><TrashIcon className="w-4 h-4" /></button>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <p className={`text-sm text-muted-foreground mb-3 whitespace-pre-wrap break-words leading-relaxed ${!isContentExpanded && isLongContent ? 'line-clamp-3' : ''}`}>
-                                                    {post.content}
-                                                </p>
-                                                {isLongContent && <button onClick={(e) => toggleExpansion(post.id, 'content', e)} className="text-xs text-primary hover:underline mb-4 font-medium focus:outline-none">{isContentExpanded ? 'Show Less' : 'Show More'}</button>}
-
-                                                {renderVideoEmbed(post.youtube_url)}
-
-                                                {post.image_url && !post.youtube_url && (
-                                                    <div className="mb-4 rounded-xl overflow-hidden w-full bg-secondary/50 border border-border">
-                                                        <img src={post.image_url} alt="Post attachment" className="w-full h-auto max-h-[400px] object-contain" />
-                                                    </div>
-                                                )}
-                                                <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border/50">
-                                                    <div className="flex items-center gap-2">
-                                                        {post.profiles?.profile_picture_url ? <img src={post.profiles.profile_picture_url} className="w-6 h-6 rounded-full object-cover border border-border" alt="avatar" /> : <div className="w-6 h-6 bg-secondary rounded-full border border-border" />}
-                                                        <span className="font-medium text-foreground">{post.profiles?.name || 'Unknown'}</span>
-                                                        <span>•</span>
-                                                        <span>{new Date(post.created_at).toLocaleDateString()}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 bg-white/50 dark:bg-secondary/50 px-2 py-1 rounded-md">
-                                                        <MessageCircleIcon className="w-3.5 h-3.5" />
-                                                        <span className="font-medium">{post.comment_count || 0} Comments</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </Card>
-                                );
-                            })
-                        )}
-                    </div>
-                </div>
-            ) : (
-                <div className="max-w-4xl mx-auto w-full flex flex-col animate-in fade-in">
-                    <div className="space-y-6 pb-24">
-                        <Card className="border-0 shadow-none bg-transparent">
-                            <div className="flex bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-                                <div className="flex flex-col items-center p-4 border-r border-border gap-2 min-w-[70px]">
-                                    <button onClick={() => handleVote(selectedPost.id, 'up')} className={`p-2 rounded-xl transition-all hover:bg-white/50 dark:hover:bg-background hover:scale-110 ${selectedPost.userVote === 'up' ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20 shadow-sm' : 'text-muted-foreground'}`}>
-                                        <ThumbsUpIcon className="w-6 h-6" />
-                                    </button>
-                                    <div className={`text-xl font-bold font-mono ${selectedPost.score && selectedPost.score > 0 ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>{(selectedPost.upvotes - selectedPost.downvotes)}</div>
-                                    <button onClick={() => handleVote(selectedPost.id, 'down')} className={`p-2 rounded-xl transition-all hover:bg-white/50 dark:hover:bg-background hover:scale-110 ${selectedPost.userVote === 'down' ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'text-muted-foreground'}`}>
-                                        <ThumbsDownIcon className="w-6 h-6" />
-                                    </button>
-                                </div>
-                                <div className="flex-1 p-6 min-w-0">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-                                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                                            <span className="px-2.5 py-1 rounded-md bg-primary/10 text-primary font-bold uppercase tracking-wide">{selectedPost.category}</span>
-                                            <span className="text-muted-foreground">• Posted by <span className="font-medium text-foreground">{selectedPost.profiles?.name || 'User'}</span></span>
-                                            <span className="text-muted-foreground">• {new Date(selectedPost.created_at).toLocaleDateString()}</span>
-                                        </div>
-                                        {session.user.id === selectedPost.user_id && (
-                                            <div className="flex gap-1 shrink-0">
-                                                <Button variant="ghost" size="icon" onClick={(e) => openEditModal(selectedPost, e)} className="h-8 w-8" title="Edit"><PenIcon className="w-4 h-4" /></Button>
-                                                <Button variant="ghost" size="icon" onClick={(e) => initiateDeletePost(selectedPost.id, e)} className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" title="Delete"><TrashIcon className="w-4 h-4" /></Button>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <h2 className="text-3xl font-bold mb-6 break-words leading-tight text-foreground">{selectedPost.title}</h2>
-                                    <p className="text-foreground whitespace-pre-wrap leading-loose mb-8 break-words text-base">{selectedPost.content}</p>
-
-                                    {renderVideoEmbed(selectedPost.youtube_url)}
-
-                                    {selectedPost.image_url && (
-                                        <div className="rounded-xl overflow-hidden border border-border mb-6 shadow-sm">
-                                            <img src={selectedPost.image_url} alt="Post content" className="w-full h-auto" />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </Card>
-
-                        <div className="space-y-6 pl-4 lg:pl-0">
-                            <div className="flex items-center justify-between border-b border-border pb-4">
-                                <h3 className="font-bold text-xl flex items-center gap-2">
-                                    <MessageCircleIcon className="w-5 h-5" />
-                                    Comments <span className="text-muted-foreground text-sm font-normal">({comments.length})</span>
-                                </h3>
-                                <div className="flex items-center gap-2 bg-card border border-border p-1 rounded-lg shadow-sm">
-                                    <button onClick={() => setCommentSortBy('newest')} className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all ${commentSortBy === 'newest' ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:bg-secondary/50'}`}><ClockIcon className="w-3.5 h-3.5" /> Newest</button>
-                                    <button onClick={() => setCommentSortBy('popular')} className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all ${commentSortBy === 'popular' ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:bg-secondary/50'}`}><TrendingUpIcon className="w-3.5 h-3.5" /> Popular</button>
-                                </div>
-                            </div>
-
-                            {comments.map(comment => (
-                                <div key={comment.id} className="bg-card p-5 rounded-xl border border-border flex gap-4 shadow-sm hover:shadow-md transition-all">
-                                    <div className="flex flex-col items-center gap-1 min-w-[32px] pt-1">
-                                        <button onClick={() => handleCommentVote(comment.id, 'up')} className={`hover:text-orange-500 transition-colors ${comment.userVote === 'up' ? 'text-orange-500' : 'text-muted-foreground'}`}><ThumbsUpIcon className="w-5 h-5" /></button>
-                                        <span className="text-sm font-mono font-bold text-foreground">{(comment.upvotes || 0) - (comment.downvotes || 0)}</span>
-                                        <button onClick={() => handleCommentVote(comment.id, 'down')} className={`hover:text-blue-500 transition-colors ${comment.userVote === 'down' ? 'text-blue-500' : 'text-muted-foreground'}`}><ThumbsDownIcon className="w-5 h-5" /></button>
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-3 mb-3">
-                                            {comment.profiles?.profile_picture_url ? <img src={comment.profiles.profile_picture_url} className="w-8 h-8 rounded-full object-cover border border-border" alt="Avatar" /> : <div className="w-8 h-8 bg-secondary rounded-full border border-border" />}
-                                            <div>
-                                                <div className="text-sm font-bold text-foreground truncate max-w-[200px]">{comment.profiles?.name || 'Unknown'}</div>
-                                                <div className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleDateString()}</div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-secondary/20 p-3 rounded-lg border border-border/50">
-                                            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed text-foreground">{comment.content}</p>
-                                        </div>
-                                        {comment.image_url && <div className="mt-3 rounded-lg overflow-hidden max-w-md border border-border shadow-sm"><img src={comment.image_url} alt="Comment image" className="w-full h-auto max-h-64 object-contain bg-black/5" /></div>}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-card/80 backdrop-blur-md border-t border-border shadow-lg z-10">
-                        <div className="max-w-4xl mx-auto">
-                            {newCommentImagePreview && <div className="mb-2 relative w-24 h-24 animate-in fade-in slide-in-from-bottom-2"><img src={newCommentImagePreview} alt="Preview" className="w-full h-full object-cover rounded-lg border border-border shadow-sm" /><button onClick={() => { setNewCommentImage(null); setNewCommentImagePreview(''); }} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors"><XCircleIcon className="w-4 h-4" /></button></div>}
-                            <div className="flex gap-2 items-end">
-                                <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg border border-border shrink-0">
-                                    <button className="p-2 rounded-md hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary" title="Upload Image" onClick={() => document.getElementById('comment-upload')?.click()}><UploadImageIcon className="w-5 h-5" /><input id="comment-upload" type="file" accept="image/*" className="hidden" onChange={(e) => handleImageSelect(e, 'comment')} /></button>
-                                    <button className="p-2 rounded-md hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-primary" title="Take Picture" onClick={() => startCamera('comment')}><CameraIcon className="w-5 h-5" /></button>
-                                </div>
-                                <Input value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Add to the discussion..." className="flex-1 h-12 text-base" onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} />
-                                <Button onClick={handleAddComment} disabled={(!newComment.trim() && !newCommentImage) || isCommenting} className="h-12 px-3 sm:px-6 shadow-md shrink-0">
-                                    <SendIcon className="w-5 h-5 sm:mr-2" />
-                                    <span className="hidden sm:inline">Post</span>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showPostModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={resetPostForm}>
-                    <Card className="w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <CardHeader className="border-b border-border bg-muted/20">
-                            <CardTitle>{editingPostId ? 'Edit Post' : 'Create New Post'}</CardTitle>
-                            <CardDescription>{editingPostId ? 'Update your content' : `Share with the community in ${activeTab}`}</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-5 overflow-y-auto pt-6">
-                            <div className="space-y-1.5"><Label className="font-bold">Title</Label><Input value={postForm.title} onChange={e => setPostForm({ ...postForm, title: e.target.value })} placeholder="What's on your mind?" className="font-semibold text-lg" /></div>
-                            <div className="space-y-1.5"><Label className="font-bold">Content</Label><textarea className="flex min-h-[150px] w-full rounded-md border border-input bg-background px-4 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y" value={postForm.content} onChange={e => setPostForm({ ...postForm, content: e.target.value })} placeholder="Elaborate on your topic..." /></div>
-
-                            <div className="space-y-2 bg-secondary/20 p-4 rounded-xl border border-border/50">
-                                <Label className="font-bold mb-2 block">Media Attachments</Label>
-                                <div className="flex flex-wrap items-center gap-3">
-                                    {!editingPostId && (
-                                        <>
-                                            <Button type="button" variant="outline" className="relative overflow-hidden flex-1 h-10 hover:bg-background hover:border-primary/50 hover:text-primary transition-all">
-                                                <UploadImageIcon className="w-4 h-4 mr-2" /> Upload Photo
-                                                <input type="file" accept="image/*" onChange={(e) => handleImageSelect(e, 'post')} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                            </Button>
-                                            <Button variant="outline" onClick={() => startCamera('post')} className="flex-1 h-10 hover:bg-background hover:border-primary/50 hover:text-primary transition-all"><CameraIcon className="w-4 h-4 mr-2" /> Take Photo</Button>
-                                        </>
-                                    )}
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => setShowVideoInput(!showVideoInput)}
-                                        className={`flex-1 h-10 transition-all ${showVideoInput || postVideoLink ? 'bg-primary/10 border-primary/50 text-primary' : 'hover:bg-background hover:border-primary/50 hover:text-primary'}`}
-                                    >
-                                        <PlayIcon className="w-4 h-4 mr-2" /> {postVideoLink ? 'Edit Video Link' : 'Add Video'}
-                                    </Button>
-                                </div>
-
-                                {(showVideoInput || postVideoLink) && (
-                                    <div className="relative mt-3 animate-in fade-in slide-in-from-top-1">
-                                        <PlayIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                        <Input
-                                            value={postVideoLink}
-                                            onChange={e => setPostVideoLink(e.target.value)}
-                                            placeholder="Paste YouTube URL here... (e.g. https://youtu.be/xxx)"
-                                            className="pl-9"
-                                            autoFocus={!postVideoLink}
-                                        />
-                                    </div>
-                                )}
-
-                                {postImagePreview && (
-                                    <div className="relative w-full h-48 mt-3 rounded-lg overflow-hidden border border-border bg-black/5 shadow-sm group">
-                                        <img src={postImagePreview} alt="Preview" className="w-full h-full object-contain" />
-                                        <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded backdrop-blur-sm">
-                                            {originalImageSize} &rarr; {postImageSize}
-                                        </div>
-                                        <button onClick={() => { setPostImage(null); setPostImagePreview(''); setPostImageSize(''); }} className="absolute top-2 right-2 bg-white text-red-500 p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"><XCircleIcon className="w-5 h-5" /></button>
-                                    </div>
-                                )}
-                            </div>
-                        </CardContent>
-                        <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 border-t border-border bg-muted/20 py-4">
-                            <Button variant="ghost" onClick={resetPostForm} className="w-full sm:w-auto">Cancel</Button>
-                            <Button onClick={handleSavePost} disabled={isPosting} className="px-8 w-full sm:w-auto">{isPosting ? 'Saving...' : (editingPostId ? 'Update Post' : 'Post Now')}</Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-            )}
-        </div>
+      <ActionMenu
+        label={`${kind === 'post' ? 'Post' : 'Comment'} actions`}
+        items={mine ? [
+          { label: 'Edit', icon: <EditIcon />, onSelect: () => (kind === 'post' ? openEditPost(row as Post) : setEditingComment({ id: row.id, text: row.content })) },
+          { label: 'Delete', icon: <TrashIcon />, destructive: true, onSelect: () => setConfirm({ kind, id: row.id, imageUrl: row.image_url }) },
+        ] : [
+          { label: 'Report', icon: <FlagIcon />, onSelect: () => { setReportReason('Spam or advertising'); setReport({ kind, id: row.id }); } },
+        ]}
+      />
     );
+  };
+
+  const bell = (
+    <div className="relative" ref={notifRef}>
+      <button type="button" className="btn btn-outline relative h-10 w-10 p-0" onClick={openNotifications} aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} aria-expanded={notifOpen}>
+        <BellIcon className="h-5 w-5" />
+        {unread > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground ring-2 ring-background">{unread > 99 ? '99+' : unread}</span>}
+      </button>
+      {notifOpen && (
+        <div className="absolute right-0 z-40 mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-lift animate-zoom-in">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 className="text-sm font-semibold">Notifications</h2>
+            {unread > 0 && <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={markAllRead}>Mark all as read</button>}
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {notifLoading ? <div className="p-4"><SkeletonList rows={3} /></div> : notifs.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No notifications yet. Likes and comments on your posts show up here.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {notifs.map((n) => (
+                  <li key={n.id}>
+                    <button type="button" onClick={() => openNotification(n)} className={`flex w-full gap-3 px-4 py-3 text-left transition hover:bg-muted ${n.is_read ? '' : 'bg-primary/5'}`}>
+                      <Avatar author={n.source_user_id ? authors[n.source_user_id] : undefined} size="md" />
+                      <span className="min-w-0 flex-1 text-sm">
+                        <span className="font-semibold text-foreground">{n.source_user_id ? authors[n.source_user_id]?.name || 'A member' : 'Someone'}</span>
+                        <span className="text-muted-foreground"> {n.type === 'like' ? 'liked your post' : n.type === 'comment' ? 'commented on your post' : n.type === 'comment_like' ? 'liked your comment' : 'interacted with your post'}</span>
+                        {n.post_id && notifTitles[n.post_id] && <span className="block truncate text-xs font-medium text-primary">“{notifTitles[n.post_id]}”</span>}
+                        <span className="block text-xs text-muted-foreground">{timeAgo(n.created_at)}</span>
+                      </span>
+                      {!n.is_read && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const postCard = (p: Post) => {
+    const long = p.content.length > 280 || (p.content.match(/\n/g) || []).length > 4;
+    return (
+      <article key={p.id} className="card flex gap-1 p-2 transition hover:border-primary/30 sm:gap-3 sm:p-3">
+        <VoteControl score={p.upvotes - p.downvotes} vote={p.userVote} onVote={(v) => votePost(p, v)} busy={voting[p.id]} size="sm" />
+        <div className="min-w-0 flex-1 py-1 pr-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              {tab === 'My Posts' && <span className="badge badge-primary">{p.category}</span>}
+              <span className="inline-flex min-w-0 items-center gap-1.5"><Avatar author={authors[p.user_id]} /><span className="truncate font-medium text-foreground">{authorName(p.user_id)}</span></span>
+              <span>·</span>
+              <time dateTime={p.created_at} title={new Date(p.created_at).toLocaleString()}>{timeAgo(p.created_at)}</time>
+            </div>
+            <div className="-mr-1 -mt-1 shrink-0">{ownerMenu('post', p)}</div>
+          </div>
+          <button type="button" onClick={() => onNavigate(p.id)} className="mt-1 block w-full text-left">
+            <h3 className="line-clamp-3 break-words text-base font-semibold leading-snug text-foreground hover:text-primary">{p.title}</h3>
+            {p.content && <p className={`mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground ${long ? 'line-clamp-4' : ''}`}>{p.content}</p>}
+            {isTrustedImage(p.image_url) && (
+              <img src={p.image_url} alt="" loading="lazy" className="mt-3 max-h-72 w-full rounded-xl border border-border object-cover" />
+            )}
+            {!isTrustedImage(p.image_url) && getYouTubeId(p.youtube_url) && (
+              <span className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1 text-xs font-medium text-foreground"><PlayIcon className="h-3.5 w-3.5" /> Video</span>
+            )}
+          </button>
+          <button type="button" onClick={() => onNavigate(p.id)} className="mt-2 inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+            <MessageCircleIcon className="h-4 w-4" /> {p.comment_count} comment{p.comment_count === 1 ? '' : 's'}
+          </button>
+        </div>
+      </article>
+    );
+  };
+
+  const renderList = () => (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Forum sections">
+          {([...CATEGORIES, 'My Posts'] as Tab[]).map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition ${tab === t ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`}>{t}</button>
+          ))}
+        </div>
+        <Segmented<SortKey> size="sm" ariaLabel="Sort posts" value={sort} onChange={setSort} options={[{ value: 'newest', label: 'Newest' }, { value: 'popular', label: 'Top' }]} />
+      </div>
+      <p className="text-sm text-muted-foreground">{TAB_HELP[tab]}</p>
+      <InlineError onRetry={() => loadPosts(0)}>{listError}</InlineError>
+      {listLoading ? (
+        <SkeletonList rows={4} />
+      ) : posts.length === 0 && !listError ? (
+        <EmptyState
+          icon={<MessageSquareIcon />}
+          title={tab === 'My Posts' ? "You haven't posted yet" : `No posts in ${tab} yet`}
+          description={tab === 'My Posts' ? 'Ask a question or share a project with other contractors.' : 'Be the first to start a conversation.'}
+          action={<button type="button" className="btn btn-primary" onClick={openNewPost}><PlusIcon className="h-4 w-4" /> New post</button>}
+        />
+      ) : (
+        <>
+          <div className="space-y-3">{posts.map(postCard)}</div>
+          {hasMore && (
+            <div className="flex justify-center">
+              <button type="button" className="btn btn-outline" onClick={() => loadPosts(posts.length)} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more posts'}</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  const commentItem = (c: Comment) => {
+    const isEditing = editingComment?.id === c.id;
+    return (
+      <li key={c.id} className="flex gap-2 sm:gap-3">
+        <Avatar author={authors[c.user_id]} size="md" />
+        <div className="min-w-0 flex-1">
+          <div className="rounded-2xl border border-border bg-card px-3 py-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 text-xs text-muted-foreground"><span className="font-semibold text-foreground">{authorName(c.user_id)}</span> · <time dateTime={c.created_at}>{timeAgo(c.created_at)}</time></div>
+              <div className="-mr-2 -mt-2 shrink-0">{ownerMenu('comment', c)}</div>
+            </div>
+            {isEditing ? (
+              <div className="mt-2 space-y-2">
+                <textarea className="input min-h-[80px]" value={editingComment!.text} onChange={(e) => setEditingComment({ id: c.id, text: e.target.value })} maxLength={5000} autoFocus aria-label="Edit comment" />
+                <div className="flex justify-end gap-2">
+                  <button type="button" className="btn btn-ghost btn-sm h-9" onClick={() => setEditingComment(null)}>Cancel</button>
+                  <button type="button" className="btn btn-primary btn-sm h-9" onClick={saveCommentEdit}>Save</button>
+                </div>
+              </div>
+            ) : (
+              c.content && <LinkifiedText text={c.content} className="mt-1 text-sm text-foreground" />
+            )}
+            {isTrustedImage(c.image_url) && <img src={c.image_url} alt="" loading="lazy" className="mt-2 max-h-64 rounded-xl border border-border object-contain" />}
+          </div>
+          <div className="mt-1"><VoteControl vertical={false} size="sm" score={c.upvotes - c.downvotes} vote={c.userVote} onVote={(v) => voteComment(c, v)} busy={voting[c.id]} /></div>
+        </div>
+      </li>
+    );
+  };
+
+  const renderDetail = () => {
+    if (detailState === 'loading' && !detail) return <div className="mx-auto max-w-3xl"><SkeletonList rows={3} /></div>;
+    if (detailState === 'missing' || detailState === 'error' || !detail) {
+      return (
+        <div className="mx-auto max-w-3xl">
+          <EmptyState
+            icon={<MessageSquareIcon />}
+            title={detailState === 'error' ? 'This post could not be loaded' : 'Post not found'}
+            description={detailState === 'error' ? 'Check your connection and try again.' : 'It may have been deleted by its author or hidden by moderators.'}
+            action={<button type="button" className="btn btn-primary" onClick={() => onNavigate(null)}>Back to the forum</button>}
+          />
+        </div>
+      );
+    }
+    const p = detail;
+    return (
+      <div className="mx-auto max-w-3xl space-y-5">
+        <article className="card card-pad">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="badge badge-primary">{p.category}</span>
+              <span className="inline-flex items-center gap-1.5"><Avatar author={authors[p.user_id]} /><span className="font-medium text-foreground">{authorName(p.user_id)}</span></span>
+              <span>·</span>
+              <time dateTime={p.created_at} title={new Date(p.created_at).toLocaleString()}>{timeAgo(p.created_at)}</time>
+            </div>
+            <div className="-mr-2 -mt-2 shrink-0">{ownerMenu('post', p)}</div>
+          </div>
+          <h2 className="mt-3 break-words text-xl font-bold leading-tight text-foreground sm:text-2xl">{p.title}</h2>
+          {p.content && <LinkifiedText text={p.content} className="mt-3 text-[15px] leading-relaxed text-foreground" />}
+          {(isTrustedImage(p.image_url) || getYouTubeId(p.youtube_url)) && (
+            <div className="mt-4 space-y-3">
+              {isTrustedImage(p.image_url) && <img src={p.image_url} alt="" className="w-full rounded-xl border border-border" />}
+              <YouTubeEmbed url={p.youtube_url} />
+            </div>
+          )}
+          <div className="mt-4 flex items-center gap-3 border-t border-border pt-3">
+            <VoteControl vertical={false} score={p.upvotes - p.downvotes} vote={p.userVote} onVote={(v) => votePost(p, v)} busy={voting[p.id]} />
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"><MessageCircleIcon className="h-4 w-4" />{p.comment_count} comment{p.comment_count === 1 ? '' : 's'}</span>
+          </div>
+        </article>
+
+        <section aria-label="Comments" className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-base font-semibold text-foreground">Comments</h3>
+            <Segmented<CommentSort> size="sm" ariaLabel="Sort comments" value={commentSort} onChange={setCommentSort} options={[{ value: 'oldest', label: 'Oldest' }, { value: 'newest', label: 'Newest' }, { value: 'top', label: 'Top' }]} />
+          </div>
+          {commentsLoading && !comments.length ? <SkeletonList rows={2} /> : comments.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">No comments yet. Start the conversation.</p>
+          ) : (
+            <ul className="space-y-3">{comments.map(commentItem)}</ul>
+          )}
+          {commentsMore && (
+            <div className="flex justify-center"><button type="button" className="btn btn-outline btn-sm h-10" onClick={() => loadComments(p.id, comments.length)} disabled={commentsLoading}>{commentsLoading ? 'Loading…' : 'Load more comments'}</button></div>
+          )}
+        </section>
+
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-10 -mx-4 border-t border-border bg-background/95 px-4 pb-3 pt-3 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border sm:px-3 md:bottom-0 md:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {replyPreview && (
+            <div className="relative mb-2 inline-block">
+              <img src={replyPreview} alt="Attachment preview" className="h-20 w-20 rounded-xl border border-border object-cover" />
+              <button type="button" aria-label="Remove image" onClick={() => { setReplyFile(null); setReplyPreview(null); }} className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background"><XIcon className="h-4 w-4" /></button>
+            </div>
+          )}
+          <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); sendComment(); }}>
+            <input ref={replyFileRef} type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={(e) => { pickImage(e.target.files?.[0], (f, prev) => { setReplyFile(f); setReplyPreview(prev); }); e.target.value = ''; }} />
+            <button type="button" className="btn btn-outline h-11 w-11 shrink-0 p-0" aria-label="Attach a photo" onClick={() => replyFileRef.current?.click()} disabled={sending}><UploadImageIcon className="h-5 w-5" /></button>
+            <label htmlFor="forum-reply" className="sr-only">Write a comment</label>
+            <textarea
+              id="forum-reply"
+              className="input max-h-40 min-h-[44px] flex-1 resize-none py-2.5"
+              rows={1}
+              value={reply}
+              onChange={(e) => { setReply(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(160, e.target.scrollHeight)}px`; }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isMobile && !e.nativeEvent.isComposing) { e.preventDefault(); sendComment(); } }}
+              placeholder="Add a comment…"
+              maxLength={5000}
+              disabled={sending}
+            />
+            <button type="submit" className="btn btn-primary h-11 shrink-0 px-3 sm:px-4" disabled={sending || (!reply.trim() && !replyFile)} aria-label="Post comment">
+              <SendIcon className="h-4 w-4" /><span className="hidden sm:inline">{sending ? 'Posting…' : 'Post'}</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const draftPreview = draft?.preview || draft?.imageUrl || null;
+
+  return (
+    <div className="page">
+      <PageHeader
+        onBack={initialPostId ? () => onNavigate(null) : onBack}
+        backLabel={initialPostId ? 'Back to the forum' : 'Back'}
+        icon={<MessageSquareIcon className="h-7 w-7" />}
+        title="Community"
+        subtitle={initialPostId ? 'Discussion' : 'Ask questions, share projects and suggest features.'}
+        actions={<>{bell}<button type="button" className="btn btn-primary" onClick={openNewPost}><PlusIcon className="h-4 w-4" /> New post</button></>}
+      />
+
+      {initialPostId ? renderDetail() : renderList()}
+
+      <Modal
+        open={!!draft}
+        onClose={closeDraft}
+        busy={savingPost}
+        size="lg"
+        title={draft?.id ? 'Edit post' : 'New post'}
+        description="Posts are visible to every ContractorDocs member."
+        footer={<><button type="button" className="btn btn-outline" onClick={closeDraft} disabled={savingPost}>Cancel</button><button type="button" className="btn btn-primary" onClick={savePost} disabled={savingPost}>{savingPost ? 'Saving…' : draft?.id ? 'Save changes' : 'Publish'}</button></>}
+      >
+        {draft && (
+          <div className="space-y-4">
+            {draftError && <InlineError>{draftError}</InlineError>}
+            <Field label="Section" htmlFor="fp-cat">
+              <select id="fp-cat" className="input" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value as Category })}>
+                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+            <Field label="Title" htmlFor="fp-title" hint={`${draft.title.length}/150`}>
+              <input id="fp-title" className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="What's your question or project?" maxLength={150} autoFocus />
+            </Field>
+            <Field label="Details" htmlFor="fp-content">
+              <textarea id="fp-content" className="input min-h-[140px] resize-y" value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} placeholder="Add context, measurements, what you've tried…" maxLength={10000} />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <span className="label">Photo</span>
+                {draftPreview ? (
+                  <div className="relative overflow-hidden rounded-xl border border-border">
+                    <img src={draftPreview} alt="Post photo" className="max-h-48 w-full object-cover" />
+                    <button type="button" aria-label="Remove photo" className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive" onClick={() => { if (draft.preview) URL.revokeObjectURL(draft.preview); setDraft({ ...draft, file: null, preview: null, imageUrl: null }); }}>
+                      <XIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex h-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground">
+                    <UploadImageIcon className="h-6 w-6" /> Add a photo
+                    <input type="file" accept={IMAGE_ACCEPT} className="sr-only" onChange={(e) => { pickImage(e.target.files?.[0], (f, prev) => setDraft((d) => (d ? { ...d, file: f, preview: prev } : d))); e.target.value = ''; }} />
+                  </label>
+                )}
+              </div>
+              <Field label="YouTube link (optional)" htmlFor="fp-yt" error={draft.youtube.trim() && !getYouTubeId(draft.youtube) ? 'Paste a youtube.com or youtu.be link.' : undefined}>
+                <input id="fp-yt" className="input" value={draft.youtube} onChange={(e) => setDraft({ ...draft, youtube: e.target.value })} placeholder="https://youtu.be/…" inputMode="url" />
+              </Field>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!report}
+        onClose={() => setReport(null)}
+        busy={reportBusy}
+        size="sm"
+        title={`Report this ${report?.kind ?? 'post'}`}
+        description="Reports are anonymous. Content reported by several members is hidden until reviewed."
+        footer={<><button type="button" className="btn btn-outline" onClick={() => setReport(null)} disabled={reportBusy}>Cancel</button><button type="button" className="btn btn-danger" onClick={sendReport} disabled={reportBusy}>{reportBusy ? 'Sending…' : 'Send report'}</button></>}
+      >
+        <fieldset className="space-y-1">
+          <legend className="sr-only">Reason</legend>
+          {['Spam or advertising', 'Harassment or hate', 'Inappropriate content', 'Scam or fraud', 'Something else'].map((r) => (
+            <label key={r} className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-2 text-sm hover:bg-muted">
+              <input type="radio" name="report-reason" className="h-4 w-4 accent-[hsl(var(--primary))]" checked={reportReason === r} onChange={() => setReportReason(r)} />
+              {r}
+            </label>
+          ))}
+        </fieldset>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.kind === 'post' ? 'Delete this post?' : 'Delete this comment?'}
+        message={confirm?.kind === 'post' ? 'The post and all its comments will be removed for everyone. This cannot be undone.' : 'The comment will be removed for everyone. This cannot be undone.'}
+        confirmLabel="Delete"
+        destructive
+        busy={confirmBusy}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirm(null)}
+      />
+      <NoticeToast notice={notice} onClose={clear} />
+    </div>
+  );
 };
 
 export default ForumView;

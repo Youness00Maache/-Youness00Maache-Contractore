@@ -15,6 +15,33 @@ export enum FormType {
   ProfitReport = "Profit Report",
 }
 
+export interface AIVisualMetric {
+  label: string;
+  value: string | number;
+  icon?: string;
+}
+
+export interface AIChartData {
+  name: string;
+  value: number;
+}
+
+/** One AI-placed infographic block with structured data for DocumentWidgetRenderer */
+export interface AIWidgetInstance {
+  type: string;
+  data: Record<string, unknown>;
+  order?: number;
+}
+
+export interface AIVisualData {
+  metrics?: AIVisualMetric[];
+  progress_percentage?: number;
+  chart_data?: AIChartData[];
+  /** Structured widget instances — preferred over legacy metrics-only */
+  widgets?: AIWidgetInstance[];
+  suggested_widget_types?: string[];
+}
+
 export interface EmailTemplate {
   subject: string;
   body: string;
@@ -126,7 +153,14 @@ export interface DocumentStyle {
   themeColors?: {
     primary: string;
     secondary: string;
+    /** true when the user picked custom colors (otherwise the template's own palette is used) */
+    custom?: boolean;
+    font?: string;
+    paper?: string;
   };
+  /** Document font chosen in the template selector */
+  fontFamily?: string;
+  paperSize?: 'letter' | 'a4';
 }
 
 export interface InvoiceData extends DocumentStyle {
@@ -137,6 +171,10 @@ export interface InvoiceData extends DocumentStyle {
   taxRate: number;
   discount?: number;
   shipping?: number;
+  /** deposits / payments already received (balance due = total - amountPaid) */
+  amountPaid?: number;
+  /** payment terms printed on the invoice */
+  terms?: string;
   notes: string;
   paypalLink?: string;
   status: 'Draft' | 'Sent' | 'Paid' | 'Overdue' | 'Cancelled';
@@ -158,6 +196,7 @@ export interface InvoiceData extends DocumentStyle {
     lastRunDate?: string;
     nextRunDate?: string;
   };
+  ai_visual_data?: AIVisualData;
 }
 
 export interface WorkOrderData extends DocumentStyle {
@@ -178,6 +217,7 @@ export interface WorkOrderData extends DocumentStyle {
   clientAddress?: string;
   signatureUrl?: string;
   logoUrl?: string;
+  ai_visual_data?: AIVisualData;
 }
 
 export interface DailyJobReportData extends DocumentStyle {
@@ -197,6 +237,7 @@ export interface DailyJobReportData extends DocumentStyle {
   companyAddress?: string;
   companyPhone?: string;
   companyWebsite?: string;
+  ai_visual_data?: AIVisualData;
 }
 
 export interface TimeSheetData extends DocumentStyle {
@@ -262,6 +303,7 @@ export interface EstimateData extends DocumentStyle {
   clientSignatureUrl?: string; // Client's signature from digital approval
   clientSignedAt?: string; // Timestamp when client signed
   clientSignedBy?: string; // Client name who signed
+  ai_visual_data?: AIVisualData;
 }
 
 export interface ExpenseLogData extends DocumentStyle {
@@ -296,6 +338,7 @@ export interface WarrantyData extends DocumentStyle {
   conditions: string;
   signatureUrl?: string;
   logoUrl?: string;
+  ai_visual_data?: AIVisualData;
 }
 
 export interface ChangeOrderData extends DocumentStyle {
@@ -318,6 +361,7 @@ export interface ChangeOrderData extends DocumentStyle {
   clientSignatureUrl?: string; // Client's signature from digital approval
   clientSignedAt?: string; // Timestamp when client signed
   clientSignedBy?: string; // Client name who signed
+  ai_visual_data?: AIVisualData;
 }
 
 export interface PurchaseOrderData extends DocumentStyle {
@@ -360,6 +404,8 @@ export interface NoteData extends DocumentStyle {
 
 export interface ReceiptData extends DocumentStyle {
   title?: string;
+  /** e.g. 'Paid in full' | 'Partial payment' */
+  paymentStatus?: string;
   receiptNumber: string;
   date: string;
   clientName: string; // Changed from 'from' to 'clientName' for consistency

@@ -1,877 +1,292 @@
-
-import React, { useState, useEffect } from 'react';
-import type { InvoiceData, LineItem, Job, UserProfile, SavedItem, InventoryItem } from '../types';
-import { generateInvoicePDF } from '../services/pdfGenerator';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon, InvoiceIcon, ShareIcon, ClockIcon, TagIcon, SearchIcon, PercentIcon, SaveIcon, BoxIcon, ChevronDownIcon } from './Icons.tsx';
-import TemplateSelector from './TemplateSelector.tsx';
-import SignaturePad from './SignaturePad.tsx';
+import React, { useMemo, useState } from 'react';
+import { FormType, type InvoiceData, type Job, type UserProfile, type SavedItem, type InventoryItem, type Client } from '../types.ts';
+import { generateInvoicePDF } from '../services/pdfGenerator.ts';
+import { computeDocumentTotals, toNumber } from '../utils/money.ts';
+import { InvoiceIcon, ShareIcon, ClockIcon, CreditCardIcon, FileTextIcon, PercentIcon } from './Icons.tsx';
 import ShareModal from './ShareModal.tsx';
+import { FormShell } from './forms/FormShell.tsx';
+import { DateField, FieldGrid, FormSection, SelectField, Segmented, TextAreaField, TextField, Toggle } from './forms/Fields.tsx';
+import { AIInsightsSection, ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
+import LineItemsEditor from './forms/LineItemsEditor.tsx';
+import TotalsPanel from './forms/TotalsPanel.tsx';
+import AIFillButton from './forms/AIFillButton.tsx';
+import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
+import { addDaysISO, addMonthsISO, blankLineItem, formatDisplayDate, isISODate, normalizeLineItems, normalizeLinkUrl, todayISO } from './forms/formUtils.ts';
+import { RECURRENCE_FREQUENCIES, STATUS_OPTIONS } from './forms/documentFields.ts';
+import { makeStockLookup } from './forms/inventory.ts';
 
 interface InvoiceFormProps {
-  job: Job;
-  userProfile: UserProfile;
-  invoice: InvoiceData | null;
-  onSave: (invoiceData: InvoiceData) => void;
-  onClose: () => void;
-  onUploadImage?: (file: File) => Promise<string>;
-  savedItems?: SavedItem[]; // New prop
-  inventoryItems?: InventoryItem[];
-  onSaveToPriceBook?: (item: Partial<SavedItem>) => Promise<void>;
+    job: Job;
+    /** current parent prop names */
+    userProfile?: UserProfile;
+    invoice?: InvoiceData | null;
+    onClose?: () => void;
+    /** shared form prop names (aliases) */
+    profile?: UserProfile;
+    data?: InvoiceData | null;
+    onBack?: () => void;
+    clients?: Client[];
+    onSave: SaveHandler<InvoiceData>;
+    onUploadImage?: (file: File) => Promise<string>;
+    savedItems?: SavedItem[];
+    inventoryItems?: InventoryItem[];
+    prefillData?: unknown;
+    documentId?: string;
+    publicToken?: string | null;
+    existingNumbers?: string[];
 }
 
-const defaultInvoice: Omit<InvoiceData, 'clientName' | 'clientAddress' | 'companyName' | 'companyAddress' | 'companyPhone' | 'companyWebsite' | 'logoUrl'> = {
-  invoiceNumber: `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-001`,
-  issueDate: new Date().toISOString().split('T')[0],
-  dueDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0],
-  lineItems: [{ id: crypto.randomUUID(), description: '', quantity: 1, rate: 0, percentComplete: 0 }],
-  taxRate: 0,
-  discount: 0,
-  shipping: 0,
-  notes: 'Thank you for your business.',
-  paypalLink: '',
-  status: 'Draft',
-  signatureUrl: '',
-  isProgressBilling: false,
-  recurrence: {
-    enabled: false,
-    frequency: 'Monthly',
-    nextRunDate: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().split('T')[0]
-  }
-};
+const RECURRENCE_MONTHS: Record<string, number> = { Monthly: 1, Quarterly: 3, 'Bi-Annually': 6, Annually: 12 };
+const DUE_TERMS = [
+    { label: 'On receipt', days: 0 },
+    { label: 'Net 15', days: 15 },
+    { label: 'Net 30', days: 30 },
+    { label: 'Net 60', days: 60 },
+];
 
-const InvoiceForm: React.FC<InvoiceFormProps> = ({ job, userProfile, invoice, onSave, onClose, onUploadImage, savedItems = [], inventoryItems = [], onSaveToPriceBook }) => {
-  const [page, setPage] = useState(1);
-  const [showItemPicker, setShowItemPicker] = useState<string | null>(null);
-  const [itemPickerTab, setItemPickerTab] = useState<'pricebook' | 'inventory'>('pricebook');
-  const [itemSearch, setItemSearch] = useState('');
+const InvoiceForm: React.FC<InvoiceFormProps> = props => {
+    const { job, clients = [], onSave, onUploadImage, savedItems = [], inventoryItems = [], prefillData, documentId, publicToken, existingNumbers } = props;
+    const profile = (props.userProfile || props.profile) as UserProfile;
+    const saved = props.invoice ?? props.data ?? null;
+    const goBack = props.onClose || props.onBack || (() => undefined);
+    const [shareOpen, setShareOpen] = useState(false);
+    const [payLinkOpen, setPayLinkOpen] = useState(Boolean(saved?.paypalLink));
 
-  const [invoiceData, setInvoiceData] = useState<InvoiceData>(
-    invoice || {
-      ...defaultInvoice,
-      companyName: userProfile.companyName,
-      companyAddress: userProfile.address,
-      companyPhone: userProfile.phone,
-      companyWebsite: userProfile.website,
-      clientName: job.clientName,
-      clientAddress: job.clientAddress,
-      logoUrl: userProfile.logoUrl,
-      templateId: 'standard',
-      themeColors: { primary: '#0000bb', secondary: '#666666' }
-    }
-  );
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [showPaymentLink, setShowPaymentLink] = useState(!!invoiceData.paypalLink);
-  const [showShareModal, setShowShareModal] = useState(false);
+    const download = (d: InvoiceData) => generateInvoicePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID);
+    const stockLookup = useMemo(() => makeStockLookup(inventoryItems, saved), [inventoryItems, saved]);
 
-  useEffect(() => {
-    if (invoiceData.status === 'Draft' && userProfile.logoUrl && !invoice) {
-      setInvoiceData(prev => ({ ...prev, logoUrl: userProfile.logoUrl }));
-    }
-  }, [userProfile.logoUrl]);
+    const form = useDocumentForm<InvoiceData>({
+        formType: FormType.Invoice,
+        initial: saved,
+        prefillData,
+        onSave,
+        download,
+        existingNumbers,
+        makeDefaults: () => {
+            const issueDate = todayISO();
+            return {
+                title: '',
+                invoiceNumber: '',
+                issueDate,
+                dueDate: addDaysISO(30, issueDate),
+                status: 'Draft',
+                lineItems: [blankLineItem()],
+                isProgressBilling: false,
+                discount: 0,
+                taxRate: 0,
+                shipping: 0,
+                notes: 'Thank you for your business.',
+                paypalLink: '',
+                companyName: profile.companyName || '',
+                companyAddress: profile.address || '',
+                companyPhone: profile.phone || '',
+                companyWebsite: profile.website || '',
+                clientName: job.clientName || '',
+                clientAddress: job.clientAddress || '',
+                logoUrl: profile.logoUrl || '',
+                signatureUrl: '',
+                templateId: DEFAULT_TEMPLATE_ID,
+                themeColors: { ...DEFAULT_THEME },
+                recurrence: { enabled: false, frequency: 'Monthly' },
+            };
+        },
+        hydrate: d => backfillCompany({
+            ...d,
+            lineItems: normalizeLineItems(d.lineItems, false),
+            discount: toNumber(d.discount),
+            taxRate: toNumber(d.taxRate),
+            shipping: toNumber(d.shipping),
+            notes: d.notes ?? '',
+            status: d.status || 'Draft',
+        }, profile),
+        validate: d => {
+            if (!String(d.invoiceNumber || '').trim()) return 'Add an invoice number.';
+            if (!isISODate(d.issueDate)) return 'Add a valid issue date.';
+            if (d.dueDate && isISODate(d.dueDate) && d.dueDate < d.issueDate) return 'The due date is before the issue date.';
+            if (d.paypalLink && !normalizeLinkUrl(d.paypalLink)) return 'The payment link must be a web address (https://…).';
+            if (d.recurrence?.enabled && !isISODate(d.recurrence.nextRunDate)) return 'Choose the date of the next recurring invoice.';
+            // Short stock never blocks saving (a payment/approval must always be recordable): the database lets stock
+            // go negative and flags it in the inventory history; line rows already show stock warnings.
+            return null;
+        },
+        prepare: d => ({ ...d, paypalLink: d.paypalLink ? normalizeLinkUrl(d.paypalLink) || d.paypalLink : '' }),
+    });
+    const { data: d, update } = form;
+    const totals = computeDocumentTotals(d);
+    const progress = Boolean(d.isProgressBilling);
+    const showPayLink = payLinkOpen || Boolean(d.paypalLink);
+    const recurrence = d.recurrence || { enabled: false, frequency: 'Monthly' as const };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setInvoiceData(prev => ({ ...prev, [name]: name === 'taxRate' || name === 'discount' || name === 'shipping' ? parseFloat(value) || 0 : value }));
-  };
+    const setRecurrence = (patch: Partial<NonNullable<InvoiceData['recurrence']>>) =>
+        update(prev => ({ ...prev, recurrence: { enabled: false, frequency: 'Monthly', ...prev.recurrence, ...patch } }));
 
-  const handleRecurrenceChange = (field: string, value: any) => {
-    setInvoiceData(prev => ({
-      ...prev,
-      recurrence: {
-        ...prev.recurrence!,
-        [field]: value
-      }
-    }));
-  };
+    const toggleRecurrence = (enabled: boolean) => {
+        const months = RECURRENCE_MONTHS[recurrence.frequency || 'Monthly'] || 1;
+        setRecurrence({ enabled, ...(enabled && !recurrence.nextRunDate ? { nextRunDate: addMonthsISO(months, d.issueDate || todayISO()) } : {}) });
+    };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (onUploadImage) {
-        try {
-          const newUrl = await onUploadImage(file);
-          if (newUrl) setInvoiceData(prev => ({ ...prev, logoUrl: newUrl }));
-        } catch (err) {
-          console.error("Logo upload error", err);
-        }
-      } else {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setInvoiceData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-  };
-
-  const handleLineItemChange = (id: string, field: keyof Omit<LineItem, 'id'>, value: string | number | boolean) => {
-    const prevItem = invoiceData.lineItems.find(i => i.id === id);
-
-    if (field === 'quantity' && prevItem?.itemSource === 'inventory' && prevItem.inventoryItemId && typeof value === 'number') {
-      const inv = inventoryItems.find(i => i.id === prevItem.inventoryItemId);
-      const original = invoice && isCommittedStatus(invoice.status)
-        ? invoice.lineItems.find(li => li.id === id && (li.inventoryItemId || li.item_id) === prevItem.inventoryItemId)
-        : undefined;
-      const maxQty = Math.max(0, Number(inv?.quantity ?? prevItem.currentStock ?? 0) + Number(original?.quantity || 0));
-      const nextQty = Math.min(Math.max(0, value), maxQty);
-
-      setInvoiceData(prev => ({
-        ...prev,
-        lineItems: prev.lineItems.map(item =>
-          item.id === id ? { ...item, quantity: nextQty } : item
-        ),
-      }));
-      return;
-    }
-
-    setInvoiceData(prev => ({
-      ...prev,
-      lineItems: prev.lineItems.map(item =>
-        item.id === id ? { ...item, [field]: value } : item
-      ),
-    }));
-  };
-
-  const addLineItem = () => {
-    setInvoiceData(prev => ({
-      ...prev,
-      lineItems: [...prev.lineItems, { id: crypto.randomUUID(), description: '', quantity: 1, rate: 0, percentComplete: 0 }],
-    }));
-  };
-
-  const removeLineItem = (id: string) => {
-    setInvoiceData(prev => ({
-      ...prev,
-      lineItems: prev.lineItems.filter(item => item.id !== id),
-    }));
-  };
-
-  // Pick Item Logic
-  const handlePickItem = (item: SavedItem) => {
-    if (!showItemPicker) return;
-
-    setInvoiceData(prev => ({
-      ...prev,
-      lineItems: prev.lineItems.map(lineItem =>
-        lineItem.id === showItemPicker
-          ? {
-            ...lineItem,
-            description: item.name + (item.description ? ` - ${item.description}` : ''),
-            rate: item.rate,
-            inventoryItemId: undefined,
-            item_id: undefined,
-            currentStock: undefined,
-            track_inventory: false,
-            itemSource: 'pricebook',
-            // If picking from price book, default quantity 1.
-            quantity: 1,
-            isAssembly: item.is_assembly,
-            hideComponentsOnPdf: true,
-            isExpanded: false,
-            assemblyComponents: item.assembly_items ? item.assembly_items.map(comp => {
-              const compDef = savedItems.find(i => i.id === comp.item_id);
-              return {
-                item_id: comp.item_id,
-                name: compDef?.name || 'Unknown Component',
-                quantity: comp.quantity,
-                rate: comp.override_price !== null && comp.override_price !== undefined ? comp.override_price : (compDef?.rate || 0)
-              };
-            }) : []
-          }
-          : lineItem
-      )
-    }));
-    setShowItemPicker(null);
-    setItemSearch('');
-  };
-
-  const handlePickInventoryItem = (invItem: InventoryItem) => {
-    if (!showItemPicker) return;
-    if (invItem.quantity <= 0) return;
-
-    setInvoiceData(prev => ({
-      ...prev,
-      lineItems: prev.lineItems.map(lineItem =>
-        lineItem.id === showItemPicker
-          ? {
-            ...lineItem,
-            description: invItem.name,
-            rate: lineItem.rate || Number(invItem.cost_price || 0),
-            unitCost: Number(invItem.cost_price || 0),
-            quantity: Math.min(1, Math.max(0, invItem.quantity)),
-            inventoryItemId: invItem.id,
-            item_id: invItem.id,
-            currentStock: invItem.quantity,
-            track_inventory: true,
-            itemSource: 'inventory'
-          }
-          : lineItem
-      )
-    }));
-
-    setShowItemPicker(null);
-    setItemSearch('');
-  };
-
-  const filteredSavedItems = savedItems.filter(i => i.name.toLowerCase().includes(itemSearch.toLowerCase()));
-  const filteredInventoryItems = inventoryItems.filter(i => i.name.toLowerCase().includes(itemSearch.toLowerCase()));
-  const isCommittedStatus = (status?: string) => ['approved', 'accepted', 'paid'].includes(String(status || '').toLowerCase());
-  const getOriginalCommittedQty = (item: LineItem) => {
-    if (!invoice || !isCommittedStatus(invoice.status)) return 0;
-    const itemId = item.inventoryItemId || item.item_id;
-    const original = invoice.lineItems.find(li => li.id === item.id && (li.inventoryItemId || li.item_id) === itemId);
-    return Number(original?.quantity || 0);
-  };
-  const getInventoryStock = (item: LineItem) => {
-    const inv = inventoryItems.find(i => i.id === item.inventoryItemId || i.id === item.item_id);
-    return Number(inv?.quantity ?? item.currentStock ?? 0) + getOriginalCommittedQty(item);
-  };
-  const isInventoryLinked = (item: LineItem) => Boolean(item.track_inventory || item.itemSource === 'inventory' || item.inventoryItemId || item.item_id);
-  const hasInvalidInventoryQty = isCommittedStatus(invoiceData.status) && invoiceData.lineItems.some(item => isInventoryLinked(item) && Number(item.quantity || 0) > getInventoryStock(item));
-
-  const calculateSubtotal = () => {
-    return invoiceData.lineItems.reduce((acc, item) => {
-      if (invoiceData.isProgressBilling) {
-        // In progress mode, we treat rate * quantity as the "Scheduled Value"
-        const scheduledVal = Number((item.rate * item.quantity) || 0);
-        const pct = Number(item.percentComplete || 0);
-        return acc + (scheduledVal * (pct / 100));
-      } else {
-        return acc + (Number(item.quantity) || 0) * (Number(item.rate) || 0);
-      }
-    }, 0);
-  };
-
-  const subtotal = calculateSubtotal();
-  const discountAmount = invoiceData.discount || 0;
-  const shippingAmount = invoiceData.shipping || 0;
-  const taxableAmount = subtotal - discountAmount;
-  const taxAmount = taxableAmount * ((invoiceData.taxRate || 0) / 100);
-  const total = taxableAmount + taxAmount + shippingAmount;
-
-  const handleSave = () => {
-    if (hasInvalidInventoryQty) {
-      alert('One or more inventory-linked items exceed available stock. Please reduce the quantity before saving.');
-      return;
-    }
-    onSave(invoiceData);
-  };
-
-  const handleDownload = async () => {
-    setIsDownloading(true);
-    try {
-      await generateInvoicePDF(userProfile, job, invoiceData, invoiceData.templateId || 'standard');
-    } catch (error) {
-      console.error("Failed to generate PDF:", error);
-      alert("An error occurred while generating the PDF. Please check the browser console for more details.");
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  const toggleBillingMode = () => {
-    setInvoiceData(prev => ({ ...prev, isProgressBilling: !prev.isProgressBilling }));
-  };
-
-  const renderPageOne = () => (
-    <Card className="w-full max-w-4xl animate-fade-in-down my-4">
-      <CardHeader>
-        <CardTitle>Invoice Setup</CardTitle>
-        <CardDescription>Confirm the details for this invoice.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold border-b pb-2">Your Company</h3>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="companyName">Company Name</Label>
-              <Input id="companyName" name="companyName" value={invoiceData.companyName} onChange={handleInputChange} />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="companyAddress">Address</Label>
-              <Input id="companyAddress" name="companyAddress" value={invoiceData.companyAddress} onChange={handleInputChange} />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="companyPhone">Phone</Label>
-              <Input id="companyPhone" name="companyPhone" value={invoiceData.companyPhone} onChange={handleInputChange} />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="companyWebsite">Website</Label>
-              <Input id="companyWebsite" name="companyWebsite" value={invoiceData.companyWebsite} onChange={handleInputChange} />
-            </div>
-          </div>
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold border-b pb-2">Client Details</h3>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="clientName">Client Name</Label>
-              <Input id="clientName" name="clientName" value={invoiceData.clientName} onChange={handleInputChange} />
-            </div>
-            <div className="flex flex-col space-y-1.5">
-              <Label htmlFor="clientAddress">Client Address</Label>
-              <Input id="clientAddress" name="clientAddress" value={invoiceData.clientAddress} onChange={handleInputChange} />
-            </div>
-          </div>
-        </div>
-
-        <div className="pt-4">
-          <h3 className="text-lg font-semibold border-b pb-2">Invoice Details</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
-            <div className="space-y-4">
-              <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="invoiceNumber">Invoice #</Label>
-                <Input id="invoiceNumber" name="invoiceNumber" value={invoiceData.invoiceNumber} onChange={handleInputChange} />
-              </div>
-              <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="issueDate">Issue Date</Label>
-                <Input id="issueDate" type="date" name="issueDate" value={invoiceData.issueDate} onChange={handleInputChange} />
-              </div>
-              <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="dueDate">Due Date</Label>
-                <Input id="dueDate" type="date" name="dueDate" value={invoiceData.dueDate} onChange={handleInputChange} />
-              </div>
-              <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="status">Status</Label>
-                <select
-                  id="status"
-                  name="status"
-                  value={invoiceData.status}
-                  onChange={handleInputChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="Draft">Draft</option>
-                  <option value="Sent">Sent</option>
-                  <option value="Paid">Paid</option>
-                  <option value="Overdue">Overdue</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="logoUrl">Company Logo</Label>
-                <Input id="logoUrl" type="file" accept="image/*" onChange={handleFileChange} className="pt-2" />
-                {invoiceData.logoUrl && <img src={invoiceData.logoUrl} alt="Logo Preview" className="mt-2 h-20 w-auto object-contain bg-muted p-2 rounded-md self-start" />}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Recurring Section */}
-        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <ClockIcon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              <h3 className="font-semibold text-blue-900 dark:text-blue-100">Recurring Schedule</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="recurrence-enabled" className="text-sm font-medium cursor-pointer">Repeat this Invoice?</Label>
-              <input
-                type="checkbox"
-                id="recurrence-enabled"
-                className="h-5 w-5 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
-                checked={invoiceData.recurrence?.enabled || false}
-                onChange={(e) => handleRecurrenceChange('enabled', e.target.checked)}
-              />
-            </div>
-          </div>
-
-          {invoiceData.recurrence?.enabled && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
-              <div className="space-y-1.5">
-                <Label>Frequency</Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={invoiceData.recurrence.frequency || 'Monthly'}
-                  onChange={(e) => handleRecurrenceChange('frequency', e.target.value)}
-                >
-                  <option value="Monthly">Monthly</option>
-                  <option value="Quarterly">Quarterly</option>
-                  <option value="Bi-Annually">Bi-Annually</option>
-                  <option value="Annually">Annually</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Next Auto-Create Date</Label>
-                <Input
-                  type="date"
-                  value={invoiceData.recurrence.nextRunDate || ''}
-                  onChange={(e) => handleRecurrenceChange('nextRunDate', e.target.value)}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <p className="text-xs text-blue-700 dark:text-blue-300">
-                  A new draft invoice will be automatically created on this date. You will be notified on the dashboard.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-      </CardContent>
-      <CardFooter className="flex flex-col-reverse md:flex-row justify-between gap-3">
-        <Button variant="outline" onClick={onClose} className="w-full md:w-auto">Cancel</Button>
-        <Button onClick={() => setPage(2)} className="w-full md:w-auto">Next</Button>
-      </CardFooter>
-    </Card>
-  );
-
-  const renderPageTwo = () => (
-    <Card className="w-full max-w-4xl animate-fade-in-down my-4 flex flex-col">
-      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="w-full sm:w-auto">
-          <CardTitle>Invoice Items</CardTitle>
-          <CardDescription>
-            {invoiceData.isProgressBilling ? "Progress Billing (AIA Style)" : "Standard Invoice"}
-          </CardDescription>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleBillingMode}
-          className={`w-full sm:w-auto text-xs mt-4 sm:mt-0 ${invoiceData.isProgressBilling ? 'bg-blue-100 text-blue-700 border-blue-200' : ''}`}
+    return (
+        <FormShell
+            title="Invoice"
+            subtitle={[d.invoiceNumber, d.clientName].filter(Boolean).join(' · ') || 'New invoice'}
+            icon={InvoiceIcon}
+            status={d.status}
+            aiGenerated={Boolean((d as any).isAiGenerated)}
+            isDirty={form.isDirty}
+            saving={form.saving}
+            downloading={form.downloading}
+            justSaved={form.justSaved}
+            feedback={form.feedback}
+            onDismissFeedback={() => form.setFeedback(null)}
+            onBack={goBack}
+            onSave={form.save}
+            onDownload={form.download}
+            onSaveAndDownload={form.saveAndDownload}
+            preview={{ formType: FormType.Invoice, data: d, profile, job }}
+            actions={(
+                <>
+                    <AIFillButton jobId={job.id} formType={FormType.Invoice} onApply={form.applyDraft} compact />
+                    <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => setShareOpen(true)}>
+                        <ShareIcon className="h-4 w-4" /> Share
+                    </button>
+                </>
+            )}
         >
-          <PercentIcon className="w-3 h-3 mr-1" />
-          {invoiceData.isProgressBilling ? "Switch to Standard" : "Switch to Progress Billing"}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-6 flex-1">
-        {/* Line Items */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-12 gap-2 text-sm font-medium text-muted-foreground px-2">
-            <div className="col-span-4">Description</div>
-            {invoiceData.isProgressBilling ? (
-              <>
-                <div className="col-span-2">Qty</div>
-                <div className="col-span-2">Rate</div>
-                <div className="col-span-2 text-center">% Complete</div>
-                <div className="col-span-2 text-right">Current Bill</div>
-              </>
-            ) : (
-              <>
-                <div className="col-span-3">Quantity</div>
-                <div className="col-span-2">Rate</div>
-                <div className="col-span-2 text-right">Amount</div>
-              </>
-            )}
-            <div className="col-span-1"></div>
-          </div>
-
-          {invoiceData.lineItems.map((item) => (
-            <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-4">
-                <div className="flex gap-1">
-                  <Input
-                    type="text"
-                    placeholder="Item description"
-                    value={item.description}
-                    onChange={(e) => handleLineItemChange(item.id, 'description', e.target.value)}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 text-muted-foreground hover:text-primary"
-                    onClick={() => { setShowItemPicker(item.id); setItemPickerTab('pricebook'); setItemSearch(''); }}
-                    title="Pick from Price Book or Inventory"
-                  >
-                    <TagIcon className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 text-muted-foreground hover:text-primary"
-                    onClick={() => onSaveToPriceBook?.({ name: item.description, rate: item.rate, description: item.description })}
-                    title="Quick Add to Price Book"
-                  >
-                    <SaveIcon className="w-4 h-4" />
-                  </Button>
-                </div>
-                {isInventoryLinked(item) && (
-                  <div className={`mt-1 flex items-center gap-1 text-xs ${Number(item.quantity || 0) > getInventoryStock(item) ? 'text-destructive' : 'text-green-600'}`}>
-                    <BoxIcon className="w-3 h-3" />
-                    Stock: {getInventoryStock(item)}
-                    {Number(item.quantity || 0) > getInventoryStock(item) ? ' - reduce quantity' : ''}
-                  </div>
-                )}
-              </div>
-
-              {/* Progress Billing: Uses Rate * Qty as scheduled value basis */}
-              {invoiceData.isProgressBilling ? (
-                <>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      placeholder="1"
-                      value={item.quantity}
-                      onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+            <FormSection title="Invoice details" icon={FileTextIcon}>
+                <FieldGrid>
+                    <TextField label="Invoice #" value={d.invoiceNumber} onChange={v => update({ invoiceNumber: v })} />
+                    <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.invoice} onChange={v => update({ status: v as InvoiceData['status'] })} />
+                    <DateField label="Issue date" value={d.issueDate} onChange={v => update({ issueDate: v })} />
+                    <DateField
+                        label="Due date"
+                        value={d.dueDate}
+                        onChange={v => update({ dueDate: v })}
+                        error={d.dueDate && d.issueDate && d.dueDate < d.issueDate ? 'Due date is before the issue date.' : undefined}
                     />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={item.rate}
-                      onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      placeholder="%"
-                      className="text-center"
-                      value={item.percentComplete || 0}
-                      onChange={(e) => handleLineItemChange(item.id, 'percentComplete', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <div className="flex items-center justify-end h-10 px-3 py-2 text-sm font-medium">
-                      ${((Number(item.rate * item.quantity) || 0) * ((Number(item.percentComplete) || 0) / 100)).toFixed(2)}
+                    <div className="sm:col-span-2 -mt-2 flex flex-wrap gap-2">
+                        {DUE_TERMS.map(t => (
+                            <button key={t.label} type="button" className="btn btn-ghost btn-sm min-h-[36px] border border-border" onClick={() => update({ dueDate: addDaysISO(t.days, d.issueDate || todayISO()) })}>
+                                {t.label}
+                            </button>
+                        ))}
                     </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="col-span-3">
-                    <Input
-                      type="number"
-                      placeholder="1"
-                      value={item.quantity}
-                      onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={item.rate}
-                      onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <div className="flex items-center justify-end h-10 px-3 py-2 text-sm">
-                      ${((Number(item.quantity) || 0) * (Number(item.rate) || 0)).toFixed(2)}
-                    </div>
-                  </div>
-                </>
-              )}
+                    <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Kitchen remodel – final" fieldClassName="sm:col-span-2" hint="Shown in your document list. Leave empty to use the invoice number." />
+                </FieldGrid>
+            </FormSection>
 
-              <div className="col-span-1 flex justify-end">
-                {invoiceData.lineItems.length > 1 && (
-                  <Button variant="ghost" size="sm" onClick={() => removeLineItem(item.id)}>
-                    &times;
-                  </Button>
-                )}
-              </div>
-
-              {/* Assembly Expansion Toggle and Rendering */}
-              {item.isAssembly && item.assemblyComponents && item.assemblyComponents.length > 0 && (
-                <div className="col-span-12 mt-1">
-                  <div className="flex items-center gap-4 pl-2 mb-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-7 px-2 text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40"
-                      onClick={() => handleLineItemChange(item.id, 'isExpanded', !item.isExpanded)}
-                    >
-                      <BoxIcon className="w-3 h-3 mr-1.5" />
-                      {item.isExpanded ? 'Hide Kit Contents' : 'View Kit Contents'}
-                      <ChevronDownIcon className={`w-3 h-3 ml-1.5 transition-transform ${item.isExpanded ? 'rotate-180' : ''}`} />
-                    </Button>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id={`hide-comp-${item.id}`}
-                        className="h-3.5 w-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                        checked={item.hideComponentsOnPdf}
-                        onChange={(e) => handleLineItemChange(item.id, 'hideComponentsOnPdf', e.target.checked)}
-                      />
-                      <Label htmlFor={`hide-comp-${item.id}`} className="text-xs text-muted-foreground font-normal cursor-pointer mb-0">
-                        Hide contents on PDF
-                      </Label>
-                    </div>
-                  </div>
-
-                  {item.isExpanded && (
-                    <div className="pl-6 border-l-2 border-purple-200 dark:border-purple-800 ml-3 py-2 space-y-2 mb-4">
-                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Assembly Components</div>
-                      {item.assemblyComponents.map((comp, idx) => (
-                        <div key={idx} className="grid grid-cols-12 gap-2 text-sm items-center bg-muted/20 p-2 rounded">
-                          <div className="col-span-5 flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div>
-                            {comp.name}
-                          </div>
-                          <div className="col-span-3">Qty: {comp.quantity * (item.quantity || 1)}</div>
-                          <div className="col-span-4 text-right">Retail: ${(comp.rate * comp.quantity).toFixed(2)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addLineItem}>
-            + Add Item
-          </Button>
-        </div>
-
-        {/* Totals Section */}
-        <div className="flex justify-end pt-4">
-          <div className="w-full max-w-sm space-y-4">
-            <div className="flex justify-between items-center">
-              <Label>Subtotal</Label>
-              <span>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(subtotal)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <Label htmlFor="discount">Discount ($)</Label>
-              <Input
-                id="discount"
-                name="discount"
-                type="number"
-                value={invoiceData.discount}
-                onChange={handleInputChange}
-                className="w-32"
-              />
-            </div>
-            <div className="flex justify-between items-center">
-              <Label htmlFor="taxRate">Tax (%)</Label>
-              <Input
-                id="taxRate"
-                name="taxRate"
-                type="number"
-                value={invoiceData.taxRate}
-                onChange={handleInputChange}
-                className="w-32"
-              />
-            </div>
-            <div className="flex justify-between items-center">
-              <Label htmlFor="shipping">Shipping ($)</Label>
-              <Input
-                id="shipping"
-                name="shipping"
-                type="number"
-                value={invoiceData.shipping}
-                onChange={handleInputChange}
-                className="w-32"
-              />
-            </div>
-            <div className="border-t border-border my-2"></div>
-            <div className="flex justify-between items-center font-bold text-lg">
-              <Label>Total</Label>
-              <span>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(total)}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="pt-4 space-y-6">
-          {/* Payment Link Section with Toggle */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="showPaymentLink"
-                className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
-                checked={showPaymentLink}
-                onChange={(e) => {
-                  setShowPaymentLink(e.target.checked);
-                  if (!e.target.checked) {
-                    setInvoiceData(prev => ({ ...prev, paypalLink: '' }));
-                  }
-                }}
-              />
-              <Label htmlFor="showPaymentLink" className="cursor-pointer select-none">Include Payment Link</Label>
-            </div>
-
-            {showPaymentLink && (
-              <div className="pl-6 animate-in fade-in slide-in-from-top-2">
-                <Label htmlFor="paypalLink" className="text-xs text-muted-foreground">PayPal/Stripe URL</Label>
-                <Input
-                  id="paypalLink"
-                  name="paypalLink"
-                  type="url"
-                  placeholder="https://paypal.me/yourusername"
-                  value={invoiceData.paypalLink || ''}
-                  onChange={handleInputChange}
-                  className="mt-1"
-                />
-                <p className="text-xs text-muted-foreground mt-1">A "Pay Now" button will be added to the PDF.</p>
-              </div>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div>
-            <Label htmlFor="notes">Notes</Label>
-            <textarea
-              id="notes"
-              name="notes"
-              value={invoiceData.notes}
-              onChange={handleInputChange}
-              rows={3}
-              className="mt-1 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+            <ClientSection
+                clients={clients}
+                job={job}
+                clientId={(d as any).clientId}
+                clientName={d.clientName}
+                address={d.clientAddress}
+                onChange={patch => update(patch as Partial<InvoiceData>)}
+                description="Who you are billing."
             />
-          </div>
 
-          {/* Signature */}
-          <div className="mt-4">
-            <Label>Authorized Signature (Optional)</Label>
-            <div className="mt-2">
-              <SignaturePad
-                onSave={(url) => setInvoiceData(prev => ({ ...prev, signatureUrl: url }))}
-                initialDataUrl={invoiceData.signatureUrl}
-              />
-            </div>
-          </div>
+            <CompanySection data={d} onChange={patch => update(patch)} onUploadImage={onUploadImage} />
 
-          <div className="pt-4 border-t border-border">
-            <TemplateSelector
-              selectedTemplateId={invoiceData.templateId || 'standard'}
-              onSelectTemplate={(id) => setInvoiceData(prev => ({ ...prev, templateId: id }))}
-              themeColors={invoiceData.themeColors}
-              onColorsChange={(colors) => setInvoiceData(prev => ({ ...prev, themeColors: colors }))}
-            />
-          </div>
-        </div>
-
-      </CardContent>
-      <CardFooter className="flex flex-col-reverse md:flex-row justify-between gap-4">
-        <Button variant="outline" onClick={() => setPage(1)} className="w-full md:w-auto">Back</Button>
-        <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto md:flex-wrap md:justify-end">
-          <Button variant="outline" onClick={() => handleSave()} disabled={hasInvalidInventoryQty} className="w-full md:w-auto">Save Only</Button>
-          {/* Share Button */}
-          <Button variant="outline" onClick={() => { handleSave(); if (!hasInvalidInventoryQty) setShowShareModal(true); }} disabled={hasInvalidInventoryQty} className="w-full md:w-auto">
-            <ShareIcon className="h-4 w-4 mr-2" /> Share
-          </Button>
-          <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full md:w-auto">
-            <ExportIcon className="h-4 w-4 mr-2" /> {isDownloading ? 'Downloading...' : 'Download PDF'}
-          </Button>
-          <Button onClick={async () => { handleSave(); await handleDownload(); }} disabled={isDownloading || hasInvalidInventoryQty} className="w-full md:w-auto">
-            {isDownloading ? 'Saving...' : 'Save & Download'}
-          </Button>
-        </div>
-      </CardFooter>
-
-      {/* Combined Item Picker Modal */}
-      {showItemPicker && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setShowItemPicker(null)}>
-          <Card className="w-full max-w-md animate-in zoom-in-95 shadow-2xl h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <CardHeader className="border-b border-border pb-4">
-              <CardTitle>Select Item</CardTitle>
-              <div className="flex gap-2 -mx-6 px-6 -mb-4 mt-4">
-                <button
-                  onClick={() => { setItemPickerTab('pricebook'); setItemSearch(''); }}
-                  className={`pb-3 px-2 text-sm font-medium border-b-2 transition-colors ${itemPickerTab === 'pricebook' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                >
-                  <span className="flex items-center gap-1"><TagIcon className="w-4 h-4" /> Price Book</span>
-                </button>
-                <button
-                  onClick={() => { setItemPickerTab('inventory'); setItemSearch(''); }}
-                  className={`pb-3 px-2 text-sm font-medium border-b-2 transition-colors ${itemPickerTab === 'inventory' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                >
-                  <span className="flex items-center gap-1"><BoxIcon className="w-4 h-4" /> Inventory</span>
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-hidden flex flex-col p-4 gap-4">
-              <div className="relative">
-                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  placeholder={itemPickerTab === 'pricebook' ? 'Search price book...' : 'Search inventory...'}
-                  className="pl-9"
-                  value={itemSearch}
-                  onChange={e => setItemSearch(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-2">
-                {itemPickerTab === 'pricebook' ? (
-                  filteredSavedItems.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground text-sm">
-                      No items found. Add items in the Price Book from the dashboard.
-                    </div>
-                  ) : (
-                    filteredSavedItems.map(item => (
-                      <button
-                        key={item.id}
-                        className="w-full text-left p-3 rounded-lg border border-border hover:bg-secondary transition-colors group"
-                        onClick={() => handlePickItem(item)}
-                      >
-                        <div className="flex justify-between items-start">
-                          <span className="font-semibold">{item.name}</span>
-                          <span className="font-mono text-primary font-bold">${item.rate}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1 truncate">{item.description}</div>
-                      </button>
-                    ))
-                  )
-                ) : (
-                  filteredInventoryItems.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground text-sm">
-                      No inventory items found. Add items in Inventory from the dashboard.
-                    </div>
-                  ) : (
-                    filteredInventoryItems.map(inv => {
-                      const price = Number(inv.cost_price || 0);
-                      return (
-                        <button
-                          key={inv.id}
-                          className={`w-full text-left p-3 rounded-lg border border-border transition-colors group ${inv.quantity <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary'}`}
-                          onClick={() => { if (inv.quantity > 0) handlePickInventoryItem(inv); }}
-                          disabled={inv.quantity <= 0}
-                          title={inv.quantity <= 0 ? 'Out of stock' : 'Select inventory item'}
-                        >
-                          <div className="flex justify-between items-start gap-3">
-                            <span className="font-semibold">{inv.name}</span>
-                            <span className="font-mono text-primary font-bold">${price.toFixed(2)} (Stock: {inv.quantity})</span>
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1 truncate">{inv.category || inv.unit || 'Inventory item'}</div>
-                        </button>
-                      );
-                    })
-                  )
+            <FormSection
+                title="Items"
+                description={progress ? 'Progress billing: bill the % completed on each line, minus what was billed before.' : 'Products, materials and labor on this invoice.'}
+                icon={PercentIcon}
+                actions={(
+                    <Segmented
+                        ariaLabel="Billing mode"
+                        value={progress ? 'progress' : 'standard'}
+                        onChange={v => update({ isProgressBilling: v === 'progress' })}
+                        options={[{ value: 'standard', label: 'Standard' }, { value: 'progress', label: 'Progress billing' }]}
+                    />
                 )}
-              </div>
-            </CardContent>
-            <CardFooter className="border-t border-border pt-4 justify-end">
-              <Button variant="ghost" onClick={() => setShowItemPicker(null)}>Cancel</Button>
-            </CardFooter>
-          </Card>
-        </div>
-      )}
+            >
+                <LineItemsEditor
+                    items={d.lineItems}
+                    onChange={items => update({ lineItems: items })}
+                    mode={progress ? 'progress' : 'standard'}
+                    savedItems={savedItems}
+                    inventoryItems={inventoryItems}
+                    availableStock={stockLookup}
+                />
+                <TotalsPanel
+                    totals={totals}
+                    totalLabel="Total due"
+                    adjustments={{ discount: d.discount, taxRate: d.taxRate, shipping: d.shipping, onChange: patch => update(patch) }}
+                />
+            </FormSection>
 
-      <ShareModal
-        isOpen={showShareModal}
-        onClose={() => setShowShareModal(false)}
-        data={invoiceData}
-        docType="Invoice"
-        profile={userProfile}
-      />
-    </Card>
-  );
+            <FormSection title="Payment" description="Let the client pay online from the PDF." icon={CreditCardIcon}>
+                <Toggle
+                    checked={showPayLink}
+                    onChange={on => { setPayLinkOpen(on); if (!on) update({ paypalLink: '' }); }}
+                    label="Add a “Pay now” link"
+                    description="Paste your PayPal.me, Stripe or Square payment link."
+                />
+                {showPayLink && (
+                    <TextField
+                        label="Payment link"
+                        type="url"
+                        inputMode="url"
+                        value={d.paypalLink}
+                        onChange={v => update({ paypalLink: v })}
+                        onBlur={() => { const n = normalizeLinkUrl(d.paypalLink); if (n && n !== d.paypalLink) update({ paypalLink: n }); }}
+                        placeholder="https://paypal.me/yourcompany"
+                        error={d.paypalLink && !normalizeLinkUrl(d.paypalLink) ? 'Enter a web address starting with https://' : undefined}
+                    />
+                )}
+            </FormSection>
 
-  return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-        <div className="flex items-center">
-          <Button variant="ghost" size="sm" onClick={onClose} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-            <BackArrowIcon className="h-6 w-6" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-              <InvoiceIcon className="w-6 h-6 text-primary" /> Invoice
-            </h1>
-          </div>
-        </div>
-      </header>
-      <div className="flex-1 flex items-start justify-center overflow-y-auto">
-        {page === 1 ? renderPageOne() : renderPageTwo()}
-      </div>
-    </div>
-  );
+            <FormSection title="Repeat this invoice" description="Bill the same items on a schedule." icon={ClockIcon}>
+                <Toggle
+                    checked={Boolean(recurrence.enabled)}
+                    onChange={toggleRecurrence}
+                    label="Create this invoice automatically"
+                    description="On each date, a new draft copy (new number and dates) is added to this job for you to review and send."
+                />
+                {recurrence.enabled && (
+                    <FieldGrid>
+                        <SelectField
+                            label="Frequency"
+                            value={recurrence.frequency || 'Monthly'}
+                            options={RECURRENCE_FREQUENCIES}
+                            onChange={v => setRecurrence({ frequency: v as NonNullable<InvoiceData['recurrence']>['frequency'] })}
+                        />
+                        <DateField
+                            label="Next invoice on"
+                            value={recurrence.nextRunDate}
+                            min={todayISO()}
+                            onChange={v => setRecurrence({ nextRunDate: v })}
+                            hint={recurrence.lastRunDate ? `Last created ${formatDisplayDate(recurrence.lastRunDate)}.` : undefined}
+                        />
+                    </FieldGrid>
+                )}
+            </FormSection>
+
+            <FormSection title="Notes" description="Printed at the bottom of the invoice.">
+                <TextAreaField label="Notes for the client" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Payment instructions, thank-you note…" />
+            </FormSection>
+
+            <AIInsightsSection data={d.ai_visual_data} onRemove={() => update({ ai_visual_data: undefined })} />
+
+            <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} />
+
+            <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                data={d}
+                docType={FormType.Invoice}
+                profile={profile}
+                documentId={documentId ?? form.lastSaveResult?.id}
+                publicToken={publicToken ?? form.lastSaveResult?.public_token ?? null}
+                clients={clients}
+                job={job}
+                hasUnsavedChanges={form.isDirty}
+                onDownload={form.download}
+                getPdfDataUri={async () => String(await generateInvoicePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
+            />
+        </FormShell>
+    );
 };
 
 export default InvoiceForm;

@@ -22,3 +22,27 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+supabase/.temp
+supabase/.branches
+supabase/functions/.env
+
+# Local scratch
+*.tsbuildinfo
+tsc_output*.txt
+ts_errors*.txt
+list_models.*
+models.json
+models.txt
+supabase/functions/.env.*
+
+# Build output / local-only files
+dist-ssr
+docs/work/LOCAL_TESTING.md
+PROJECT_AUDIT/ContractorDocs_Full_Audit.pdf
+PROJECT_AUDIT/ContractorDocs_Full_Audit.html
+.claude/settings.local.json

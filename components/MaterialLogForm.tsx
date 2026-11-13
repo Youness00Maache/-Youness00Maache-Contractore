@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import type { MaterialLogData, MaterialLogItem, UserProfile, Job, Client, InventoryItem } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon, BoxIcon, MaterialLogIcon } from './Icons.tsx';
+import React, { useState } from 'react';
+import { FormType, type MaterialLogData, type MaterialLogItem, type UserProfile, type Job, type Client, type InventoryItem } from '../types.ts';
 import { generateMaterialLogPDF } from '../services/pdfGenerator.ts';
-import TemplateSelector from './TemplateSelector.tsx';
-import SignaturePad from './SignaturePad.tsx';
+import { formatMoney, roundMoney, toNumber } from '../utils/money.ts';
+import { MaterialLogIcon, BoxIcon, PlusIcon, TrashIcon, FileTextIcon } from './Icons.tsx';
+import { FormShell } from './forms/FormShell.tsx';
+import { DateField, FieldGrid, FormSection, NumberInput, TextField, Toggle } from './forms/Fields.tsx';
+import { ClientSection, CompanySection, SignatureSection, SummaryRow, TemplateSection } from './forms/Sections.tsx';
+import ItemPickerModal from './forms/ItemPickerModal.tsx';
+import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
+import { blankMaterialItem, formatDisplayDate, isISODate, normalizeMaterialItems, todayISO } from './forms/formUtils.ts';
 
 interface Props {
     job: Job;
@@ -15,254 +16,215 @@ interface Props {
     data: MaterialLogData | null;
     clients?: Client[];
     inventory?: InventoryItem[];
-    onSave: (data: MaterialLogData) => void;
+    inventoryItems?: InventoryItem[];
+    onSave: SaveHandler<MaterialLogData>;
     onBack: () => void;
     onUploadImage?: (file: File) => Promise<string>;
+    prefillData?: unknown;
+    documentId?: string;
+    existingNumbers?: string[];
 }
 
-const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], inventory = [], onSave, onBack, onUploadImage }) => {
-    const [page, setPage] = useState(1);
-    const [formData, setFormData] = useState<MaterialLogData>(data || {
-        title: '',
-        date: new Date().toISOString().split('T')[0],
-        projectName: job.name || '',
-        items: [{ id: crypto.randomUUID(), name: '', supplier: '', quantity: 1, unitCost: 0 }],
-        companyName: profile.companyName,
-        companyAddress: profile.address,
-        companyPhone: profile.phone,
-        companyWebsite: profile.website,
-        clientName: job.clientName,
-        clientAddress: job.clientAddress,
-        logoUrl: profile.logoUrl,
-        signatureUrl: '',
-        templateId: 'standard',
-        themeColors: { primary: '#000000', secondary: '#666666' },
-        deductInventory: false
+/** Set by the database/app when stock was actually deducted for this log (read-only for the form). */
+type MaterialLogState = MaterialLogData & { inventoryDeductedAt?: string; clientId?: string };
+
+const ROW = 'relative rounded-xl border border-border bg-background/60 p-3 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_84px_120px_112px_40px] md:items-start md:gap-3 md:rounded-none md:border-0 md:bg-transparent md:p-0';
+const HEADER = 'hidden md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_84px_120px_112px_40px] md:gap-3 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+const mobileLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground md:hidden';
+
+const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], inventory, inventoryItems, onSave, onBack, onUploadImage, prefillData }) => {
+    const stock = inventory || inventoryItems || [];
+    const [pickerFor, setPickerFor] = useState<string | null>(null);
+
+    const stockOf = (item: MaterialLogItem): number | null => {
+        if (!item.inventoryItemId) return null;
+        const inv = stock.find(i => i.id === item.inventoryItemId);
+        return inv ? toNumber(inv.quantity) : null;
+    };
+
+    const form = useDocumentForm<MaterialLogState>({
+        formType: FormType.MaterialLog,
+        initial: data as MaterialLogState | null,
+        prefillData,
+        onSave: onSave as SaveHandler<MaterialLogState>,
+        download: d => generateMaterialLogPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID),
+        makeDefaults: () => ({
+            title: '',
+            date: todayISO(),
+            projectName: job.name || '',
+            items: [blankMaterialItem()],
+            companyName: profile.companyName || '',
+            companyAddress: profile.address || '',
+            companyPhone: profile.phone || '',
+            companyWebsite: profile.website || '',
+            clientName: job.clientName || '',
+            clientAddress: job.clientAddress || '',
+            logoUrl: profile.logoUrl || '',
+            signatureUrl: '',
+            templateId: DEFAULT_TEMPLATE_ID,
+            themeColors: { ...DEFAULT_THEME },
+            deductInventory: false,
+        }),
+        hydrate: d => backfillCompany({ ...d, items: normalizeMaterialItems(d.items, false), projectName: d.projectName ?? '' }, profile),
+        validate: d => {
+            if (!isISODate(d.date)) return 'Add a valid date.';
+            // Stock is moved by the database (idempotent, edits apply only the difference). Short stock is allowed:
+            // it goes negative and is flagged in the inventory history, so it is a warning below, never a save blocker.
+            return null;
+        },
     });
-    const [isDownloading, setIsDownloading] = useState(false);
-    const [showInventoryPicker, setShowInventoryPicker] = useState<string | null>(null); // itemId to populate
+    const { data: d, update } = form;
+    const items = d.items || [];
+    const total = roundMoney(items.reduce((s, it) => s + toNumber(it.quantity) * toNumber(it.unitCost), 0));
+    const linkedCount = items.filter(i => i.inventoryItemId).length;
+    const shortItems = items
+        .filter(it => { const available = stockOf(it); return available !== null && toNumber(it.quantity) > available; })
+        .map(it => it.name || 'item');
 
-    useEffect(() => {
-        if (!data) {
-            setFormData(prev => ({
-                ...prev,
-                companyName: profile.companyName || prev.companyName,
-                companyAddress: profile.address || prev.companyAddress,
-                companyPhone: profile.phone || prev.companyPhone,
-                companyWebsite: profile.website || prev.companyWebsite,
-                logoUrl: profile.logoUrl || prev.logoUrl
-            }));
-        } else {
-            setFormData(prev => ({
-                ...prev,
-                companyName: prev.companyName || profile.companyName,
-                companyAddress: prev.companyAddress || profile.address,
-                logoUrl: prev.logoUrl || profile.logoUrl
-            }));
-        }
-    }, [profile, data]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const patchItem = (id: string, patch: Partial<MaterialLogItem>) => update(prev => ({ ...prev, items: prev.items.map(i => (i.id === id ? { ...i, ...patch } : i)) }));
+    const removeItem = (id: string) => update(prev => ({ ...prev, items: prev.items.filter(i => i.id !== id) }));
+    const addItem = () => update(prev => ({ ...prev, items: [...prev.items, blankMaterialItem()] }));
+    const pickInventory = (inv: InventoryItem) => {
+        if (!pickerFor) return;
+        patchItem(pickerFor, {
+            name: inv.name,
+            supplier: inv.supplier || '',
+            unitCost: toNumber(inv.cost_price),
+            inventoryItemId: inv.id,
+        });
+        setPickerFor(null);
     };
-
-    const handleClientSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const clientId = e.target.value;
-        if (clientId === 'custom') return;
-        const client = clients.find(c => c.id === clientId);
-        if (client) {
-            setFormData(prev => ({
-                ...prev,
-                clientName: client.name,
-                clientAddress: client.address || prev.clientAddress
-            }));
-        }
-    };
-
-    const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            if (onUploadImage) {
-                try {
-                    const newUrl = await onUploadImage(file);
-                    if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
-                } catch (e) { console.error(e); }
-            } else {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
-                };
-                reader.readAsDataURL(file);
-            }
-        }
-    };
-
-    const updateItem = (id: string, field: keyof MaterialLogItem, value: any) => {
-        setFormData(prev => ({
-            ...prev,
-            items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
-        }));
-    };
-
-    const addItem = () => {
-        setFormData(prev => ({ ...prev, items: [...prev.items, { id: crypto.randomUUID(), name: '', supplier: '', quantity: 1, unitCost: 0 }] }));
-    };
-
-    const removeItem = (id: string) => {
-        setFormData(prev => ({ ...prev, items: prev.items.filter(i => i.id !== id) }));
-    };
-
-    // Inventory Integration
-    const handleSelectFromInventory = (logItemId: string, invItem: InventoryItem) => {
-        setFormData(prev => ({
-            ...prev,
-            items: prev.items.map(item => item.id === logItemId ? {
-                ...item,
-                name: invItem.name,
-                supplier: invItem.supplier || item.supplier,
-                unitCost: invItem.cost_price || item.unitCost,
-                inventoryItemId: invItem.id
-            } : item)
-        }));
-        setShowInventoryPicker(null);
-    };
-
-    const handleDownload = async () => {
-        setIsDownloading(true);
-        try {
-            await generateMaterialLogPDF(profile, job, formData, formData.templateId || 'standard');
-        } catch (e) { console.error(e); alert('Error generating PDF'); }
-        finally { setIsDownloading(false); }
-    }
-
-    const renderPageOne = () => (
-        <Card className="max-w-3xl mx-auto w-full animate-fade-in-down">
-            <CardHeader><CardTitle>Material Log Setup</CardTitle><CardDescription>Project and branding details.</CardDescription></CardHeader>
-            <CardContent className="space-y-6">
-                <div className="space-y-1.5">
-                    <Label>Document Title</Label>
-                    <Input name="title" value={formData.title || ''} onChange={handleChange} placeholder="e.g. Rough-in Materials" className="font-medium" />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-border pt-4">
-                    <div className="space-y-3 bg-muted/20 p-3 rounded-md border border-border/50">
-                        <Label className="text-xs text-muted-foreground uppercase font-bold">Company</Label>
-                        <Input name="companyName" value={formData.companyName} onChange={handleChange} placeholder="Company Name" />
-                        <Input name="companyAddress" value={formData.companyAddress} onChange={handleChange} placeholder="Address" />
-                        <div className="flex items-center gap-3 mt-2">
-                            {formData.logoUrl && <img src={formData.logoUrl} className="w-10 h-10 object-contain bg-white rounded border p-1" />}
-                            <div className="flex-1"><Label htmlFor="logoUpload" className="text-xs cursor-pointer text-primary hover:underline">Logo</Label><Input id="logoUpload" type="file" className="h-8 text-xs" accept="image/*" onChange={handleLogoChange} /></div>
-                        </div>
-                    </div>
-                    <div className="space-y-3 bg-muted/20 p-3 rounded-md border border-border/50">
-                        <div className="flex flex-col space-y-1.5">
-                            <Label className="text-xs text-muted-foreground uppercase font-bold">Client / Project</Label>
-                            <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm" onChange={handleClientSelect} defaultValue="custom">
-                                <option value="custom">-- Manual Entry --</option>
-                                {clients.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                            </select>
-                        </div>
-                        <Input name="clientName" value={formData.clientName} onChange={handleChange} placeholder="Client Name" />
-                        <Input name="projectName" value={formData.projectName} onChange={handleChange} placeholder="Project Name" />
-                    </div>
-                </div>
-                <div className="w-full md:w-1/2"><Label>Log Date</Label><Input type="date" name="date" value={formData.date} onChange={handleChange} /></div>
-            </CardContent>
-            <CardFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
-                <Button variant="outline" onClick={onBack} className="w-full sm:w-auto">Cancel</Button>
-                <Button onClick={() => setPage(2)} className="w-full sm:w-auto">Next: Items</Button>
-            </CardFooter>
-        </Card>
-    );
-
-    const renderPageTwo = () => (
-        <Card className="max-w-3xl mx-auto w-full animate-fade-in-down">
-            <CardHeader><CardTitle>Materials List</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
-                <div className="space-y-4">
-                    {formData.items.map((item, i) => (
-                        <div key={item.id} className="border-b pb-4 mb-2 last:border-0 last:mb-0">
-                            <div className="flex justify-between items-center mb-2">
-                                {inventory.length > 0 && (
-                                    <div className="relative">
-                                        <Button variant="ghost" size="sm" className="text-xs text-primary" onClick={() => setShowInventoryPicker(item.id)}>
-                                            <BoxIcon className="w-3 h-3 mr-1" /> Load from Inventory
-                                        </Button>
-                                        {showInventoryPicker === item.id && (
-                                            <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border shadow-xl rounded-md w-64 max-h-60 overflow-y-auto p-1">
-                                                {inventory.map(inv => (
-                                                    <div key={inv.id} className="p-2 hover:bg-muted text-sm cursor-pointer rounded-sm" onClick={() => handleSelectFromInventory(item.id, inv)}>
-                                                        <p className="font-medium">{inv.name}</p>
-                                                        <p className="text-xs text-muted-foreground">Qty: {inv.quantity} | Cost: ${inv.cost_price}</p>
-                                                    </div>
-                                                ))}
-                                                {inventory.length === 0 && <p className="p-2 text-xs text-muted-foreground">No items in inventory.</p>}
-                                                <div className="border-t mt-1 pt-1 text-center"><span className="text-xs text-red-500 cursor-pointer" onClick={() => setShowInventoryPicker(null)}>Cancel</span></div>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)} className="text-destructive h-6 w-6 p-0 hover:bg-destructive/10 rounded-full">x</Button>
-                            </div>
-                            <div className="grid grid-cols-12 gap-3 items-end">
-                                <div className="col-span-5"><Label className={i === 0 ? "mb-1 block" : "hidden"}>Item</Label><Input value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Name" /></div>
-                                <div className="col-span-3"><Label className={i === 0 ? "mb-1 block" : "hidden"}>Supplier</Label><Input value={item.supplier} onChange={e => updateItem(item.id, 'supplier', e.target.value)} placeholder="Supplier" /></div>
-                                <div className="col-span-2"><Label className={i === 0 ? "mb-1 block" : "hidden"}>Qty</Label><Input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', parseFloat(e.target.value))} /></div>
-                                <div className="col-span-2"><Label className={i === 0 ? "mb-1 block" : "hidden"}>Cost</Label><Input type="number" value={item.unitCost} onChange={e => updateItem(item.id, 'unitCost', parseFloat(e.target.value))} /></div>
-                            </div>
-                            {item.inventoryItemId && <p className="text-xs text-green-600 mt-1 flex items-center"><BoxIcon className="w-3 h-3 mr-1" /> Linked to Inventory Item</p>}
-                        </div>
-                    ))}
-                    <Button variant="outline" onClick={addItem}>+ Add Material</Button>
-                </div>
-
-                <div className="pt-4 border-t border-border mt-4">
-                    <div className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            id="deductInv"
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                            checked={formData.deductInventory || false}
-                            onChange={(e) => setFormData(prev => ({ ...prev, deductInventory: e.target.checked }))}
-                        />
-                        <Label htmlFor="deductInv" className="cursor-pointer">Deduct used quantities from Inventory on save</Label>
-                    </div>
-                    <p className="text-xs text-muted-foreground ml-6 mt-1">This will decrease the stock of any linked items in your inventory.</p>
-                </div>
-
-                <div className="pt-4">
-                    <Label className="mb-2 block">Signature (Optional)</Label>
-                    <div className="mt-1 border rounded-md overflow-hidden">
-                        <SignaturePad onSave={(url) => setFormData(prev => ({ ...prev, signatureUrl: url }))} initialDataUrl={formData.signatureUrl} />
-                    </div>
-                </div>
-
-                <div className="pt-4 border-t border-border mt-4">
-                    <TemplateSelector selectedTemplateId={formData.templateId || 'standard'} onSelectTemplate={(id) => setFormData(prev => ({ ...prev, templateId: id }))} themeColors={formData.themeColors} onColorsChange={(colors) => setFormData(prev => ({ ...prev, themeColors: colors }))} />
-                </div>
-            </CardContent>
-            <CardFooter className="flex flex-col sm:flex-row gap-2 w-full">
-                <Button variant="outline" onClick={() => setPage(1)} className="w-full sm:w-auto order-2 sm:order-1">Back</Button>
-                <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:order-2 sm:ml-auto sm:justify-end">
-                    <Button variant="outline" onClick={() => onSave(formData)} className="w-full sm:w-auto">Save Only</Button>
-                    <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full sm:w-auto"><ExportIcon className="h-4 w-4 mr-2" /> Download</Button>
-                    <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading} className="col-span-2 sm:col-span-1 w-full sm:w-auto">Save & Download</Button>
-                </div>
-            </CardFooter>
-        </Card>
-    );
 
     return (
-        <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-            <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-                <div className="flex items-center">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-                        <BackArrowIcon className="h-6 w-6" />
-                    </Button>
-                    <h1 className="text-2xl font-bold flex items-center gap-2"><MaterialLogIcon className="w-6 h-6" /> Material Log</h1>
+        <FormShell
+            title="Material log"
+            subtitle={[d.projectName, d.date ? formatDisplayDate(d.date) : ''].filter(Boolean).join(' · ') || 'New material log'}
+            icon={MaterialLogIcon}
+            aiGenerated={Boolean((d as any).isAiGenerated)}
+            isDirty={form.isDirty}
+            saving={form.saving}
+            downloading={form.downloading}
+            justSaved={form.justSaved}
+            feedback={form.feedback}
+            onDismissFeedback={() => form.setFeedback(null)}
+            onBack={onBack}
+            onSave={form.save}
+            onDownload={form.download}
+            onSaveAndDownload={form.saveAndDownload}
+            preview={{ formType: FormType.MaterialLog, data: d, profile, job }}
+        >
+            <FormSection title="Log details" icon={FileTextIcon}>
+                <FieldGrid>
+                    <TextField label="Project" value={d.projectName} onChange={v => update({ projectName: v })} />
+                    <DateField label="Date" value={d.date} onChange={v => update({ date: v })} />
+                    <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Lumber delivery – week 3" fieldClassName="sm:col-span-2" />
+                </FieldGrid>
+            </FormSection>
+
+            <FormSection title="Materials" description="What was delivered or used on site." icon={BoxIcon}>
+                <div className="space-y-3">
+                    <div className={HEADER}>
+                        <span>Material</span><span>Supplier</span><span>Qty</span><span>Unit cost</span><span className="text-right">Total</span><span />
+                    </div>
+                    <div className="space-y-3 md:space-y-2">
+                        {items.length === 0 && <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">No materials yet.</div>}
+                        {items.map((it, index) => {
+                            const available = stockOf(it);
+                            const over = available !== null && toNumber(it.quantity) > available;
+                            return (
+                                <div key={it.id} className={ROW}>
+                                    <div className="min-w-0 pr-11 md:pr-0">
+                                        <label className={mobileLabel} htmlFor={`ml-name-${it.id}`}>Material {index + 1}</label>
+                                        <div className="flex gap-1.5">
+                                            <input id={`ml-name-${it.id}`} className="input" value={it.name} placeholder="e.g. 2x4 studs" onChange={e => patchItem(it.id, { name: e.target.value })} aria-label={`Material ${index + 1} name`} />
+                                            {stock.length > 0 && (
+                                                <button type="button" className="btn btn-outline h-[42px] w-[42px] shrink-0 p-0" onClick={() => setPickerFor(it.id)} title="Pick from inventory" aria-label="Pick from inventory">
+                                                    <BoxIcon className="h-4 w-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {it.inventoryItemId && (
+                                            <p className={`mt-1 text-xs ${over ? 'font-medium text-warning' : 'text-muted-foreground'}`}>
+                                                Linked to inventory{available !== null ? ` · ${over ? `only ${available}` : available} in stock` : ''}
+                                                <button type="button" className="ml-2 underline" onClick={() => patchItem(it.id, { inventoryItemId: undefined })}>Unlink</button>
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="mt-3 min-w-0 md:mt-0">
+                                        <label className={mobileLabel} htmlFor={`ml-sup-${it.id}`}>Supplier</label>
+                                        <input id={`ml-sup-${it.id}`} className="input" value={it.supplier} placeholder="Supplier" onChange={e => patchItem(it.id, { supplier: e.target.value })} aria-label={`Material ${index + 1} supplier`} />
+                                    </div>
+                                    <div className="mt-3 grid grid-cols-2 gap-2 md:mt-0 md:contents">
+                                        <div className="min-w-0">
+                                            <span className={mobileLabel}>Qty</span>
+                                            <NumberInput value={it.quantity} onValueChange={v => patchItem(it.id, { quantity: v })} className="px-2.5 text-center" aria-label={`Material ${index + 1} quantity`} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <span className={mobileLabel}>Unit cost</span>
+                                            <NumberInput value={it.unitCost} onValueChange={v => patchItem(it.id, { unitCost: v })} decimals={2} prefix="$" aria-label={`Material ${index + 1} unit cost`} />
+                                        </div>
+                                        <div className="col-span-2 flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-sm md:col-span-1 md:block md:bg-transparent md:px-0 md:py-2.5 md:text-right">
+                                            <span className="text-muted-foreground md:hidden">Total</span>
+                                            <span className="font-semibold tabular-nums">{formatMoney(toNumber(it.quantity) * toNumber(it.unitCost))}</span>
+                                        </div>
+                                    </div>
+                                    <div className="absolute right-2 top-2 md:static">
+                                        <button type="button" onClick={() => removeItem(it.id)} className="btn btn-ghost h-10 w-10 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Remove material ${index + 1}`}>
+                                            <TrashIcon className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={addItem}><PlusIcon className="h-4 w-4" /> Add material</button>
                 </div>
-            </header>
-            {page === 1 ? renderPageOne() : renderPageTwo()}
-        </div>
+                <div className="ml-auto w-full rounded-xl border border-border bg-muted/40 p-4 sm:max-w-sm">
+                    <SummaryRow label="Total materials cost" value={formatMoney(total)} strong />
+                </div>
+
+                <Toggle
+                    checked={Boolean(d.deductInventory)}
+                    disabled={linkedCount === 0 && !d.deductInventory}
+                    onChange={on => update({ deductInventory: on })}
+                    label="Deduct linked items from inventory"
+                    description={linkedCount === 0
+                        ? 'Link a row to an inventory item (box button) to use this.'
+                        : `${linkedCount} linked item${linkedCount === 1 ? '' : 's'}. Stock is updated when you save; editing quantities later only moves the difference, and turning this off returns the items to stock.`}
+                />
+                {d.deductInventory && shortItems.length > 0 && (
+                    <p className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
+                        Low stock: {shortItems.join(', ')}. You can still save; the inventory will show these items as oversold.
+                    </p>
+                )}
+            </FormSection>
+
+            <ClientSection
+                clients={clients}
+                job={job}
+                clientId={d.clientId}
+                clientName={d.clientName}
+                address={d.clientAddress}
+                onChange={patch => update(patch as Partial<MaterialLogState>)}
+            />
+
+            <CompanySection data={d} onChange={patch => update(patch)} onUploadImage={onUploadImage} />
+
+            <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Signature" description="Received / verified by." />
+
+            <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            <ItemPickerModal
+                open={pickerFor !== null}
+                onClose={() => setPickerFor(null)}
+                title="Pick from inventory"
+                savedItems={[]}
+                inventoryItems={stock}
+                showPriceBook={false}
+                onPickSaved={() => undefined}
+                onPickInventory={pickInventory}
+            />
+        </FormShell>
     );
 };
 

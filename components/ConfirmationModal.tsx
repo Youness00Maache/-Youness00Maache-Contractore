@@ -1,11 +1,11 @@
-import React from 'react';
-import { XCircleIcon } from './Icons';
-import { Button } from './ui/Button';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangleIcon, InfoIcon } from './Icons';
 
 interface ConfirmationModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: () => void;
+    /** May return a promise: the dialog shows a spinner and closes when it resolves (stays open if it throws). */
+    onConfirm: () => void | Promise<unknown>;
     title: string;
     message: React.ReactNode;
     confirmLabel?: string;
@@ -19,52 +19,68 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     onConfirm,
     title,
     message,
-    confirmLabel = "Confirm",
-    cancelLabel = "Cancel",
+    confirmLabel = 'Confirm',
+    cancelLabel = 'Cancel',
     isDestructive = false,
 }) => {
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) { setBusy(false); return; }
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [isOpen, busy, onClose]);
+
     if (!isOpen) return null;
 
+    const handleConfirm = async () => {
+        setBusy(true);
+        try {
+            await onConfirm();
+            onClose();
+        } catch {
+            // the caller reports the error (toast); keep the dialog open so the user can retry
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const Icon = isDestructive ? AlertTriangleIcon : InfoIcon;
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="modal-backdrop z-[110]" onClick={() => { if (!busy) onClose(); }} role="presentation">
             <div
-                className="w-full max-w-md bg-white dark:bg-card border border-white/20 dark:border-border rounded-2xl shadow-2xl p-6 relative animate-in zoom-in-95 duration-200"
+                className="modal-panel p-6"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="confirm-title"
                 onClick={(e) => e.stopPropagation()}
             >
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors p-1"
-                >
-                    <XCircleIcon className="w-6 h-6" />
-                </button>
-
-                <div className="mb-6">
-                    <h2 className="text-xl font-bold text-foreground mb-2 pr-8">
-                        {title}
-                    </h2>
-                    <div className="text-muted-foreground text-sm leading-relaxed">
-                        {message}
+                <div className="flex items-start gap-4">
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${isDestructive ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>
+                        <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <h2 id="confirm-title" className="text-lg font-bold text-foreground">{title}</h2>
+                        <div className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{message}</div>
                     </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-3">
-                    <Button
-                        variant="ghost"
-                        onClick={onClose}
-                        className="font-medium"
-                    >
+                <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>
                         {cancelLabel}
-                    </Button>
-                    <Button
-                        variant={isDestructive ? "destructive" : "default"}
-                        onClick={() => {
-                            onConfirm();
-                            onClose();
-                        }}
-                        className={isDestructive ? "bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-500/20" : "shadow-md"}
+                    </button>
+                    <button
+                        type="button"
+                        className={`btn ${isDestructive ? 'btn-danger' : 'btn-primary'}`}
+                        onClick={handleConfirm}
+                        disabled={busy}
+                        autoFocus
                     >
+                        {busy && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
                         {confirmLabel}
-                    </Button>
+                    </button>
                 </div>
             </div>
         </div>

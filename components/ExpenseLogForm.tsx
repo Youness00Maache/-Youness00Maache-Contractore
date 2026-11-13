@@ -1,404 +1,251 @@
-import React, { useState, useEffect, useRef } from 'react';
-import type { ExpenseLogData, UserProfile, Job, Client } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { BackArrowIcon, ExportIcon, ExpenseLogIcon } from './Icons.tsx';
+import React, { useEffect, useRef, useState } from 'react';
+import { FormType, type ExpenseLogData, type UserProfile, type Job, type Client, type LineItem } from '../types.ts';
 import { generateExpenseLogPDF } from '../services/pdfGenerator.ts';
-import TemplateSelector from './TemplateSelector.tsx';
-import SignaturePad from './SignaturePad.tsx';
-import { processReceiptImage, type OCRResult } from '../utils/ocr.ts';
+import { computeDocumentTotals, formatMoney, roundMoney, toNumber } from '../utils/money.ts';
+import { ExpenseLogIcon, ScanIcon, FileTextIcon, DollarIcon } from './Icons.tsx';
+import { FormShell, Spinner } from './forms/FormShell.tsx';
+import { DateField, FieldGrid, FormSection, MoneyField, SelectField, TextAreaField, TextField, Toggle } from './forms/Fields.tsx';
+import { ClientSection, CompanySection, SignatureSection, SummaryRow, TemplateSection } from './forms/Sections.tsx';
+import LineItemsEditor from './forms/LineItemsEditor.tsx';
+import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
+import { blankLineItem, isISODate, normalizeLineItems, todayISO } from './forms/formUtils.ts';
+import { EXPENSE_CATEGORIES } from './forms/documentFields.ts';
+import { processReceiptImage, terminateOCRWorker, type OCRResult } from '../utils/ocr.ts';
+import { assertUsableImage, compressImage, describeImageError } from '../utils/imageCompression.ts';
 
 interface Props {
-  job: Job;
-  profile: UserProfile;
-  data: ExpenseLogData | null;
-  clients?: Client[];
-  onSave: (data: ExpenseLogData) => void;
-  onBack: () => void;
-  onUploadImage?: (file: File) => Promise<string>;
+    job: Job;
+    profile: UserProfile;
+    data: ExpenseLogData | null;
+    clients?: Client[];
+    onSave: SaveHandler<ExpenseLogData>;
+    onBack: () => void;
+    onUploadImage?: (file: File) => Promise<string>;
+    prefillData?: unknown;
+    documentId?: string;
+    existingNumbers?: string[];
 }
 
-const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage }) => {
-  // Generate a random ID for new items
-  const generateId = () => Math.random().toString(36).substr(2, 9);
-  // const cameraInputRef = useRef<HTMLInputElement>(null); // Removed per user request
-  const uploadInputRef = useRef<HTMLInputElement>(null);
+type ExpenseState = ExpenseLogData & { clientId?: string };
 
-  const [formData, setFormData] = useState<ExpenseLogData>(data || {
-    title: '',
-    date: new Date().toISOString().split('T')[0],
-    item: '',
-    lineItems: [{ id: generateId(), description: '', quantity: 1, rate: 0 }], // Initialize with one empty item
-    vendor: '',
-    category: 'Material',
-    amount: 0,
-    tax: 0,
-    notes: '',
-    companyName: profile.companyName,
-    companyAddress: profile.address,
-    companyPhone: profile.phone,
-    companyWebsite: profile.website,
-    clientName: job.clientName,
-    logoUrl: profile.logoUrl,
-    signatureUrl: '',
-    templateId: 'standard',
-    themeColors: { primary: '#000000', secondary: '#666666' }
-  });
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [isProcessingOCR, setIsProcessingOCR] = useState(false);
-  const [scanNotification, setScanNotification] = useState<{ type: 'success' | 'error', message: string, details?: string } | null>(null);
+const FUEL = /shell|chevron|exxon|mobil|bp\b|texaco|sunoco|valero|citgo|marathon|speedway|wawa|gas|fuel/i;
+const FOOD = /restaurant|cafe|coffee|pizza|grill|diner|burger|subway|mcdonald|starbucks|taco|deli|bakery/i;
+const MATERIAL = /depot|lowe|menards|hardware|lumber|supply|ferguson|grainger|sherwin|benjamin moore|electric|plumbing/i;
 
-  // Auto-calculate total amount when line items change
-  useEffect(() => {
-    if (formData.lineItems && formData.lineItems.length > 0) {
-      const subtotal = formData.lineItems.reduce((sum, item) => sum + ((item.rate || 0) * (item.quantity || 1)), 0);
-      const total = subtotal + (formData.tax || 0);
-      setFormData(prev => ({ ...prev, amount: total }));
-    }
-  }, [formData.lineItems, formData.tax]);
+const itemsSubtotal = (items?: LineItem[]) => computeDocumentTotals({ lineItems: items || [] }).subtotal;
+const nearlyEqual = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.02, Math.abs(b) * 0.01);
 
-  useEffect(() => {
-    if (!data) {
-      setFormData(prev => ({
-        ...prev,
-        companyName: profile.companyName || prev.companyName,
-        companyAddress: profile.address || prev.companyAddress,
-        logoUrl: profile.logoUrl || prev.logoUrl
-      }));
-    }
-  }, [profile, data]);
-
-  const addLineItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      lineItems: [...(prev.lineItems || []), { id: generateId(), description: '', quantity: 1, rate: 0 }]
-    }));
-  };
-
-  const removeLineItem = (index: number) => {
-    setFormData(prev => {
-      const newItems = [...(prev.lineItems || [])];
-      newItems.splice(index, 1);
-      return { ...prev, lineItems: newItems };
-    });
-  };
-
-  const updateLineItem = (index: number, field: 'description' | 'rate' | 'quantity', value: string | number) => {
-    setFormData(prev => {
-      const newItems = [...(prev.lineItems || [])];
-      if (!newItems[index]) return prev;
-
-      if (field === 'rate') {
-        newItems[index] = { ...newItems[index], rate: parseFloat(value as string) || 0 };
-      } else if (field === 'quantity') {
-        newItems[index] = { ...newItems[index], quantity: parseFloat(value as string) || 1 };
-      } else {
-        newItems[index] = { ...newItems[index], description: value as string };
-      }
-
-      return { ...prev, lineItems: newItems };
-    });
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    // Fix crash: parse tax as number just like amount
-    const val = (name === 'amount' || name === 'tax') ? parseFloat(value) || 0 : value;
-    setFormData(prev => ({ ...prev, [name]: val }));
-  };
-
-  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (onUploadImage) {
-        try {
-          const newUrl = await onUploadImage(file);
-          if (newUrl) setFormData(prev => ({ ...prev, logoUrl: newUrl }));
-        } catch (e) { console.error(e); }
-      } else {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setFormData(prev => ({ ...prev, logoUrl: event.target?.result as string }));
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-  };
-
-  const handleClientSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const clientId = e.target.value;
-    if (clientId === 'custom') return;
-    const client = clients.find(c => c.id === clientId);
-    if (client) setFormData(prev => ({ ...prev, clientName: client.name }));
-  };
-
-  const handleReceiptScan = async (file: File) => {
-    setIsProcessingOCR(true);
-    try {
-      const ocrResult: OCRResult = await processReceiptImage(file);
-
-      if (ocrResult.vendor) {
-        setFormData(prev => ({ ...prev, vendor: ocrResult.vendor || '' }));
-      }
-
-      if (ocrResult.date) {
-        setFormData(prev => ({ ...prev, date: ocrResult.date || '' }));
-      }
-
-      if (ocrResult.amount) {
-        setFormData(prev => ({ ...prev, amount: ocrResult.amount || 0 }));
-      }
-
-      if (ocrResult.tax) {
-        setFormData(prev => ({ ...prev, tax: ocrResult.tax || 0 }));
-      }
-
-      // Populate Client Info if found
-      if (ocrResult.client) {
-        setFormData(prev => ({ ...prev, clientName: ocrResult.client || '' }));
-      }
-
-      // Populate Company Info from Vendor if found (per user request to "take it from document")
-      if (ocrResult.vendor) {
-        setFormData(prev => ({ ...prev, companyName: ocrResult.vendor || prev.companyName }));
-      }
-      if (ocrResult.companyAddress) {
-        setFormData(prev => ({ ...prev, companyAddress: ocrResult.companyAddress || prev.companyAddress }));
-      }
-      if (ocrResult.companyPhone) {
-        setFormData(prev => ({ ...prev, companyPhone: ocrResult.companyPhone || prev.companyPhone }));
-      }
-
-      const autoTitle = `${ocrResult.vendor || 'Receipt'} - ${ocrResult.date || new Date().toLocaleDateString()}`;
-      setFormData(prev => ({ ...prev, title: autoTitle }));
-
-      // Handle Line Items
-      if (ocrResult.lineItems && ocrResult.lineItems.length > 0) {
-        // Map OCR items to our LineItem format
-        const newItems = ocrResult.lineItems.map(item => ({
-          id: generateId(),
-          description: item.description,
-          quantity: 1, // Quantity column hidden, force 1
-          rate: item.price // Store extracted price directly as rate, ignoring quantity per user request
-        }));
-
-        setFormData(prev => ({ ...prev, lineItems: newItems }));
-      }
-
-      // Put footer notes in notes field
-      if (ocrResult.notes) {
-        setFormData(prev => ({ ...prev, notes: ocrResult.notes || '' }));
-      }
-
-      setScanNotification({
-        type: 'success',
-        message: '⚠ Note: OCR is not perfect. Please verify extracted data.',
-      });
-
-    } catch (error) {
-      console.error('OCR error:', error);
-      setScanNotification({ type: 'error', message: 'Failed to scan receipt. Please enter manually.' });
-    } finally {
-      setIsProcessingOCR(false);
-    }
-  };
-
-  const handleDownload = async () => {
-    setIsDownloading(true);
-    try {
-      await generateExpenseLogPDF(profile, job, formData, formData.templateId || 'standard');
-    } catch (e) { console.error(e); alert('Error generating PDF'); }
-    finally { setIsDownloading(false); }
-  }
-
-  return (
-    <div className="w-full h-full bg-background text-foreground flex flex-col p-4 md:p-8">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-        <div className="flex items-center">
-          <Button variant="ghost" size="sm" onClick={onBack} className="w-10 h-10 p-0 flex items-center justify-center mr-3 hover:bg-secondary/80 rounded-full" aria-label="Back">
-            <BackArrowIcon className="h-6 w-6" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3 tracking-tight">
-              <ExpenseLogIcon className="w-6 h-6 text-primary" /> Expense Log
-            </h1>
-          </div>
-        </div>
-      </header>
-      <div className="flex-1 overflow-y-auto pb-10">
-        <Card className="max-w-3xl mx-auto w-full animate-fade-in-down">
-          <CardHeader><CardTitle>Track Expense</CardTitle><CardDescription>Record project costs.</CardDescription></CardHeader>
-          <CardContent className="space-y-6">
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-lg">Scan Receipt</h3>
-                  <p className="text-sm text-muted-foreground">Auto-extract vendor, date, and amount</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => uploadInputRef.current?.click()}
-                    disabled={isProcessingOCR}
-                    size="lg"
-                    className="shadow-lg w-full sm:w-auto" // Made full width or specific style
-                  >
-                    {isProcessingOCR ? 'Processing...' : 'Upload Receipt'}
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {scanNotification && (
-              <div className={`text-sm p-3 rounded-md border ${scanNotification.type === 'success' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-red-50 border-red-200 text-red-800'} mb-4 animate-in fade-in slide-in-from-top-1`}>
-                <div className="flex justify-between items-center w-full">
-                  <p className="font-semibold text-sm">
-                    {scanNotification.message}
-                  </p>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:bg-black/5 rounded-full ml-auto" onClick={() => setScanNotification(null)}>✕</Button>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label>Title (Dashboard)</Label>
-              <Input name="title" value={formData.title || ''} onChange={handleChange} placeholder="e.g. Hardware Store Trip" className="font-medium" />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-border pt-4">
-              <div className="space-y-3 bg-muted/20 p-3 rounded-md border border-border/50">
-                <Label className="text-xs text-muted-foreground uppercase font-bold">Company Info</Label>
-                <Input name="companyName" value={formData.companyName} onChange={handleChange} placeholder="Your Company" />
-                <Input name="companyAddress" value={formData.companyAddress} onChange={handleChange} placeholder="Address" />
-                <div className="flex items-center gap-3 mt-2">
-                  {formData.logoUrl && <img src={formData.logoUrl} className="w-10 h-10 object-contain bg-white rounded border p-1" />}
-                  <div className="flex-1"><Label htmlFor="logoUpload" className="text-xs cursor-pointer text-primary hover:underline">Logo</Label><Input id="logoUpload" type="file" className="h-8 text-xs" accept="image/*" onChange={handleLogoChange} /></div>
-                </div>
-              </div>
-              <div className="space-y-3 bg-muted/20 p-3 rounded-md border border-border/50">
-                <div className="flex flex-col space-y-1.5">
-                  <Label className="text-xs text-muted-foreground uppercase font-bold">Client / Job</Label>
-                  <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm" onChange={handleClientSelect} defaultValue="custom">
-                    <option value="custom">-- Manual Entry --</option>
-                    {clients.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                  </select>
-                </div>
-                <Input name="clientName" value={formData.clientName} onChange={handleChange} placeholder="Client Name" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><Label>Date</Label><Input type="date" name="date" value={formData.date} onChange={handleChange} /></div>
-              <div><Label>Vendor / Store</Label><Input name="vendor" value={formData.vendor} onChange={handleChange} placeholder="e.g. Home Depot" /></div>
-              <div><Label>Category</Label>
-                <select name="category" value={formData.category} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                  <option value="Material">Material</option>
-                  <option value="Fuel">Fuel</option>
-                  <option value="Food">Food</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Items</Label>
-                <Button type="button" variant="outline" size="sm" onClick={addLineItem} className="text-xs h-7">+ Add Item</Button>
-              </div>
-
-              <div className="space-y-2 border rounded-md p-3 bg-muted/10">
-                {(formData.lineItems || []).map((item, idx) => (
-                  <div key={idx} className="flex gap-2 items-start group">
-                    <div className="flex-1">
-                      <Input
-                        placeholder="Item Description"
-                        value={item.description}
-                        onChange={(e) => updateLineItem(idx, 'description', e.target.value)}
-                        className="h-8 text-sm"
-                      />
-                    </div>
-                    {/* Quantity field removed per user request */}
-                    <div className="w-24">
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        value={item.rate}
-                        onChange={(e) => updateLineItem(idx, 'rate', e.target.value)}
-                        className="h-8 text-sm text-right font-mono"
-                      />
-                    </div>
-                    <Button
-                      variant="ghost"
-                      onClick={() => removeLineItem(idx)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-50 group-hover:opacity-100"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                    </Button>
-                  </div>
-                ))}
-
-                {(!formData.lineItems || formData.lineItems.length === 0) && (
-                  <div className="text-center py-4 text-muted-foreground text-sm cursor-pointer" onClick={addLineItem}>
-                    Click "Add Item" to add line items
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center pt-2 border-t mt-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">Tax:</span>
-                    <Input
-                      type="number"
-                      name="tax"
-                      value={formData.tax || 0}
-                      onChange={handleChange}
-                      className="w-24 h-8 text-right bg-background"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm">Total</span>
-                    <span className="font-bold text-lg">${formData.amount.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2"><Label>Notes</Label><textarea className="w-full p-2 border rounded-md bg-background text-sm" rows={2} name="notes" value={formData.notes} onChange={handleChange} /></div>
-            </div>
-
-            <div className="pt-4">
-              <Label className="mb-2 block">Approver Signature (Optional)</Label>
-              <div className="mt-1 border rounded-md overflow-hidden">
-                <SignaturePad onSave={(url) => setFormData(prev => ({ ...prev, signatureUrl: url }))} initialDataUrl={formData.signatureUrl} />
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-border">
-              <TemplateSelector selectedTemplateId={formData.templateId || 'standard'} onSelectTemplate={(id) => setFormData(prev => ({ ...prev, templateId: id }))} themeColors={formData.themeColors} onColorsChange={(colors) => setFormData(prev => ({ ...prev, themeColors: colors }))} />
-            </div>
-          </CardContent>
-          {/* Hidden input for upload handling */}
-          <input
-            type="file"
-            ref={uploadInputRef}
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleReceiptScan(file);
-              e.target.value = '';
-            }}
-          />
-          <CardFooter className="flex flex-col-reverse sm:flex-row gap-3 w-full sm:justify-end bg-muted/20 p-6">
-            <Button variant="outline" onClick={() => onSave(formData)} className="w-full sm:w-auto">Save Only</Button>
-            <Button variant="secondary" onClick={handleDownload} disabled={isDownloading} className="w-full sm:w-auto"><ExportIcon className="h-4 w-4 mr-2" /> Download</Button>
-            <Button onClick={async () => { onSave(formData); await handleDownload(); }} disabled={isDownloading} className="w-full sm:w-auto">Save & Download</Button>
-          </CardFooter>
-        </Card >
-      </div >
-    </div >
-  );
+/** Legacy expense logs stored `items: [{description, amount}]`; current ones use `lineItems`. */
+const legacyItems = (d: ExpenseLogData): LineItem[] => {
+    if (Array.isArray(d.lineItems) && d.lineItems.length) return normalizeLineItems(d.lineItems, false);
+    if (Array.isArray(d.items) && d.items.length) return normalizeLineItems(d.items.map(i => ({ id: i.id, description: i.description, quantity: 1, rate: i.amount })), false);
+    if (d.item) return normalizeLineItems([{ description: d.item, quantity: 1, rate: d.amount }], false);
+    return [blankLineItem()];
 };
+
+const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData }) => {
+    const uploadRef = useRef<HTMLInputElement>(null);
+    const [scanning, setScanning] = useState(false);
+    const [scanNote, setScanNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+    const [autoTotal, setAutoTotal] = useState<boolean>(() => {
+        if (!data) return true;
+        const items = legacyItems(data);
+        const sub = itemsSubtotal(items);
+        return sub === 0 || nearlyEqual(sub + toNumber(data.tax), toNumber(data.amount));
+    });
+
+    useEffect(() => () => { void terminateOCRWorker(); }, []);
+
+    const withTotal = (d: ExpenseState): ExpenseState => {
+        const sub = itemsSubtotal(d.lineItems);
+        return autoTotal && sub > 0 ? { ...d, amount: roundMoney(sub + toNumber(d.tax)) } : d;
+    };
+
+    const form = useDocumentForm<ExpenseState>({
+        formType: FormType.ExpenseLog,
+        initial: data as ExpenseState | null,
+        prefillData,
+        onSave: onSave as SaveHandler<ExpenseState>,
+        download: d => generateExpenseLogPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID),
+        makeDefaults: () => ({
+            title: '',
+            date: todayISO(),
+            item: '',
+            lineItems: [blankLineItem()],
+            vendor: '',
+            category: 'Material',
+            amount: 0,
+            tax: 0,
+            notes: '',
+            companyName: profile.companyName || '',
+            companyAddress: profile.address || '',
+            companyPhone: profile.phone || '',
+            companyWebsite: profile.website || '',
+            clientName: job.clientName || '',
+            logoUrl: profile.logoUrl || '',
+            signatureUrl: '',
+            templateId: DEFAULT_TEMPLATE_ID,
+            themeColors: { ...DEFAULT_THEME },
+        }),
+        hydrate: d => backfillCompany({ ...d, lineItems: legacyItems(d), amount: toNumber(d.amount), tax: toNumber(d.tax), notes: d.notes ?? '', category: d.category || 'Other' }, profile),
+        prepare: withTotal,
+        validate: d => (isISODate(d.date) ? null : 'Add a valid date.'),
+    });
+    const { data: d, update } = form;
+
+    // an AI draft with an explicit total that doesn't match its items keeps the given total visible/editable
+    useEffect(() => {
+        if (!form.draft.version || !form.draft.appliedKeys.includes('amount')) return;
+        const s = itemsSubtotal(form.data.lineItems);
+        if (s > 0 && !nearlyEqual(s + toNumber(form.data.tax), toNumber(form.data.amount))) setAutoTotal(false);
+    }, [form.draft.version]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const sub = itemsSubtotal(d.lineItems);
+    const computedTotal = roundMoney(sub + toNumber(d.tax));
+    const usingItems = autoTotal && sub > 0;
+    const shownTotal = usingItems ? computedTotal : toNumber(d.amount);
+
+    const applyScan = (r: OCRResult) => {
+        const found: string[] = [];
+        const items = r.lineItems.map(li => ({
+            description: li.quantity > 1 ? `${li.quantity} × ${li.description}` : li.description,
+            quantity: 1,
+            rate: li.price,
+        }));
+        const scannedSub = items.reduce((s, i) => s + i.rate, 0);
+        const tax = r.tax ?? 0;
+        const totalMatches = r.amount !== null && items.length > 0 && nearlyEqual(scannedSub + tax, r.amount);
+
+        update(prev => {
+            const next: ExpenseState = { ...prev };
+            if (r.vendor) { next.vendor = r.vendor; found.push('vendor'); }
+            if (r.date) { next.date = r.date; found.push('date'); }
+            if (r.tax !== null) { next.tax = r.tax; found.push('tax'); }
+            if (items.length) { next.lineItems = normalizeLineItems(items); found.push(`${items.length} item${items.length === 1 ? '' : 's'}`); }
+            if (r.amount !== null) { next.amount = r.amount; found.push('total'); }
+            if (r.notes && !prev.notes) next.notes = r.notes;
+            if (!prev.title && r.vendor) next.title = `${r.vendor} receipt`;
+            const vendor = r.vendor || '';
+            if (FUEL.test(vendor)) next.category = 'Fuel';
+            else if (FOOD.test(vendor)) next.category = 'Food';
+            else if (MATERIAL.test(vendor)) next.category = 'Material';
+            return next;
+        });
+
+        // the scanned total wins unless the scanned items add up to it
+        setAutoTotal(r.amount === null ? true : totalMatches);
+        if (!found.length) {
+            setScanNote({ tone: 'error', text: 'We couldn’t read this receipt. Try a sharper, well-lit photo, or enter the details by hand.' });
+        } else if (r.amount !== null && items.length && !totalMatches) {
+            setScanNote({ tone: 'warn', text: `Found ${found.join(', ')}. The items add up to ${formatMoney(scannedSub + tax)} but the receipt total is ${formatMoney(r.amount)}; the receipt total is kept. Please check the items.` });
+        } else {
+            setScanNote({ tone: 'ok', text: `Found ${found.join(', ')}. Scanning isn’t perfect, so please check the details.` });
+        }
+    };
+
+    const handleScan = async (file?: File | null) => {
+        if (!file) return;
+        setScanning(true);
+        setScanNote(null);
+        try {
+            assertUsableImage(file);
+            const image = await compressImage(file);
+            applyScan(await processReceiptImage(image));
+        } catch (e) {
+            const msg = describeImageError(e);
+            setScanNote({ tone: 'error', text: /image|heic|file/i.test(msg) ? msg : 'Receipt scanning isn’t available right now (it needs an internet connection the first time). Enter the details by hand.' });
+        } finally {
+            setScanning(false);
+            if (uploadRef.current) uploadRef.current.value = '';
+        }
+    };
+
+    return (
+        <FormShell
+            title="Expense"
+            subtitle={[d.vendor, d.date].filter(Boolean).join(' · ') || 'New expense'}
+            icon={ExpenseLogIcon}
+            aiGenerated={Boolean((d as any).isAiGenerated)}
+            isDirty={form.isDirty}
+            saving={form.saving}
+            downloading={form.downloading}
+            justSaved={form.justSaved}
+            feedback={form.feedback}
+            onDismissFeedback={() => form.setFeedback(null)}
+            onBack={onBack}
+            onSave={form.save}
+            onDownload={form.download}
+            onSaveAndDownload={form.saveAndDownload}
+            preview={{ formType: FormType.ExpenseLog, data: withTotal(d), profile, job }}
+        >
+            <FormSection
+                title="Scan a receipt"
+                description="Take or upload a photo and we’ll fill in the vendor, date, items, tax and total."
+                icon={ScanIcon}
+                actions={(
+                    <button type="button" className="btn btn-primary min-h-[40px]" onClick={() => uploadRef.current?.click()} disabled={scanning}>
+                        {scanning ? <><Spinner /> Reading receipt…</> : <><ScanIcon className="h-4 w-4" /> Scan receipt</>}
+                    </button>
+                )}
+            >
+                <input ref={uploadRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleScan(e.target.files?.[0])} />
+                {scanNote && (
+                    <p role="status" className={`rounded-xl px-4 py-3 text-sm font-medium ${scanNote.tone === 'ok' ? 'bg-success/10 text-success' : scanNote.tone === 'warn' ? 'bg-warning/10 text-warning' : 'bg-destructive/10 text-destructive'}`}>
+                        {scanNote.text}
+                    </p>
+                )}
+            </FormSection>
+
+            <FormSection title="Expense details" icon={FileTextIcon}>
+                <FieldGrid>
+                    <TextField label="Vendor / store" value={d.vendor} onChange={v => update({ vendor: v })} placeholder="e.g. Home Depot" />
+                    <DateField label="Date" value={d.date} onChange={v => update({ date: v })} />
+                    <SelectField label="Category" value={d.category} options={EXPENSE_CATEGORIES} onChange={v => update({ category: v as ExpenseLogData['category'] })} />
+                    <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Fuel – week 12" />
+                </FieldGrid>
+            </FormSection>
+
+            <FormSection title="Items" description="What you paid for." icon={DollarIcon}>
+                <LineItemsEditor
+                    items={d.lineItems || []}
+                    onChange={items => update({ lineItems: items })}
+                    enablePicker={false}
+                    enableQuickAdd={false}
+                    rateLabel="Price"
+                    descriptionPlaceholder="Item or service"
+                />
+                <div className="ml-auto w-full space-y-3 rounded-xl border border-border bg-muted/40 p-4 sm:max-w-sm">
+                    <SummaryRow label="Items" value={formatMoney(sub)} />
+                    <MoneyField label="Tax paid" value={d.tax ?? 0} onValueChange={v => update({ tax: v })} />
+                    {sub > 0 && (
+                        <Toggle checked={autoTotal} onChange={setAutoTotal} label="Calculate total from items + tax" description={autoTotal ? undefined : `Items + tax = ${formatMoney(computedTotal)}`} />
+                    )}
+                    {usingItems ? (
+                        <SummaryRow label="Total paid" value={formatMoney(shownTotal)} strong className="border-t border-border pt-3" />
+                    ) : (
+                        <MoneyField label="Total paid" value={d.amount} onValueChange={v => update({ amount: v })} hint={sub > 0 && !nearlyEqual(computedTotal, toNumber(d.amount)) ? `Differs from items + tax (${formatMoney(computedTotal)}).` : undefined} />
+                    )}
+                </div>
+                <TextAreaField label="Notes" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="What it was for, who paid…" />
+            </FormSection>
+
+            <ClientSection
+                clients={clients}
+                job={job}
+                clientId={d.clientId}
+                clientName={d.clientName}
+                addressKey={null}
+                onChange={patch => update(patch as Partial<ExpenseState>)}
+                description="Client or job this expense is billed to (optional)."
+            />
+
+            <CompanySection data={d} onChange={patch => update(patch)} onUploadImage={onUploadImage} />
+
+            <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Signature" description="Approved by (optional)." />
+
+            <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+        </FormShell>
+    );
+};
+
 export default ExpenseLogForm;

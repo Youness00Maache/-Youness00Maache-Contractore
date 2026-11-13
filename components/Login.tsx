@@ -1,216 +1,142 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/Card.tsx';
-import { Label } from './ui/Label.tsx';
-import { Input } from './ui/Input.tsx';
-import { Button } from './ui/Button.tsx';
-import { GoogleIcon, AppLogo, EyeIcon, EyeOffIcon } from './Icons.tsx';
+import React, { useEffect, useState } from 'react';
+import { AuthShell, AuthField, PasswordInput, GoogleButton, OrDivider, FormMessage, friendlyAuthError } from '../pages/components/AuthShell.tsx';
+import { rememberPendingPlan } from '../pages/routes.ts';
+import { PLANS } from '../lib/plans.ts';
 
 interface LoginProps {
   onLogin: (email: string, pass: string) => Promise<void>;
   onLoginWithGoogle: () => Promise<void>;
   onSwitchToSignup: () => void;
   onResetPassword: (email: string) => Promise<void>;
+  /** Optional: prefill the email field (e.g. after signup). */
+  initialEmail?: string;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSignup, onResetPassword }) => {
-  const [email, setEmail] = useState('');
+const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSignup, onResetPassword, initialEmail = '' }) => {
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isResettingPassword, setIsResettingPassword] = useState(false);
-  const [resetSuccess, setResetSuccess] = useState('');
+  const [mode, setMode] = useState<'login' | 'reset'>('login');
+  const [resetSent, setResetSent] = useState('');
+  const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    const pending = rememberPendingPlan(window.location.search);
+    if (pending) setPendingPlan(`${PLANS[pending.plan].name} (${pending.period})`);
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!email || !password) {
-      setError('Please enter both email and password.');
+    if (!email.trim() || !password) {
+      setError('Please enter your email and password.');
       return;
     }
     setLoading(true);
     try {
-      await onLogin(email, password);
-    } catch (err: any) {
-      setError(err.message || 'Failed to login. Please check your credentials.');
+      await onLogin(email.trim(), password);
+    } catch (err) {
+      setError(friendlyAuthError(err, 'Could not log in. Please check your details and try again.'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setResetSent('');
+    if (!email.trim()) {
+      setError('Enter the email address you signed up with.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await onResetPassword(email.trim());
+      setResetSent(`If an account exists for ${email.trim()}, a reset link is on its way. Check your inbox and spam folder.`);
+    } catch (err) {
+      setError(friendlyAuthError(err, 'Could not send the reset link. Please try again.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
     setError('');
     setLoading(true);
     try {
       await onLoginWithGoogle();
-    } catch (err: any) {
-      let errorMessage = err.message || 'Failed to login with Google.';
-      if (errorMessage.toLowerCase().includes("provider is not enabled")) {
-        errorMessage = "Google Sign-In is not enabled. Please enable the Google provider in your Supabase project's Authentication settings.";
-      }
-      setError(errorMessage);
-    } finally {
+    } catch (err) {
+      setError(friendlyAuthError(err, 'Could not sign in with Google. Please try again.'));
       setLoading(false);
     }
   };
 
+  if (mode === 'reset') {
+    return (
+      <AuthShell
+        title="Reset your password"
+        subtitle="Enter your account email and we’ll send you a link to choose a new password."
+        footer={
+          <button type="button" className="min-h-[44px] font-semibold text-primary hover:underline" onClick={() => { setMode('login'); setError(''); setResetSent(''); }}>
+            Back to log in
+          </button>
+        }
+      >
+        <form onSubmit={handleReset} className="space-y-4" noValidate>
+          <AuthField id="reset-email" label="Email">
+            <input id="reset-email" type="email" className="input h-12 text-[15px]" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} autoComplete="email" autoFocus required />
+          </AuthField>
+          {error ? <FormMessage tone="error">{error}</FormMessage> : null}
+          {resetSent ? <FormMessage tone="success">{resetSent}</FormMessage> : null}
+          <button type="submit" className="btn btn-primary h-12 w-full text-[15px]" disabled={loading}>
+            {loading ? 'Sending…' : 'Send reset link'}
+          </button>
+        </form>
+      </AuthShell>
+    );
+  }
+
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background p-4">
-      <div className="flex flex-col items-center text-center w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center">
-          <AppLogo className="w-24 h-24 mb-4 drop-shadow-xl" />
-          <h1 className="text-4xl font-bold mb-2 tracking-tight">ContractorDocs</h1>
-          <p className="text-muted-foreground">Your All-in-One Paperwork Hub</p>
-        </div>
-        {isResettingPassword ? (
-          <Card className="w-full relative">
-            <button
-              type="button"
-              onClick={() => {
-                setIsResettingPassword(false);
-                setError('');
-                setResetSuccess('');
-              }}
-              className="absolute left-4 top-4 text-muted-foreground hover:text-foreground inline-flex items-center text-sm"
-            >
-              ← Back
+    <AuthShell
+      title="Welcome back"
+      subtitle="Log in to your ContractorDocs account."
+      footer={
+        <>
+          New to ContractorDocs?{' '}
+          <button type="button" onClick={onSwitchToSignup} className="min-h-[44px] font-semibold text-primary hover:underline">Create a free account</button>
+        </>
+      }
+    >
+      {pendingPlan ? (
+        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">
+          Log in to continue with <strong>{pendingPlan}</strong>. You can finish upgrading from Settings → Billing.
+        </p>
+      ) : null}
+      <GoogleButton onClick={handleGoogle} disabled={loading}>Continue with Google</GoogleButton>
+      <OrDivider />
+      <form onSubmit={handleLogin} className="space-y-4" noValidate>
+        <AuthField id="email" label="Email">
+          <input id="email" type="email" className="input h-12 text-[15px]" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} autoComplete="email" required />
+        </AuthField>
+        <AuthField
+          id="password"
+          label="Password"
+          right={
+            <button type="button" onClick={() => { setMode('reset'); setError(''); }} className="text-sm font-medium text-primary hover:underline">
+              Forgot password?
             </button>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              setError('');
-              setResetSuccess('');
-              if (!email) {
-                setError('Please enter your email address.');
-                return;
-              }
-              setLoading(true);
-              try {
-                await onResetPassword(email);
-                setResetSuccess('Check your email for the recovery link.');
-              } catch (err: any) {
-                setError(err.message || 'Failed to send reset link.');
-              } finally {
-                setLoading(false);
-              }
-            }}>
-              <CardHeader className="pt-10">
-                <CardTitle>Reset Password</CardTitle>
-                <CardDescription>Enter your email to receive a recovery link.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-1.5 text-left">
-                  <Label htmlFor="reset-email">Email</Label>
-                  <Input
-                    id="reset-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                    autoComplete="email"
-                  />
-                </div>
-                {error && <p className="text-sm text-destructive">{error}</p>}
-                {resetSuccess && <p className="text-sm text-green-600 dark:text-green-400 font-medium">{resetSuccess}</p>}
-              </CardContent>
-              <CardFooter>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? 'Sending...' : 'Send Reset Link'}
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
-        ) : (
-          <Card className="w-full">
-            <form onSubmit={handleLogin}>
-              <CardHeader>
-                <CardTitle>Login</CardTitle>
-                <CardDescription>Enter your credentials to access your account.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-1.5 text-left">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                    autoComplete="email"
-                  />
-                </div>
-                <div className="flex flex-col space-y-1.5 text-left">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="password">Password</Label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsResettingPassword(true);
-                        setError('');
-                      }}
-                      className="text-xs text-primary hover:underline"
-                      tabIndex={-1}
-                    >
-                      Forgot Password?
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={loading}
-                      autoComplete="current-password"
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                {error && <p className="text-sm text-destructive">{error}</p>}
-              </CardContent>
-              <CardFooter className="flex flex-col gap-4">
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? 'Logging in...' : 'Login'}
-                </Button>
-
-                <div className="relative w-full">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">
-                      Or continue with
-                    </span>
-                  </div>
-                </div>
-
-                <Button variant="outline" type="button" className="w-full flex items-center gap-2" onClick={handleGoogleLogin} disabled={loading}>
-                  <GoogleIcon className="h-4 w-4" />
-                  Sign in with Google
-                </Button>
-
-                <p className="text-sm text-center text-muted-foreground">
-                  Don't have an account?{' '}
-                  <Button variant="link" type="button" onClick={onSwitchToSignup} className="p-0 h-auto">
-                    Sign up
-                  </Button>
-                </p>
-              </CardFooter>
-            </form>
-          </Card>
-        )}
-      </div>
-    </div>
+          }
+        >
+          <PasswordInput id="password" placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading} autoComplete="current-password" required />
+        </AuthField>
+        {error ? <FormMessage tone="error">{error}</FormMessage> : null}
+        <button type="submit" className="btn btn-primary h-12 w-full text-[15px]" disabled={loading}>
+          {loading ? 'Logging in…' : 'Log in'}
+        </button>
+      </form>
+    </AuthShell>
   );
 };
 

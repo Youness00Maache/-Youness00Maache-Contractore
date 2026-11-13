@@ -8,7 +8,7 @@ export const translations: Record<string, Record<string, string>> = {
     newJob: "New Job",
     yourJobs: "Your Jobs",
     noJobs: "No jobs yet",
-    clickNewJob: 'Click "+ New Job" to get started.',
+    clickNewJob: 'Create your first job to start making invoices, estimates and reports.',
     viewProject: "View Project",
     projectDocs: "Project Documents",
     edit: "Edit",
@@ -32,7 +32,7 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Active",
     completed: "Completed",
     pending: "Pending",
-    noDocsYet: "No documents yet. Click the '+' icon in the dock to create one."
+    noDocsYet: "Create an invoice, estimate, report or any other document for this job."
   },
   Spanish: {
     welcome: "Bienvenido",
@@ -341,3 +341,13 @@ export const translations: Record<string, Record<string, string>> = {
     noDocsYet: "Документов пока нет. Нажмите '+', чтобы создать."
   }
 };
+
+export type Translation = typeof translations.English;
+
+/** Language dictionary with English fallback for any missing language or key (VIEW-011: never undefined). */
+export const getTranslations = (language?: string | null): Translation => {
+  const lang = language && translations[language] ? language : 'English';
+  return { ...translations.English, ...(translations[lang] || {}) } as Translation;
+};
+
+export const SUPPORTED_LANGUAGES = Object.keys(translations);

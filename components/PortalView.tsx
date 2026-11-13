@@ -1,293 +1,439 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card.tsx';
-import { Button } from './ui/Button.tsx';
-import { AppLogo, InvoiceIcon, EstimateIcon, DailyReportIcon, ExportIcon, GlobeIcon, PenIcon, ChangeOrderIcon } from './Icons.tsx';
-import { generateInvoicePDF, generateEstimatePDF, generateDailyJobReportPDF, generateChangeOrderPDF } from '../services/pdfGenerator.ts';
-import { FormType } from '../types.ts';
-import SignaturePad from './SignaturePad.tsx';
+/**
+ * Public client portal (`/?portal=<key>`), no login. Lists the documents a contractor shared with
+ * one client, shows correct totals, lets the client view/download documents and approve, sign or
+ * decline estimates and change orders. Building blocks live in DocumentApprovalView.tsx.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase.ts';
+import { EmptyState, Modal, Notice, StatusBadge, cx, getErrorMessage } from './commsKit.tsx';
+import { documentLabel } from '../utils/clientLinks.ts';
+import { formatMoney } from '../utils/money.ts';
+import {
+    BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
+    PublicPageSkeleton, SIGNABLE_TYPES, SigningPanel, callDeclineRpcWithName, callSigningRpc, contractorName, currencyOf,
+    documentTotals, fmtDate, getDocState, isNetworkMessage, normalizeContractor, normalizeDocument, parseRpcPayload, str,
+    throwIfPayloadError,
+    type LinkProblem, type PublicContractor, type PublicDocument, type SigningOutcome,
+} from './DocumentApprovalView.tsx';
+import {
+    ChangeOrderIcon, ClockIcon, CreditCardIcon, DailyReportIcon, EstimateIcon, EyeIcon, FileTextIcon, InvoiceIcon, PenIcon,
+    WarrantyIcon, WorkOrderIcon,
+} from './Icons.tsx';
 
 interface PortalViewProps {
-    supabase: any;
+    /** Legacy prop; the shared client from lib/supabase.ts is used. */
+    supabase?: unknown;
     portalKey: string;
 }
 
-const PortalView: React.FC<PortalViewProps> = ({ supabase, portalKey }) => {
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [data, setData] = useState<any>(null);
-    const [activeTab, setActiveTab] = useState<'Invoices' | 'Estimates' | 'Reports'>('Invoices');
-    
-    // Signing State
-    const [signingDocId, setSigningDocId] = useState<string | null>(null);
-    const [signature, setSignature] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
+type TabId = 'invoices' | 'approvals' | 'other';
 
-    const fetchData = async () => {
-        try {
-            const { data: result, error: rpcError } = await supabase.rpc('get_portal_data', { p_key: portalKey });
-            
-            if (rpcError) throw rpcError;
-            if (result.error) throw new Error(result.error);
-            
-            setData(result);
-        } catch (err: any) {
-            console.error("Portal Error:", err);
-            setError(err.message || "Failed to load portal. Invalid link or expired.");
-        } finally {
-            setLoading(false);
-        }
-    };
+const TABS: Array<{ id: TabId; label: string; short: string }> = [
+    { id: 'invoices', label: 'Invoices', short: 'Invoices' },
+    { id: 'approvals', label: 'Estimates & change orders', short: 'Estimates' },
+    { id: 'other', label: 'Reports & other', short: 'Other' },
+];
 
-    useEffect(() => {
-        fetchData();
-    }, [portalKey, supabase]);
+/** Internal documents are never meant for clients (defence in depth; the RPC filters them too). */
+const INTERNAL_TYPES = new Set(['Expense Log', 'Purchase Order', 'Material Log', 'Time Sheet', 'Note', 'Receipt', 'Profit Report']);
+const PORTAL_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
-    const handleSignDocument = async () => {
-        if (!signingDocId || !signature) return;
-        setIsSubmitting(true);
-        try {
-            const { error } = await supabase.rpc('sign_document_via_portal', {
-                p_key: portalKey,
-                p_doc_id: signingDocId,
-                p_signature: signature
-            });
+const typeIcon = (type: string, className = 'h-5 w-5') => {
+    switch (type) {
+        case 'Invoice': return <InvoiceIcon className={className} />;
+        case 'Estimate': return <EstimateIcon className={className} />;
+        case 'Change Order': return <ChangeOrderIcon className={className} />;
+        case 'Daily Job Report': return <DailyReportIcon className={className} />;
+        case 'Warranty': return <WarrantyIcon className={className} />;
+        case 'Work Order': return <WorkOrderIcon className={className} />;
+        default: return <FileTextIcon className={className} />;
+    }
+};
 
-            if (error) throw error;
-            
-            alert("Document signed successfully!");
-            setSigningDocId(null);
-            setSignature('');
-            await fetchData(); // Refresh data
-        } catch (e: any) {
-            alert("Failed to sign document: " + e.message);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
+const typeTone = (type: string) =>
+    type === 'Invoice' ? 'bg-success/10 text-success'
+        : SIGNABLE_TYPES.includes(type) ? 'bg-primary/10 text-primary'
+            : 'bg-muted text-muted-foreground';
 
-    if (loading) {
+const DocBadge: React.FC<{ doc: PublicDocument }> = ({ doc }) => {
+    const state = getDocState(doc);
+    if (state === 'open') {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-50">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-muted-foreground font-medium">Loading Portal...</p>
-                </div>
-            </div>
+            <span className="badge badge-warning">
+                <ClockIcon className="h-3.5 w-3.5" /> Awaiting your signature
+            </span>
         );
     }
+    if (state === 'signed') return <StatusBadge status="Accepted" />;
+    if (state === 'declined') return <StatusBadge status="Declined" />;
+    if (state === 'expired') return <StatusBadge status="Expired" />;
+    const status = str(doc.data.status);
+    return status ? <StatusBadge status={status} /> : null;
+};
 
-    if (error || !data) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-                <Card className="max-w-md w-full text-center p-8">
-                    <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <GlobeIcon className="w-8 h-8" />
-                    </div>
-                    <h2 className="text-xl font-bold mb-2">Access Denied</h2>
-                    <p className="text-muted-foreground mb-6">{error}</p>
-                    <Button onClick={() => window.location.href = '/'}>Go Home</Button>
-                </Card>
-            </div>
-        );
-    }
+const StatCard: React.FC<{ label: string; value: string; hint?: string; icon: React.ReactNode; highlight?: boolean; className?: string }> = ({
+    label, value, hint, icon, highlight, className,
+}) => (
+    <div className={cx('card card-pad', highlight && 'border-warning/50 bg-warning/5', className)}>
+        <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+            <span className={cx('flex h-8 w-8 items-center justify-center rounded-lg', highlight ? 'bg-warning/15 text-warning' : 'bg-primary/10 text-primary')}>{icon}</span>
+        </div>
+        <p className="mt-2 text-2xl font-bold tabular-nums text-foreground">{value}</p>
+        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+    </div>
+);
 
-    const { client, contractor, documents } = data;
-    
-    const invoices = documents.filter((d: any) => d.type === FormType.Invoice);
-    const estimates = documents.filter((d: any) => d.type === FormType.Estimate || d.type === FormType.ChangeOrder);
-    const reports = documents.filter((d: any) => d.type === FormType.DailyJobReport);
-
-    const activeDocs = activeTab === 'Invoices' ? invoices : activeTab === 'Estimates' ? estimates : reports;
-
-    const handleDownload = async (doc: any) => {
-        try {
-            const commonProps = { clientName: client.name, ...doc.data } as any;
-            if (doc.type === FormType.Invoice) {
-                await generateInvoicePDF(contractor, commonProps, doc.data, doc.data.templateId || 'standard');
-            } else if (doc.type === FormType.Estimate) {
-                await generateEstimatePDF(contractor, commonProps, doc.data, doc.data.templateId || 'standard');
-            } else if (doc.type === FormType.ChangeOrder) {
-                await generateChangeOrderPDF(contractor, commonProps, doc.data, doc.data.templateId || 'standard');
-            } else if (doc.type === FormType.DailyJobReport) {
-                await generateDailyJobReportPDF(contractor, doc.data, doc.data.templateId || 'standard');
-            }
-        } catch (e) {
-            alert("Error generating PDF. Please try again.");
-        }
-    };
-
+const DocumentRow: React.FC<{
+    doc: PublicDocument;
+    contractor: PublicContractor;
+    clientName: string;
+    onView: () => void;
+    onSign: () => void;
+    onDownloadError: (msg: string) => void;
+}> = ({ doc, contractor, clientName, onView, onSign, onDownloadError }) => {
+    const d = doc.data;
+    const state = getDocState(doc);
+    const totals = documentTotals(d);
+    const label = documentLabel(doc.type, d);
+    const date = fmtDate(d.issueDate || d.date || doc.createdAt);
+    const title = str(d.title);
+    const showBalance = doc.type === 'Invoice' && totals.amountPaid > 0;
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-            {/* Header */}
-            <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-                <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        {contractor.logo_url ? (
-                            <img src={contractor.logo_url} alt="Logo" className="h-10 w-auto object-contain" />
-                        ) : (
-                            <div className="bg-primary/10 p-2 rounded-lg"><AppLogo className="w-6 h-6" /></div>
-                        )}
-                        <div>
-                            <h1 className="font-bold text-lg leading-none">{contractor.company_name || 'Contractor Portal'}</h1>
-                            <p className="text-xs text-muted-foreground mt-1">Client: {client.name}</p>
-                        </div>
-                    </div>
-                    <div className="text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full hidden sm:block">
-                        Secure Client Portal
-                    </div>
-                </div>
-            </header>
-
-            <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {/* Signing Modal */}
-                {signingDocId && (
-                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSigningDocId(null)}>
-                        <Card className="w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-                            <CardHeader>
-                                <CardTitle>Sign Document</CardTitle>
-                                <CardDescription>Please provide your signature to accept this document.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="border rounded-md overflow-hidden bg-white">
-                                    <SignaturePad onSave={setSignature} />
-                                </div>
-                            </CardContent>
-                            <CardFooter className="flex justify-end gap-2 bg-slate-50">
-                                <Button variant="ghost" onClick={() => setSigningDocId(null)}>Cancel</Button>
-                                <Button onClick={handleSignDocument} disabled={!signature || isSubmitting}>
-                                    {isSubmitting ? 'Signing...' : 'Submit Signature'}
-                                </Button>
-                            </CardFooter>
-                        </Card>
+        <article className="card card-pad flex flex-col gap-4 transition hover:shadow-card sm:flex-row sm:items-center">
+            <button type="button" onClick={onView} className="flex min-w-0 flex-1 items-start gap-3 text-left">
+                <span className={cx('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl', typeTone(doc.type))}>{typeIcon(doc.type)}</span>
+                <span className="min-w-0">
+                    <span className="block truncate font-semibold text-foreground">{label}</span>
+                    <span className="block truncate text-sm text-muted-foreground">
+                        {title && title !== label ? `${title} · ` : ''}{doc.type}{date ? ` · ${date}` : ''}
+                    </span>
+                    <span className="mt-2 flex flex-wrap gap-1.5"><DocBadge doc={doc} /></span>
+                </span>
+            </button>
+            <div className="flex flex-col gap-3 sm:items-end">
+                {totals.hasMoney && (
+                    <div className="flex items-baseline justify-between gap-3 sm:block sm:text-right">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{showBalance ? 'Balance due' : 'Total'}</p>
+                        <p className="text-lg font-bold tabular-nums text-foreground">
+                            {formatMoney(showBalance ? totals.balanceDue : totals.total, currencyOf(d))}
+                        </p>
                     </div>
                 )}
-
-                <div className="flex flex-col sm:flex-row gap-6 mb-8">
-                    {/* Welcome Card */}
-                    <Card className="flex-1 bg-gradient-to-br from-blue-600 to-indigo-700 text-white border-0 shadow-lg">
-                        <CardHeader>
-                            <CardTitle className="text-2xl">Welcome back, {client.name.split(' ')[0]}</CardTitle>
-                            <CardDescription className="text-blue-100">
-                                View your documents, track project status, and download reports anytime.
-                            </CardDescription>
-                        </CardHeader>
-                    </Card>
-                    
-                    {/* Stats Card */}
-                    <Card className="sm:w-64 border-blue-100 bg-white shadow-sm">
-                        <CardHeader className="pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Outstanding</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold text-slate-900">
-                                ${invoices
-                                    .filter((i: any) => i.data.status !== 'Paid')
-                                    .reduce((acc: number, i: any) => {
-                                        const items = i.data.lineItems || [];
-                                        const sub = items.reduce((s: number, item: any) => s + (item.quantity * item.rate), 0);
-                                        return acc + sub;
-                                    }, 0).toFixed(2)}
-                            </div>
-                            <p className="text-xs text-slate-500 mt-1">Unpaid Invoice Balance</p>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Navigation Tabs */}
-                <div className="flex space-x-1 rounded-xl bg-slate-200/50 p-1 mb-6 max-w-md">
-                    {(['Invoices', 'Estimates', 'Reports'] as const).map((tab) => (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 transition-all
-                                ${activeTab === tab 
-                                    ? 'bg-white text-blue-700 shadow' 
-                                    : 'text-slate-600 hover:bg-white/[0.12] hover:text-blue-600'
-                                }`}
-                        >
-                            {tab}
+                <div className="flex gap-2">
+                    {state === 'open' && (
+                        <button type="button" className="btn btn-primary min-h-[40px] flex-1 sm:flex-none" onClick={onSign}>
+                            <PenIcon className="h-4 w-4" /> Review &amp; sign
                         </button>
-                    ))}
+                    )}
+                    <button type="button" className="btn btn-outline min-h-[40px] flex-1 sm:flex-none" onClick={onView}>
+                        <EyeIcon className="h-4 w-4" /> View
+                    </button>
+                    <DownloadPdfButton doc={doc} contractor={contractor} clientName={clientName} iconOnly onError={onDownloadError} />
+                </div>
+                {state === 'expired' && (
+                    <p className="text-xs text-muted-foreground sm:text-right">Expired. Contact {contractorName(contractor)} for an updated version.</p>
+                )}
+            </div>
+        </article>
+    );
+};
+
+const PROBLEM_COPY: Record<LinkProblem, { tone: 'success' | 'danger' | 'warning'; text: (noun: string) => string }> = {
+    signed: { tone: 'success', text: (n) => `This ${n} has already been signed.` },
+    declined: { tone: 'danger', text: (n) => `This ${n} has already been declined.` },
+    expired: { tone: 'warning', text: (n) => `This ${n} has expired and can no longer be signed online.` },
+    invalid: { tone: 'danger', text: () => 'This document is no longer available in your portal.' },
+};
+
+const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
+    const key = str(portalKey);
+    const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+    const [loadError, setLoadError] = useState('');
+    const [clientName, setClientName] = useState('');
+    const [contractor, setContractor] = useState<PublicContractor | null>(null);
+    const [documents, setDocuments] = useState<PublicDocument[]>([]);
+    const [tab, setTab] = useState<TabId>('invoices');
+    const [tabTouched, setTabTouched] = useState(false);
+    const [openDoc, setOpenDoc] = useState<{ id: string; signing: boolean; session: number } | null>(null);
+    const [outcomes, setOutcomes] = useState<Record<string, SigningOutcome>>({});
+    const [problems, setProblems] = useState<Record<string, LinkProblem>>({});
+    const [modalBusy, setModalBusy] = useState(false);
+    const [pageError, setPageError] = useState('');
+    const sessionRef = useRef(0);
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    const load = useCallback(async (silent = false) => {
+        if (!PORTAL_KEY_RE.test(key)) {
+            setLoadError('This portal link is incomplete. Please open the full link from your email or message.');
+            setStatus('error');
+            return;
+        }
+        if (!silent) setStatus('loading');
+        try {
+            const { data, error } = await supabase.rpc('get_portal_data', { p_key: key });
+            if (error) throw new Error(error.message);
+            throwIfPayloadError(data);
+            const payload = parseRpcPayload(data);
+            const docs = (Array.isArray(payload.documents) ? payload.documents : [])
+                .map(normalizeDocument)
+                .filter((d): d is PublicDocument => !!d)
+                .filter((d) => !INTERNAL_TYPES.has(d.type) && str(d.data.status) !== 'Draft')
+                .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+            setDocuments(docs);
+            setClientName(str(parseRpcPayload(payload.client).name));
+            setContractor(normalizeContractor(payload.contractor));
+            setStatus('ready');
+        } catch (e) {
+            if (silent) return;
+            const msg = getErrorMessage(e);
+            setLoadError(isNetworkMessage(msg)
+                ? msg
+                : 'This portal link is no longer valid. It may have been replaced with a new link. Please ask your contractor to send you the latest one.');
+            setStatus('error');
+        }
+    }, [key]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const groups = useMemo(() => {
+        const invoices = documents.filter((d) => d.type === 'Invoice');
+        const approvals = documents.filter((d) => SIGNABLE_TYPES.includes(d.type));
+        const other = documents.filter((d) => d.type !== 'Invoice' && !SIGNABLE_TYPES.includes(d.type));
+        const awaiting = approvals.filter((d) => getDocState(d) === 'open');
+        const unpaid = invoices.filter((d) => ['Sent', 'Overdue'].includes(str(d.data.status)));
+        const outstanding = unpaid.reduce((sum, d) => sum + documentTotals(d.data).balanceDue, 0);
+        const currency = invoices[0] ? currencyOf(invoices[0].data) : 'USD';
+        return { invoices, approvals, other, awaiting, unpaid, outstanding, currency };
+    }, [documents]);
+
+    // Pick the most useful tab on first load (documents waiting for a signature first).
+    useEffect(() => {
+        if (status !== 'ready' || tabTouched) return;
+        const { awaiting, invoices, approvals, other } = groups;
+        setTab(awaiting.length ? 'approvals' : invoices.length ? 'invoices' : approvals.length ? 'approvals' : other.length ? 'other' : 'invoices');
+    }, [status, tabTouched, groups]);
+
+    // Bring the signing panel into view when it opens.
+    useEffect(() => {
+        if (!openDoc?.signing) return;
+        const t = window.setTimeout(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+        return () => window.clearTimeout(t);
+    }, [openDoc?.signing, openDoc?.session]);
+
+    const openDocument = (id: string, signing: boolean) => {
+        sessionRef.current += 1;
+        setOpenDoc({ id, signing, session: sessionRef.current });
+    };
+    const closeModal = () => {
+        if (modalBusy) return;
+        setOpenDoc(null);
+    };
+    const selectTab = (id: TabId) => {
+        setTab(id);
+        setTabTouched(true);
+    };
+
+    if (status === 'loading') return <PublicPageSkeleton />;
+    if (status === 'error' || !contractor) {
+        return (
+            <LinkErrorPage
+                title={isNetworkMessage(loadError) ? "We couldn't load your portal" : 'This link is not valid'}
+                message={loadError || 'This portal link is no longer valid.'}
+                onRetry={isNetworkMessage(loadError) ? () => load() : undefined}
+            />
+        );
+    }
+
+    const company = contractorName(contractor);
+    const firstName = clientName.split(/\s+/)[0] || '';
+    const counts: Record<TabId, number> = { invoices: groups.invoices.length, approvals: groups.approvals.length, other: groups.other.length };
+    const activeDocs = tab === 'invoices' ? groups.invoices : tab === 'approvals' ? groups.approvals : groups.other;
+
+    const current = openDoc ? documents.find((d) => d.id === openDoc.id) ?? null : null;
+    const currentOutcome = current ? outcomes[current.id] : undefined;
+    const currentProblem = current ? problems[current.id] : undefined;
+    const currentSignable = !!current && getDocState(current) === 'open' && !currentOutcome && !currentProblem;
+
+    return (
+        <div className="flex min-h-screen flex-col bg-background text-foreground">
+            <BrandHeader contractor={contractor} />
+
+            <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+                <section className="animate-fade-in">
+                    <p className="text-sm font-semibold text-primary">Client portal</p>
+                    <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Hello{firstName ? `, ${firstName}` : ''}</h1>
+                    <p className="mt-1 max-w-2xl text-muted-foreground">
+                        Your documents from {company}, all in one place. View, download and sign them anytime.
+                    </p>
+                </section>
+
+                <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <StatCard
+                        className="col-span-2 sm:col-span-1"
+                        label="Outstanding balance"
+                        value={formatMoney(groups.outstanding, groups.currency)}
+                        hint={groups.unpaid.length ? `${groups.unpaid.length} unpaid invoice${groups.unpaid.length === 1 ? '' : 's'}` : 'Nothing due right now'}
+                        icon={<CreditCardIcon className="h-4 w-4" />}
+                    />
+                    <StatCard
+                        label="To sign"
+                        value={String(groups.awaiting.length)}
+                        hint={groups.awaiting.length ? 'Waiting for you' : 'All caught up'}
+                        icon={<PenIcon className="h-4 w-4" />}
+                        highlight={groups.awaiting.length > 0}
+                    />
+                    <StatCard
+                        label="Documents"
+                        value={String(documents.length)}
+                        hint={`Shared by ${company}`}
+                        icon={<FileTextIcon className="h-4 w-4" />}
+                    />
                 </div>
 
-                {/* Document List */}
-                <div className="space-y-4">
-                    {activeDocs.length === 0 ? (
-                        <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
-                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
-                                {activeTab === 'Invoices' ? <InvoiceIcon className="w-6 h-6" /> : activeTab === 'Estimates' ? <EstimateIcon className="w-6 h-6" /> : <DailyReportIcon className="w-6 h-6" />}
-                            </div>
-                            <h3 className="text-lg font-medium text-slate-900">No {activeTab} Found</h3>
-                            <p className="text-slate-500">Documents will appear here once shared.</p>
-                        </div>
-                    ) : (
-                        <div className="grid gap-4">
-                            {activeDocs.map((doc: any) => {
-                                const d = doc.data;
-                                const date = new Date(doc.created_at).toLocaleDateString();
-                                const title = d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.changeOrderNumber || 'Untitled Document';
-                                const amount = d.lineItems ? d.lineItems.reduce((acc: number, i: any) => acc + (i.quantity * i.rate), 0) : 0;
-                                
-                                // Check if document supports signing
-                                const canSign = (doc.type === FormType.Estimate || doc.type === FormType.ChangeOrder) && d.status !== 'Accepted';
+                {groups.awaiting.length > 0 && tab !== 'approvals' && (
+                    <Notice
+                        tone="warning"
+                        className="mt-4"
+                        title={`${groups.awaiting.length} document${groups.awaiting.length === 1 ? ' is' : 's are'} waiting for your signature`}
+                        action={<button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={() => selectTab('approvals')}>Review now</button>}
+                    />
+                )}
 
+                {pageError && <Notice tone="danger" className="mt-4" onClose={() => setPageError('')}>{pageError}</Notice>}
+
+                {documents.length === 0 ? (
+                    <EmptyState
+                        className="mt-8"
+                        icon={<FileTextIcon className="h-6 w-6" />}
+                        title="No documents yet"
+                        description={`When ${company} shares invoices, estimates or reports with you, they'll show up here.`}
+                    />
+                ) : (
+                    <>
+                        <div role="tablist" aria-label="Document types" className="mt-8 grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1">
+                            {TABS.map((t) => {
+                                const active = tab === t.id;
                                 return (
-                                    <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:shadow-md transition-shadow">
-                                        <div className="flex items-start gap-4">
-                                            <div className={`p-3 rounded-lg shrink-0 ${
-                                                activeTab === 'Invoices' ? 'bg-green-100 text-green-700' : 
-                                                activeTab === 'Estimates' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                                            }`}>
-                                                {doc.type === FormType.ChangeOrder ? <ChangeOrderIcon className="w-6 h-6" /> :
-                                                 activeTab === 'Invoices' ? <InvoiceIcon className="w-6 h-6" /> : 
-                                                 activeTab === 'Estimates' ? <EstimateIcon className="w-6 h-6" /> : <DailyReportIcon className="w-6 h-6" />}
-                                            </div>
-                                            <div>
-                                                <h3 className="font-semibold text-slate-900">{title}</h3>
-                                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 mt-1">
-                                                    <span>{date}</span>
-                                                    {d.status && (
-                                                        <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase
-                                                            ${d.status === 'Paid' || d.status === 'Accepted' ? 'bg-green-100 text-green-700' : 
-                                                              d.status === 'Overdue' || d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 
-                                                              'bg-slate-100 text-slate-700'}`
-                                                        }>
-                                                            {d.status}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto mt-2 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                                            {amount > 0 && (
-                                                <div className="text-right">
-                                                    <p className="text-xs text-slate-500 font-medium uppercase">Total</p>
-                                                    <p className="text-lg font-bold text-slate-900">${amount.toFixed(2)}</p>
-                                                </div>
-                                            )}
-                                            <div className="flex gap-2">
-                                                {canSign && (
-                                                    <Button size="sm" onClick={() => setSigningDocId(doc.id)} className="bg-green-600 hover:bg-green-700 text-white">
-                                                        <PenIcon className="w-4 h-4 mr-2" /> Review & Sign
-                                                    </Button>
-                                                )}
-                                                <Button variant="outline" size="sm" onClick={() => handleDownload(doc)}>
-                                                    <ExportIcon className="w-4 h-4 mr-2" /> Download
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <button
+                                        key={t.id}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={active}
+                                        onClick={() => selectTab(t.id)}
+                                        className={cx(
+                                            'flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-semibold transition sm:text-sm',
+                                            active ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
+                                        )}
+                                    >
+                                        <span className="truncate sm:hidden">{t.short}</span>
+                                        <span className="hidden truncate sm:inline">{t.label}</span>
+                                        <span className={cx('rounded-full px-1.5 text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-background/60')}>
+                                            {counts[t.id]}
+                                        </span>
+                                    </button>
                                 );
                             })}
                         </div>
-                    )}
-                </div>
+
+                        <div className="mt-4 space-y-3" role="tabpanel">
+                            {activeDocs.length === 0 ? (
+                                <EmptyState
+                                    icon={tab === 'invoices' ? <InvoiceIcon className="h-6 w-6" /> : tab === 'approvals' ? <EstimateIcon className="h-6 w-6" /> : <DailyReportIcon className="h-6 w-6" />}
+                                    title={tab === 'invoices' ? 'No invoices yet' : tab === 'approvals' ? 'No estimates or change orders' : 'No reports yet'}
+                                    description={`Documents ${company} shares with you will appear here.`}
+                                />
+                            ) : (
+                                activeDocs.map((doc) => (
+                                    <DocumentRow
+                                        key={doc.id}
+                                        doc={doc}
+                                        contractor={contractor}
+                                        clientName={clientName}
+                                        onView={() => openDocument(doc.id, false)}
+                                        onSign={() => openDocument(doc.id, true)}
+                                        onDownloadError={setPageError}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+
+                <section className="card card-pad mt-8">
+                    <h2 className="font-semibold">Questions? Contact {company}</h2>
+                    <p className="mb-2 text-sm text-muted-foreground">They'll be happy to help with any of these documents.</p>
+                    <ContractorContact contractor={contractor} />
+                </section>
             </main>
-            
-            <footer className="text-center py-8 text-xs text-slate-400">
-                Powered by ContractorDocs Portal
-            </footer>
+
+            <PublicFooter />
+
+            <Modal
+                open={!!current}
+                onClose={closeModal}
+                locked={modalBusy}
+                size="xl"
+                title={current ? documentLabel(current.type, current.data) : ''}
+                description={current ? `${current.type} from ${company}` : undefined}
+            >
+                {current && (
+                    <div className="space-y-6 pb-2">
+                        {currentOutcome && <CompletionCard outcome={currentOutcome} doc={current} contractor={contractor} clientName={clientName} />}
+                        {currentProblem && (
+                            <Notice tone={PROBLEM_COPY[currentProblem].tone}>
+                                {PROBLEM_COPY[currentProblem].text(current.type.toLowerCase())}
+                                {currentProblem !== 'signed' && ` Contact ${company} if you have questions.`}
+                            </Notice>
+                        )}
+                        <DocumentDetail doc={current} contractor={contractor} clientName={clientName} />
+                        <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+                            <DownloadPdfButton doc={current} contractor={contractor} clientName={clientName} />
+                        </div>
+                        {currentSignable && openDoc && (openDoc.signing ? (
+                            <div ref={panelRef} className="scroll-mt-4">
+                                <SigningPanel
+                                    key={`${current.id}-${openDoc.session}`}
+                                    doc={current}
+                                    contractor={contractor}
+                                    defaultName={clientName}
+                                    onSign={async (name, signature) => {
+                                        await callSigningRpc('sign_document_via_portal', { p_key: key, p_doc_id: current.id, p_signature: signature }, name);
+                                    }}
+                                    onDecline={(reason, name) => callDeclineRpcWithName(
+                                        'decline_document_via_portal',
+                                        { p_key: key, p_doc_id: current.id, p_reason: reason || null },
+                                        name,
+                                    )}
+                                    onComplete={(o) => {
+                                        setOutcomes((prev) => ({ ...prev, [current.id]: o }));
+                                        load(true);
+                                    }}
+                                    onProblem={(p) => {
+                                        setProblems((prev) => ({ ...prev, [current.id]: p }));
+                                        load(true);
+                                    }}
+                                    onBusyChange={setModalBusy}
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p className="font-semibold text-foreground">Ready to approve?</p>
+                                    <p className="text-sm text-muted-foreground">Sign online in under a minute, or decline with a note.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary min-h-[44px]"
+                                    onClick={() => setOpenDoc((o) => (o ? { ...o, signing: true } : o))}
+                                >
+                                    <PenIcon className="h-4 w-4" /> Review &amp; sign
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };

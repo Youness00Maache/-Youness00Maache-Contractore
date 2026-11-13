@@ -1,141 +1,241 @@
-
-import React from 'react';
-import { StarIcon, CheckCircleIcon, XCircleIcon } from './Icons.tsx';
+import React, { useEffect, useState } from 'react';
+import { CheckIcon, StarIcon, SparklesIcon, XCircleIcon, LockIcon } from './Icons.tsx';
+import { PLANS, isPaidTier, normalizeTier, type BillingPeriod, type PlanTier } from '../lib/plans.ts';
+import { startCheckout, getBillingPortalUrl } from '../lib/billing.ts';
+import { supabase } from '../lib/supabase.ts';
 
 interface UpgradeModalProps {
     isOpen: boolean;
     onClose: () => void;
-    featureName: string;
+    /** Why the modal opened (e.g. "You've used 6 of 6 jobs this month."). Optional. */
+    featureName?: string;
+    /** Legacy prop, kept for compatibility. Access is granted only by the billing webhook. */
     onUpgrade?: () => void;
+    /** Signed-in user id. If omitted the modal reads it from the current session. */
     userId?: string;
+    /** The user's current plan (free | premium | ai, legacy 'Basic' | 'Premium' accepted). */
+    currentTier?: PlanTier | string | null;
 }
 
-const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureName, onUpgrade, userId }) => {
-    React.useEffect(() => {
-        if (isOpen && (window as any).paypal) {
-            const containerId = 'paypal-button-container-P-65E58669J9805670ENFP23EA';
-            const container = document.getElementById(containerId);
-            if (container) {
-                container.innerHTML = '';
-                (window as any).paypal.Buttons({
-                    style: { shape: 'rect', color: 'black', layout: 'vertical', label: 'subscribe' },
-                    createSubscription: function (data: any, actions: any) {
-                        return actions.subscription.create({
-                            plan_id: 'P-65E58669J9805670ENFP23EA',
-                            custom_id: userId // Pass User ID for Webhook tracking
-                        });
-                    },
-                    onApprove: function (data: any, actions: any) {
-                        if (onUpgrade) onUpgrade();
-                        onClose();
-                    }
-                }).render('#' + containerId);
-            }
-        }
-    }, [isOpen]);
+const ORDER: PlanTier[] = ['free', 'premium', 'ai'];
+
+/** Yearly discount vs paying monthly, rounded (e.g. 17). */
+const yearlySavingsPercent = (() => {
+    const p = PLANS.premium;
+    if (!p.monthlyPrice) return 0;
+    return Math.round((1 - p.yearlyPrice / (p.monthlyPrice * 12)) * 100);
+})();
+
+const formatPrice = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`);
+
+const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureName, userId, currentTier }) => {
+    const [period, setPeriod] = useState<BillingPeriod>('YEARLY');
+    const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [resolvedTier, setResolvedTier] = useState<PlanTier>(normalizeTier(currentTier));
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setError(null);
+        setBusyTier(null);
+        setResolvedTier(normalizeTier(currentTier === 'Premium' ? 'premium' : currentTier));
+    }, [isOpen, currentTier]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busyTier) onClose(); };
+        window.addEventListener('keydown', onKey);
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            document.body.style.overflow = prevOverflow;
+        };
+    }, [isOpen, busyTier, onClose]);
 
     if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-[2px] flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200" onClick={onClose}>
-            <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl relative animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+    const isPaid = isPaidTier(resolvedTier);
 
-                {/* Close Button */}
-                <button onClick={onClose} className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors z-20 bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full">
-                    <XCircleIcon className="w-6 h-6" />
+    const handleUpgrade = async (tier: Exclude<PlanTier, 'free'>) => {
+        setError(null);
+        setBusyTier(tier);
+        try {
+            let uid = userId;
+            if (!uid) {
+                const { data } = await supabase.auth.getSession();
+                uid = data.session?.user?.id;
+            }
+            if (!uid) throw new Error('Please sign in again to upgrade.');
+            const { url } = await startCheckout(tier, period, uid);
+            window.location.assign(url);
+        } catch (err: any) {
+            setError(err?.message || 'Could not start checkout. Please try again.');
+            setBusyTier(null);
+        }
+    };
+
+    const handleManageBilling = async (tier: PlanTier) => {
+        setError(null);
+        setBusyTier(tier);
+        try {
+            const url = await getBillingPortalUrl();
+            if (!url) throw new Error('The billing portal is not available right now. Please contact support to change your plan.');
+            window.location.assign(url);
+        } catch (err: any) {
+            setError(err?.message || 'Could not open the billing portal.');
+            setBusyTier(null);
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 backdrop-blur-sm animate-fade-in sm:items-center sm:p-4"
+            onClick={() => { if (!busyTier) onClose(); }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upgrade-title"
+        >
+            <div
+                className="relative flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-card text-card-foreground shadow-lift animate-zoom-in sm:max-w-5xl sm:rounded-3xl"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <button
+                    type="button"
+                    onClick={onClose}
+                    disabled={!!busyTier}
+                    className="absolute right-3 top-3 z-10 rounded-xl p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+                    aria-label="Close"
+                >
+                    <XCircleIcon className="h-6 w-6" />
                 </button>
 
-                <div className="p-8 pb-4 text-center">
-                    <div className="w-14 h-14 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg rotate-3">
-                        <StarIcon className="w-8 h-8 text-white fill-current" />
+                <div className="overflow-y-auto px-4 pb-6 pt-8 sm:px-8">
+                    <div className="mx-auto max-w-2xl text-center">
+                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                            <StarIcon className="h-6 w-6" />
+                        </div>
+                        <h2 id="upgrade-title" className="text-2xl font-bold tracking-tight sm:text-3xl">
+                            {isPaid ? 'Your plan' : 'Upgrade ContractorDocs'}
+                        </h2>
+                        {featureName ? (
+                            <p className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full bg-warning/15 px-3 py-1 text-sm font-medium text-foreground">
+                                <LockIcon className="h-4 w-4 text-warning" /> {featureName}
+                            </p>
+                        ) : (
+                            <p className="mt-2 text-sm text-muted-foreground">Unlimited jobs, clients and documents. Cancel anytime.</p>
+                        )}
+
+                        <div className="mt-6 inline-flex items-center rounded-full border border-border bg-muted p-1" role="radiogroup" aria-label="Billing period">
+                            {(['MONTHLY', 'YEARLY'] as BillingPeriod[]).map(p => (
+                                <button
+                                    key={p}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={period === p}
+                                    onClick={() => setPeriod(p)}
+                                    className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${period === p ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                                >
+                                    {p === 'MONTHLY' ? 'Monthly' : 'Yearly'}
+                                    {p === 'YEARLY' && yearlySavingsPercent > 0 && (
+                                        <span className="badge badge-success">Save ~{yearlySavingsPercent}%</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
-                    <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-white dark:to-zinc-400 mb-2">
-                        Choose Your Plan
-                    </h2>
-                    <p className="text-zinc-500 dark:text-zinc-400 text-lg leading-relaxed">
-                        Elevate your business with professional tools.
+                    <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                        {ORDER.map(tier => {
+                            const plan = PLANS[tier];
+                            const isCurrent = tier === resolvedTier;
+                            const price = period === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+                            const perMonth = period === 'YEARLY' && plan.yearlyPrice ? plan.yearlyPrice / 12 : null;
+                            const highlighted = tier === 'premium' && !isPaid;
+                            const busy = busyTier === tier;
+
+                            let button: React.ReactNode;
+                            if (tier === 'free') {
+                                button = (
+                                    <button type="button" className="btn btn-outline w-full" disabled>
+                                        {isCurrent ? 'Current plan' : 'Free forever'}
+                                    </button>
+                                );
+                            } else if (isCurrent) {
+                                button = (
+                                    <button type="button" className="btn btn-outline w-full" disabled={!!busyTier} onClick={() => handleManageBilling(tier)}>
+                                        {busy ? 'Opening...' : 'Current plan · Manage'}
+                                    </button>
+                                );
+                            } else if (isPaid) {
+                                button = (
+                                    <button type="button" className="btn btn-secondary w-full" disabled={!!busyTier} onClick={() => handleManageBilling(tier)}>
+                                        {busy ? 'Opening...' : 'Change plan'}
+                                    </button>
+                                );
+                            } else {
+                                button = (
+                                    <button
+                                        type="button"
+                                        className={`btn w-full ${highlighted ? 'btn-primary' : 'btn-outline border-primary/40 text-primary'}`}
+                                        disabled={!!busyTier}
+                                        onClick={() => handleUpgrade(tier)}
+                                    >
+                                        {busy && <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
+                                        {busy ? 'Redirecting to checkout...' : `Upgrade to ${plan.name}`}
+                                    </button>
+                                );
+                            }
+
+                            return (
+                                <div
+                                    key={tier}
+                                    className={`relative flex flex-col rounded-2xl border p-5 ${highlighted ? 'border-primary bg-primary/[0.04] shadow-card' : 'border-border bg-card'} ${isCurrent ? 'ring-2 ring-primary/30' : ''}`}
+                                >
+                                    {highlighted && (
+                                        <span className="badge badge-primary absolute -top-3 left-5 bg-primary text-primary-foreground">Most popular</span>
+                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {tier === 'ai' ? <SparklesIcon className="h-5 w-5 text-primary" /> : tier === 'premium' ? <StarIcon className="h-5 w-5 text-primary" /> : null}
+                                        <h3 className="text-lg font-bold">{plan.name}</h3>
+                                        {isCurrent && <span className="badge badge-success ml-auto">Current</span>}
+                                    </div>
+                                    <p className="mt-1 text-sm text-muted-foreground">{plan.tagline}</p>
+                                    <div className="mt-4 flex items-baseline gap-1">
+                                        <span className="text-3xl font-bold tracking-tight">{formatPrice(price)}</span>
+                                        <span className="text-sm text-muted-foreground">{tier === 'free' ? '' : period === 'YEARLY' ? '/year' : '/month'}</span>
+                                    </div>
+                                    <p className="mt-1 h-4 text-xs text-muted-foreground">
+                                        {perMonth ? `About ${formatPrice(Math.round(perMonth * 100) / 100)}/month, billed yearly` : tier === 'free' ? 'No credit card needed' : 'Billed monthly'}
+                                    </p>
+                                    <ul className="mt-4 flex-1 space-y-2.5">
+                                        {plan.features.map(f => (
+                                            <li key={f} className="flex items-start gap-2 text-sm text-foreground/90">
+                                                <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                                                <span>{f}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div className="mt-5">{button}</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {error && (
+                        <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                            {error}
+                        </p>
+                    )}
+
+                    <p className="mt-5 text-center text-xs text-muted-foreground">
+                        Secure checkout by Kelviq. Prices in USD; taxes may apply. Cancel anytime from Settings → Plan &amp; billing.
                     </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-8 pt-4">
-                    {/* Premium Plan */}
-                    <div className="flex flex-col p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-                        <h3 className="text-xl font-bold mb-1 text-zinc-900 dark:text-white">Premium Plan</h3>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">Professional infrastructure</p>
-
-                        <div className="flex items-baseline gap-1 mb-6">
-                            <span className="text-3xl font-bold text-zinc-900 dark:text-white">$5</span>
-                            <span className="text-zinc-500 text-sm">/month</span>
-                        </div>
-
-                        <div className="flex-1 space-y-3 mb-8">
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>Unlimited Active Jobs</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>Unlimited Documents</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>Unlimited Email Sending</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>Client Portal Access</span>
-                            </div>
-                        </div>
-
-                        <div id="paypal-button-container-P-65E58669J9805670ENFP23EA" className="w-full relative z-10 min-h-[55px]"></div>
-                    </div>
-
-                    {/* AI Plan */}
-                    <div className="flex flex-col p-6 rounded-2xl border-2 border-primary bg-primary/5 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 flex items-center">
-                            <div className="bg-zinc-800 text-white text-[9px] font-bold px-3 py-1.5 rounded-bl-lg uppercase tracking-tighter">
-                                Coming Soon
-                            </div>
-                        </div>
-
-                        <h3 className="text-xl font-bold mb-1 text-zinc-900 dark:text-white">AI Plan</h3>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">Unlock Premium AI</p>
-
-                        <div className="flex items-baseline gap-1 mb-6">
-                            <span className="text-3xl font-bold text-zinc-900 dark:text-white">$10</span>
-                            <span className="text-zinc-500 text-sm">/month</span>
-                        </div>
-
-                        <div className="flex-1 space-y-3 mb-8">
-                            <div className="flex items-center gap-2 text-sm font-bold text-primary">
-                                <CheckCircleIcon className="w-4 h-4 shrink-0" />
-                                <span>Includes Premium Plan</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>200 AI Generation Credits</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>AI Job Descriptions</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
-                                <span>Smart Note Summaries</span>
-                            </div>
-                        </div>
-
-                        <button className="w-full py-3 px-4 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl font-bold hover:opacity-90 transition-opacity">
-                            Get Started with AI
+                    <div className="mt-3 text-center">
+                        <button type="button" onClick={onClose} disabled={!!busyTier} className="text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-40">
+                            Maybe later
                         </button>
                     </div>
-                </div>
-
-                <div className="px-8 pb-8 text-center">
-                    <button onClick={onClose} className="text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">
-                        Maybe Later
-                    </button>
                 </div>
             </div>
         </div>

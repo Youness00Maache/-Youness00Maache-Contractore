@@ -1,135 +1,131 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SupabaseClient } from '@supabase/supabase-js';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/Card.tsx';
-import { GoogleIcon } from './Icons.tsx';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { CheckCircleIcon, GoogleIcon, XCircleIcon, AlertTriangleIcon } from './Icons.tsx';
+import { Spinner } from './commsKit.tsx';
+import { consumeStoredReturnTo, exchangeGmailCode, GmailError, startGmailConnect } from '../services/gmailService.ts';
 
 interface GmailCallbackProps {
-    supabase: SupabaseClient;
+    /** Legacy prop, unused (the shared client from lib/supabase.ts is used). */
+    supabase?: SupabaseClient;
 }
 
-const GmailCallback: React.FC<GmailCallbackProps> = ({ supabase }) => {
-    const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-    const [message, setMessage] = useState('Exchanging authorization code...');
-    const navigate = useNavigate();
+type Status = 'loading' | 'success' | 'cancelled' | 'error';
 
-    // React 18 Strict Mode causes useEffect to fire twice. 
-    // We MUST use a ref to prevent exchanging the code twice (which causes an invalid_grant error)
-    const hasExchanged = React.useRef(false);
+const safePath = (p: string | null | undefined) =>
+    p && p.startsWith('/') && !p.startsWith('//') && !p.startsWith('/gmail-callback') ? p : '/communication';
+
+const describeReturn = (path: string) => {
+    if (path.startsWith('/communication')) return 'Communication';
+    if (path.startsWith('/settings')) return 'Settings';
+    if (path.startsWith('/dashboard') || path === '/') return 'Dashboard';
+    return 'the app';
+};
+
+const GmailCallback: React.FC<GmailCallbackProps> = () => {
+    const navigate = useNavigate();
+    const [status, setStatus] = useState<Status>('loading');
+    const [title, setTitle] = useState('Connecting your Gmail…');
+    const [message, setMessage] = useState('This takes a few seconds.');
+    const [canRetry, setCanRetry] = useState(false);
+    const [retrying, setRetrying] = useState(false);
+    const [returnTo, setReturnTo] = useState('/communication');
+    // React StrictMode runs effects twice; an authorization code can only be exchanged once.
+    const started = useRef(false);
 
     useEffect(() => {
-        const exchangeCode = async () => {
-            if (hasExchanged.current) return;
-            hasExchanged.current = true;
+        if (started.current) return;
+        started.current = true;
 
-            const params = new URLSearchParams(window.location.search);
-            const code = params.get('code');
-            const error = params.get('error');
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+        const oauthError = params.get('error');
+        const back = safePath(consumeStoredReturnTo());
+        setReturnTo(back);
+        // Remove the one-time code from the address bar and history right away (COMM-038).
+        window.history.replaceState({}, document.title, '/gmail-callback');
 
-            if (error) {
+        if (oauthError) {
+            if (oauthError === 'access_denied') {
+                setStatus('cancelled');
+                setTitle('Connection cancelled');
+                setMessage('You cancelled the Google screen, so nothing was changed. You can connect Gmail any time.');
+            } else {
                 setStatus('error');
-                setMessage(`OAuth Error: ${error}`);
-                return;
+                setTitle('Google could not connect');
+                setMessage('Google returned an error. Please try again.');
             }
+            setCanRetry(true);
+            return;
+        }
+        if (!code || !state) {
+            setStatus('error');
+            setTitle('Nothing to connect');
+            setMessage('This page opens automatically after you approve Gmail access. Start again from Communication.');
+            setCanRetry(true);
+            return;
+        }
 
-            if (!code) {
-                setStatus('error');
-                setMessage('No authorization code found in URL.');
-                return;
-            }
-
+        (async () => {
             try {
-                // 1. Get the currently logged-in user (Account A)
-                const { data: { user }, error: userError } = await supabase.auth.getUser();
-                if (userError || !user) {
-                    throw new Error('You must be logged in to link a Gmail account.');
-                }
-
-                // 2. Call the Supabase Edge Function to exchange code securely
-                // This keeps the Client Secret on the server side
-                const { data, error: functionError } = await supabase.functions.invoke('gmail-auth', {
-                    body: {
-                        action: 'exchange',
-                        code: code,
-                        redirect_uri: `${window.location.origin}/gmail-callback`
-                    }
-                });
-
-                if (functionError) throw functionError;
-                if (data.error) throw new Error(data.error);
-
+                const res = await exchangeGmailCode(code, state);
+                const destination = safePath(res.return_to || back);
+                setReturnTo(destination);
                 setStatus('success');
-                setMessage(`Successfully linked ${data.email || 'Gmail account'}! Redirecting...`);
-
-                // Keep the token in memory/state for immediate use if needed, 
-                // but it's now securely stored in user_gmail_accounts table.
-
-                setTimeout(() => {
-                    navigate('/communication');
-                }, 2000);
-
-            } catch (err: any) {
-                console.error('Gmail exchange failed:', err);
+                setTitle('Gmail connected');
+                setMessage(`Emails will be sent from ${res.email}. Taking you back to ${describeReturn(destination)}…`);
+                window.setTimeout(() => navigate(destination, { replace: true }), 1600);
+            } catch (e) {
+                const code = e instanceof GmailError ? e.code : '';
                 setStatus('error');
-
-                // Try to extract detailed error message from Supabase Function response
-                let errorMsg = 'Failed to exchange authorization code.';
-                if (err.context && typeof err.context.json === 'function') {
-                    try {
-                        const body = await err.context.json();
-                        errorMsg = body.error || body.message || errorMsg;
-                    } catch (parseErr) {
-                        errorMsg = err.message || errorMsg;
-                    }
-                } else {
-                    errorMsg = err.message || errorMsg;
-                }
-
-                setMessage(errorMsg);
+                setTitle(code === 'SCOPE_MISSING' ? 'Permission needed' : 'Could not connect Gmail');
+                setMessage((e as Error)?.message || 'Something went wrong. Please try again.');
+                setCanRetry(!['NOT_CONFIGURED', 'REDIRECT_MISMATCH', 'UNAUTHORIZED'].includes(code));
             }
-        };
+        })();
+    }, [navigate]);
 
-        exchangeCode();
-    }, [supabase, navigate]);
+    const retry = async () => {
+        setRetrying(true);
+        try {
+            await startGmailConnect({ returnTo });
+        } catch (e) {
+            setRetrying(false);
+            setStatus('error');
+            setMessage((e as Error)?.message || 'Could not start the Google connection.');
+        }
+    };
 
     return (
-        <div className="flex items-center justify-center min-h-screen bg-background p-4">
-            <Card className="w-full max-w-md shadow-xl border-border bg-card">
-                <CardHeader className="text-center">
-                    <CardTitle className="flex items-center justify-center gap-2">
-                        <GoogleIcon className="w-6 h-6" />
-                        Gmail Integration
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6 py-6">
-                    <div className="flex flex-col items-center gap-4">
-                        {status === 'loading' && (
-                            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="flex min-h-[100dvh] items-center justify-center bg-background p-4">
+            <div className="card w-full max-w-md p-6 text-center sm:p-8 animate-fade-in-up" role="status" aria-live="polite">
+                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+                    {status === 'loading' && <GoogleIcon className="h-7 w-7" />}
+                    {status === 'success' && <CheckCircleIcon className="h-8 w-8 text-success" />}
+                    {status === 'cancelled' && <AlertTriangleIcon className="h-7 w-7 text-warning" />}
+                    {status === 'error' && <XCircleIcon className="h-8 w-8 text-destructive" />}
+                </div>
+                <h1 className="text-xl font-bold text-foreground">{title}</h1>
+                <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+
+                {status === 'loading' && (
+                    <div className="mt-6 flex justify-center text-primary"><Spinner label="Linking account" /></div>
+                )}
+
+                {status !== 'loading' && (
+                    <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-center">
+                        <button type="button" className="btn btn-outline min-h-[44px]" onClick={() => navigate(returnTo, { replace: true })}>
+                            Back to {describeReturn(returnTo)}
+                        </button>
+                        {status !== 'success' && canRetry && (
+                            <button type="button" className="btn btn-primary min-h-[44px]" onClick={retry} disabled={retrying}>
+                                {retrying ? <Spinner label="Opening Google…" /> : <><GoogleIcon className="h-4 w-4" /> Try again</>}
+                            </button>
                         )}
-                        {status === 'success' && (
-                            <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 text-green-600 rounded-full flex items-center justify-center">
-                                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
-                            </div>
-                        )}
-                        {status === 'error' && (
-                            <div className="w-12 h-12 bg-destructive/10 text-destructive rounded-full flex items-center justify-center">
-                                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </div>
-                        )}
-                        <p className={`text-center font-medium ${status === 'error' ? 'text-destructive' :
-                            status === 'success' ? 'text-green-600' :
-                                'text-foreground'
-                            }`}>
-                            {message}
-                        </p>
                     </div>
-                </CardContent>
-            </Card>
+                )}
+            </div>
         </div>
     );
 };

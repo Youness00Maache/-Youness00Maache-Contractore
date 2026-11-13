@@ -1,0 +1,149 @@
+/**
+ * Inventory stock status, kit math and price-book pricing math (owned by VIEWS).
+ * Stock itself only ever changes in the database (RPC adjust_inventory); these helpers only read.
+ */
+import { roundMoney, toNumber } from './money.ts';
+
+export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
+
+export type StockStatus = 'oversold' | 'out' | 'low' | 'ok';
+
+export interface StockLike {
+  id: string;
+  quantity?: number | string | null;
+  low_stock_threshold?: number | string | null;
+  cost_price?: number | string | null;
+  is_assembly?: boolean | null;
+  assembly_items?: KitComponent[] | null;
+}
+
+export interface KitComponent {
+  item_id: string;
+  quantity: number | string;
+  is_custom?: boolean;
+  custom_name?: string;
+  override_price?: number | string | null;
+  /** price-book kits only: internal cost of a custom component */
+  custom_cost?: number | string | null;
+}
+
+/** Low-stock threshold with `??` semantics: an explicit 0 means "warn only when empty" (VIEW-024). */
+export const lowStockThreshold = (item: Pick<StockLike, 'low_stock_threshold'>): number => {
+  const raw = item.low_stock_threshold;
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_LOW_STOCK_THRESHOLD;
+  const n = toNumber(raw);
+  return n < 0 ? 0 : n;
+};
+
+export const stockStatus = (item: Pick<StockLike, 'quantity' | 'low_stock_threshold'>): StockStatus => {
+  const q = toNumber(item.quantity);
+  if (q < 0) return 'oversold';
+  if (q === 0) return 'out';
+  if (q <= lowStockThreshold(item)) return 'low';
+  return 'ok';
+};
+
+export const isAttention = (s: StockStatus) => s !== 'ok';
+
+/** Stock value of a plain item (negative stock counts as 0 value). */
+export const stockValue = (item: StockLike): number =>
+  item.is_assembly ? 0 : roundMoney(Math.max(0, toNumber(item.quantity)) * toNumber(item.cost_price));
+
+/** Components of a kit that are tracked in stock (custom rows are free-text notes). */
+export const trackedComponents = (kit: Pick<StockLike, 'assembly_items'>): KitComponent[] =>
+  (Array.isArray(kit.assembly_items) ? kit.assembly_items : []).filter((c) => !c?.is_custom && c?.item_id && toNumber(c.quantity) > 0);
+
+/** How many complete kits can be built from current component stock (null when the kit has no tracked components). */
+export const kitBuildable = (kit: StockLike, byId: Map<string, StockLike>): number | null => {
+  const comps = trackedComponents(kit);
+  if (!comps.length) return null;
+  let min = Infinity;
+  for (const c of comps) {
+    const item = byId.get(c.item_id);
+    const stock = item ? Math.max(0, toNumber(item.quantity)) : 0;
+    min = Math.min(min, Math.floor(stock / toNumber(c.quantity)));
+  }
+  return Number.isFinite(min) ? min : 0;
+};
+
+/** Internal cost of one kit = Σ component cost × quantity. */
+export const kitCost = (kit: StockLike, byId: Map<string, StockLike>): number =>
+  roundMoney(trackedComponents(kit).reduce((sum, c) => sum + toNumber(byId.get(c.item_id)?.cost_price) * toNumber(c.quantity), 0));
+
+/** Stock moves needed to check out `qty` of an item (a kit expands into its tracked components). */
+export const checkoutMoves = (item: StockLike, qty: number): { itemId: string; delta: number }[] => {
+  const n = Math.abs(toNumber(qty));
+  if (!n) return [];
+  if (!item.is_assembly) return [{ itemId: item.id, delta: -n }];
+  const merged = new Map<string, number>();
+  for (const c of trackedComponents(item)) merged.set(c.item_id, (merged.get(c.item_id) ?? 0) - toNumber(c.quantity) * n);
+  return Array.from(merged.entries()).map(([itemId, delta]) => ({ itemId, delta }));
+};
+
+// ---------------------------------------------------------------------------------------------
+// Price book pricing: price = cost × (1 + markup/100); markup = (price − cost) / cost × 100.
+// Margin (shown as a helper) = (price − cost) / price × 100.
+// ---------------------------------------------------------------------------------------------
+
+export const priceFromMarkup = (cost: unknown, markupPct: unknown): number =>
+  roundMoney(toNumber(cost) * (1 + toNumber(markupPct) / 100));
+
+/** Null when cost is 0 (markup undefined). Rounded to 0.1%. */
+export const markupFromPrice = (cost: unknown, price: unknown): number | null => {
+  const c = toNumber(cost);
+  if (c <= 0) return null;
+  return Math.round(((toNumber(price) - c) / c) * 1000) / 10;
+};
+
+/** Null when price is 0. Rounded to 0.1%. */
+export const marginFromPrice = (cost: unknown, price: unknown): number | null => {
+  const p = toNumber(price);
+  if (p <= 0) return null;
+  return Math.round(((p - toNumber(cost)) / p) * 1000) / 10;
+};
+
+export interface PriceBookLike {
+  id: string;
+  rate?: number | string | null;
+  unit_cost?: number | string | null;
+  cost?: number | string | null;
+}
+
+/** Cost and summed retail price of a price-book kit's components. */
+export const priceBookKitTotals = (components: KitComponent[] | null | undefined, byId: Map<string, PriceBookLike>) => {
+  let cost = 0;
+  let retail = 0;
+  for (const c of Array.isArray(components) ? components : []) {
+    const qty = toNumber(c.quantity);
+    if (qty <= 0) continue;
+    if (c.is_custom) {
+      cost += toNumber(c.custom_cost) * qty;
+      retail += toNumber(c.override_price) * qty;
+      continue;
+    }
+    const def = byId.get(c.item_id);
+    if (!def) continue;
+    cost += toNumber(def.unit_cost ?? def.cost) * qty;
+    const hasOverride = c.override_price !== null && c.override_price !== undefined && c.override_price !== '';
+    retail += (hasOverride ? toNumber(c.override_price) : toNumber(def.rate)) * qty;
+  }
+  return { cost: roundMoney(cost), retail: roundMoney(retail) };
+};
+
+// ---------------------------------------------------------------------------------------------
+// QR label codes
+// ---------------------------------------------------------------------------------------------
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * Extracts an inventory item id from what a label encodes: either the app URL
+ * (`https://…/inventory?item=<uuid>`, printed since VIEW-025) or a bare uuid (older labels).
+ */
+export const parseInventoryCode = (text: string | null | undefined): string | null => {
+  if (!text) return null;
+  const raw = String(text).trim();
+  const fromParam = /[?&]item=([0-9a-f-]{36})/i.exec(raw);
+  if (fromParam && UUID_RE.test(fromParam[1])) return fromParam[1].toLowerCase();
+  const m = UUID_RE.exec(raw);
+  return m ? m[0].toLowerCase() : null;
+};
