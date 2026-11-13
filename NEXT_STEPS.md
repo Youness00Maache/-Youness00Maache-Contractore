@@ -19,7 +19,7 @@ All in `pages/LandingPage.tsx` unless noted. Reload the page first: some screens
    "delete this". Default plan: **delete this whole 3-step section**. (The icons in the screenshot were the
    old version; they are already replaced by drawings, but the owner still marked the section.) Confirm with
    the owner if unsure.
-3. **Improve the security section** (`TRUST` around line 79: Encrypted connections / Your data stays yours /
+3. ~~DONE (commit 5bdd2c6: light band "What we can and can't see" with real-protection visuals)~~ **Improve the security section** (`TRUST` around line 79: Encrypted connections / Your data stays yours /
    Send-only Gmail access / Payments by Kelviq). Owner wrote "Improve this". No generic icons; make it
    distinctive and compact. Check the current "rating plate" version first, then improve further.
 4. ~~DONE (realistic frame, side buttons, island, status bar, home bar; check the top on a real screen)~~ **Client portal phone: "make this an actual phone"** (`PhoneMockup` in `pages/components/Mockups.tsx`
@@ -66,7 +66,7 @@ new `utils/templates/designs/` (`standard.ts`, `premium1-4.ts`, `fresh1-2.ts`, `
 7. Known test failure while this is unfinished: `npx tsx scripts/forms-prefill-qa.ts` 869/870
    (legacy id `template_html_2` no longer maps to `executive`). Fix the mapping or the test.
 
-### B2. AI assistant: multi-step plans
+### B2. AI assistant: multi-step plans. DONE + DEPLOYED 2026-11-13 13:27 (commit 949f6af, 506 QA checks). Remaining: end-to-end test of the owner's exact request in the app (needs the owner to sign in on localhost:3010 as b@b.com).
 Files: `supabase/functions/ai-assistant/shared/routerContract.ts`, `prompt.ts`, `mockModel.ts`,
 `src/hooks/useAIAssistant.ts`, `src/hooks/useMasterAIRouter.ts`, `src/ai/components/ProposalCards.tsx`,
 new `src/ai/planRunner.ts`, new `src/ai/planDocuments.ts`, `App.tsx` (2 lines: `createJob` callback and a
