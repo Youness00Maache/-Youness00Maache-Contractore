@@ -57,7 +57,7 @@ new `utils/templates/designs/` (`standard.ts`, `premium1-4.ts`, `fresh1-2.ts`, `
 3. **Improve the basic/standard templates** so they look professional.
 4. **Add many more new designs**: at least double the 13 the new version had, on top of the restored
    ones.
-5. **Design picker shows the current document**: `Sections.tsx` now reads a `DocumentDesignContext`. One
+5. ~~DONE in the working tree (uncommitted; commit together with Sections.tsx + templates)~~ **Design picker shows the current document**: `Sections.tsx` now reads a `DocumentDesignContext`. One
    line is still missing in `components/forms/FormShell.tsx`: add
    `import { DocumentDesignContext } from './Sections.tsx';` and wrap `{children}` inside `<main>` as
    `<DocumentDesignContext.Provider value={preview ?? null}>{children}</DocumentDesignContext.Provider>`.
