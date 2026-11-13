@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Container, SectionHeader, ButtonLink, CheckList, FaqList, CtaBand, Eyebrow, GRID_BG, MarkerTick } from './components/ui.tsx';
 import { AppMockup, AiMockup, PortalMockup, InvoicePaper, EmailMockup, InventoryMockup, ProfitMockup, StatusStrip } from './components/Mockups.tsx';
 import {
-  DocumentShelf, PostStamp, StockTag, MarginDial, RecordingPill, PhoneTodayMockup, TradesTape, JobFolder, DocFan, PaidTrack,
+  DocumentShelf, PostStamp, StockTag, MarginDial, RecordingPill, PhoneTodayMockup, TradesTape,
   SpecPlate,
 } from './components/LandingVisuals.tsx';
 import { PlanCards, PeriodToggle, type Period } from './components/PlanCards.tsx';
@@ -61,12 +61,6 @@ const MoreCard: React.FC<{
     </div>
   </article>
 );
-
-const STEPS = [
-  { title: 'Add a job and your client', text: 'Create a job with the client and site address. Add your logo and business details once; they appear on every document.', visual: <JobFolder /> },
-  { title: 'Create documents', text: 'Pick a document type and fill it in, reuse price-book items, or let the AI assistant draft it from your notes or voice.', visual: <DocFan /> },
-  { title: 'Send, sign and get paid', text: 'Email the PDF from Gmail or share a portal link. Clients approve and sign online; you record payments and watch the margin.', visual: <PaidTrack /> },
-];
 
 const TRUST = [
   { spec: 'TLS + HSTS', title: 'Encrypted connections', text: 'HTTPS everywhere, with strict security headers.' },
@@ -255,26 +249,6 @@ const LandingPage: React.FC = () => {
               </div>
             </article>
           </div>
-        </Container>
-      </section>
-
-      {/* ------------------------------------------------------------ How it works */}
-      <section aria-labelledby="how-heading" className="border-y border-border bg-card py-20 sm:py-28">
-        <Container>
-          <SectionHeader id="how-heading" eyebrow="How it works" title="Up and running in three steps" subtitle="No setup project, no training day." />
-          <ol className="mt-14 grid gap-12 md:grid-cols-3 md:gap-8">
-            {STEPS.map((step, i) => (
-              <li key={step.title} className="flex flex-col">
-                <div aria-hidden="true" className="flex items-center gap-4">
-                  <span className="font-display text-7xl font-extrabold leading-none text-transparent [-webkit-text-stroke:1.5px_#2148ed]">{i + 1}</span>
-                  {i < STEPS.length - 1 ? <span className="hidden h-0 flex-1 border-t-2 border-dashed border-brand-200 md:-mr-8 md:block" /> : null}
-                </div>
-                <h3 className="mt-5 text-lg font-bold text-foreground">{step.title}</h3>
-                <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{step.text}</p>
-                <div className="mt-6 md:mt-auto md:pt-7">{step.visual}</div>
-              </li>
-            ))}
-          </ol>
         </Container>
       </section>
 

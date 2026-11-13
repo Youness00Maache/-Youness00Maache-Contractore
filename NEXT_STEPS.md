@@ -14,7 +14,7 @@ All in `pages/LandingPage.tsx` unless noted. Reload the page first: some screens
 1. ~~DONE (commit below)~~ **Delete** the whole "WHAT YOU CAN DO / One week on a remodel, without the paper chase" section
    (Mon–Fri planner, `pages/LandingPage.tsx` around line 295, plus its `WEEK` data array around line 64 and
    any helpers in `pages/components/LandingVisuals.tsx` that only it uses).
-2. **"How it works" 3 cards** (01 Add a job and your client / 02 Create documents / 03 Send, sign and get
+2. ~~DONE: whole section deleted~~ **"How it works" 3 cards** (01 Add a job and your client / 02 Create documents / 03 Send, sign and get
    paid; `STEPS` around line 73, rendered around line 274). Owner circled the icons and wrote
    "delete this". Default plan: **delete this whole 3-step section**. (The icons in the screenshot were the
    old version; they are already replaced by drawings, but the owner still marked the section.) Confirm with
