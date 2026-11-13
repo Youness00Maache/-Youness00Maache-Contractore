@@ -114,9 +114,17 @@ Plan rule: Free = get paid + look professional at low volume; Premium $5 = autom
 $10 = AI that writes and acts. Photo storage and AI tokens need per-tier caps. No telephony.
 
 **NOW (in this order; the payment webhook unlocks the rest):**
-1. Real "Pay now" (#2): contractor connects their own Stripe (Stripe Connect). Deposit, progress and balance
-   become pay buttons in the portal, email and a PDF QR code, and a webhook marks the invoice paid
-   automatically. (Needs the owner to create/connect a Stripe platform account: ask first.)
+1. "Pay now" WITHOUT Stripe (owner: Stripe can't be used; Kelviq is only for selling our own subscriptions, so
+   don't route client payments through it). Build on the existing invoice "Pay-now link" field (the
+   contractor's own PayPal / Square / Venmo / Stripe link / bank link):
+   - default pay link saved once in the profile, so every new invoice gets it (editable per invoice);
+   - a clear "Pay now" button in the client portal, the invoice email and as a QR code on the PDF, with the right
+     amount for deposit / progress / balance;
+   - "I've paid" button for the client in the portal (optional note, e.g. "PayPal, Nov 14"). The contractor is
+     notified and the invoice shows "Payment reported";
+   - one-tap "Mark as paid" for the contractor: records the payment, auto-creates the receipt, updates Collected in
+     job financials, and stops reminders / triggers the review request.
+   No automatic payment detection (no webhooks). Everything after "Mark as paid" is automatic.
 2. Automatic reminders and follow-ups (#1): overdue invoices, estimate follow-ups and visit reminders sent on
    a schedule (pg_cron) from the user's own Gmail. They stop by themselves on approval/payment. Free counts
    toward the email cap, Premium unlimited, AI wording on Premium+AI.
