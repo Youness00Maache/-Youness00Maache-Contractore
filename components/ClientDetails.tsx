@@ -114,11 +114,31 @@ const cleanDraft = (d: ClientDraft): ClientDraft => ({
     notes: d.notes.trim(),
 });
 
+/**
+ * Phone numbers: digits, spaces, + (at the start), -, ( ), . and an optional extension ("ext 12", "ext. 12",
+ * "x12", "#12"), with 6 to 15 digits before the extension. Returns the error message, or null when valid/empty.
+ */
+const PHONE_RE = /^\+?[\d\s().-]+?(?:\s*(?:ext\.?|extension|x|#)\s*\d{1,6})?$/i;
+export function phoneError(phone: string): string | null {
+    const value = String(phone || '').trim();
+    if (!value) return null;
+    const main = value.replace(/\s*(?:ext\.?|extension|x|#)\s*\d{1,6}$/i, '');
+    const digits = main.replace(/\D/g, '').length;
+    if (!PHONE_RE.test(value) || digits < 6 || digits > 15) {
+        return digits > 0 && digits < 6 && PHONE_RE.test(value)
+            ? 'This phone number is too short, e.g. (555) 123-4567.'
+            : 'Use only digits, spaces, + - ( ) . and "ext", e.g. (555) 123-4567.';
+    }
+    return null;
+}
+
 export function validateClientDraft(d: ClientDraft): Partial<Record<keyof ClientDraft, string>> {
     const errors: Partial<Record<keyof ClientDraft, string>> = {};
     if (!d.name.trim()) errors.name = 'Name is required.';
     else if (d.name.trim().length > 200) errors.name = 'Name is too long (200 characters max).';
     if (d.email.trim() && !EMAIL_RE.test(d.email.trim())) errors.email = 'Enter a valid email address.';
+    const phone = phoneError(d.phone);
+    if (phone) errors.phone = phone;
     return errors;
 }
 
@@ -416,7 +436,13 @@ export const ClientFormModal: React.FC<{
                 {field('name', 'Name *', { placeholder: 'Full name or company', autoComplete: 'off', 'data-autofocus': true } as any)}
                 <div className="grid gap-4 sm:grid-cols-2">
                     {field('email', 'Email', { type: 'email', inputMode: 'email', placeholder: 'client@example.com', autoComplete: 'off' })}
-                    {field('phone', 'Phone', { type: 'tel', inputMode: 'tel', placeholder: '(555) 123-4567', autoComplete: 'off' })}
+                    {field('phone', 'Phone', {
+                        type: 'tel',
+                        inputMode: 'tel',
+                        placeholder: '(555) 123-4567',
+                        autoComplete: 'off',
+                        onBlur: () => { const msg = phoneError(draft.phone); if (msg) setErrors((er) => ({ ...er, phone: msg })); },
+                    })}
                 </div>
                 {field('address', 'Address', { placeholder: 'Street, city, state, ZIP', autoComplete: 'off' })}
                 <div>

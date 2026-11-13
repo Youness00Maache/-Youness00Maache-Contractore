@@ -84,6 +84,7 @@ const DocumentTile: React.FC<{
             </div>
             <DropdownMenu
                 asButton
+                portal
                 label="Document actions"
                 trigger={
                     <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted hover:text-foreground">
@@ -184,7 +185,12 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
             {docLimit !== null && (
                 <div className={`mb-4 flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${atDocLimit ? 'border-warning/40 bg-warning/10' : 'border-border bg-muted/40'}`}>
                     <span>
-                        Free plan: <strong>{Math.min(docsThisMonth, docLimit)} of {docLimit}</strong> documents created for this job this month.
+                        Free plan: <strong>{Math.min(docsThisMonth, docLimit)} of {docLimit}</strong> new documents used for this job this month.
+                        <span className="block text-xs text-muted-foreground">
+                            {atDocLimit
+                                ? 'All used: new documents and copies for this job need Premium until next month.'
+                                : 'Deleted documents still count; the count resets on the 1st.'}
+                        </span>
                     </span>
                     <button type="button" onClick={onUpgrade} className="btn btn-sm btn-outline shrink-0"><StarIcon className="h-3.5 w-3.5" /> Upgrade for unlimited</button>
                 </div>

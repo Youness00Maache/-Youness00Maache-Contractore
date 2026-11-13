@@ -86,6 +86,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, o
                     <div onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
                         <DropdownMenu
                             align="right"
+                            portal
                             trigger={
                                 <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full p-0" aria-label={`Actions for ${title}`}>
                                     <MoreVerticalIcon className="h-4 w-4 text-muted-foreground" />

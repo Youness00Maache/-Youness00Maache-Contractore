@@ -558,16 +558,22 @@ export const ActionMenu: React.FC<{
   );
 };
 
-/** Numeric input that keeps the raw text while typing (so "0." or "" don't jump) and reports a number. */
+/**
+ * Numeric input that keeps the raw text while typing (so "0." or "" don't jump) and reports a number.
+ * Focusing selects the whole value, so typing replaces a pre-filled 0 instead of producing "0100"; leading zeros
+ * are dropped while typing too ("0100" → "100", "0.5" stays).
+ */
 export const NumberInput: React.FC<Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> & {
   value: number | null | undefined;
   onValue: (n: number) => void;
   /** Called instead of onValue(0) when the field is cleared (e.g. "no override"). */
   onEmpty?: () => void;
   allowNegative?: boolean;
-}> = ({ value, onValue, onEmpty, allowNegative = false, className = '', ...rest }) => {
+}> = ({ value, onValue, onEmpty, allowNegative = false, className = '', onFocus, onMouseUp, ...rest }) => {
   const [text, setText] = useState(value === null || value === undefined || Number.isNaN(value) ? '' : String(value));
   const lastValue = useRef(value);
+  // A mouse click focuses first, then its mouseup would drop the selection: keep it for that one mouseup.
+  const keepSelection = useRef(false);
   useEffect(() => {
     if (value !== lastValue.current) {
       lastValue.current = value;
@@ -582,8 +588,24 @@ export const NumberInput: React.FC<Omit<React.InputHTMLAttributes<HTMLInputEleme
       inputMode="decimal"
       className={`input tabular-nums ${className}`}
       value={text}
+      onFocus={(e) => {
+        e.currentTarget.select();
+        onFocus?.(e);
+      }}
+      onMouseDown={(e) => {
+        keepSelection.current = document.activeElement !== e.currentTarget;
+        rest.onMouseDown?.(e);
+      }}
+      onMouseUp={(e) => {
+        if (keepSelection.current) {
+          keepSelection.current = false;
+          e.preventDefault();
+        }
+        onMouseUp?.(e);
+      }}
       onChange={(e) => {
-        const raw = e.target.value.replace(',', '.');
+        keepSelection.current = false;
+        const raw = e.target.value.replace(',', '.').replace(/^(-?)0+(?=\d)/, '$1');
         const re = allowNegative ? /^-?\d*\.?\d*$/ : /^\d*\.?\d*$/;
         if (!re.test(raw)) return;
         setText(raw);

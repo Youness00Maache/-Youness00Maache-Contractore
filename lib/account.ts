@@ -117,6 +117,8 @@ export interface UsageSnapshot {
     limits: UsageLimits;
     /** true when the numbers came from the server RPC, false when counted locally (display only). */
     fromServer: boolean;
+    /** Start of the month the server counts in (ISO), from `get_my_usage().month_start`. */
+    monthStart?: string;
 }
 
 export const limitsForTier = (tier: PlanTier): UsageLimits => {
@@ -155,7 +157,54 @@ export async function fetchUsage(): Promise<UsageSnapshot | null> {
             ai: 'ai' in l ? numOrNull(l.ai) : fallbackLimits.ai,
         },
         fromServer: true,
+        monthStart: typeof row.month_start === 'string' ? row.month_start : undefined,
     };
+}
+
+/**
+ * Start of the counting month, like the server's `date_trunc('month', now())`: the later of the month start the
+ * server reported and the current UTC month start (so a session that crosses midnight on the 1st moves on).
+ */
+export const usageMonthStart = (serverMonthStart?: string | null, now = new Date()): string => {
+    const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    const server = serverMonthStart ? new Date(serverMonthStart) : null;
+    return server && !Number.isNaN(server.getTime()) && server.toISOString() > utc ? server.toISOString() : utc;
+};
+
+/**
+ * Free plan "documents per job": the server counts documents CREATED this month per job (usage_events kind
+ * 'document', ref_id = job id), so deleting a document does not give the slot back. These read the same rows
+ * (RLS: the user's own events), so the app shows and checks exactly what the database enforces.
+ */
+export async function fetchJobDocumentCount(jobId: string, monthStart: string): Promise<number | null> {
+    const { count, error } = await supabase
+        .from('usage_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('kind', 'document')
+        .eq('ref_id', jobId)
+        .gte('created_at', monthStart);
+    return error || count === null ? null : count;
+}
+
+/** Documents created this month, per job id (null when usage_events can't be read). */
+export async function fetchDocumentUsageByJob(monthStart: string): Promise<Record<string, number> | null> {
+    const PAGE = 1000;
+    const counts: Record<string, number> = {};
+    for (let page = 0; page < 20; page++) {
+        const { data, error } = await supabase
+            .from('usage_events')
+            .select('ref_id')
+            .eq('kind', 'document')
+            .gte('created_at', monthStart)
+            .order('id', { ascending: true })
+            .range(page * PAGE, page * PAGE + PAGE - 1);
+        if (error) return null;
+        for (const row of (data || []) as Array<{ ref_id: string | null }>) {
+            if (row.ref_id) counts[row.ref_id] = (counts[row.ref_id] || 0) + 1;
+        }
+        if (!data || data.length < PAGE) break;
+    }
+    return counts;
 }
 
 /** Records one usage event server-side (`record_usage(p_kind)`). Failures are non-fatal. */

@@ -63,6 +63,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDupl
                 <div className="absolute right-2 top-2">
                     <DropdownMenu
                         asButton
+                        portal
                         label="Job actions"
                         trigger={
                             <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted hover:text-foreground">

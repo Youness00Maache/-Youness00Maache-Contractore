@@ -498,7 +498,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     const { insertClient, validateClientDraft, TEMP_TAG } = await import('./ClientDetails.tsx');
     const draft = { name: input.name, email: input.email, phone: input.phone, address: '', notes: input.temporary ? TEMP_TAG : '' };
     const invalid = validateClientDraft(draft);
-    if (invalid.name || invalid.email) throw new Error(invalid.name || invalid.email);
+    if (invalid.name || invalid.email || invalid.phone) throw new Error(invalid.name || invalid.email || invalid.phone);
     try {
       let created: Client | null;
       if (onAddClient) {

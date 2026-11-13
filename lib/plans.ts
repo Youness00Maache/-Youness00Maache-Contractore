@@ -36,19 +36,25 @@ export const PAID_AI_LIMITS = {
   ai: 600,
 } as const;
 
+/**
+ * Feature lists describe what each plan really gets (owner decision 2026-11-13: the pricing matches the app, no new
+ * locks). Everything except price book photos works on Free; paid plans remove the monthly limits, add photos on price book items (the only
+ * feature the original app reserved for Premium) and raise the AI allowance.
+ */
 export const PLANS: Record<PlanTier, PlanDefinition> = {
   free: {
     tier: 'free',
     name: 'Free',
-    tagline: 'For trying ContractorDocs on a few jobs',
+    tagline: 'All the core features, with monthly limits',
     monthlyPrice: 0,
     yearlyPrice: 0,
     features: [
-      `${FREE_LIMITS.jobs} new jobs per month`,
-      `${FREE_LIMITS.clients} new clients per month`,
-      `${FREE_LIMITS.docs} documents per job each month`,
-      'All 12 document types & PDF export',
-      `${FREE_LIMITS.ai} AI assistant requests per month`,
+      `${FREE_LIMITS.jobs} new jobs and ${FREE_LIMITS.clients} new clients per month`,
+      `${FREE_LIMITS.docs} new documents per job each month`,
+      'All 12 document types & every PDF design',
+      'Client portal, approvals & e-signatures',
+      'Inventory, price book & job profit tracking',
+      `${FREE_LIMITS.emails} Gmail emails & ${FREE_LIMITS.ai} AI assistant requests per month`,
     ],
   },
   premium: {
@@ -60,11 +66,10 @@ export const PLANS: Record<PlanTier, PlanDefinition> = {
     yearlyPrice: 50,
     highlighted: true,
     features: [
+      'Everything in Free, without the monthly limits',
       'Unlimited jobs, clients & documents',
-      'All premium document templates',
       'Unlimited Gmail sending with PDF attachments',
-      'Client portal, e-signatures & approvals',
-      'Inventory, price book & profit tracking',
+      'Photos on price book items',
       `${PAID_AI_LIMITS.premium} AI assistant requests per month`,
     ],
   },
@@ -77,10 +82,8 @@ export const PLANS: Record<PlanTier, PlanDefinition> = {
     yearlyPrice: 100,
     features: [
       'Everything in Premium',
-      `${PAID_AI_LIMITS.ai} AI assistant requests per month`,
-      'AI-drafted invoices, estimates & daily reports',
-      'AI batch emails to clients',
-      'Voice-to-document dictation',
+      `${PAID_AI_LIMITS.ai} AI assistant requests per month (${Math.round(PAID_AI_LIMITS.ai / PAID_AI_LIMITS.premium)}× Premium)`,
+      'Enough AI to draft most of your invoices, estimates, daily reports and batch emails',
       'Priority support',
     ],
   },

@@ -1,30 +1,25 @@
 /**
  * Pure analytics aggregation for AnalyticsView (owned by VIEWS).
- * All money goes through utils/money.ts so the numbers match forms, PDFs and the portal.
+ * All money goes through utils/money.ts so the numbers match forms, PDFs and the portal, and income, collected
+ * and profit use the ONE definition in lib/finance.ts (the same one Job financials uses).
  * All dates are LOCAL calendar days ("YYYY-MM-DD"); see utils/localDates.ts.
  */
-import { computeDocumentCost, computeDocumentTotals, roundMoney, toNumber, type MoneyLineItem } from './money.ts';
+import { computeDocumentCost, roundMoney } from './money.ts';
 import { addDaysLocal, addMonthsClamped, daysBetween, instantToLocalYMD, normalizeYMD, parseLocalDate, toLocalYMD } from './localDates.ts';
+import {
+  DEFAULT_LABOR_RATE, documentTotals, expenseTotal, invoiceCollected, isBilledInvoiceStatus, isPaidStatus, laborOf, linkReceipts,
+  materialCost, receiptAmount, type FinanceDoc,
+} from '../lib/finance.ts';
+
+export { expenseTotal };
 
 /** The subset of a document the analytics need (selected with JSON paths, so no signatures/logos are downloaded). */
-export interface AnalyticsDoc {
-  id: string;
-  type: string;
+export interface AnalyticsDoc extends FinanceDoc {
   createdAt: string;
-  jobId?: string | null;
-  status?: string | null;
   issueDate?: string | null;
   date?: string | null;
   dueDate?: string | null;
   clientName?: string | null;
-  lineItems?: MoneyLineItem[] | null;
-  taxRate?: number | string | null;
-  discount?: number | string | null;
-  shipping?: number | string | null;
-  isProgressBilling?: boolean | null;
-  amountPaid?: number | string | null;
-  amount?: number | string | null;
-  tax?: number | string | null;
 }
 
 export type Granularity = 'day' | 'week' | 'month';
@@ -34,8 +29,10 @@ export interface Bucket {
   label: string;
   startYMD: string;
   endYMD: string;
+  /** collected (see AnalyticsResult.revenue) */
   revenue: number;
   invoiced: number;
+  /** all costs dated in the bucket: material logs + expense logs + labor */
   expenses: number;
 }
 
@@ -47,25 +44,39 @@ export interface ClientRow {
 }
 
 export interface AnalyticsResult {
-  /** Paid invoices (full total) plus partial payments recorded on open invoices. */
+  /**
+   * Collected (lib/finance.ts): paid invoices (full total), the larger of "amount paid" and receipts on open
+   * invoices, and receipts that are not for a billed invoice (on the receipt's date).
+   */
   revenue: number;
   /** Total of invoices issued in range that are not Draft/Cancelled. */
   invoiced: number;
   invoiceCount: number;
   avgInvoice: number;
-  /** Balance due on Sent/Overdue invoices issued in range. */
+  /** Receipts dated in range that are not for a billed invoice (part of income). */
+  otherReceipts: number;
+  /** invoiced + otherReceipts */
+  income: number;
+  /** Balance still due on Sent/Overdue invoices issued in range. */
   outstanding: number;
   outstandingCount: number;
   overdue: number;
   overdueCount: number;
-  /** Internal cost (line-item unit costs) of paid invoices. */
+  /** Internal cost (line-item unit costs) of paid invoices. For reference only: NOT part of profit (material logs are). */
   costOfGoods: number;
   /** Expense Log totals dated in range. */
   expenses: number;
   expenseCount: number;
-  /** revenue - costOfGoods - expenses */
+  /** Material Log costs dated in range. */
+  materials: number;
+  /** Time-sheet labor dated in range (hours × labor rate, overtime 1.5×). */
+  labor: number;
+  hours: number;
+  /** materials + expenses + labor */
+  costs: number;
+  /** income - costs (the lib/finance.ts definition, same as Job financials) */
   profit: number;
-  /** profit / revenue (0..1), null when there is no revenue */
+  /** profit / income (0..1), null when there is no income */
   profitMargin: number | null;
   estimatesSent: number;
   estimatesAccepted: number;
@@ -88,15 +99,6 @@ export const documentDay = (doc: AnalyticsDoc): string | null => {
   const t = norm(doc.type);
   const primary = t === 'invoice' || t === 'estimate' ? doc.issueDate ?? doc.date : doc.date ?? doc.issueDate;
   return normalizeYMD(primary) ?? instantToLocalYMD(doc.createdAt);
-};
-
-/** Expense Log total: the stored amount (which already includes tax), else line items + tax. */
-export const expenseTotal = (doc: AnalyticsDoc): number => {
-  const amount = toNumber(doc.amount);
-  if (amount > 0) return roundMoney(amount);
-  const items = Array.isArray(doc.lineItems) ? doc.lineItems : [];
-  const sub = items.reduce((s, it) => s + toNumber(it?.quantity ?? 1) * toNumber(it?.rate), 0);
-  return roundMoney(sub + toNumber(doc.tax));
 };
 
 export const chooseGranularity = (startYMD: string, endYMD: string): Granularity => {
@@ -169,26 +171,32 @@ const findBucket = (buckets: Bucket[], ymd: string): Bucket | undefined => {
 /**
  * Aggregates documents for the inclusive local range [startYMD, endYMD].
  * `todayYMD` is injectable for tests (decides whether a Sent invoice is overdue).
+ * `laborRate` prices time-sheet hours (lib/finance.ts resolveLaborRate; default $45/h).
  */
 export const computeAnalytics = (
   docs: AnalyticsDoc[],
   startYMD: string,
   endYMD: string,
-  options: { todayYMD?: string; granularity?: Granularity } = {},
+  options: { todayYMD?: string; granularity?: Granularity; laborRate?: number } = {},
 ): AnalyticsResult => {
   const today = options.todayYMD ?? toLocalYMD(new Date());
   const granularity = options.granularity ?? chooseGranularity(startYMD, endYMD);
+  const laborRate = options.laborRate && options.laborRate > 0 ? options.laborRate : DEFAULT_LABOR_RATE;
   const buckets = buildBuckets(startYMD, endYMD, granularity);
 
   const r: AnalyticsResult = {
-    revenue: 0, invoiced: 0, invoiceCount: 0, avgInvoice: 0, outstanding: 0, outstandingCount: 0,
-    overdue: 0, overdueCount: 0, costOfGoods: 0, expenses: 0, expenseCount: 0, profit: 0, profitMargin: null,
+    revenue: 0, invoiced: 0, invoiceCount: 0, avgInvoice: 0, otherReceipts: 0, income: 0, outstanding: 0, outstandingCount: 0,
+    overdue: 0, overdueCount: 0, costOfGoods: 0, expenses: 0, expenseCount: 0, materials: 0, labor: 0, hours: 0, costs: 0,
+    profit: 0, profitMargin: null,
     estimatesSent: 0, estimatesAccepted: 0, estimatesRejected: 0, estimatesPending: 0, winRate: null, pipeline: 0,
     invoiceStatusCounts: {}, topClients: [], buckets, granularity,
   };
   if (!startYMD || !endYMD || startYMD > endYMD) return r;
 
   const clients = new Map<string, ClientRow>();
+  // Receipts are linked to their invoice across the whole history (a November receipt can pay an October invoice).
+  const links = linkReceipts(docs);
+  const addCost = (bucket: Bucket | undefined, amount: number) => { if (bucket) bucket.expenses += amount; };
 
   for (const doc of docs) {
     const day = documentDay(doc);
@@ -200,23 +208,24 @@ export const computeAnalytics = (
     if (type === 'invoice') {
       const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
       r.invoiceStatusCounts[statusLabel] = (r.invoiceStatusCounts[statusLabel] || 0) + 1;
-      if (status === 'draft' || status === 'cancelled' || status === 'canceled' || status === 'void') continue;
+      if (!isBilledInvoiceStatus(status)) continue;
 
-      const totals = computeDocumentTotals(doc);
-      const isPaid = status === 'paid';
-      const collected = isPaid ? totals.total : Math.min(totals.amountPaid, totals.total);
+      const totals = documentTotals(doc);
+      const isPaid = isPaidStatus(status);
+      const collected = invoiceCollected(doc, totals, links.byInvoice.get(doc.id) || 0);
+      const due = roundMoney(Math.max(0, totals.total - collected));
 
       r.invoiced += totals.total;
       r.invoiceCount += 1;
       r.revenue += collected;
-      if (isPaid) r.costOfGoods += computeDocumentCost(doc);
+      if (isPaid) r.costOfGoods += computeDocumentCost({ lineItems: doc.lineItems });
 
-      if (!isPaid && totals.balanceDue > 0) {
-        r.outstanding += totals.balanceDue;
+      if (!isPaid && due > 0) {
+        r.outstanding += due;
         r.outstandingCount += 1;
-        const due = normalizeYMD(doc.dueDate);
-        if (status === 'overdue' || (due && due < today)) {
-          r.overdue += totals.balanceDue;
+        const dueDate = normalizeYMD(doc.dueDate);
+        if (status === 'overdue' || (dueDate && dueDate < today)) {
+          r.overdue += due;
           r.overdueCount += 1;
         }
       }
@@ -234,9 +243,16 @@ export const computeAnalytics = (
         bucket.invoiced += totals.total;
         bucket.revenue += collected;
       }
+    } else if (type === 'receipt') {
+      // Receipts for a billed invoice are already in that invoice's "collected".
+      if (!links.unlinked.has(doc.id)) continue;
+      const amount = receiptAmount(doc);
+      r.otherReceipts += amount;
+      r.revenue += amount;
+      if (bucket) bucket.revenue += amount;
     } else if (type === 'estimate') {
       if (status === 'draft') continue;
-      const total = computeDocumentTotals(doc).total;
+      const total = documentTotals(doc).total;
       if (status === 'accepted' || status === 'approved') r.estimatesAccepted += 1;
       else if (status === 'rejected' || status === 'declined') r.estimatesRejected += 1;
       else {
@@ -248,20 +264,35 @@ export const computeAnalytics = (
       const amount = expenseTotal(doc);
       r.expenses += amount;
       r.expenseCount += 1;
-      if (bucket) bucket.expenses += amount;
+      addCost(bucket, amount);
+    } else if (type === 'material log') {
+      const amount = materialCost(doc);
+      r.materials += amount;
+      addCost(bucket, amount);
+    } else if (type === 'time sheet') {
+      const l = laborOf(doc, laborRate);
+      r.labor += l.cost;
+      r.hours += l.hours + l.overtime;
+      addCost(bucket, l.cost);
     }
   }
 
   r.revenue = roundMoney(r.revenue);
   r.invoiced = roundMoney(r.invoiced);
+  r.otherReceipts = roundMoney(r.otherReceipts);
+  r.income = roundMoney(r.invoiced + r.otherReceipts);
   r.outstanding = roundMoney(r.outstanding);
   r.overdue = roundMoney(r.overdue);
   r.costOfGoods = roundMoney(r.costOfGoods);
   r.expenses = roundMoney(r.expenses);
+  r.materials = roundMoney(r.materials);
+  r.labor = roundMoney(r.labor);
+  r.hours = Math.round(r.hours * 100) / 100;
+  r.costs = roundMoney(r.materials + r.expenses + r.labor);
   r.pipeline = roundMoney(r.pipeline);
   r.avgInvoice = r.invoiceCount > 0 ? roundMoney(r.invoiced / r.invoiceCount) : 0;
-  r.profit = roundMoney(r.revenue - r.costOfGoods - r.expenses);
-  r.profitMargin = r.revenue > 0 ? r.profit / r.revenue : null;
+  r.profit = roundMoney(r.income - r.costs);
+  r.profitMargin = r.income > 0 ? r.profit / r.income : null;
   r.winRate = r.estimatesSent > 0 ? r.estimatesAccepted / r.estimatesSent : null;
   for (const b of buckets) {
     b.revenue = roundMoney(b.revenue);

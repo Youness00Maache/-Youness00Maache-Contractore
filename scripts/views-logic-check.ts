@@ -9,6 +9,7 @@ import { addMonthsClamped, daysBetween, instantToLocalYMD, normalizeYMD, parseLo
 import { buildBuckets, chooseGranularity, computeAnalytics, documentDay, expenseTotal, presetRange, previousRange, relativeChange, type AnalyticsDoc } from '../utils/analyticsMath.ts';
 import { agendaGroups, layoutWeek, monthGrid, scheduleStats, spansFor, spansOnDay, toDaySpan } from '../utils/calendarLayout.ts';
 import { LABEL_SHEETS, getSheet, labelsPerSheet, placeLabels, sheetFitsPage, slotPosition } from '../utils/labelSheets.ts';
+import { findReceiptInvoice, summarizeJobMoney, type FinanceDoc } from '../lib/finance.ts';
 import { checkoutMoves, kitBuildable, kitCost, markupFromPrice, marginFromPrice, parseInventoryCode, priceBookKitTotals, priceFromMarkup, stockStatus, stockValue } from '../utils/stockMath.ts';
 
 let failures = 0;
@@ -133,7 +134,9 @@ eq('outstanding count', a.outstandingCount, 3);
 eq('overdue (status or past due date)', [a.overdue, a.overdueCount], [660, 2]);
 eq('cost of goods on paid invoices', a.costOfGoods, 80);
 eq('expenses in range', [a.expenses, a.expenseCount], [67.1, 2]);
-eq('profit', a.profit, Math.round((648 - 80 - 67.1) * 100) / 100);
+eq('income = billed invoices (no receipts here)', a.income, 1508);
+eq('costs = expense logs (no material logs / time sheets here)', a.costs, 67.1);
+eq('profit = income - costs (lib/finance.ts, same as Job financials)', a.profit, Math.round((1508 - 67.1) * 100) / 100);
 eq('estimates', [a.estimatesSent, a.estimatesAccepted, a.estimatesRejected, a.estimatesPending, a.pipeline], [3, 1, 1, 1, 500]);
 eq('win rate', a.winRate, 1 / 3);
 eq('status counts', a.invoiceStatusCounts, { Paid: 3, Sent: 2, Overdue: 1, Draft: 1, Cancelled: 1 });
@@ -146,6 +149,42 @@ eq('bucket Mar 9 expenses', a.buckets[8].expenses, 21.6);
 eq('bucket sum = revenue', Math.round(a.buckets.reduce((s, b) => s + b.revenue, 0) * 100) / 100, a.revenue);
 const empty = computeAnalytics(docs, '2026-03-31', '2026-03-01');
 eq('inverted range yields zeros', [empty.revenue, empty.buckets.length], [0, 0]);
+
+// ---------------------------------------------------------------- one money definition (lib/finance.ts)
+{
+  const job: FinanceDoc[] = [
+    { id: 'inv1', type: 'Invoice', jobId: 'j', status: 'Sent', invoiceNumber: 'INV-2026-11-004', lineItems: [{ quantity: 1, rate: 112.68 }] },
+    { id: 'inv2', type: 'Invoice', jobId: 'j', status: 'Paid', invoiceNumber: 'INV-2026-11-005', lineItems: [{ quantity: 2, rate: 100 }] },
+    { id: 'inv3', type: 'Invoice', jobId: 'j', status: 'Draft', invoiceNumber: 'INV-2026-11-006', lineItems: [{ quantity: 1, rate: 999 }] },
+    { id: 'inv4', type: 'Invoice', jobId: 'j', status: 'Sent', invoiceNumber: 'INV-1', amountPaid: 50, isProgressBilling: 'false', lineItems: [{ quantity: 1, rate: 300 }] },
+    { id: 'r1', type: 'Receipt', jobId: 'j', amount: 112.68, description: 'Deposit for kitchen (invoice INV-2026-11-004)' },
+    { id: 'r2', type: 'Receipt', jobId: 'j', amount: 200, description: 'Paid INV-2026-11-005 in full' },
+    { id: 'r3', type: 'Receipt', jobId: 'j', amount: 40, description: 'Cash for extra trip' },
+    { id: 'r4', type: 'Receipt', jobId: 'j', amount: 25, description: 'Part of INV-10' },
+    { id: 'e1', type: 'Estimate', jobId: 'j', status: 'Accepted', lineItems: [{ quantity: 1, rate: 5000 }] },
+    { id: 'e2', type: 'Estimate', jobId: 'j', status: 'Sent', lineItems: [{ quantity: 1, rate: 7000 }] },
+    { id: 'c1', type: 'Change Order', jobId: 'j', clientSignedAt: '2026-11-10T10:00:00Z', lineItems: [{ quantity: 1, rate: 750 }] },
+    { id: 'c2', type: 'Change Order', jobId: 'j', status: 'Draft', lineItems: [{ quantity: 1, rate: 99 }] },
+    { id: 'c3', type: 'Change Order', jobId: 'j', status: 'Approved', lineItems: [{ quantity: 1, rate: -100 }] },
+    { id: 'm1', type: 'Material Log', jobId: 'j', items: [{ quantity: 3, unitCost: 10 }, { quantity: 1, unitCost: 5.5 }] },
+    { id: 'm2', type: 'Material Log', jobId: 'j', materials: [{ quantity: 2, unitCost: 4 }] },
+    { id: 'x1', type: 'Expense Log', jobId: 'j', amount: 21.6, lineItems: [{ quantity: 2, rate: 10 }], tax: 1.6 },
+    { id: 't1', type: 'Time Sheet', jobId: 'j', hoursWorked: '8', overtimeHours: '2' },
+  ];
+  const money = summarizeJobMoney(job, { laborRate: 50 });
+  eq('receipt matched by the invoice number in its text', findReceiptInvoice(job[4], job.filter((d) => d.type === 'Invoice'))?.id, 'inv1');
+  eq('INV-10 does not match INV-1', findReceiptInvoice(job[7], job.filter((d) => d.type === 'Invoice')), null);
+  eq('invoiced = billed invoices only', [money.invoiced, money.invoiceCount], [612.68, 3]);
+  eq('collected = receipt on open invoice + paid invoice (its receipt not doubled) + deposit + other receipts', money.collected, Math.round((112.68 + 200 + 50 + 40 + 25) * 100) / 100);
+  eq('outstanding after receipts and deposits', money.outstanding, 250);
+  eq('other receipts are income', [money.otherReceipts, money.income], [65, Math.round((612.68 + 65) * 100) / 100]);
+  eq('contract value = accepted estimate + approved/signed change orders', [money.contractValue, money.estimateCount, money.changeOrderCount], [5000 + 750 - 100, 1, 2]);
+  eq('costs = materials + expenses + labor (OT 1.5x)', [money.materials, money.expenses, money.labor, money.costs], [43.5, 21.6, 8 * 50 + 2 * 75, 43.5 + 21.6 + 550]);
+  eq('job profit = income - costs', money.profit, Math.round((677.68 - 615.1) * 100) / 100);
+  const ins = computeAnalytics(job.map((d) => ({ ...d, createdAt: '2026-11-10T12:00:00Z', issueDate: '2026-11-10', date: '2026-11-10' })), '2026-11-01', '2026-11-30', { todayYMD: '2026-11-13', laborRate: 50 });
+  eq('Insights uses the same profit as Job financials', [ins.income, ins.costs, ins.profit], [money.income, money.costs, money.profit]);
+  eq('Insights collected matches Job financials', ins.revenue, money.collected);
+}
 
 eq('granularity week', chooseGranularity('2026-01-01', '2026-03-31'), 'week');
 eq('granularity month', chooseGranularity('2026-01-01', '2026-12-31'), 'month');

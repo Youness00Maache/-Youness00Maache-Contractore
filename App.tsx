@@ -33,7 +33,7 @@ import {
 import {
     type AppProfile, type UsageSnapshot, type ThemeName, THEME_STORAGE_KEY, loadProfileRow, mapProfileRow, fetchUsage,
     limitsForTier, isPlanLimitError, planLimitMessage, describeError, clearUserBrowserStorage, rememberPostLoginRedirect,
-    consumePostLoginRedirect, normalizeTheme, isMissingColumnError,
+    consumePostLoginRedirect, normalizeTheme, isMissingColumnError, usageMonthStart, fetchJobDocumentCount, fetchDocumentUsageByJob,
 } from './lib/account.ts';
 import { isPaidTier, normalizeTier } from './lib/plans.ts';
 import { getBillingPortalUrl } from './lib/billing.ts';
@@ -74,7 +74,9 @@ const PriceBookView = lazy(() => import('./components/PriceBookView.tsx'));
 const ProfitCalculatorView = lazy(() => import('./components/ProfitCalculatorView.tsx'));
 const PortalView = lazy(() => import('./components/PortalView.tsx'));
 const DocumentApprovalView = lazy(() => import('./components/DocumentApprovalView.tsx'));
-const DocumentAIQAHarness = lazy(() => import('./components/DocumentAIQAHarness.tsx'));
+// AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
+// route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
+const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const JOB_COLUMN_SETS = [
@@ -145,6 +147,9 @@ const uploadFile = async (bucket: string, file: File, userId: string, prefix = '
     if (error) throw new Error(error.message || 'Upload failed');
     return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 };
+
+/** A save refused by a Free plan limit: the form shows this message and keeps everything typed (0b.4). */
+class PlanLimitSaveError extends Error {}
 
 /** React key of a not-yet-saved form; reused after its first save so the form isn't remounted. */
 const newFormKey = (formType: string, prefillData: any, routeKey: string) => `new-${formType}-${prefillData?.__draftId ?? routeKey}`;
@@ -230,6 +235,13 @@ const App: React.FC = () => {
     const [profileStatus, setProfileStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const [loadError, setLoadError] = useState<string | null>(null);
     const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+    /** Free plan: documents CREATED this month per job, read from the server's usage_events (null = unknown). */
+    const [docUsage, setDocUsage] = useState<Record<string, number> | null>(null);
+    /**
+     * "New invoice/estimate" from a client with no job yet: the "<Client> - General" job exists only in memory until
+     * the document is saved (0b.15), so a discarded document doesn't use one of the Free plan's jobs.
+     */
+    const [draftJob, setDraftJob] = useState<AppJob | null>(null);
     const [jobs, setJobs] = useState<AppJob[]>([]);
     const [jobsLoaded, setJobsLoaded] = useState(false);
     const [forms, setForms] = useState<FormDataType[]>([]);
@@ -313,9 +325,21 @@ const App: React.FC = () => {
     }, [usage, plan, profile?.subscriptionStatus, profile?.emailUsage, jobs, clients.length]);
 
     /**
+     * Documents created this month for a job, counted like the server (usage_events: creations, so deleting a
+     * document does not give the slot back). Falls back to the loaded documents only when usage_events can't be read.
+     */
+    const docsUsedThisMonth = (jobId: string): number => {
+        if (docUsage) return docUsage[jobId] ?? 0;
+        return forms.filter(f => f.jobId === jobId && isThisMonth(f.createdAt)).length;
+    };
+
+    const docLimitMessage = (count: number, limit: number) =>
+        `This job has used ${Math.min(count, limit)} of its ${limit} new documents this month on the Free plan (deleted documents still count).`;
+
+    /**
      * UX pre-check only; the database enforces the same limits (PLAN_LIMIT errors open the upgrade modal).
      * Job/client counts block only when they come from `get_my_usage()`; local counts are for display.
-     * Per-job document counts are local (loaded documents can only under-count, so this never blocks wrongly).
+     * Per-job document counts come from the server's usage_events (see docsUsedThisMonth).
      */
     const checkLimit = (type: 'jobs' | 'clients' | 'docs', contextId?: string): boolean => {
         if (paid) return true;
@@ -333,15 +357,40 @@ const App: React.FC = () => {
             limit = limits.clients;
             message = `You've added ${count} of ${limit} new clients this month on the Free plan.`;
         } else {
-            count = forms.filter(f => (!contextId || f.jobId === contextId) && isThisMonth(f.createdAt)).length;
+            count = contextId ? docsUsedThisMonth(contextId) : 0;
             limit = limits.docs;
-            message = `This job already has ${count} of ${limit} documents this month on the Free plan.`;
+            message = limit !== null ? docLimitMessage(count, limit) : '';
         }
         if (limit !== null && count >= limit) {
             openUpgrade(message);
             return false;
         }
         return true;
+    };
+
+    /**
+     * Before a new document form opens (or a document is duplicated): re-reads this job's count from the server, so
+     * the form never opens when the save would be refused. Offline/unknown falls back to the cached count.
+     */
+    const ensureDocSlot = async (jobId: string): Promise<boolean> => {
+        if (paid) return true;
+        const limit = effectiveUsage.limits.docs;
+        if (limit === null) return true;
+        const fresh = navigator.onLine
+            ? await fetchJobDocumentCount(jobId, usageMonthStart(usage?.monthStart)).catch(() => null)
+            : null;
+        if (fresh === null) return checkLimit('docs', jobId);
+        setDocUsage(prev => ({ ...(prev || {}), [jobId]: fresh }));
+        if (fresh >= limit) {
+            openUpgrade(docLimitMessage(fresh, limit));
+            return false;
+        }
+        return true;
+    };
+
+    /** A new document (or copies) was created on a job: count it right away (refreshUsage re-reads the server). */
+    const bumpDocUsage = (jobId: string, by = 1) => {
+        setDocUsage(prev => (prev ? { ...prev, [jobId]: (prev[jobId] ?? 0) + by } : prev));
     };
 
     // Duplicate Job State
@@ -396,6 +445,8 @@ const App: React.FC = () => {
         setProfileStatus('idle');
         setLoadError(null);
         setUsage(null);
+        setDocUsage(null);
+        setDraftJob(null);
         setJobs([]);
         setJobsLoaded(false);
         setForms([]);
@@ -504,10 +555,15 @@ const App: React.FC = () => {
     }, []);
 
     const refreshUsage = useCallback(async () => {
+        const uid = sessionUserIdRef.current;
         const snap = await fetchUsage().catch(() => null);
-        if (!sessionUserIdRef.current) return;
+        if (!uid || sessionUserIdRef.current !== uid) return;
         setUsage(snap);
         if (snap) setProfile(prev => (prev ? { ...prev, emailUsage: snap.emailsThisMonth } : prev));
+        // Free plan "documents per job": the same creation counts the database enforces (paid plans have no limit).
+        if (snap && snap.limits.docs === null) { setDocUsage(null); return; }
+        const perJob = await fetchDocumentUsageByJob(usageMonthStart(snap?.monthStart)).catch(() => null);
+        if (sessionUserIdRef.current === uid) setDocUsage(perJob);
     }, []);
 
     const writeCache = (userId: string, payload: { profile?: AppProfile; jobs?: AppJob[]; clients?: Client[]; documents?: FormDataType[] }) => {
@@ -726,14 +782,20 @@ const App: React.FC = () => {
         return () => { cancelled = true; };
     }, [openFormId, openFormIsFull, session?.user?.id, formReloadNonce]);
 
-    // Deep links to "new document" respect the free plan (CORE-024); the DB enforces it too.
+    // Deep links to "new document" respect the free plan (CORE-024); the DB enforces it too. Checked once per
+    // visit: a later usage refresh never closes a form the user is typing in (the save keeps the work, see below).
+    const newDocCheckedRef = useRef<string | null>(null);
     useEffect(() => {
         if (profileStatus !== 'ready' || paid) return;
         const isNewDoc = view.screen === 'selectDocType' || (view.screen === 'form' && !view.formId && !view.prefillData);
-        if (!isNewDoc || !viewJobId || !docPagRef.current[viewJobId]?.loaded) return;
-        if (!checkLimit('docs', viewJobId)) navigate(`/jobs/${viewJobId}`, { replace: true });
+        if (!isNewDoc || !viewJobId || newDocCheckedRef.current === location.key) return;
+        if (!docUsage && !docPagRef.current[viewJobId]?.loaded) return; // wait for a count
+        newDocCheckedRef.current = location.key;
+        if (checkLimit('docs', viewJobId)) return;
+        // The type picker goes back to the job; an open form stays (it can't be saved, but nothing typed is lost).
+        if (view.screen === 'selectDocType') navigate(`/jobs/${viewJobId}`, { replace: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [view.screen, viewJobId, profileStatus, paid, documentPagination[viewJobId || '']?.loaded]);
+    }, [view.screen, viewJobId, location.key, profileStatus, paid, docUsage, documentPagination[viewJobId || '']?.loaded]);
 
     // Duplicate-job modal: make sure the job's documents are loaded (CORE-026).
     const duplicateCandidateForms = useMemo(
@@ -812,9 +874,9 @@ const App: React.FC = () => {
     // ── Navigation helpers (also used by the AI action handler) ──────────────
     const navigateToDashboard = () => setView({ screen: 'dashboard' });
     const navigateToSettings = () => setView({ screen: 'settings' });
-    const navigateToNewDoc = (jobId: string) => {
+    const navigateToNewDoc = async (jobId: string) => {
         if (!navigator.onLine) { toast.error("You're offline. Reconnect to create documents."); return; }
-        if (checkLimit('docs', jobId)) setView({ screen: 'selectDocType', jobId });
+        if (await ensureDocSlot(jobId)) setView({ screen: 'selectDocType', jobId });
     };
     const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard', prefillData?: Record<string, unknown>) => {
         if (!navigator.onLine) { toast.error("You're offline. Reconnect to create jobs."); return; }
@@ -952,6 +1014,58 @@ const App: React.FC = () => {
         return clients.find(c => (c.name || '').trim().toLowerCase() === n)?.id ?? null;
     };
 
+    const byClientName = (a: Client, b: Client) => (a.name || '').localeCompare(b.name || '');
+
+    /** A saved client with this name (case-insensitive): the loaded list first, then the database. */
+    const findClientByName = async (name: string): Promise<Client | null> => {
+        const n = name.trim().toLowerCase();
+        if (!n) return null;
+        const local = clients.find(c => (c.name || '').trim().toLowerCase() === n);
+        if (local || !navigator.onLine) return local || null;
+        const pattern = name.trim().replace(/[\\%_]/g, c => `\\${c}`); // ilike without wildcards = case-insensitive equality
+        const { data, error } = await supabase.from('clients').select(CLIENT_COLUMNS).ilike('name', pattern).limit(5);
+        // (PostgREST also treats `*` as a wildcard: keep only a true case-insensitive match.)
+        const found = !error && Array.isArray(data)
+            ? ((data as Client[]).find(c => (c.name || '').trim().toLowerCase() === n) ?? null)
+            : null;
+        if (found) setClients(prev => (prev.some(c => c.id === found.id) ? prev : [...prev, found].sort(byClientName)));
+        return found;
+    };
+
+    /**
+     * 0b.8: a job created with a client name that isn't a saved client adds that client to Clients and links it.
+     * Goes through the Clients screen's save path (insertClient), so the database applies the Free plan's client
+     * limit; the job itself is never blocked by this: on a limit or an error the user is told and the job keeps
+     * the typed name.
+     */
+    const createClientForJob = async (jobId: string, name: string, address: string): Promise<string | null> => {
+        const uid = sessionUserIdRef.current;
+        if (!uid || !name.trim()) return null;
+        let client: Client;
+        try {
+            const { insertClient } = await import('./components/ClientDetails.tsx');
+            client = await insertClient({ name, email: '', phone: '', address, notes: '' }, uid);
+        } catch (error) {
+            if (isPlanLimitError(error)) {
+                const reason = planLimitMessage(error);
+                toast.info(`The job was created, but "${name}" was not added to your clients. ${reason}`, {
+                    duration: 10000,
+                    action: { label: 'Upgrade', onClick: () => openUpgrade(reason) },
+                });
+            } else {
+                toast.error(`The job was created, but "${name}" could not be added to your clients. ${describeError(error)}`);
+            }
+            return null;
+        }
+        if (sessionUserIdRef.current !== uid) return null;
+        setClients(prev => [...prev.filter(c => c.id !== client.id), client].sort(byClientName));
+        const { error } = await supabase.from('jobs').update({ client_id: client.id }).eq('id', jobId);
+        if (!error) setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, clientId: client.id } : j)));
+        refreshUsage();
+        toast.success(`"${client.name}" was added to your clients.`);
+        return client.id;
+    };
+
     const handleUpdateJobStatus = async (jobId: string, newStatus: Job['status']) => {
         if (!JOB_STATUSES.includes(newStatus)) return;
         const prevJob = jobs.find(j => j.id === jobId);
@@ -996,18 +1110,20 @@ const App: React.FC = () => {
         }
 
         const clientName = String(jobData?.clientName || '').trim();
+        const clientAddress = String(jobData?.clientAddress || '').trim();
         const row: Record<string, unknown> = {
             id: crypto.randomUUID(),
             user_id: uid,
             name,
             client_name: clientName || null,
-            client_address: String(jobData?.clientAddress || '').trim() || null,
+            client_address: clientAddress || null,
             start_date: jobData?.startDate || localYmd(),
             end_date: jobData?.endDate || null,
             status: 'active',
             worker_name: String(jobData?.workerName || '').trim() || null,
         };
-        const clientId = jobData?.clientId || findClientIdByName(clientName);
+        // Link a saved client: the one picked, else one with the same name (case-insensitive).
+        const clientId: string | null = jobData?.clientId || (clientName ? (await findClientByName(clientName))?.id ?? null : null);
         if (clientId) row.client_id = clientId;
 
         let created: AppJob;
@@ -1020,6 +1136,8 @@ const App: React.FC = () => {
         setJobs(prev => [created, ...prev.filter(j => j.id !== created.id)]);
         refreshUsage();
         toast.success(`Job "${created.name}" created.`);
+        // A new client name becomes a saved client (in the background: the job is already created).
+        if (!clientId && clientName) void createClientForJob(created.id, clientName, clientAddress);
 
         if (!skipNavigation) {
             if (view.screen === 'createJob' && view.returnTo === 'calendar') navigate('/calendar', { replace: true });
@@ -1069,7 +1187,8 @@ const App: React.FC = () => {
             status: 'active',
             worker_name: source.workerName || null,
         };
-        const linkedClientId = clientId || (source as AppJob).clientId || findClientIdByName(clientName);
+        const newClientName = String(row.client_name || '').trim();
+        const linkedClientId = clientId || (source as AppJob).clientId || (newClientName ? (await findClientByName(newClientName))?.id ?? null : null);
         if (linkedClientId) row.client_id = linkedClientId;
 
         let created: AppJob;
@@ -1080,6 +1199,7 @@ const App: React.FC = () => {
             throw error;
         }
         setJobs(prev => [created, ...prev]);
+        if (!linkedClientId && newClientName) void createClientForJob(created.id, newClientName, String(row.client_address || ''));
 
         let copied = 0;
         if (selectedDocIds.length) {
@@ -1104,6 +1224,7 @@ const App: React.FC = () => {
                     const mapped = records.map(r => mapDocumentRow({ ...r, created_at: now }, true));
                     mapped.forEach(primeDocumentCache);
                     setForms(prev => mergeDocuments(prev, mapped));
+                    bumpDocUsage(created.id, records.length);
                 }
             } catch (error) {
                 if (!handlePlanLimit(error)) toast.error(`The job was copied, but its documents were not. ${describeError(error)}`);
@@ -1126,7 +1247,7 @@ const App: React.FC = () => {
         const uid = sessionUserIdRef.current;
         if (!uid) return;
         if (!navigator.onLine) { toast.error("You're offline. Reconnect to duplicate documents."); return; }
-        if (!checkLimit('docs', form.jobId)) return;
+        if (!(await ensureDocSlot(form.jobId))) return;
         try {
             const full = await fetchFullDocument(form.id);
             const record = {
@@ -1141,6 +1262,7 @@ const App: React.FC = () => {
             const mapped = mapDocumentRow({ ...record, created_at: new Date().toISOString() }, true);
             primeDocumentCache(mapped);
             setForms(prev => mergeDocuments(prev, [mapped]));
+            bumpDocUsage(full.jobId);
             toast.success('Copied as a new draft.');
         } catch (error) {
             if (!handlePlanLimit(error)) toast.error(`Could not duplicate the document. ${describeError(error)}`);
@@ -1165,9 +1287,46 @@ const App: React.FC = () => {
     };
 
     /**
-     * `onSave` for the 12 forms. Resolves `false` when nothing was saved (offline, plan limit, DB error: a toast says why)
-     * and `{ id, public_token }` when saved. Never throws. The form stays open on the saved document (its URL is
-     * replaced, so Back/refresh reopen it instead of replaying an AI draft, CORE-010).
+     * A "<Client> - General" job that so far only exists in memory (see handleNavigateToNewDoc) is created now, right
+     * before its first document is saved. Throws PlanLimitSaveError on the Free plan's job limit.
+     */
+    const createDraftJob = async (draft: AppJob): Promise<AppJob> => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) throw new Error('Please sign in again.');
+        let created: AppJob;
+        try {
+            created = await insertJobRow({
+                id: draft.id,
+                user_id: uid,
+                name: draft.name,
+                client_name: draft.clientName || null,
+                client_address: draft.clientAddress || null,
+                start_date: draft.startDate || localYmd(),
+                status: 'active',
+                ...(draft.clientId ? { client_id: draft.clientId } : {}),
+            });
+        } catch (error) {
+            if (isPlanLimitError(error)) {
+                const reason = planLimitMessage(error);
+                openUpgrade(reason);
+                throw new PlanLimitSaveError(`Not saved yet: ${reason} Everything you typed is still here.`);
+            }
+            // An earlier attempt may have created it before its answer got lost.
+            if (/duplicate key/i.test(String((error as any)?.message || ''))) created = { ...draft };
+            else throw new Error(`Could not create the job "${draft.name}". ${describeError(error)}`);
+        }
+        setJobs(prev => [created, ...prev.filter(j => j.id !== created.id)]);
+        refreshUsage();
+        toast.success(`Job "${created.name}" created.`);
+        return created;
+    };
+
+    /**
+     * `onSave` for the 12 forms. Resolves `false` when nothing was saved (offline, DB error: a toast says why) and
+     * `{ id, public_token }` when saved. When a Free plan limit refuses the save it REJECTS with the reason (and
+     * opens the upgrade modal): the form shows the message and keeps everything typed, so nothing is lost (0b.4).
+     * The form stays open on the saved document (its URL is replaced, so Back/refresh reopen it instead of
+     * replaying an AI draft, CORE-010).
      */
     const handleSaveForm = async (formData: any): Promise<false | { id: string; public_token: string | null }> => {
         if (!session || view.screen !== 'form') return false;
@@ -1197,7 +1356,8 @@ const App: React.FC = () => {
             });
             assertFullDocument({ data: dataToSave });
 
-            const job = jobs.find(j => j.id === view.jobId);
+            let job = jobs.find(j => j.id === view.jobId);
+            if (!job && draftJob && draftJob.id === view.jobId) job = await createDraftJob(draftJob);
             const record: Record<string, unknown> = {
                 id: docId,
                 user_id: session.user.id,
@@ -1214,7 +1374,11 @@ const App: React.FC = () => {
                 ({ data: savedRow, error: saveError } = await supabase.from('documents').upsert(record).select('public_token').maybeSingle());
             }
             if (saveError) {
-                if (handlePlanLimit(saveError)) return false;
+                if (isPlanLimitError(saveError)) {
+                    const reason = planLimitMessage(saveError);
+                    openUpgrade(reason);
+                    throw new PlanLimitSaveError(`Not saved yet: ${reason} Everything you typed is still here: upgrade, then press Save again.`);
+                }
                 const message = saveError.message || 'Document could not be saved.';
                 toast.error(/insufficient stock/i.test(message)
                     ? 'Not enough stock for one or more inventory items. Reduce the quantity and try again.'
@@ -1228,6 +1392,7 @@ const App: React.FC = () => {
             setForms(prev => mergeDocuments(prev.filter(f => f.id !== savedForm.id), [savedForm]));
             dbApi.put('documents', { ...savedForm, id: `full:${savedForm.id}`, docId: savedForm.id }).catch(() => undefined);
             toast.success(existing ? `${view.formType} saved.` : `${view.formType} created.`);
+            if (!existing) bumpDocUsage(view.jobId);
             if (touchesStock && sessionUserIdRef.current) loadInventory(sessionUserIdRef.current).catch(() => undefined);
 
             // Swap the "new document" history entry (and its AI prefill state) for the saved document. The form keeps
@@ -1241,6 +1406,7 @@ const App: React.FC = () => {
             return { id: docId, public_token: publicToken };
         };
         const pending = run().catch((err): false => {
+            if (err instanceof PlanLimitSaveError) throw err; // the form shows it and keeps the typed work
             toast.error(describeError(err, 'Document could not be saved.'));
             return false;
         });
@@ -1252,7 +1418,11 @@ const App: React.FC = () => {
         }
     };
 
-    /** Quick "new document for client" from the Clients screen: reuses the client's active job or creates one. */
+    /**
+     * Quick "new document for client" from the Clients screen. Reuses the client's active job, else the client's
+     * existing "<Client> - General" job. Otherwise the General job is only prepared in memory and created when the
+     * document is saved (createDraftJob), so a discarded document doesn't use up one of the Free plan's jobs (0b.15).
+     */
     const handleNavigateToNewDoc = async (type: FormType, clientId: string) => {
         const uid = sessionUserIdRef.current;
         if (!uid) return;
@@ -1262,31 +1432,33 @@ const App: React.FC = () => {
             try { const { fetchClientById } = await import('./utils/clientLinks.ts'); client = (await fetchClientById(clientId)) || undefined; } catch { client = undefined; }
         }
         if (!client) { toast.error('Client not found.'); return; }
-        const activeJob = jobs.find(j => j.status === 'active' && (j.clientId === client!.id || j.clientName === client!.name));
-        let jobId = activeJob?.id;
-        if (!jobId) {
-            if (!checkLimit('jobs')) return;
-            try {
-                const created = await insertJobRow({
-                    id: crypto.randomUUID(),
-                    user_id: uid,
-                    name: `${client.name} - General`,
-                    client_name: client.name,
-                    client_address: client.address || null,
-                    start_date: localYmd(),
-                    status: 'active',
-                    client_id: client.id,
-                });
-                setJobs(prev => [created, ...prev]);
-                refreshUsage();
-                jobId = created.id;
-            } catch (error) {
-                if (!handlePlanLimit(error)) toast.error(`Could not create a job for ${client.name}. ${describeError(error)}`);
-                return;
-            }
+        const c = client;
+        const sameName = (a?: string | null, b?: string | null) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+        const isClientsJob = (j: AppJob) => j.clientId === c.id || (!j.clientId && sameName(j.clientName, c.name));
+        const generalName = `${c.name} - General`;
+        const existingJob = jobs.find(j => j.status === 'active' && isClientsJob(j))
+            || jobs.find(j => isClientsJob(j) && sameName(j.name, generalName));
+        if (existingJob) {
+            if (!(await ensureDocSlot(existingJob.id))) return;
+            setView({ screen: 'form', formType: type, jobId: existingJob.id, formId: null });
+            return;
         }
-        if (!checkLimit('docs', jobId)) return;
-        setView({ screen: 'form', formType: type, jobId, formId: null });
+        // A job will be needed on save: check the Free plan's job limit now, before anything is typed.
+        if (!checkLimit('jobs')) return;
+        const draft: AppJob = {
+            id: crypto.randomUUID(),
+            userId: uid,
+            name: generalName,
+            clientName: c.name,
+            clientAddress: c.address || '',
+            startDate: localYmd(),
+            endDate: null,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            clientId: c.id,
+        };
+        setDraftJob(draft);
+        navigate(`/jobs/${draft.id}/forms/${encodeURIComponent(type)}`, { state: { fromJob: true } });
     };
 
     const handleAddJobFromInventory = async (data: Partial<Job>): Promise<Job | null> => {
@@ -1380,7 +1552,7 @@ const App: React.FC = () => {
                 loadingDocuments={!pag?.loaded}
                 hasMoreDocuments={Boolean(pag?.hasMore && pag?.loaded)}
                 loadingMoreDocuments={Boolean(pag?.loading && pag?.loaded)}
-                docsThisMonth={jobDocs.filter(f => isThisMonth(f.createdAt)).length}
+                docsThisMonth={docsUsedThisMonth(job.id)}
                 docLimit={paid ? null : effectiveUsage.limits.docs}
                 isOnline={isOnline}
                 t={t}
@@ -1402,7 +1574,9 @@ const App: React.FC = () => {
     const renderForm = () => {
         if (view.screen !== 'form' || !profile) return null;
         const { formType, jobId, formId, prefillData } = view;
-        const job = jobs.find(j => j.id === jobId);
+        // A client's "General" job that is created on the first save (handleNavigateToNewDoc).
+        const isDraftJob = !jobs.some(j => j.id === jobId) && draftJob?.id === jobId;
+        const job = jobs.find(j => j.id === jobId) || (isDraftJob ? draftJob : undefined);
         if (!job) return jobsLoaded ? renderNotFoundJob() : <PageSkeleton rows={2} />;
         const form = formId ? forms.find(f => f.id === formId) : undefined;
         if (formId && (!form || isLightweightDocument(form))) {
@@ -1428,6 +1602,7 @@ const App: React.FC = () => {
         }
         const handleCloseForm = () => {
             if ((location.state as any)?.fromJob && canGoBack()) navigate(-1);
+            else if (isDraftJob) navigate('/clients', { replace: true }); // never saved: there is no job page yet
             else navigate(`/jobs/${jobId}`, { replace: true });
         };
 
@@ -1494,7 +1669,7 @@ const App: React.FC = () => {
         if (approvalToken) return <DocumentApprovalView supabase={supabase} approvalToken={approvalToken} />;
 
         if (!authReady) return <AppSplash />;
-        if (view.screen === 'qaAiDocuments' && import.meta.env.DEV) return <DocumentAIQAHarness />;
+        if (view.screen === 'qaAiDocuments' && import.meta.env.DEV && DocumentAIQAHarness) return <DocumentAIQAHarness />;
 
         if (!session) {
             if (view.screen === 'auth') return renderAuth();
@@ -1637,7 +1812,7 @@ const App: React.FC = () => {
             case 'profitCalculator':
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
             case 'analytics':
-                return <AnalyticsView jobs={jobs} onBack={navigateToDashboard} />;
+                return <AnalyticsView jobs={jobs} defaultLaborRate={profile?.defaultLaborRate} onBack={navigateToDashboard} />;
             case 'calendar':
                 return <CalendarView
                     jobs={jobs}

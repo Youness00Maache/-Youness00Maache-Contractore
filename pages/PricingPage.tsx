@@ -7,31 +7,34 @@ import { FREE_LIMITS, PAID_AI_LIMITS, PLANS } from '../lib/plans.ts';
 import { PRICING_FAQ } from '../content/site.ts';
 
 type Cell = boolean | string;
+// Matches what the app does (owner decision 2026-11-13): everything but price book photos works on Free; paid plans remove the monthly
+// limits, add photos on price book items and raise the AI allowance. Keep in sync with lib/plans.ts.
 const ROWS: { group: string; rows: { label: string; free: Cell; premium: Cell; ai: Cell }[] }[] = [
   {
     group: 'Jobs & documents',
     rows: [
       { label: 'New jobs per month', free: String(FREE_LIMITS.jobs), premium: 'Unlimited', ai: 'Unlimited' },
       { label: 'New clients per month', free: String(FREE_LIMITS.clients), premium: 'Unlimited', ai: 'Unlimited' },
-      { label: 'Documents per job each month', free: String(FREE_LIMITS.docs), premium: 'Unlimited', ai: 'Unlimited' },
+      { label: 'New documents per job each month', free: String(FREE_LIMITS.docs), premium: 'Unlimited', ai: 'Unlimited' },
       { label: 'All 12 document types', free: true, premium: true, ai: true },
       { label: 'PDF export with your logo', free: true, premium: true, ai: true },
-      { label: 'Premium template styles', free: false, premium: true, ai: true },
+      { label: 'Every PDF design, premium styles included', free: true, premium: true, ai: true },
     ],
   },
   {
     group: 'Sending & clients',
     rows: [
       { label: 'Emails from your Gmail', free: `${FREE_LIMITS.emails} / month`, premium: 'Unlimited', ai: 'Unlimited' },
-      { label: 'Client portal & approvals', free: false, premium: true, ai: true },
-      { label: 'Client e-signatures', free: false, premium: true, ai: true },
+      { label: 'Client portal & approvals', free: true, premium: true, ai: true },
+      { label: 'Client e-signatures', free: true, premium: true, ai: true },
     ],
   },
   {
     group: 'Business tools',
     rows: [
-      { label: 'Inventory & price book', free: false, premium: true, ai: true },
-      { label: 'Job profit tracking & analytics', free: false, premium: true, ai: true },
+      { label: 'Inventory & price book', free: true, premium: true, ai: true },
+      { label: 'Photos on price book items', free: false, premium: true, ai: true },
+      { label: 'Job profit tracking & insights', free: true, premium: true, ai: true },
     ],
   },
   {
@@ -39,8 +42,8 @@ const ROWS: { group: string; rows: { label: string; free: Cell; premium: Cell; a
     rows: [
       { label: 'AI requests per month', free: String(FREE_LIMITS.ai), premium: String(PAID_AI_LIMITS.premium), ai: String(PAID_AI_LIMITS.ai) },
       { label: 'AI-drafted documents', free: true, premium: true, ai: true },
-      { label: 'AI batch emails to clients', free: false, premium: false, ai: true },
-      { label: 'Voice-to-document dictation', free: false, premium: false, ai: true },
+      { label: 'AI batch emails to clients', free: true, premium: true, ai: true },
+      { label: 'Voice-to-document dictation', free: true, premium: true, ai: true },
     ],
   },
   {
@@ -72,7 +75,7 @@ const PricingPage: React.FC = () => {
               Simple pricing for contractors
             </h1>
             <p className="mt-5 text-lg leading-relaxed text-muted-foreground sm:text-xl">
-              Start free with every document type. Upgrade for unlimited jobs, the client portal and e-signatures, or let the AI assistant write most of your paperwork.
+              Start free with every document type, the client portal and e-signatures. Upgrade for unlimited jobs, clients, documents and emails, or for a much bigger AI allowance.
             </p>
             <div className="mt-8 flex justify-center">
               <PeriodToggle period={period} onChange={setPeriod} />
@@ -92,7 +95,7 @@ const PricingPage: React.FC = () => {
       <section aria-labelledby="compare-heading" className="py-20 sm:py-24">
         <Container className="max-w-5xl">
           <h2 id="compare-heading" className="text-center font-display text-3xl font-extrabold tracking-[-0.01em] text-foreground sm:text-4xl">Compare plans</h2>
-          <p className="mt-3 text-center text-muted-foreground">Monthly limits reset on the first day of each calendar month.</p>
+          <p className="mt-3 text-center text-muted-foreground">Paid plans remove the Free plan’s monthly limits, add photos on price book items and raise the AI allowance. Limits reset on the first day of each calendar month.</p>
           <div className="relative mt-10 overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
             <table className="w-full min-w-[640px] text-left text-[15px]">
               <caption className="sr-only">Feature comparison of the Free, Premium and Premium + AI plans</caption>

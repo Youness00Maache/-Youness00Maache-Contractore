@@ -5,11 +5,14 @@ import { AwardIcon, BarChartIcon, BriefcaseIcon, ClockIcon, CreditCardIcon, PieC
 import { EmptyState, InlineError, PageHeader, StatCard, fetchAllPages, friendlyError, getCurrentUserId, money, useIsMobile } from './viewKit.tsx';
 import { computeAnalytics, presetRange, previousRange, relativeChange, type AnalyticsDoc, type AnalyticsResult, type Bucket, type RangePreset } from '../utils/analyticsMath.ts';
 import { formatYMD } from '../utils/localDates.ts';
+import { COLLECTED_DEFINITION, PROFIT_DEFINITION, PROFIT_FORMULA, resolveLaborRate } from '../lib/finance.ts';
 
 interface AnalyticsViewProps {
   jobs?: Job[];
   /** @deprecated ignored: list stubs have no line items; the view loads full document data itself (VIEW-033) */
   forms?: FormDataType[];
+  /** Profile labor rate (time sheets are costed with it, like Job financials). */
+  defaultLaborRate?: number;
   onBack: () => void;
 }
 
@@ -19,8 +22,11 @@ const DOC_SELECT = [
   'status:data->>status', 'issueDate:data->>issueDate', 'date:data->>date', 'dueDate:data->>dueDate', 'clientName:data->>clientName',
   'lineItems:data->lineItems', 'taxRate:data->taxRate', 'discount:data->discount', 'shipping:data->shipping',
   'isProgressBilling:data->isProgressBilling', 'amountPaid:data->amountPaid', 'amount:data->amount', 'tax:data->tax',
+  'items:data->items', 'materials:data->materials', 'hoursWorked:data->hoursWorked', 'overtimeHours:data->overtimeHours',
+  'invoiceNumber:data->>invoiceNumber', 'invoiceId:data->>invoiceId', 'description:data->>description', 'title:data->>title',
 ].join(',');
-const DOC_TYPES = ['Invoice', 'Estimate', 'Expense Log'];
+// Same documents as Job financials, so income, collected, costs and profit follow one definition (lib/finance.ts).
+const DOC_TYPES = ['Invoice', 'Estimate', 'Expense Log', 'Receipt', 'Material Log', 'Time Sheet'];
 const JOB_STATUSES = ['active', 'paused', 'completed', 'inactive'] as const;
 
 type PresetKey = RangePreset | 'custom';
@@ -87,22 +93,22 @@ const TrendChart: React.FC<{ buckets: Bucket[]; granularity: AnalyticsResult['gr
     <div className="card card-pad cd-viz">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Revenue vs expenses</h2>
-          <p className="text-xs text-muted-foreground">Collected revenue and Expense Log totals per {granularity}.</p>
+          <h2 className="text-base font-semibold text-foreground">Collected vs costs</h2>
+          <p className="text-xs text-muted-foreground">Money collected and costs (materials, expenses, labor) per {granularity}.</p>
         </div>
         <div className="flex items-center gap-4 text-sm">
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--viz-revenue)' }} />Revenue <strong className="tabular-nums text-foreground">{money(totalRevenue, { cents: false })}</strong></span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--viz-expense)' }} />Expenses <strong className="tabular-nums text-foreground">{money(totalExpenses, { cents: false })}</strong></span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--viz-revenue)' }} />Collected <strong className="tabular-nums text-foreground">{money(totalRevenue, { cents: false })}</strong></span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--viz-expense)' }} />Costs <strong className="tabular-nums text-foreground">{money(totalExpenses, { cents: false })}</strong></span>
           <button type="button" className="btn btn-ghost btn-sm h-9" onClick={() => setAsTable((v) => !v)} aria-pressed={asTable}>{asTable ? 'Chart' : 'Table'}</button>
         </div>
       </div>
 
       {empty ? (
-        <EmptyState compact icon={<BarChartIcon />} title="Nothing to chart yet" description="Paid invoices and expense logs dated in this period will show up here." />
+        <EmptyState compact icon={<BarChartIcon />} title="Nothing to chart yet" description="Payments, receipts and job costs dated in this period will show up here." />
       ) : asTable ? (
         <div className="max-h-80 overflow-y-auto">
           <table className="table-clean">
-            <thead><tr><th>{periodWord}</th><th className="text-right">Revenue</th><th className="text-right">Expenses</th><th className="text-right">Net</th></tr></thead>
+            <thead><tr><th>{periodWord}</th><th className="text-right">Collected</th><th className="text-right">Costs</th><th className="text-right">Net</th></tr></thead>
             <tbody>
               {buckets.map((b) => (
                 <tr key={b.key}>
@@ -139,7 +145,7 @@ const TrendChart: React.FC<{ buckets: Bucket[]; granularity: AnalyticsResult['gr
                   onMouseEnter={() => setActive(i)}
                   onFocus={() => setActive(i)}
                   onClick={() => setActive((a) => (a === i ? null : i))}
-                  aria-label={`${b.label}: revenue ${money(b.revenue)}, expenses ${money(b.expenses)}`}
+                  aria-label={`${b.label}: collected ${money(b.revenue)}, costs ${money(b.expenses)}`}
                 >
                   <div className={`flex h-full items-end justify-center gap-[2px] rounded-sm ${show ? 'bg-muted/60' : ''}`}>
                     <span className="w-1/2 max-w-[18px] rounded-t-[4px]" style={{ height: `${rh}%`, minHeight: b.revenue > 0 ? 2 : 0, background: 'var(--viz-revenue)' }} />
@@ -152,8 +158,8 @@ const TrendChart: React.FC<{ buckets: Bucket[]; granularity: AnalyticsResult['gr
                       className={`pointer-events-none absolute bottom-full z-10 mb-1 w-44 rounded-xl border border-border bg-popover p-3 text-left text-xs text-popover-foreground shadow-lift ${i < buckets.length / 2 ? 'left-0' : 'right-0'}`}
                     >
                       <span className="mb-1 block font-semibold text-foreground">{granularity === 'week' && b.startYMD !== b.endYMD ? `${formatYMD(b.startYMD, { month: 'short', day: 'numeric' })} – ${formatYMD(b.endYMD, { month: 'short', day: 'numeric' })}` : granularity === 'day' ? formatYMD(b.startYMD) : b.label}</span>
-                      <span className="flex justify-between gap-2"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: 'var(--viz-revenue)' }} />Revenue</span><span className="tabular-nums">{money(b.revenue)}</span></span>
-                      <span className="flex justify-between gap-2"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: 'var(--viz-expense)' }} />Expenses</span><span className="tabular-nums">{money(b.expenses)}</span></span>
+                      <span className="flex justify-between gap-2"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: 'var(--viz-revenue)' }} />Collected</span><span className="tabular-nums">{money(b.revenue)}</span></span>
+                      <span className="flex justify-between gap-2"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: 'var(--viz-expense)' }} />Costs</span><span className="tabular-nums">{money(b.expenses)}</span></span>
                       <span className="mt-1 flex justify-between gap-2 border-t border-border pt-1 font-semibold"><span>Net</span><span className="tabular-nums">{money(b.revenue - b.expenses)}</span></span>
                     </span>
                   )}
@@ -169,7 +175,8 @@ const TrendChart: React.FC<{ buckets: Bucket[]; granularity: AnalyticsResult['gr
 
 // ------------------------------------------------------------------------------------------------
 
-const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], onBack }) => {
+const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRate, onBack }) => {
+  const laborRate = useMemo(() => resolveLaborRate(defaultLaborRate), [defaultLaborRate]);
   const [preset, setPreset] = useState<PresetKey>('this-month');
   const initial = presetRange('this-month');
   const [startYMD, setStartYMD] = useState(initial.startYMD);
@@ -200,6 +207,8 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], onBack }) => {
           id: r.id, type: r.type, createdAt: r.created_at, jobId: r.job_id, status: d.status, issueDate: d.issueDate, date: d.date, dueDate: d.dueDate,
           clientName: d.clientName, lineItems: d.lineItems, taxRate: d.taxRate, discount: d.discount, shipping: d.shipping,
           isProgressBilling: d.isProgressBilling, amountPaid: d.amountPaid, amount: d.amount, tax: d.tax,
+          items: d.items, materials: d.materials, hoursWorked: d.hoursWorked, overtimeHours: d.overtimeHours,
+          invoiceNumber: d.invoiceNumber, invoiceId: d.invoiceId, description: d.description, title: d.title,
         };
       };
     }
@@ -232,11 +241,11 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], onBack }) => {
   };
 
   const rangeValid = !!startYMD && !!endYMD && startYMD <= endYMD;
-  const current = useMemo(() => computeAnalytics(docs, startYMD, endYMD), [docs, startYMD, endYMD]);
+  const current = useMemo(() => computeAnalytics(docs, startYMD, endYMD, { laborRate }), [docs, startYMD, endYMD, laborRate]);
   const prev = useMemo(() => {
     const r = previousRange(startYMD, endYMD);
-    return r ? computeAnalytics(docs, r.startYMD, r.endYMD) : null;
-  }, [docs, startYMD, endYMD]);
+    return r ? computeAnalytics(docs, r.startYMD, r.endYMD, { laborRate }) : null;
+  }, [docs, startYMD, endYMD, laborRate]);
   const periodLabel = 'period';
 
   const fallbackJobCounts = useMemo(() => {
@@ -265,7 +274,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], onBack }) => {
         onBack={onBack}
         icon={<TrendingUpIcon className="h-7 w-7" />}
         title="Insights"
-        subtitle="Revenue, cash flow and win rate, calculated from every invoice, estimate and expense log."
+        subtitle="Collected, costs, profit and win rate, calculated from your invoices, receipts, estimates and job cost documents."
         actions={<button type="button" className="btn btn-outline" onClick={load} disabled={loading}><RefreshCwIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>}
       />
 
@@ -299,14 +308,14 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], onBack }) => {
           <div className="card p-4"><div className="skeleton h-64 w-full" /></div>
         </div>
       ) : !hasAnyDocs && !error ? (
-        <EmptyState icon={<BarChartIcon />} title="No financial documents yet" description="Create invoices, estimates and expense logs on your jobs, and your revenue, cash flow and win rate will appear here." action={<button type="button" className="btn btn-primary" onClick={onBack}>Go to jobs</button>} />
+        <EmptyState icon={<BarChartIcon />} title="No financial documents yet" description="Create invoices, receipts, estimates and expense logs on your jobs, and your revenue, costs and win rate will appear here." action={<button type="button" className="btn btn-primary" onClick={onBack}>Go to jobs</button>} />
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             <StatCard label="Revenue collected" icon={<CreditCardIcon />} tone="primary" value={money(current.revenue, { cents: false })} hint={prev ? <Delta current={current.revenue} previous={prev.revenue} label={periodLabel} /> : undefined} />
             <StatCard label="Outstanding" icon={<ClockIcon />} tone={current.overdue > 0 ? 'danger' : 'warning'} value={money(current.outstanding, { cents: false })} hint={current.overdueCount ? <span className="text-destructive">{money(current.overdue, { cents: false })} overdue · {current.overdueCount} invoice{current.overdueCount === 1 ? '' : 's'}</span> : `${current.outstandingCount} open invoice${current.outstandingCount === 1 ? '' : 's'}`} />
-            <StatCard label="Expenses" icon={<ReceiptIcon />} value={money(current.expenses, { cents: false })} hint={prev ? <Delta current={current.expenses} previous={prev.expenses} goodWhenUp={false} label={periodLabel} /> : `${current.expenseCount} expense logs`} />
-            <StatCard label="Net profit" icon={<TrendingUpIcon />} tone={current.profit < 0 ? 'danger' : 'success'} value={<span className={current.profit < 0 ? 'text-destructive' : ''}>{money(current.profit, { cents: false })}</span>} hint={current.profitMargin === null ? 'Revenue − material cost − expenses' : `${pct(current.profitMargin)} margin on collected revenue`} />
+            <StatCard label="Costs" icon={<ReceiptIcon />} value={money(current.costs, { cents: false })} hint={`Materials ${money(current.materials, { cents: false })} · Expenses ${money(current.expenses, { cents: false })} · Labor ${money(current.labor, { cents: false })}`} />
+            <StatCard label="Profit" icon={<TrendingUpIcon />} tone={current.profit < 0 ? 'danger' : 'success'} value={<span className={current.profit < 0 ? 'text-destructive' : ''}>{money(current.profit, { cents: false })}</span>} hint={`${PROFIT_FORMULA.replace('Profit = ', '')}${current.profitMargin === null ? '' : ` · ${pct(current.profitMargin)} margin`}`} />
             <StatCard label="Average invoice" icon={<BarChartIcon />} value={money(current.avgInvoice, { cents: false })} hint={`${current.invoiceCount} invoice${current.invoiceCount === 1 ? '' : 's'} · ${money(current.invoiced, { cents: false })} billed`} />
             <StatCard label="Estimate win rate" icon={<PieChartIcon />} value={pct(current.winRate)} hint={current.estimatesSent ? `${current.estimatesAccepted} of ${current.estimatesSent} accepted · ${money(current.pipeline, { cents: false })} pending` : 'No estimates sent in this period'} />
           </div>
@@ -375,10 +384,10 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], onBack }) => {
             </div>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Revenue counts paid invoices (and partial payments) by issue date. Outstanding is the balance due on sent and overdue invoices.
-            Net profit subtracts the cost of items on paid invoices and your expense logs. Totals use the same math as your PDFs.
-          </p>
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <p><strong className="font-semibold text-foreground">{PROFIT_FORMULA}.</strong> {PROFIT_DEFINITION} Labor is priced at {money(laborRate)}/h (your default labor rate, else the last rate used in Job financials on this device).</p>
+            <p>{COLLECTED_DEFINITION} Invoices count on their issue date, other documents on their date. Outstanding is the balance still due on sent and overdue invoices. Totals use the same math as your PDFs.</p>
+          </div>
         </div>
       )}
     </div>
