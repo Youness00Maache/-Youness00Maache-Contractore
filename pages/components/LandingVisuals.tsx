@@ -4,8 +4,7 @@ import { DocPaper, PAPER_SHADOW } from './DocPapers.tsx';
 import { LogoMark } from './Logo.tsx';
 import { ArrowRight } from './icons.tsx';
 import { Waveform } from './Waveform.tsx';
-
-export { Waveform };
+import { MarkerTick } from './ui.tsx';
 import { DOCUMENT_TYPES, type DocIconName, type DocumentTypeInfo } from '../../content/site.ts';
 
 /*
@@ -242,125 +241,6 @@ export const PhoneTodayMockup: React.FC = () => (
   </div>
 );
 
-/* =================================================================== How it works snippets */
-
-/** A manila job folder. */
-export const JobFolder: React.FC = () => (
-  <div aria-hidden="true" className="relative max-w-[300px] pt-4">
-    <span className="absolute left-0 top-0 h-6 w-28 rounded-t-lg bg-amber-300/80" />
-    <span className="absolute inset-x-0 bottom-2 top-3 rounded-xl rounded-tl-none bg-amber-300/80" />
-    <div className="relative mt-1.5 rounded-xl bg-amber-100 px-4 py-3 shadow-[0_6px_16px_-10px_rgba(120,53,15,.45)]">
-      <p className="text-[13px] font-bold text-amber-950">Maple St. kitchen remodel</p>
-      <p className="mt-0.5 text-[11.5px] text-amber-900/75">Dana Whitfield · 214 Maple St.</p>
-    </div>
-  </div>
-);
-
-/** Three document papers fanned out. */
-export const DocFan: React.FC<{ ids?: DocIconName[] }> = ({ ids = ['estimate', 'invoice', 'dailyReport'] }) => (
-  <div aria-hidden="true" className="flex items-end gap-4">
-    <div className="flex pl-1">
-      {ids.map((id, i) => (
-        <DocPaper
-          key={id}
-          id={id}
-          className={`h-auto w-[58px] flex-none ${PAPER_SHADOW} ${i ? '-ml-4' : ''}`}
-          style={{ transform: `translateY(${[5, 0, 5][i] ?? 0}px) rotate(${[-7, 0, 7][i] ?? 0}deg)`, zIndex: i === 1 ? 2 : 1, position: 'relative' }}
-        />
-      ))}
-    </div>
-    <span className="mb-1 font-mono text-[11px] text-muted-foreground">+ 9 more types</span>
-  </div>
-);
-
-/** Sent → Signed → Paid. */
-export const PaidTrack: React.FC = () => (
-  <div aria-hidden="true" className="flex flex-wrap items-center gap-y-2 text-[12px] font-semibold text-slate-600">
-    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-brand-500" />Sent</span>
-    <span className="mx-2 h-px w-5 bg-slate-300" />
-    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />Signed</span>
-    <span className="mx-2 h-px w-5 bg-slate-300" />
-    <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11.5px] font-bold text-white">Paid · $5,041.60</span>
-  </div>
-);
-
-/* =================================================================== Week planner artifacts */
-
-const SigMark: React.FC<{ className?: string }> = ({ className = 'h-7 w-28' }) => (
-  <svg viewBox="0 0 120 36" className={className} aria-hidden="true" focusable="false">
-    <path
-      d="M4 26c8-14 14-20 18-18s-6 18-2 19 10-16 14-15-2 13 2 13 8-9 12-9 2 7 6 7 7-6 11-6 3 5 7 5 9-4 14-4 10 2 16 1"
-      fill="none"
-      stroke="#1c2eb0"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-export type WeekDay = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
-
-const TAG = 'relative w-full max-w-[220px] rounded-lg bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(16,24,40,.06),0_8px_18px_-12px_rgba(16,24,40,.35)] ring-1 ring-slate-200 sm:w-[176px]';
-const TAG_LABEL = 'font-mono text-[10px] uppercase tracking-[0.08em] text-slate-400';
-
-/** What a day of the example week produced, shown as a small slip of paper. */
-export const WeekArtifact: React.FC<{ day: WeekDay }> = ({ day }) => {
-  switch (day) {
-    case 'Mon':
-      return (
-        <div aria-hidden="true" className={`${TAG} -rotate-1`}>
-          <p className={TAG_LABEL}>Estimate #1038 · draft</p>
-          <div className="mt-1.5 flex items-center gap-2">
-            <Waveform className="h-4 text-brand-500" bars={14} />
-            <span className="font-mono text-[11px] text-slate-500">0:18</span>
-          </div>
-        </div>
-      );
-    case 'Tue':
-      return (
-        <div aria-hidden="true" className={`${TAG} rotate-1`}>
-          <p className={TAG_LABEL}>Signed · 9:42 AM</p>
-          <SigMark className="mt-0.5 h-7 w-28" />
-        </div>
-      );
-    case 'Wed':
-      return (
-        <div aria-hidden="true" className={`${TAG} -rotate-[0.5deg]`}>
-          <p className={TAG_LABEL}>Change order #3</p>
-          <p className="mt-0.5 flex items-baseline gap-2">
-            <span className="font-mono text-base font-bold text-emerald-600">+$860.00</span>
-            <span className="text-[11px] font-semibold text-amber-700">+1 day</span>
-          </p>
-        </div>
-      );
-    case 'Thu':
-      return (
-        <div aria-hidden="true" className={`${TAG} rotate-[0.75deg]`}>
-          <p className={TAG_LABEL}>Daily report · 4:55 PM</p>
-          <p className="mt-0.5 text-[12.5px] font-bold text-slate-800">3 crew · 7.5 h each</p>
-          <p className="text-[11px] text-slate-500">Rain after 2 PM · 6 photos</p>
-        </div>
-      );
-    case 'Fri':
-    default:
-      return (
-        <div aria-hidden="true" className={`${TAG} -rotate-1`}>
-          <p className={TAG_LABEL}>Invoice #1042 · 2 of 3</p>
-          <p className="mt-0.5 flex items-baseline gap-1.5">
-            <span className="font-display text-lg font-extrabold text-slate-900">34%</span>
-            <span className="text-[11px] font-semibold text-slate-500">margin so far</span>
-          </p>
-          <span className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-emerald-200">
-            <span className="w-[35%] bg-brand-500" />
-            <span className="w-[24%] bg-brand-300" />
-            <span className="w-[7%] bg-amber-400" />
-          </span>
-        </div>
-      );
-  }
-};
-
 /* =================================================================== Trades tape */
 
 const TAPE_STYLE: React.CSSProperties = {
@@ -398,25 +278,59 @@ export const TradesTape: React.FC<{ trades: { id: string; name: string }[] }> = 
   </div>
 );
 
-/* =================================================================== Trust "rating plate" */
+/* =================================================================== Security & trust "proofs" */
 
-export const SpecPlate: React.FC<{ items: { spec: string; title: string; text: string }[] }> = ({ items }) => (
-  <div className="relative overflow-hidden rounded-2xl bg-slate-900 text-white shadow-lift ring-1 ring-slate-800">
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,.06),transparent_40%,rgba(255,255,255,.04)_60%,transparent)]" />
-    {['left-2.5 top-2.5', 'right-2.5 top-2.5', 'bottom-2.5 left-2.5', 'bottom-2.5 right-2.5'].map((p) => (
-      <span key={p} aria-hidden="true" className={`absolute h-2 w-2 rounded-full bg-gradient-to-br from-slate-300 to-slate-600 shadow-[inset_0_-1px_1px_rgba(0,0,0,.4)] ${p}`} />
-    ))}
-    <p className="relative border-b border-white/10 px-6 py-3 font-mono text-[11px] uppercase tracking-[0.2em] text-slate-400 sm:px-8">
-      <span className="hidden sm:inline">ContractorDocs · </span>how your data is handled
-    </p>
-    <ul className="relative grid gap-px bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
-      {items.map((t) => (
-        <li key={t.title} className="bg-slate-900 px-6 py-5 sm:px-8 sm:py-6">
-          <p className="font-mono text-[11.5px] tracking-[0.04em] text-amber-300">{t.spec}</p>
-          <p className="mt-2 font-semibold text-white">{t.title}</p>
-          <p className="mt-1 text-sm leading-relaxed text-slate-400">{t.text}</p>
-        </li>
-      ))}
-    </ul>
-  </div>
+/** Hand-drawn cross, the counterpart of the marker tick. */
+const MarkerCross: React.FC<{ className?: string }> = ({ className = 'h-4 w-4 text-red-400' }) => (
+  <svg viewBox="0 0 20 20" className={className} aria-hidden="true" focusable="false">
+    <path d="M5.2 5.4c3.1 2.9 6.3 6.1 9.5 9.5M14.9 5.1c-3.3 3-6.4 6.3-9.7 9.8" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+  </svg>
+);
+
+/** The address bar: every connection is HTTPS. */
+export const HttpsProof: React.FC = () => (
+  <span className="flex min-w-0 max-w-full items-center rounded-full bg-white py-1.5 pl-3 pr-3.5 font-mono text-[11.5px] shadow-sm ring-1 ring-slate-200">
+    <span className="font-semibold text-emerald-700">https://</span>
+    <span className="truncate text-slate-600">www.contractordocs.app</span>
+  </span>
+);
+
+/** Per-account access: your rows, nobody else's. */
+export const AccountProof: React.FC = () => (
+  <span className="flex w-full max-w-[236px] flex-col gap-1 text-[11.5px]">
+    <span className="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-1 shadow-sm ring-1 ring-slate-200">
+      <span className="truncate font-semibold text-slate-800">Your jobs, clients &amp; docs</span>
+      <span className="font-mono text-[9.5px] font-bold uppercase tracking-wider text-brand-700">You</span>
+    </span>
+    <span className="flex items-center justify-between gap-2 rounded-md border border-dashed border-slate-300 px-2.5 py-1 text-slate-400">
+      <span className="truncate">Any other account</span>
+      <span className="font-mono text-[9.5px] font-bold uppercase tracking-wider">No access</span>
+    </span>
+  </span>
+);
+
+/** The Gmail permission we ask for (send) and the one we don't (read). */
+export const GmailScopeProof: React.FC = () => (
+  <span className="flex flex-col gap-1 text-[12px]">
+    <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+      <MarkerTick className="h-4 w-4 flex-none text-emerald-600" /> Send email for you
+    </span>
+    <span className="flex items-center gap-1.5 text-slate-400">
+      <MarkerCross className="h-4 w-4 flex-none text-red-400" /> <span className="line-through decoration-red-300">Read your inbox</span>
+    </span>
+  </span>
+);
+
+/** Card details are entered at Kelviq's checkout, not with us. */
+export const CardProof: React.FC = () => (
+  <span className="flex items-center gap-3">
+    <span className="relative h-[40px] w-[64px] flex-none overflow-hidden rounded-md bg-gradient-to-br from-slate-600 to-slate-900 shadow-sm">
+      <span className="absolute left-2 top-2 h-[9px] w-3 rounded-[2px] bg-gradient-to-br from-amber-200 to-amber-400" />
+      <span className="absolute bottom-1.5 left-2 font-mono text-[7px] tracking-[0.12em] text-white/70">•••• ••••</span>
+    </span>
+    <span className="leading-tight">
+      <span className="block font-mono text-[11px] tracking-[0.1em] text-slate-400">•••• •••• ••••</span>
+      <span className="mt-0.5 block text-[12px] font-semibold text-slate-800">Entered at Kelviq checkout</span>
+    </span>
+  </span>
 );

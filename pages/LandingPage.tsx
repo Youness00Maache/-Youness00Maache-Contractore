@@ -4,7 +4,7 @@ import { Container, SectionHeader, ButtonLink, CheckList, FaqList, CtaBand, Eyeb
 import { AppMockup, AiMockup, PortalMockup, InvoicePaper, EmailMockup, InventoryMockup, ProfitMockup, StatusStrip } from './components/Mockups.tsx';
 import {
   DocumentShelf, PostStamp, StockTag, MarginDial, RecordingPill, PhoneTodayMockup, TradesTape,
-  SpecPlate,
+  HttpsProof, AccountProof, GmailScopeProof, CardProof,
 } from './components/LandingVisuals.tsx';
 import { PlanCards, PeriodToggle, type Period } from './components/PlanCards.tsx';
 import { ArrowRight } from './components/icons.tsx';
@@ -63,10 +63,10 @@ const MoreCard: React.FC<{
 );
 
 const TRUST = [
-  { spec: 'TLS + HSTS', title: 'Encrypted connections', text: 'HTTPS everywhere, with strict security headers.' },
-  { spec: 'Postgres access rules', title: 'Your data stays yours', text: 'Per-account access rules in the database.' },
-  { spec: 'scope: gmail.send', title: 'Send-only Gmail access', text: 'We can send for you, never read your inbox.' },
-  { spec: 'Checkout, tax, receipts', title: 'Payments by Kelviq', text: 'Merchant of record; we never see your card.' },
+  { title: 'Encrypted connections', text: 'HTTPS everywhere, with strict security headers.', proof: <HttpsProof /> },
+  { title: 'Your data stays yours', text: 'Per-account access rules in the database.', proof: <AccountProof /> },
+  { title: 'Send-only Gmail access', text: 'We can send for you, never read your inbox.', proof: <GmailScopeProof /> },
+  { title: 'Payments by Kelviq', text: 'Merchant of record; we never see your card.', proof: <CardProof /> },
 ];
 
 const LandingPage: React.FC = () => {
@@ -275,18 +275,35 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* ------------------------------------------------------------ Trust */}
-      <section aria-labelledby="trust-heading" className="py-16">
-        <Container>
-          <h2 id="trust-heading" className="sr-only">Security and trust</h2>
-          <SpecPlate items={TRUST} />
-          <p className="mt-6 text-center text-sm">
-            <Link to="/security" className="inline-flex min-h-[40px] items-center gap-1 font-semibold text-brand-700 hover:text-brand-800">How we protect your data <ArrowRight className="h-3.5 w-3.5" /></Link>
-          </p>
+      <section aria-labelledby="trust-heading" className="border-y border-border bg-card">
+        <Container className="py-12 sm:py-14">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-8">
+            <div>
+              <Eyebrow className="mb-2">Security and trust</Eyebrow>
+              <h2 id="trust-heading" className="font-display text-2xl font-extrabold leading-tight tracking-[-0.01em] text-foreground sm:text-3xl">
+                What we can and can’t see
+              </h2>
+            </div>
+            <Link to="/security" className="inline-flex min-h-[44px] flex-none items-center gap-1.5 self-start font-semibold text-brand-700 hover:text-brand-800 sm:self-auto">
+              How we protect your data <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <ul className="mt-6 grid gap-x-6 gap-y-6 sm:mt-8 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-4">
+            {TRUST.map((t) => (
+              <li key={t.title}>
+                <div aria-hidden="true" className="flex h-[68px] items-center justify-center rounded-2xl sm:h-[76px] bg-gradient-to-b from-muted/40 to-muted/90 px-4 ring-1 ring-inset ring-border/60">
+                  {t.proof}
+                </div>
+                <h3 className="mt-4 font-semibold text-foreground">{t.title}</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{t.text}</p>
+              </li>
+            ))}
+          </ul>
         </Container>
       </section>
 
       {/* ------------------------------------------------------------ FAQ */}
-      <section aria-labelledby="faq-heading" className="pb-8 pt-12 sm:pt-16">
+      <section aria-labelledby="faq-heading" className="pb-8 pt-16 sm:pt-20">
         <Container className="max-w-4xl">
           <SectionHeader id="faq-heading" eyebrow="FAQ" title="Questions contractors ask us" />
           <FaqList items={HOME_FAQ} className="mt-10" />
