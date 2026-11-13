@@ -122,6 +122,12 @@ into money and new work. Use the contractor's OWN channels (their Gmail, their p
 Plan rule: Free = get paid + look professional at low volume; Premium $5 = automation, volume, crew; Premium+AI
 $10 = AI that writes and acts. Photo storage and AI tokens need per-tier caps. No telephony.
 
+**Owner decision 2026-11-13 16:45:** "choose whatever option fits best" → Claude chose ALL four database additions
+(pay now + profile settings; reminders; request-a-quote; job photos). Additive migrations only, applied after the
+code is tested: 20261113000200_pay_review_financing.sql, 20261113000300_reminders.sql,
+20261113000400_requests_and_job_photos.sql. Started 16:45 with 3 helpers: pay (#1, #4, #5, #6), reminders (#2),
+requests + photos (#3, #8). Still to do after them: #7 export everything + bookkeeper CSV + price promise.
+
 **NOW (in this order; the payment webhook unlocks the rest):**
 1. "Pay now" WITHOUT Stripe (owner: Stripe can't be used; Kelviq is only for selling our own subscriptions, so
    don't route client payments through it). Build on the existing invoice "Pay-now link" field (the
