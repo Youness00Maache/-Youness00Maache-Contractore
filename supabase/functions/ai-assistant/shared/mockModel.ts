@@ -208,28 +208,75 @@ function detectNewClientNames(text: string): string[] {
     return names.slice(0, 10);
 }
 
-/** Realistic sample content for "just an example" plans (index varies the numbers a little). */
-function sampleDocument(docType: DocKey, index: number, clientName?: string): Pick<ModelPlanStep, 'fields' | 'line_items'> {
+/**
+ * Realistic sample content for "just an example" / "random data" requests (index varies the numbers a
+ * little). Every box a user fills by hand is covered; numbers, status, payment links and the job / profile
+ * boxes stay out (the app owns them). Dates are relative, so they follow the user's day.
+ */
+export function sampleDocument(docType: DocKey, index: number, clientName?: string): Pick<ModelPlanStep, 'fields' | 'line_items'> {
     const who = clientName ? ` for ${clientName}` : '';
     const hours = 6 + (index % 3) * 2;
     const items = [
         { description: 'Labor (carpentry)', quantity: hours, rate: 65 },
         { description: 'Materials and supplies', quantity: 1, rate: 240 + index * 35 },
+        { description: 'Debris removal and site cleanup', quantity: 1, rate: 150 },
     ];
+    const f = (pairs: Record<string, string>) => Object.entries(pairs).map(([key, value]) => ({ key, value }));
     switch (docType) {
+        case 'INVOICE':
+            return { fields: f({
+                title: `Kitchen remodel - progress invoice${who}`, issueDate: 'today', dueDate: 'in 30 days', taxRate: '8.25', discount: '50', shipping: '35',
+                amountPaid: '250', notes: 'Thank you for your business. Payment is due within 30 days.',
+            }), line_items: items };
+        case 'ESTIMATE':
+            return { fields: f({
+                title: `Kitchen remodel estimate${who}`, issueDate: 'today', expiryDate: 'in 30 days', taxRate: '8.25', discount: '100',
+                terms: 'Valid for 30 days. 50% deposit to schedule, balance due on completion.', notes: 'Includes demolition, new cabinets, countertop install and final cleanup.',
+            }), line_items: items };
+        case 'WORK_ORDER':
+            return { fields: f({
+                title: `Kitchen plumbing repair${who}`, date: 'today', assignedTo: 'Alex Rivera', description: 'Replace the kitchen faucet and fix the leak under the sink.',
+                materialsUsed: 'Single-handle faucet, 2 supply lines, plumber\'s putty', hours: String(hours), cost: '420',
+                terms: 'Payment due on completion. Changes to the scope must be approved in writing.',
+            }) };
         case 'DAILY_REPORT':
             return { fields: [
+                { key: 'title', value: `Daily progress report${who}` }, { key: 'date', value: 'today' },
                 { key: 'content', value: `<h3>Work Completed</h3><ul><li>Removed the old cabinets and countertop${who}</li><li>Framed the new pantry wall and installed blocking</li></ul><h3>Crew</h3><p>3 workers on site, ${hours} hours each.</p><h3>Materials</h3><p>12 2x4 studs, 2 boxes of framing nails.</p><h3>Next Steps</h3><p>Electrical rough-in and inspection.</p>` },
-                { key: 'weather', value: 'Sunny' }, { key: 'temperature', value: '72°F' },
+                { key: 'weather', value: 'Sunny' }, { key: 'temperature', value: '72°F' }, { key: 'crewSize', value: '3' }, { key: 'laborHours', value: String(hours * 3) },
+                { key: 'tags', value: 'framing, demolition' },
             ] };
-        case 'NOTE': return { fields: [{ key: 'title', value: `Site visit${who}` }, { key: 'content', value: 'Walked the site with the owner. Agreed on cabinet layout and paint colors.' }] };
-        case 'WORK_ORDER': return { fields: [{ key: 'description', value: 'Replace the kitchen faucet and fix the leak under the sink.' }, { key: 'hours', value: String(hours) }, { key: 'cost', value: '420' }] };
-        case 'TIME_SHEET': return { fields: [{ key: 'workerName', value: 'Alex Rivera' }, { key: 'hoursWorked', value: String(hours) }] };
-        case 'WARRANTY': return { fields: [{ key: 'duration', value: '1 year' }, { key: 'coverage', value: 'Labor and installation defects.' }] };
-        case 'RECEIPT': return { fields: [{ key: 'amount', value: String(500 + index * 50) }, { key: 'paymentMethod', value: 'Check' }] };
-        case 'MATERIAL_LOG': return { line_items: [{ description: '2x4 studs', quantity: 12, rate: 4.25, unit_cost: 4.25, supplier: 'City Supply' }] };
-        case 'CHANGE_ORDER': return { fields: [{ key: 'description', value: 'Add a pantry door' }, { key: 'reason', value: 'Client Request' }], line_items: items };
-        default: return { fields: docType === 'INVOICE' ? [{ key: 'notes', value: 'Thank you for your business.' }] : [], line_items: items };
+        case 'TIME_SHEET':
+            return { fields: f({ title: 'Weekly time sheet', workerName: 'Alex Rivera', date: 'today', hoursWorked: String(hours), overtimeHours: '1.5', notes: 'Framing and blocking in the kitchen, site cleanup.' }) };
+        case 'MATERIAL_LOG':
+            return { fields: f({ title: 'Framing materials', date: 'today' }), line_items: [
+                { description: '2x4 studs', quantity: 12, rate: 4.25, unit_cost: 4.25, supplier: 'City Supply' },
+                { description: 'Framing nails (box)', quantity: 2, rate: 18.5, unit_cost: 18.5, supplier: 'City Supply' },
+            ] };
+        case 'EXPENSE_LOG':
+            return { fields: f({ title: 'Fuel for site trips', date: 'today', vendor: 'Shell', category: 'Fuel', item: 'Gas', amount: '64.50', tax: '4.50', notes: 'Truck refuel for the material run.' }),
+                line_items: [{ description: 'Gas', quantity: 1, rate: 60 }] };
+        case 'WARRANTY':
+            return { fields: f({
+                title: `Workmanship warranty${who}`, completedDate: 'today', duration: '1 year', coverage: 'Labor and installation defects on all work performed.',
+                conditions: 'Excludes normal wear and tear, misuse and work by others. Report defects in writing within the warranty period.',
+            }) };
+        case 'NOTE':
+            return { fields: f({ title: `Site visit${who}`, content: 'Walked the site with the owner. Agreed on cabinet layout and paint colors.', tags: 'site visit, design' }) };
+        case 'RECEIPT':
+            return { fields: f({ title: 'Deposit received', date: 'today', amount: String(500 + index * 50), description: 'Deposit for the kitchen remodel.', paymentMethod: 'Check' }) };
+        case 'CHANGE_ORDER':
+            return { fields: f({
+                title: `Pantry door change order${who}`, date: 'today', description: 'Add a pantry door', reason: 'Client Request', currentContractSum: '12500',
+                terms: 'Adds 2 days to the schedule. All other terms of the original contract remain in effect.',
+            }), line_items: items };
+        case 'PURCHASE_ORDER':
+            return { fields: f({
+                title: 'Framing lumber order', date: 'today', deliveryDate: 'in 3 days', vendorName: 'City Supply', vendorAddress: '200 Industrial Way, Springfield, IL 62704',
+                vendorPhone: '(555) 555-0187', vendorEmail: 'orders@example.com', shipToType: 'Job Site', shipToName: 'Site supervisor',
+                shipToAddress: '742 Maple Avenue, Springfield, IL 62704', shipToPhone: '(555) 555-0123', deliveryInstructions: 'Deliver to the driveway before 9 am.',
+                notes: 'Call the site supervisor 30 minutes before arrival.',
+            }), line_items: [{ description: '2x4 studs', quantity: 40, rate: 6.5 }, { description: 'Framing nails (box)', quantity: 4, rate: 18.5 }] };
     }
 }
 
@@ -307,6 +354,9 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
     if (req.scope === 'form') {
         const docType = resolveDocKey(c.form_document_type);
         if (!docType) return { action_type: 'CHAT', reply_text: 'Open a document first.' };
+        if (isSampleRequest([...(req.history || []).filter(h => h.role === 'user').map(h => h.text), text].join('\n'))) {
+            return { action_type: 'GENERATE_DOCUMENT', reply_text: `I filled the ${DOC_LABELS[docType].toLowerCase()} with sample data. Check it before you send it.`, document_type: docType, ...sampleDocument(docType, 0) };
+        }
         return { action_type: 'GENERATE_DOCUMENT', reply_text: `I filled the ${DOC_LABELS[docType]} with what you told me.`, document_type: docType, ...extractFields(docType, text, today) };
     }
 
@@ -365,7 +415,8 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
     }
     const newJob = text.match(/\b(?:new|create|add|start)\s+(?:a\s+)?(?:new\s+)?(?:job|project)\b(?:\s+(?:called|named|for))?\s*:?\s*["']?([^"'\n.]{2,80})?/i);
     if (newJob && !/\bjob\s+(?:report|status)\b/i.test(text)) {
-        return { action_type: 'CREATE_JOB', reply_text: 'Create this job?', entity: { name: (newJob[1] || '').trim() || null } };
+        const jobName = (newJob[1] || '').replace(/^with\b.*$|\s+with\s+(?:some\s+)?(?:random|sample|test|fake|dummy|example)\b.*$/i, '').trim();
+        return { action_type: 'CREATE_JOB', reply_text: 'Create this job?', entity: { name: jobName || (isSampleRequest(text) ? 'Sample Job' : null) } };
     }
     const newClient = text.match(/\b(?:new|add|create)\s+(?:a\s+)?(?:new\s+)?client\b(?:\s+(?:called|named))?\s*:?\s*/i);
     if (newClient) {

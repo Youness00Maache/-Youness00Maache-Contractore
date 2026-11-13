@@ -10,7 +10,7 @@ import type { FormType } from '../../types.ts';
 import { resolveFormType, resolveMasterDocumentType } from '../config/docTypeMap.ts';
 import { normalizePrefill, toLocalYmd, type DocKey } from '../config/documentFieldRequirements.ts';
 import { inferTemplateIdFromIntent } from '../utils/aiTemplateUtils.ts';
-import type { RouterResponse } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { isSampleRequest, type RouterResponse } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { dispatchUpgradeEvent } from '../ai/events.ts';
 
 export { TEMPLATE_STYLE_MAP, resolveTemplateId, RICH_TEXT_FIELDS, extractRichTextField } from '../utils/aiTemplateUtils.ts';
@@ -25,6 +25,8 @@ export interface AIGeneratedDocument {
     form_payload: Record<string, unknown>;
     missing_fields: string[];
     reply: string;
+    /** The user asked for sample / test / random data (the fields hold made-up values). */
+    sample: boolean;
 }
 
 export const useContractorAI = () => {
@@ -85,8 +87,10 @@ export const useContractorAI = () => {
             if (!proposal || proposal.action_type !== 'GENERATE_DOCUMENT') {
                 throw new Error(proposal?.reply_text || 'Tell me what to put in this form, for example the work done, items and prices.');
             }
+            // Sample data: no daily-report fact guards (the made-up weather / crew are what the user asked for).
+            const sample = proposal.sample_data === true || isSampleRequest(inputData);
             const prefill = normalizePrefill(docType, proposal.prefill || {}, {
-                today: toLocalYmd(), resolveTemplate: inferTemplateIdFromIntent, userText: inputData,
+                today: toLocalYmd(), resolveTemplate: inferTemplateIdFromIntent, userText: sample ? undefined : inputData,
             });
             if (!Object.keys(prefill).length) throw new Error('I could not find anything to fill in. Add a few details (work done, items, prices) and try again.');
             const doc: AIGeneratedDocument = {
@@ -97,6 +101,7 @@ export const useContractorAI = () => {
                 form_payload: prefill,
                 missing_fields: proposal.missing_fields || [],
                 reply: proposal.reply_text,
+                sample,
             };
             setGeneratedDocs([doc]);
             return [doc];

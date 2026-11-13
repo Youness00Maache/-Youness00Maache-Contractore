@@ -93,6 +93,7 @@ export const DOCUMENT_SCHEMAS = {
         taxRate: { kind: 'percent', label: 'Tax rate (%)', hint: 'percentage number, 8.25 means 8.25%' },
         discount: { kind: 'money', label: 'Discount', hint: 'flat amount' },
         shipping: { kind: 'money', label: 'Shipping', hint: 'flat amount' },
+        amountPaid: { kind: 'money', label: 'Already paid', hint: 'deposit / payments already received, flat amount' },
         notes: { kind: 'longtext', label: 'Notes', placeholder: 'e.g. payment terms or a thank-you note' },
         paypalLink: { kind: 'url', label: 'Payment link' },
         status: { kind: 'enum', label: 'Status', values: ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled'] },
@@ -107,6 +108,8 @@ export const DOCUMENT_SCHEMAS = {
         clientName: { kind: 'text', label: 'Client name', source: 'job' },
         clientAddress: { kind: 'text', label: 'Client address', source: 'job' },
         lineItems: { kind: 'lineItems', label: 'Line items / scope', ask: true, placeholder: 'e.g. demo and haul-away 1 at 1200; tile 120 sq ft at 14' },
+        taxRate: { kind: 'percent', label: 'Tax rate (%)', hint: 'percentage number, 8.25 means 8.25%' },
+        discount: { kind: 'money', label: 'Discount', hint: 'flat amount' },
         terms: { kind: 'longtext', label: 'Terms' },
         notes: { kind: 'longtext', label: 'Notes / scope description' },
         status: { kind: 'enum', label: 'Status', values: ['Draft', 'Sent', 'Accepted', 'Rejected'] },
@@ -118,6 +121,7 @@ export const DOCUMENT_SCHEMAS = {
         workOrderNumber: { kind: 'text', label: 'Work order number' },
         date: { kind: 'date', label: 'Date' },
         status: { kind: 'enum', label: 'Status', values: ['Scheduled', 'In Progress', 'On Hold', 'Completed'] },
+        assignedTo: { kind: 'text', label: 'Assigned to', hint: 'worker or crew doing the work' },
         clientName: { kind: 'text', label: 'Client name', source: 'job' },
         clientAddress: { kind: 'text', label: 'Service address', source: 'job' },
         description: { kind: 'longtext', label: 'Work description', ask: true, placeholder: 'e.g. replace the kitchen faucet and fix the leak under the sink' },
@@ -137,6 +141,8 @@ export const DOCUMENT_SCHEMAS = {
         projectAddress: { kind: 'text', label: 'Site address', source: 'job' },
         weather: { kind: 'text', label: 'Weather', hint: 'only if the user stated it' },
         temperature: { kind: 'text', label: 'Temperature', hint: 'only if the user stated it, e.g. 72°F' },
+        crewSize: { kind: 'number', label: 'Crew on site', hint: 'number of people, only if the user stated it' },
+        laborHours: { kind: 'number', label: 'Labor hours', hint: 'total crew hours, only if the user stated it' },
         content: { kind: 'richtext', label: 'Work performed today', ask: true, placeholder: 'e.g. framed the east wall, 3 crew, inspection passed' },
         tags: { kind: 'tags', label: 'Tags' },
         ...COMPANY,
@@ -149,7 +155,7 @@ export const DOCUMENT_SCHEMAS = {
         hoursWorked: { kind: 'number', label: 'Hours worked', ask: true, placeholder: 'e.g. 8' },
         overtimeHours: { kind: 'number', label: 'Overtime hours' },
         notes: { kind: 'longtext', label: 'Work performed / notes' },
-        status: { kind: 'text', label: 'Status' },
+        status: { kind: 'enum', label: 'Status', values: ['Draft', 'Submitted', 'Approved'] },
         clientName: { kind: 'text', label: 'Client name', source: 'job' },
         clientAddress: { kind: 'text', label: 'Client address', source: 'job' },
         ...COMPANY,
@@ -205,6 +211,7 @@ export const DOCUMENT_SCHEMAS = {
         amount: { kind: 'money', label: 'Amount received', ask: true, placeholder: 'e.g. 975.00' },
         description: { kind: 'longtext', label: 'Description' },
         paymentMethod: { kind: 'text', label: 'Payment method', placeholder: 'e.g. Check, Card, Cash' },
+        invoiceNumber: { kind: 'text', label: 'For invoice #', hint: 'number of the invoice this payment is for, only if the user gave it' },
         ...COMPANY,
         ...STYLE,
     },
@@ -216,6 +223,7 @@ export const DOCUMENT_SCHEMAS = {
         clientAddress: { kind: 'text', label: 'Client address', source: 'job' },
         description: { kind: 'longtext', label: 'Description of change', ask: true, placeholder: 'e.g. add two exterior doors to the approved scope' },
         reason: { kind: 'text', label: 'Reason', placeholder: 'e.g. Client Request' },
+        status: { kind: 'enum', label: 'Status', values: ['Draft', 'Sent', 'Approved', 'Rejected'] },
         currentContractSum: { kind: 'money', label: 'Current contract sum' },
         lineItems: { kind: 'lineItems', label: 'Cost changes' },
         terms: { kind: 'longtext', label: 'Terms' },
@@ -558,16 +566,16 @@ export function normalizeMaterialItems(value: unknown, newId: () => string): Nor
 /** Legacy / model-drift key names → schema key, per type ('*' = every type). */
 const KEY_ALIASES: Record<DocKey | '*', Record<string, string>> = {
     '*': { template: 'templateId', template_style: 'templateId', colors: 'themeColors', theme_colors: 'themeColors', client: 'clientName', client_name: 'clientName', client_address: 'clientAddress' },
-    INVOICE: { date: 'issueDate', invoiceDate: 'issueDate', items: 'lineItems', line_items: 'lineItems', description_html: 'notes', description: 'notes', number: 'invoiceNumber', tax: 'taxRate', paymentLink: 'paypalLink' },
-    ESTIMATE: { date: 'issueDate', validUntil: 'expiryDate', expirationDate: 'expiryDate', dueDate: 'expiryDate', items: 'lineItems', line_items: 'lineItems', description_html: 'notes', description: 'notes', number: 'estimateNumber', scope: 'notes' },
-    WORK_ORDER: { description_html: 'description', content: 'description', materials: 'materialsUsed', number: 'workOrderNumber', projectAddress: 'clientAddress' },
-    DAILY_REPORT: { body: 'content', description: 'content', description_html: 'content', notes: 'content', summary: 'content', siteAddress: 'projectAddress', number: 'reportNumber', clientAddress: 'projectAddress' },
+    INVOICE: { date: 'issueDate', invoiceDate: 'issueDate', items: 'lineItems', line_items: 'lineItems', description_html: 'notes', description: 'notes', number: 'invoiceNumber', tax: 'taxRate', paymentLink: 'paypalLink', deposit: 'amountPaid', depositPaid: 'amountPaid', amount_paid: 'amountPaid', paid: 'amountPaid' },
+    ESTIMATE: { date: 'issueDate', validUntil: 'expiryDate', expirationDate: 'expiryDate', dueDate: 'expiryDate', items: 'lineItems', line_items: 'lineItems', description_html: 'notes', description: 'notes', number: 'estimateNumber', scope: 'notes', tax: 'taxRate', tax_rate: 'taxRate' },
+    WORK_ORDER: { description_html: 'description', content: 'description', materials: 'materialsUsed', number: 'workOrderNumber', projectAddress: 'clientAddress', assignee: 'assignedTo', assigned_to: 'assignedTo', technician: 'assignedTo', worker: 'assignedTo', workerName: 'assignedTo' },
+    DAILY_REPORT: { body: 'content', description: 'content', description_html: 'content', notes: 'content', summary: 'content', siteAddress: 'projectAddress', number: 'reportNumber', clientAddress: 'projectAddress', crew: 'crewSize', crew_size: 'crewSize', workers: 'crewSize', hours: 'laborHours', labor_hours: 'laborHours', laborHoursTotal: 'laborHours' },
     TIME_SHEET: { worker: 'workerName', employee: 'workerName', hours: 'hoursWorked', overtime: 'overtimeHours', description: 'notes', description_html: 'notes', content: 'notes' },
     MATERIAL_LOG: { lineItems: 'items', line_items: 'items', materials: 'items' },
     EXPENSE_LOG: { vendorName: 'vendor', total: 'amount', items: 'lineItems', line_items: 'lineItems', description: 'notes', description_html: 'notes' },
     WARRANTY: { date: 'completedDate', completionDate: 'completedDate', clientAddress: 'projectAddress', number: 'warrantyNumber', description: 'coverage', description_html: 'coverage', exclusions: 'conditions' },
     NOTE: { body: 'content', description: 'content', description_html: 'content', notes: 'content' },
-    RECEIPT: { total: 'amount', method: 'paymentMethod', description_html: 'description', notes: 'description', number: 'receiptNumber' },
+    RECEIPT: { total: 'amount', method: 'paymentMethod', description_html: 'description', notes: 'description', number: 'receiptNumber', forInvoice: 'invoiceNumber', invoice: 'invoiceNumber', invoice_number: 'invoiceNumber' },
     CHANGE_ORDER: { description_html: 'description', contractSum: 'currentContractSum', items: 'lineItems', line_items: 'lineItems', number: 'changeOrderNumber' },
     PURCHASE_ORDER: { vendor: 'vendorName', purchaseOrderNumber: 'poNumber', number: 'poNumber', items: 'lineItems', line_items: 'lineItems', description_html: 'notes', description: 'notes' },
 };
@@ -735,7 +743,7 @@ function sentencesOf(text: string): string[] {
 
 /**
  * Daily reports are site records: drop statements the user never made.
- * - weather / temperature only when the user mentioned them;
+ * - weather / temperature only when the user mentioned them; crew size / labor hours only numbers the user typed;
  * - "no incidents" style claims only when the user said so AND reported no injury;
  * - a reported injury is always present in the body.
  */
@@ -744,6 +752,11 @@ export function guardDailyReportFacts(prefill: Record<string, unknown>, userText
     const text = userText || '';
     if (out.weather && !WEATHER_WORD_RE.test(text)) delete out.weather;
     if (out.temperature && !TEMPERATURE_RE.test(text)) delete out.temperature;
+    // Crew size / labor hours: only a number the user typed (no invented head counts).
+    const typedNumbers = new Set((text.match(/\d+(?:\.\d+)?/g) || []).map(Number));
+    for (const key of ['crewSize', 'laborHours'] as const) {
+        if (out[key] !== undefined && !typedNumbers.has(Number(out[key]))) delete out[key];
+    }
     const injury = INJURY_RE.test(text.replace(new RegExp(NO_INCIDENT_CLAIM_RE.source, 'gi'), ' '));
     const userClaimsNoIncident = NO_INCIDENT_CLAIM_RE.test(text) && !injury;
     if (typeof out.content === 'string' && out.content) {

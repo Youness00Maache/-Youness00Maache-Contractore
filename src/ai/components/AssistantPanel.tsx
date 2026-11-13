@@ -104,6 +104,9 @@ export const AssistantPanel: React.FC<{ assistant: AIAssistant }> = ({ assistant
 
     if (!isOpen) return null;
 
+    // Phones: no keyboard popping up over the panel the moment it opens (tap the box to type).
+    const finePointer = typeof window === 'undefined' || !window.matchMedia || window.matchMedia('(pointer: fine)').matches;
+
     const openHistory = async () => {
         setShowHistory(true);
         setHistoryLoading(true);
@@ -117,10 +120,12 @@ export const AssistantPanel: React.FC<{ assistant: AIAssistant }> = ({ assistant
     return (
         <div className="fixed inset-0 z-[200] flex justify-end" role="dialog" aria-modal="true" aria-label="AI assistant">
             <div className="absolute inset-0 hidden bg-black/40 backdrop-blur-[2px] animate-fade-in md:block" onClick={assistant.close} />
+            {/* Rainbow frame = the AI Command button's gradient (index.css .ai-panel-frame): top edge on phones, border on larger screens. */}
             <div
                 ref={panelRef}
-                className="relative flex h-[100dvh] w-full flex-col bg-background text-foreground shadow-lift animate-fade-in md:my-3 md:mr-3 md:h-[calc(100dvh-1.5rem)] md:w-[460px] md:overflow-hidden md:rounded-3xl md:border md:border-border"
+                className="ai-panel-frame h-[100dvh] w-full animate-fade-in md:my-3 md:mr-3 md:h-[calc(100dvh-1.5rem)] md:w-[460px]"
             >
+              <div className="ai-panel-frame-inner">
                 {/* Header */}
                 <header className="flex items-center gap-3 border-b border-border bg-card px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] sm:px-4">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
@@ -219,11 +224,12 @@ export const AssistantPanel: React.FC<{ assistant: AIAssistant }> = ({ assistant
                             forms={assistant.data.forms}
                             jobId={mode === 'job' && job ? job.id : undefined}
                             disabled={chat.isProcessing}
-                            autoFocus
+                            autoFocus={finePointer}
                             placeholder={mode === 'job' ? 'Describe the work, or ask for a document…' : 'Ask anything… @ for a client, # for a document'}
                         />
                     </div>
                 </div>
+              </div>
             </div>
         </div>
     );

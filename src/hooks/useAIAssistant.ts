@@ -66,7 +66,7 @@ export interface AIAssistantDeps {
      * CORE's job creation without navigation (App: `handleSaveJob(values, true)`): checks the plan limit,
      * inserts the job, adds it to the job list and resolves with its id. Throws a readable Error.
      */
-    createJob?: (values: { name: string; clientName?: string; clientAddress?: string; startDate?: string; clientId?: string }) => Promise<string>;
+    createJob?: (values: { name: string; clientName?: string; clientAddress?: string; startDate?: string; endDate?: string; workerName?: string; clientId?: string }) => Promise<string>;
 }
 
 export type AssistantMode = 'dashboard' | 'job';
@@ -294,8 +294,9 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         if (d.checkLimit && !d.checkLimit('docs', targetJob.id)) return;
         chat.updateMessage(messageId, { status: 'working' });
         const client = d.clients.find(c => c.id === p.client_ids?.[0]) || null;
+        // Sample / test data: the made-up values are what the user asked for (no daily-report fact guards).
         const prefill = finalizeDraft(docType, p.prefill || {}, {
-            job: targetJob, client, clients: d.clients, profile: d.profile, userText: userText(chat.messages),
+            job: targetJob, client, clients: d.clients, profile: d.profile, userText: p.sample_data ? undefined : userText(chat.messages),
         });
         if (docType === 'DAILY_REPORT' || docType === 'NOTE') {
             const photosHtml = await imagesToHtml(photosFor(messageId), d.uploadImage);
@@ -344,7 +345,15 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                     const client = d.clients.find(c => c.name.toLowerCase() === String(e.client_name || '').toLowerCase());
                     finish(messageId, 'Opened the new job form');
                     setIsOpen(false);
-                    navigate('/jobs/create', { state: { prefillData: { name: e.name, clientName: client?.name || e.client_name, clientAddress: e.address || client?.address, startDate: e.start_date } } });
+                    // Every box of the job form: name, client, site address, start / end date, assigned worker.
+                    navigate('/jobs/create', {
+                        state: {
+                            prefillData: {
+                                name: e.name, clientName: client?.name || e.client_name, clientAddress: e.address || client?.address,
+                                startDate: e.start_date, endDate: e.end_date, workerName: e.worker_name,
+                            },
+                        },
+                    });
                     return;
                 }
                 case 'CREATE_CLIENT': {
@@ -532,6 +541,8 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                     clientName: client?.name || str(entity.client_name) || undefined,
                     clientAddress: str(entity.address) || client?.address || undefined,
                     startDate: str(entity.start_date) || undefined,
+                    endDate: str(entity.end_date) || undefined,
+                    workerName: str(entity.worker_name) || undefined,
                     clientId: client?.id || undefined,
                 };
                 try {
@@ -541,7 +552,8 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                     }
                     const row: Record<string, unknown> = {
                         id: crypto.randomUUID(), user_id: uid, name, client_name: values.clientName || null, client_address: values.clientAddress || null,
-                        start_date: values.startDate || toLocalYmd(), end_date: null, status: 'active', ...(values.clientId ? { client_id: values.clientId } : {}),
+                        start_date: values.startDate || toLocalYmd(), end_date: values.endDate || null, status: 'active',
+                        worker_name: values.workerName || null, ...(values.clientId ? { client_id: values.clientId } : {}),
                     };
                     const { error } = await withSchemaFallback(row, r => supabase.from('jobs').insert(r));
                     if (error) throw error;

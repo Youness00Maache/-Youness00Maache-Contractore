@@ -71,6 +71,13 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
     </div>
 );
 
+const SampleNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <p className="flex items-start gap-2 rounded-xl bg-primary/5 px-3 py-2 text-xs text-foreground">
+        <SparklesIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <span>{children}</span>
+    </p>
+);
+
 const btn = 'inline-flex min-h-[40px] items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition active:scale-[.98] disabled:pointer-events-none disabled:opacity-50';
 const btnPrimary = `${btn} bg-primary text-primary-foreground shadow-sm hover:brightness-110`;
 const btnOutline = `${btn} border border-input bg-card text-foreground hover:bg-muted`;
@@ -143,9 +150,9 @@ const DraftCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({
     const schema = getSchema(docType);
     const itemsKey = schema.items ? 'items' : schema.lineItems ? 'lineItems' : null;
     const items = itemsKey && Array.isArray(prefill[itemsKey]) ? prefill[itemsKey] as Array<Record<string, unknown>> : [];
-    const rows = Object.keys(schema)
-        .filter(k => k !== itemsKey && !schema[k].source && prefill[k] != null && k !== 'templateId')
-        .slice(0, 9);
+    const filled = Object.keys(schema)
+        .filter(k => k !== itemsKey && !schema[k].source && prefill[k] != null && k !== 'templateId');
+    const rows = filled.slice(0, 10);
     const missing = (p.missing_fields || []).filter(k => schema[k]);
     const fixedJob = assistant.mode === 'job' && assistant.job;
 
@@ -167,10 +174,14 @@ const DraftCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({
                 </>
             )}
         >
+            {p.sample_data && <SampleNote>Sample data: every box is filled with example content. Edit it before you send anything.</SampleNote>}
             {rows.length > 0 && (
                 <div className="divide-y divide-border/60">
                     {rows.map(k => <Row key={k} label={schema[k].label}>{formatValue(docType, k, prefill[k])}</Row>)}
                 </div>
+            )}
+            {filled.length > rows.length && (
+                <p className="text-xs text-muted-foreground">+ {filled.length - rows.length} more field{filled.length - rows.length === 1 ? '' : 's'}: {filled.slice(rows.length).map(k => schema[k].label.toLowerCase()).join(', ')}</p>
             )}
             {items.length > 0 && <ItemsPreview items={items} material={itemsKey === 'items'} />}
             {rows.length === 0 && items.length === 0 && (
@@ -391,11 +402,12 @@ const ConfirmCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = 
     switch (p.action_type) {
         case 'CREATE_JOB':
             icon = BriefcaseIcon; title = 'New job'; action = 'Review & create';
-            body = <>{e.name ? <Row label="Name">{String(e.name)}</Row> : null}{e.client_name ? <Row label="Client">{String(e.client_name)}</Row> : null}{e.address ? <Row label="Address">{String(e.address)}</Row> : null}{e.start_date ? <Row label="Start">{String(e.start_date)}</Row> : null}</>;
+            body = <>{([['name', 'Name'], ['client_name', 'Client'], ['address', 'Address'], ['start_date', 'Start'], ['end_date', 'End'], ['worker_name', 'Worker']] as const)
+                .filter(([k]) => e[k]).map(([k, label]) => <Row key={k} label={label}>{String(e[k])}</Row>)}</>;
             break;
         case 'CREATE_CLIENT':
             icon = UserIcon; title = 'New client'; action = 'Review & add';
-            body = <>{['name', 'email', 'phone', 'address'].filter(k => e[k]).map(k => <Row key={k} label={k[0].toUpperCase() + k.slice(1)}>{String(e[k])}</Row>)}</>;
+            body = <>{['name', 'email', 'phone', 'address', 'notes'].filter(k => e[k]).map(k => <Row key={k} label={k[0].toUpperCase() + k.slice(1)}>{String(e[k])}</Row>)}</>;
             break;
         case 'ADD_INVENTORY':
             icon = BoxIcon; title = 'New inventory item'; action = 'Review & add';
@@ -439,6 +451,7 @@ const ConfirmCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = 
                 </>
             )}
         >
+            {p.sample_data && <SampleNote>Sample data: the boxes are filled with example details (emails end in @example.com). Change anything before you save.</SampleNote>}
             {body && <div className="divide-y divide-border/60">{body}</div>}
             {needsJob && (fixedJob ? <Row label="Job">{fixedJob.name}</Row> : <JobPicker value={jobId} onChange={setJobId} jobs={jobs} />)}
         </CardShell>
@@ -534,12 +547,7 @@ const PlanCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({ 
             subtitle={run ? (working ? 'Running the steps in order…' : 'Open anything below to check or edit it.') : 'Check every step. Nothing is created until you press “Do it all”. Documents are saved as drafts.'}
             footer={footer}
         >
-            {p.sample_data && (
-                <p className="flex items-start gap-2 rounded-xl bg-primary/5 px-3 py-2 text-xs text-foreground">
-                    <SparklesIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span>Sample data: the documents are filled with example content. Edit them before you send anything.</span>
-                </p>
-            )}
+            {p.sample_data && <SampleNote>Sample data: clients, jobs and documents are filled with example content (emails end in @example.com). Edit them before you send anything.</SampleNote>}
             <ol className="space-y-2" aria-label="Plan steps">
                 {steps.map((s, i) => {
                     const result = run?.results[s.id];
@@ -554,8 +562,12 @@ const PlanCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({ 
                                 : String(s.entity?.name || STEP_TITLES[s.action_type]);
                     const details = isDoc
                         ? [clientName(s) ? `For ${clientName(s)}` : '', jobName(s) ? `Job: ${jobName(s)}` : '', documentSummary(s)]
-                        : s.action_type === 'CREATE_JOB' ? [s.entity?.client_name ? `Client: ${String(s.entity.client_name)}` : '', s.entity?.address ? String(s.entity.address) : '']
-                            : s.action_type === 'CREATE_CLIENT' ? [String(s.entity?.email || ''), String(s.entity?.phone || '')]
+                        : s.action_type === 'CREATE_JOB' ? [
+                            s.entity?.client_name ? `Client: ${String(s.entity.client_name)}` : '', s.entity?.address ? String(s.entity.address) : '',
+                            s.entity?.start_date ? `${String(s.entity.start_date)}${s.entity?.end_date ? ` to ${String(s.entity.end_date)}` : ''}` : '',
+                            s.entity?.worker_name ? `Worker: ${String(s.entity.worker_name)}` : '',
+                        ]
+                            : s.action_type === 'CREATE_CLIENT' ? [String(s.entity?.email || ''), String(s.entity?.phone || ''), String(s.entity?.address || '')]
                                 : s.action_type === 'UPDATE_JOB_STATUS' ? [jobName(s)] : [];
                     return (
                         <li key={s.id} className={`rounded-xl border px-3 py-2.5 ${result?.status === 'error' ? 'border-destructive/40 bg-destructive/5' : 'border-border'} ${s.skip && !result ? 'opacity-60' : ''}`}>

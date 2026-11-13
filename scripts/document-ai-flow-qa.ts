@@ -30,6 +30,8 @@ import {
 import { clientSideHeuristicRouter, resolveJobForDocumentRequest, runLocalMockRouter } from '../src/hooks/useMasterAIRouter.ts';
 import { buildEmailDrafts, textToEmailHtml, toEmailBatchItems } from '../src/ai/emailBatch.ts';
 import { inferTemplateIdFromIntent, resolveTemplateId } from '../src/utils/aiTemplateUtils.ts';
+import { getFieldSpecs } from '../components/forms/documentFields.ts';
+import { mergeDraftIntoForm } from '../hooks/useDocumentDraftPrefill.ts';
 
 let checks = 0;
 const ok = (cond: unknown, msg: string) => { assert.ok(cond, msg); checks++; };
@@ -409,7 +411,11 @@ const PLAN_NOW = new Date(2026, 10, 13);
     ok(docs.filter(d => d.document_type === 'DAILY_REPORT').every(d => String(d.prefill?.content).length > 50 && d.prefill?.weather), 'sample reports have a body and weather (no empty boxes)');
     eq(new Set(steps.map(s => s.id)).size, steps.length, 'step ids unique');
     eq(new Set(steps.map(s => s.ref)).size, steps.length, 'step refs unique');
-    ok(!steps.some(s => s.entity?.email || s.entity?.phone), 'no invented client contact details');
+    // Sample plan (owner 0d #2): every client box is filled, with fictional contact details only.
+    ok(steps.filter(s => s.action_type === 'CREATE_CLIENT').every(s => /@example\.com$/.test(String(s.entity?.email)) && /^\(555\) 555-01\d\d$/.test(String(s.entity?.phone)) && s.entity?.address && s.entity?.notes),
+        'sample plan: every client box filled with safe sample details (@example.com, 555-01xx)');
+    ok(String(newJob.entity?.address || '') && newJob.entity?.start_date === TODAY && String(newJob.entity?.end_date) > TODAY && !newJob.entity?.worker_name,
+        'sample plan job: address and dates filled, no made-up worker');
 
     // Single requests keep their single action (no plan).
     eq(runLocalMockRouter('Create a client named Sam Lee', 'dashboard', ctx).action_type, 'CREATE_CLIENT', 'one client → CREATE_CLIENT, not a plan');
@@ -508,8 +514,11 @@ const PLAN_NOW = new Date(2026, 10, 13);
     ok(d.isAiGenerated === true && typeof d.templateId === 'string' && d.templateId && d.themeColors?.primary, 'AI flag + template defaults');
     ok((d.lineItems as any[]).every(i => typeof i.id === 'string' && typeof i.quantity === 'number' && typeof i.rate === 'number'), 'line items normalized like the form');
     ok(computeDocumentTotals(d).total > 0, 'totals compute from the saved items');
-    const defaultKeys = new Set([...Object.keys(makeDocumentDefaults(FormType.Invoice, planJob as any, profile as any, TODAY)), 'isAiGenerated']);
+    // The form's own fields = its defaults + the optional fields its editor has (e.g. "Already paid").
+    const defaultKeys = new Set([...Object.keys(makeDocumentDefaults(FormType.Invoice, planJob as any, profile as any, TODAY)), ...Object.keys(getFieldSpecs(FormType.Invoice)), 'isAiGenerated']);
     eq(Object.keys(d).filter(k => !defaultKeys.has(k)), [], 'no keys beyond the form\'s own fields');
+    ok(d.amountPaid === 250 && d.taxRate === 8.25 && d.discount === 50 && d.shipping === 35 && String(d.title).length > 3,
+        'sample plan invoice: every box filled (tax, discount, shipping, already paid, title)');
     ok(!('__draftId' in d) && !('__autoSave' in d) && !('signatureUrl' in d && d.signatureUrl), 'no control keys, no signature');
     eq(buildPlanDocument('INVOICE', { invoiceNumber: 'INV-77' }, { job: planJob as any, profile: profile as any, existingNumbers: [], today: TODAY }).number, 'INV-77', 'a free model number is kept');
 
@@ -999,9 +1008,134 @@ function schemaProblems(s: any, path = '$', depth = 0, out: string[] = []): stri
     const asked = req('is the invoice paid?', 'job', { active_job_id: job.id, documents: [{ id: 'inv-A', type: 'Invoice', label: 'Invoice #INV-001', job_id: job.id, summary: { status: 'Paid', total: 1485, paid: 1485, balance_due: 0 } }] });
     ok(buildUserTurn(asked).includes('"summary":{"status":"Paid","total":1485,"paid":1485,"balance_due":0}'), 'document summary is in the CONTEXT DATA block');
     ok(/is the invoice paid\?/.test(buildSystemPrompt(asked)) && /Never guess amounts or statuses/.test(buildSystemPrompt(asked)), 'prompt rule: answer document questions from the summary, never guess');
-    ok(/Exception: rule 15/.test(buildSystemPrompt(req('x'))) && /^15\. Example/m.test(buildSystemPrompt(req('x'))), 'plan rules renumbered consistently');
+    ok(/Exception: rule 15/.test(buildSystemPrompt(req('x'))) && /^15\. Sample/m.test(buildSystemPrompt(req('x'))), 'plan rules renumbered consistently');
 }
 
+// ── 17. Owner feedback 0d #1–#3: sample / random / test data fills every box; client & job boxes; new document fields ──
+async function sampleAndFieldTests() {
+    // isSampleRequest: the owner's own words, and real work that only looks similar.
+    for (const t of [
+        'create a client called Michael with random information in all the boxes', 'fill the form with random data', 'random/test data please',
+        'put some test info in', 'fill all the boxes randomly', 'make up the details', 'use realistic numbers', 'lorem ipsum is fine', 'fill everything with anything',
+    ]) ok(isSampleRequest(t), `"${t}" is a sample request`);
+    for (const t of ['We had a random inspection today', 'test the phone line in the office', 'Daily report: took a soil sample from the trench', 'pressure test report attached', 'fill in the invoice for Morgan'])
+        ok(!isSampleRequest(t), `"${t}" is not a sample request`);
+
+    // Form scope, every type: a sample request fills every box the user fills by hand (app-owned boxes stay out).
+    const appOwned = (type: DocKey, key: string) => {
+        const spec = getSchema(type)[key];
+        return Boolean(spec.source) || /Number$/.test(key) || key === 'status' || key === 'paypalLink' || spec.kind === 'template' || spec.kind === 'colors';
+    };
+    for (const type of DOC_TYPES) {
+        const r = req('Fill it with random test data please', 'form', { form_document_type: type, active_job_id: job.id });
+        const p = buildProposal(mockModelOutput(r), { request: r });
+        eq([p.action_type, p.sample_data], ['GENERATE_DOCUMENT', true], `${type}: form sample request → filled draft, flagged as sample`);
+        const expected = Object.keys(getSchema(type)).filter(k => !appOwned(type, k));
+        eq(expected.filter(k => p.prefill?.[k] === undefined), [], `${type}: every box filled with sample data`);
+        eq(keysOk(type, p.prefill || {}), [], `${type}: sample keys are real form fields`);
+        const merged = mergeDraftIntoForm(DOC_TYPE_TO_FORM_TYPE[type], {}, p.prefill);
+        // (the expense log "item" only becomes a line item when there are none, so it is not a box of its own)
+        const formSpecs = getFieldSpecs(DOC_TYPE_TO_FORM_TYPE[type]);
+        eq(expected.filter(k => formSpecs[k] && !merged.appliedKeys.includes(k)), [], `${type}: the form applies every sample field`);
+    }
+
+    // The real model in form scope: sample → no fact guards, but numbers / status / payment link / job boxes stay the app's.
+    {
+        const inv = req('Fill with random data', 'form', { form_document_type: 'INVOICE', active_job_id: job.id });
+        const p = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: 'Sample data filled.', fields: [
+            { key: 'invoiceNumber', value: 'INV-1001' }, { key: 'status', value: 'Paid' }, { key: 'paypalLink', value: 'paypal.me/someone' },
+            { key: 'clientName', value: 'Sarah Johnson' }, { key: 'taxRate', value: '7.5' }, { key: 'amountPaid', value: '200' }, { key: 'notes', value: 'Thanks!' },
+            { key: 'templateId', value: 'luxury' },
+        ], line_items: [{ description: 'Drywall repair', quantity: 3, rate: 120 }] }, { request: inv });
+        eq(Object.keys(p.prefill || {}).sort(), ['amountPaid', 'lineItems', 'notes', 'taxRate'], 'sample invoice: number, status, payment link, job client and style stay the app\'s');
+        const typed = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: '', fields: [{ key: 'clientName', value: 'Sarah Johnson' }, { key: 'templateId', value: 'luxury' }] },
+            { request: req('Random data for Sarah Johnson, luxury template', 'form', { form_document_type: 'INVOICE' }) });
+        eq([typed.prefill?.clientName, typed.prefill?.templateId], ['Sarah Johnson', 'template_luxury'], 'values the user typed are kept in sample mode');
+        const rep = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: '', fields: [
+            { key: 'content', value: '<p>Framed walls. No incidents.</p>' }, { key: 'weather', value: 'Sunny' }, { key: 'temperature', value: '70°F' }, { key: 'crewSize', value: '4' }, { key: 'laborHours', value: '32' },
+        ] }, { request: req('test data for this report', 'form', { form_document_type: 'DAILY_REPORT' }) });
+        eq([rep.prefill?.weather, rep.prefill?.temperature, rep.prefill?.crewSize, rep.prefill?.laborHours], ['Sunny', '70°F', 4, 32], 'sample daily report keeps its made-up weather, crew and hours');
+        const real = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: '', fields: [
+            { key: 'content', value: '<p>Framed walls.</p>' }, { key: 'weather', value: 'Sunny' }, { key: 'crewSize', value: '4' }, { key: 'laborHours', value: '24' },
+        ] }, { request: req('Framed the walls today with 3 crew, 24 labor hours', 'form', { form_document_type: 'DAILY_REPORT' }) });
+        eq([real.prefill?.weather, real.prefill?.crewSize, real.prefill?.laborHours, real.sample_data], [undefined, undefined, 24, undefined], 'real report: no invented weather or crew count, typed hours kept');
+        const refusal = buildProposal({ action_type: 'CHAT', reply_text: "I can't make up random information." }, { request: req('Fill in the invoice', 'form', { form_document_type: 'INVOICE' }) });
+        eq(refusal.action_type, 'CHAT', 'a real (non-sample) form request still never invents');
+    }
+
+    // Handler: a model that refuses a sample form fill falls back to the sample document (never "I can't make up…").
+    {
+        const g = makeFetch({ modelResponses: [geminiOk({ action_type: 'CHAT', reply_text: "I can't make up random information. Please provide the details." })] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: g.f, log: quiet, sleep: noWait })(post({ message: 'fill it with random data', scope: 'form', context: { today: TODAY, form_document_type: 'INVOICE' } }, 'Bearer user-jwt'));
+        const json = await res.json() as any;
+        eq([res.status, json.proposal.action_type, json.proposal.sample_data], [200, 'GENERATE_DOCUMENT', true], 'refused sample fill → sample document instead');
+        ok((json.proposal.prefill.lineItems as any[]).length >= 2 && json.proposal.prefill.taxRate > 0 && json.proposal.prefill.notes, 'fallback fills line items, tax and notes');
+        const sent = JSON.parse(String(g.calls.find(c => c.url.includes('generativelanguage'))?.init?.body));
+        const system = sent.systemInstruction.parts[0].text as string;
+        ok(/THIS CONVERSATION ASKS FOR SAMPLE/.test(system) && /^15\. Sample/m.test(system) && !system.includes('fill it with random data'), 'form prompt: sample rule + flag, never the user text');
+        ok(!/THIS CONVERSATION ASKS FOR SAMPLE/.test(buildSystemPrompt(req('Create an invoice for 2 doors at $450', 'form', { form_document_type: 'INVOICE' }))), 'no sample flag for real requests');
+    }
+
+    // CREATE_CLIENT: every box of the client form.
+    {
+        const ask = 'create a client called Michael with random information in all the boxes';
+        const onlyName = buildProposal({ action_type: 'CREATE_CLIENT', reply_text: 'Sample client ready.', entity: { name: 'Michael' } }, { request: req(ask) });
+        const e = onlyName.entity || {};
+        ok(onlyName.action_type === 'CREATE_CLIENT' && onlyName.sample_data === true, 'sample client flagged');
+        eq(['name', 'email', 'phone', 'address', 'notes'].filter(k => !e[k]), [], 'sample client: name, email, phone, address and notes all filled');
+        ok(/^michael@example\.com$/.test(String(e.email)) && /^\(555\) 555-01\d\d$/.test(String(e.phone)), 'sample contact details are fictional (@example.com, 555-01xx)');
+        const full = buildProposal({ action_type: 'CREATE_CLIENT', reply_text: '', entity: { name: 'Michael Carter', email: 'michael.carter@gmail.com', phone: '(312) 444-9876', address: '18 Oak St, Denver, CO', notes: 'Prefers texts.' } }, { request: req(ask) });
+        eq([full.entity?.email, /555/.test(String(full.entity?.phone)), full.entity?.address, full.entity?.notes], ['michael.carter@example.com', true, '18 Oak St, Denver, CO', 'Prefers texts.'], 'model sample details kept, real-looking email/phone made fictional');
+        const real = buildProposal({ action_type: 'CREATE_CLIENT', reply_text: '', entity: { name: 'Sam Lee', email: 'sam@invented.test', phone: '555 777 1234', address: '9 Main St', notes: 'VIP' } }, { request: req('add client Sam Lee, 9 Main St, note VIP') });
+        eq([real.entity?.email, real.entity?.phone, real.entity?.address, real.entity?.notes, real.sample_data], [undefined, undefined, '9 Main St', 'VIP', undefined], 'real client: invented email/phone dropped, given boxes kept');
+        const typed = buildProposal({ action_type: 'CREATE_CLIENT', reply_text: '', entity: { name: 'Sam Lee', email: 'sam@gmail.com', phone: '(555) 777-1234' } }, { request: req('add client Sam Lee, sam at gmail dot com, 555-777-1234') });
+        eq([typed.entity?.email, typed.entity?.phone], ['sam@gmail.com', '(555) 777-1234'], 'spelled-out email and typed phone kept');
+        const later = buildProposal({ action_type: 'CREATE_CLIENT', reply_text: '', entity: { name: 'Dana Ruiz' } },
+            { request: sanitizeRequest({ message: 'now add my real client Dana Ruiz', scope: 'dashboard', history: [{ role: 'user', text: ask }], context: ctx }) });
+        eq([later.entity?.email, later.entity?.phone, later.sample_data], [undefined, undefined, undefined], 'an earlier sample message never fills a later real client with made-up details');
+        const mocked = runLocalMockRouter(ask, 'dashboard', ctx);
+        eq([mocked.action_type, mocked.entity?.name, Boolean(mocked.entity?.email && mocked.entity?.phone && mocked.entity?.address && mocked.entity?.notes)], ['CREATE_CLIENT', 'Michael', true], 'offline router: Michael with every box filled');
+    }
+
+    // CREATE_JOB: every box of the job form.
+    {
+        const j = buildProposal({ action_type: 'CREATE_JOB', reply_text: '', entity: { name: 'Deck rebuild', client_name: 'Morgan Client', address: '456 Oak Ave', start_date: '2026-11-20', end_date: '2026-12-04', worker_name: 'Alex' } }, { request: req('new job Deck rebuild for Morgan Client at 456 Oak Ave from Nov 20 to Dec 4, Alex works on it') });
+        eq([j.entity?.start_date, j.entity?.end_date, j.entity?.worker_name], ['2026-11-20', '2026-12-04', 'Alex'], 'job: end date and worker kept');
+        const bad = buildProposal({ action_type: 'CREATE_JOB', reply_text: '', entity: { name: 'X', start_date: '2026-11-20', end_date: '2026-11-01' } }, { request: req('job X') });
+        eq(bad.entity?.end_date, undefined, 'an end date before the start is dropped');
+        const sample = buildProposal({ action_type: 'CREATE_JOB', reply_text: '', entity: { name: 'Sample Kitchen' } }, { request: req('create a job with random info in all the boxes') });
+        ok(sample.sample_data === true && sample.entity?.address && sample.entity?.start_date === TODAY && String(sample.entity?.end_date) > TODAY && !sample.entity?.worker_name, 'sample job: address and dates filled, no made-up worker');
+        const schema = buildResponseSchema('dashboard') as any;
+        ok(schema.properties.entity.properties.end_date && schema.properties.entity.properties.worker_name && schema.properties.plan_steps.items.properties.entity.properties.worker_name, 'entity schema has every job box');
+        ok(JSON.stringify(schema).length < 12_000 && JSON.stringify(buildResponseSchema('dashboard', { compact: true })).length < 9_000, 'response schema still small');
+        const prompt = buildSystemPrompt(req('x'));
+        ok(/end_date/.test(prompt) && /worker_name/.test(prompt) && /email, phone, address and notes/.test(prompt), 'prompt lists every client and job box');
+    }
+
+    // New document fields reach the AI field list, normalize, and land in the forms.
+    {
+        const cases: Array<[DocKey, Array<{ key: string; value: string }>, Record<string, unknown>]> = [
+            ['ESTIMATE', [{ key: 'taxRate', value: '8%' }, { key: 'discount', value: '$150' }], { taxRate: 8, discount: 150 }],
+            ['CHANGE_ORDER', [{ key: 'status', value: 'approved' }, { key: 'description', value: 'Add a door' }], { status: 'Approved' }],
+            ['WORK_ORDER', [{ key: 'assignedTo', value: 'Alex Rivera' }, { key: 'description', value: 'Fix the leak' }], { assignedTo: 'Alex Rivera' }],
+            ['INVOICE', [{ key: 'amountPaid', value: '$500 deposit' }], { amountPaid: 500 }],
+            ['RECEIPT', [{ key: 'invoiceNumber', value: 'INV-2026-11-004' }, { key: 'amount', value: '500' }], { invoiceNumber: 'INV-2026-11-004' }],
+            ['TIME_SHEET', [{ key: 'status', value: 'submitted' }, { key: 'workerName', value: 'Jo' }, { key: 'hoursWorked', value: '8' }], { status: 'Submitted' }],
+        ];
+        for (const [type, fields, expect] of cases) {
+            const p = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: '', document_type: type, fields }, { request: req(`${type} INV-2026-11-004 $500 deposit 8% $150`, 'job', { active_job_id: job.id }) });
+            for (const [k, v] of Object.entries(expect)) eq(p.prefill?.[k], v, `${type}.${k} is an AI field and normalizes`);
+            const merged = mergeDraftIntoForm(DOC_TYPE_TO_FORM_TYPE[type], {}, p.prefill);
+            ok(Object.keys(expect).every(k => merged.appliedKeys.includes(k)), `${type}: the form applies ${Object.keys(expect).join(', ')}`);
+        }
+        const fieldGuide = buildSystemPrompt(req('x'));
+        for (const k of ['amountPaid', 'assignedTo', 'crewSize', 'laborHours']) ok(fieldGuide.includes(`${k} (`), `field list tells the model about ${k}`);
+        const keys = (buildResponseSchema('dashboard') as any).properties.fields.items.properties.key.enum as string[];
+        ok(['amountPaid', 'assignedTo', 'crewSize', 'laborHours', 'invoiceNumber', 'discount', 'taxRate'].every(k => keys.includes(k)), 'response schema field enum includes the new fields');
+    }
+}
+
+await sampleAndFieldTests();
 await handlerTests();
 await modelChainTests();
 console.log(`Document AI flow QA passed: ${checks} checks across ${DOC_TYPES.length} document types.`);

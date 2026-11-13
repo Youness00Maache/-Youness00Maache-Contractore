@@ -52,13 +52,24 @@ export const AIChatMentionInput: React.FC<AIChatMentionInputProps> = ({
         [mention, clients, forms, jobId],
     );
 
-    // Auto-grow up to ~6 lines.
-    useEffect(() => {
+    // Auto-grow up to ~6 lines. Measured again when the box changes width: measured while the panel was still
+    // laying out, an empty box came out 160px tall (owner feedback 0d #4).
+    const fitHeight = () => {
         const el = textareaRef.current;
-        if (!el) return;
+        if (!el || !el.clientWidth) return;
         el.style.height = 'auto';
         el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-    }, [value, interim]);
+    };
+    useEffect(fitHeight, [value, interim]);
+    useEffect(() => {
+        const el = textareaRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        let width = el.clientWidth;
+        const ro = new ResizeObserver(() => { if (el.clientWidth !== width) { width = el.clientWidth; fitHeight(); } });
+        ro.observe(el);
+        return () => ro.disconnect();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         if (autoFocus && !disabled) textareaRef.current?.focus();
@@ -132,7 +143,7 @@ export const AIChatMentionInput: React.FC<AIChatMentionInputProps> = ({
     const canSend = !disabled && (value.trim().length > 0 || images.length > 0);
 
     return (
-        <div className="relative">
+        <div className="relative w-full min-w-0">
             {mention && options.length > 0 && (
                 <div className="absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-2xl border border-border bg-card shadow-lift">
                     <p className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -156,7 +167,8 @@ export const AIChatMentionInput: React.FC<AIChatMentionInputProps> = ({
                 </div>
             )}
 
-            <div className="rounded-2xl border border-input bg-card shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
+            {/* min-w-0 + 16px text on phones: iOS zooms into smaller inputs, which pushed the box past the panel's right edge. */}
+            <div className="min-w-0 rounded-2xl border border-input bg-card shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
                 {images.length > 0 && (
                     <div className="flex flex-wrap gap-2 px-3 pt-3">
                         {images.map(img => (
@@ -184,7 +196,7 @@ export const AIChatMentionInput: React.FC<AIChatMentionInputProps> = ({
                     onChange={e => { onChange(e.target.value); updateMentionState(e.target.value, e.target.selectionStart ?? e.target.value.length); }}
                     onClick={e => updateMentionState(value, (e.target as HTMLTextAreaElement).selectionStart ?? value.length)}
                     onKeyDown={onKeyDown}
-                    className="block max-h-40 min-h-[48px] w-full resize-none bg-transparent px-4 py-3 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-60"
+                    className="block max-h-40 min-h-[48px] w-full resize-none bg-transparent px-4 py-3 text-base leading-6 sm:text-[15px] text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-60"
                 />
                 {interim && <p className="px-4 pb-1 text-sm italic text-muted-foreground">{interim}…</p>}
                 <div className="flex items-center gap-2 px-2 pb-2">

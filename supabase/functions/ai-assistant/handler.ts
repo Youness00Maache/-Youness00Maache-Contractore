@@ -8,7 +8,7 @@
  * buildProposal (validation/normalization) → meter usage (successful answers only) → JSON response.
  */
 import {
-    buildProposal, buildResponseSchema, parseModelJson, RouterInputError, sanitizeRequest,
+    buildProposal, buildResponseSchema, isSampleRequest, parseModelJson, RouterInputError, sanitizeRequest,
     type ModelOutput, type RouterRequest, type RouterResponse,
 } from './shared/routerContract.ts';
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
@@ -390,9 +390,20 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             if (lastMinute >= perMinute) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a minute.');
 
             const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
-            const { output, model } = provider === 'mock'
+            let { output, model } = provider === 'mock'
                 ? { output: mockModelOutput(request), model: 'mock' }
                 : await callGemini(request);
+            // "Fill the form" with sample / test / random data must never end in a refusal: when the model
+            // answers without filling anything, the built-in sample document of this form type is used.
+            if (request.scope === 'form' && isSampleRequest([...(request.history || []).filter(h => h.role === 'user').map(h => h.text), request.message].join('\n'))) {
+                const filled = output?.action_type === 'GENERATE_DOCUMENT'
+                    && ((Array.isArray(output.fields) && output.fields.length > 0) || (Array.isArray(output.line_items) && output.line_items.length > 0));
+                if (!filled) {
+                    log('form sample request answered without fields; using the sample document', model, String(output?.action_type || ''));
+                    output = mockModelOutput(request);
+                    model = `${model}+sample`;
+                }
+            }
 
             const proposal = buildProposal(output, { request });
             // Only an answer the user actually receives is metered: when the browser already gave up

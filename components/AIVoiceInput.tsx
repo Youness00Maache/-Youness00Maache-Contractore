@@ -177,7 +177,7 @@ export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript, onInte
                 {(problem || isListening) && (
                     <span
                         role="status"
-                        className={`pointer-events-none absolute bottom-full right-0 mb-2 w-max max-w-[220px] rounded-lg px-2.5 py-1.5 text-[11px] font-medium shadow-lift ${problem ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background'}`}
+                        className={`pointer-events-none absolute bottom-full left-0 z-10 mb-2 w-max max-w-[220px] rounded-lg px-2.5 py-1.5 text-[11px] font-medium shadow-lift ${problem ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background'}`}
                     >
                         {problem || 'Listening… tap to stop'}
                     </span>

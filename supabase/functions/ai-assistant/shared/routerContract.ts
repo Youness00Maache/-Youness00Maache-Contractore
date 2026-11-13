@@ -8,8 +8,8 @@
  * after the user confirms (see ACTION_POLICY).
  */
 import {
-    DOC_LABELS, DOC_TYPES, ALL_FIELD_KEYS, getItemsKey, getMissingAskFields, getSchema, isDocKey, normalizePrefill,
-    resolveDocKey, toNumberOrUndefined, toPlainText, type DocKey, type NormalizeOptions,
+    DOC_LABELS, DOC_TYPES, ALL_FIELD_KEYS, getItemsKey, getMissingAskFields, getSchema, isDocKey, normalizeDate, normalizePrefill,
+    resolveDocKey, toLocalYmd, toNumberOrUndefined, toPlainText, type DocKey, type NormalizeOptions,
 } from './documentSchema.ts';
 
 export const ROUTER_ACTIONS = [
@@ -360,7 +360,7 @@ export function buildResponseSchema(scope: RouterScope, options: { compact?: boo
             name: S({ nullable: true }), email: S({ nullable: true }), phone: S({ nullable: true }), address: S({ nullable: true }),
             notes: S({ nullable: true }), description: S({ nullable: true }), category: S({ nullable: true }), unit: S({ nullable: true }),
             supplier: S({ nullable: true }), quantity: N({ nullable: true }), price: N({ nullable: true }), cost: N({ nullable: true }),
-            client_name: S({ nullable: true }), start_date: S({ nullable: true }),
+            client_name: S({ nullable: true }), start_date: S({ nullable: true }), end_date: S({ nullable: true }), worker_name: S({ nullable: true }),
         },
     };
     const stepActions = PLAN_STEP_ACTIONS.filter(a => SCOPE_ACTIONS[scope].includes(a));
@@ -460,7 +460,7 @@ export interface RouterProposal {
     plan?: PlanStep[];
     /** RUN_PLAN: what was left out of the model's plan and why (shown on the card). */
     plan_notes?: string[];
-    /** The user asked for example/sample data: documents carry realistic sample content. */
+    /** The user asked for example/sample/test/random data: documents, clients and jobs carry realistic sample content. */
     sample_data?: boolean;
 }
 
@@ -517,20 +517,116 @@ export function isSendOnlyRequest(text: string): boolean {
 }
 
 /**
- * "Just an example", "sample data", "make something up": the user explicitly asks for made-up content,
- * so plan documents may carry realistic sample values (the daily-report fact guards do not apply).
+ * "Just an example", "sample data", "random info in all the boxes", "test data", "make something up": the
+ * user explicitly asks for made-up content, so documents, clients and jobs may carry realistic sample values
+ * (the no-invention rule and the daily-report fact guards do not apply).
  */
+const DATA_NOUNS = 'data|content|values|text|numbers|entries|records|info|information|details|fields|names?|e-?mails?|phones?(?:\\s+numbers?)?|addresses?|notes|items|line\\s+items|stuff|things';
+/** After "test"/"demo" only data words count ("test report", "test the phone line" are real work). */
+const TEST_NOUNS = 'data|content|values|entries|records|info|information|details|text';
+const SAMPLE_PATTERNS: RegExp[] = [
+    /\bjust\s+(?:an?\s+)?(?:example|test|demo|sample|testing)\b/i,
+    /\b(?:as|for)\s+an?\s+(?:example|test|demo)\b/i,
+    /\b(?:for|just)\s+testing(?:\s+purposes)?\b|\btesting\s+purposes\b/i,
+    /\b(?:it'?s|this\s+is)\s+(?:only\s+|just\s+)?an?\s+(?:test|example|demo)\b/i,
+    new RegExp(`\\b(?:example|sample|dummy|fake|mock|placeholder|random|realistic|made[- ]up)\\s+(?:${DATA_NOUNS}|documents?|docs|clients?|customers?|jobs?|projects?|invoices?|estimates?|reports?)\\b`, 'i'),
+    // "test report" / "test results" are real site documents: only data-like nouns count for test/demo
+    new RegExp(`\\b(?:test|demo|testing)\\s+(?:${TEST_NOUNS}|documents|docs|clients?|customers?|jobs?|invoices?)\\b`, 'i'),
+    /\b(?:dummy|fake|lorem\s+ipsum)\b/i,
+    /\brandom(?:ly)?\s+(?:fill|filled|generated?|made)\b|\b(?:fill|filled|filling)\b[^.\n]{0,40}\brandom(?:ly)?\b|\b(?:with|use|using|put|add|some|anything|something)\s+(?:some\s+)?random\b/i,
+    /\bmake\s+(?:something|stuff|it|them|things|everything|the\s+rest|some(?:thing)?\s+\w+)\s+up\b|\bmade[- ]up\b/i,
+    new RegExp(`\\b(?:make|making)\\s+up\\s+(?:the\\s+|some\\s+|all\\s+(?:the\\s+)?)?(?:${DATA_NOUNS}|everything|the\\s+rest)\\b`, 'i'),
+    new RegExp(`\\binvent\\s+(?:the\\s+|some\\s+|all\\s+(?:the\\s+)?)?(?:${DATA_NOUNS}|everything|the\\s+rest)\\b`, 'i'),
+    /\bfill\s+(?:it|them|everything|all(?:\s+the)?\s+(?:boxes|fields))\s+(?:in\s+|out\s+)?with\s+(?:examples?|samples?|anything|whatever)\b/i,
+];
 export function isSampleRequest(text: string): boolean {
     const t = text || '';
-    return /\bjust\s+(?:an?\s+)?(?:example|test|demo|sample|testing)\b/i.test(t)
-        || /\b(?:as|for)\s+an?\s+(?:example|test|demo)\b/i.test(t)
-        || /\b(?:it'?s|this\s+is)\s+(?:only\s+|just\s+)?an?\s+(?:test|example|demo)\b/i.test(t)
-        || /\b(?:example|sample|dummy|fake|mock|placeholder)\s+(?:data|content|values|text|numbers|entries|records|documents?|docs|clients?|jobs?|invoices?|estimates?|reports?)\b/i.test(t)
-        // "test report" / "test results" are real site documents: only data-like nouns count for test/demo
-        || /\b(?:test|demo)\s+(?:data|content|values|entries|records|documents|docs|clients?|jobs?|invoices?)\b/i.test(t)
-        || /\b(?:dummy|fake)\b/i.test(t)
-        || /\bmake\s+(?:something|stuff|it|them|things|everything|the\s+rest)\s+up\b|\bmade[- ]up\b/i.test(t)
-        || /\bfill\s+(?:it|them|everything)\s+(?:in\s+)?with\s+(?:examples?|samples?)\b/i.test(t);
+    return SAMPLE_PATTERNS.some(re => re.test(t));
+}
+
+/** Reserved / fictional contact details for sample data (never a real person's inbox or phone). */
+const SAMPLE_EMAIL_DOMAIN = 'example.com';
+const hashOf = (s: string) => Array.from(s).reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+const SAMPLE_STREETS = ['Maple Avenue', 'Oak Street', 'Cedar Lane', 'Willow Drive', 'Pine Court', 'Birch Road', 'Elm Street', 'Lakeview Drive'];
+const SAMPLE_CITIES = ['Springfield, IL 62704', 'Riverton, WY 82501', 'Fairview, TX 75069', 'Greenville, SC 29601', 'Madison, WI 53703', 'Franklin, TN 37064'];
+
+/** "Michael Carter" → "michael.carter@example.com". */
+export function sampleEmailFor(name: string, local?: string): string {
+    const base = (local || name || 'client').toLowerCase().normalize('NFKD').replace(/[^a-z0-9._-]+/g, '.').replace(/\.{2,}/g, '.').replace(/^\.|\.$/g, '').slice(0, 40);
+    return `${base || 'client'}@${SAMPLE_EMAIL_DOMAIN}`;
+}
+/** 555-01xx numbers are reserved for fiction. */
+export function samplePhoneFor(name: string): string {
+    return `(555) 555-01${String(hashOf(name || 'x') % 100).padStart(2, '0')}`;
+}
+export function sampleAddressFor(name: string): string {
+    const h = hashOf(name || 'x');
+    return `${100 + (h % 8900)} ${SAMPLE_STREETS[h % SAMPLE_STREETS.length]}, ${SAMPLE_CITIES[(h >> 3) % SAMPLE_CITIES.length]}`;
+}
+
+/** True when the user typed this email (or spelled it out: "sam at gmail dot com"). */
+function emailTyped(email: string, userText: string): boolean {
+    const t = userText.toLowerCase();
+    const e = email.toLowerCase();
+    if (t.includes(e)) return true;
+    const [local, domain = ''] = e.split('@');
+    const label = domain.split('.')[0];
+    return local.length >= 2 && label.length >= 2 && t.includes(local) && t.includes(label);
+}
+/** True when the user typed these digits (at least 7). */
+function phoneTyped(phone: string, userText: string): boolean {
+    const digits = phone.replace(/\D/g, '');
+    return digits.length >= 7 && userText.replace(/\D/g, '').includes(digits);
+}
+
+/**
+ * Client contact details: only what the user typed, except for sample requests, where every box is filled
+ * with safe fictional values (an @example.com email, a 555-01xx phone, a sample address and a note).
+ */
+function guardClientEntity(entity: Record<string, unknown>, userText: string, sample: boolean): Record<string, unknown> {
+    const out = { ...entity };
+    const name = String(out.name || '');
+    const email = typeof out.email === 'string' ? out.email : '';
+    const phone = typeof out.phone === 'string' ? out.phone : '';
+    if (email && !emailTyped(email, userText)) {
+        if (sample) out.email = sampleEmailFor(name, email.split('@')[0]);
+        else delete out.email;
+    }
+    if (phone && !phoneTyped(phone, userText)) {
+        if (sample && /555/.test(phone.replace(/\D/g, ''))) out.phone = phone;
+        else if (sample) out.phone = samplePhoneFor(name);
+        else delete out.phone;
+    }
+    if (sample) {
+        if (!out.email) out.email = sampleEmailFor(name);
+        if (!out.phone) out.phone = samplePhoneFor(name);
+        if (!out.address) out.address = sampleAddressFor(name);
+        if (!out.notes) out.notes = 'Sample client created as test data.';
+    }
+    return out;
+}
+
+/**
+ * Sample documents: values the app owns stay out (the form numbers the document, the job and profile fill
+ * the client and company boxes, status starts as Draft, a payment link must be the contractor's own, a
+ * receipt points to a real invoice), unless the user typed that value.
+ */
+function dropSampleGuesses(docType: DocKey, prefill: Record<string, unknown>, userText: string): Record<string, unknown> {
+    const schema = getSchema(docType);
+    const t = userText.toLowerCase();
+    const askedForStyle = /\b(?:template|design|style|theme|colou?rs?|look)\b/.test(t);
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(prefill)) {
+        const spec = schema[key];
+        if (spec?.kind === 'template' || spec?.kind === 'colors') {
+            if (askedForStyle) out[key] = value;
+            continue;
+        }
+        const appOwned = Boolean(spec?.source) || /Number$/.test(key) || key === 'status' || key === 'paypalLink';
+        if (appOwned && !(typeof value === 'string' && value.trim() && t.includes(value.trim().toLowerCase()))) continue;
+        out[key] = value;
+    }
+    return out;
 }
 
 const defaultReply: Partial<Record<RouterAction, string>> = {
@@ -592,25 +688,48 @@ function fieldsToObject(output: ModelOutput, docType: DocKey): Record<string, un
     return obj;
 }
 
-type EntityAction = 'CREATE_CLIENT' | 'CREATE_JOB' | 'ADD_INVENTORY' | 'ADD_PRICE_BOOK_ITEM';
+export type EntityAction = 'CREATE_CLIENT' | 'CREATE_JOB' | 'ADD_INVENTORY' | 'ADD_PRICE_BOOK_ITEM';
+
+/**
+ * Every box of the client form (name, email, phone, address, notes) and of the job form (name, client,
+ * address, start / end date, assigned worker). `description` is accepted for jobs from older answers.
+ */
+export const ENTITY_FIELDS: Record<EntityAction, readonly string[]> = {
+    CREATE_CLIENT: ['email', 'phone', 'address', 'notes'],
+    CREATE_JOB: ['client_name', 'address', 'start_date', 'end_date', 'worker_name', 'description'],
+    ADD_INVENTORY: ['description', 'category', 'unit', 'supplier'],
+    ADD_PRICE_BOOK_ITEM: ['description', 'category', 'unit', 'supplier'],
+};
 
 /** Validated entity for the create/add actions (single action and plan step), or null without a name. */
-function cleanEntity(action: EntityAction, raw: unknown): Record<string, unknown> | null {
+function cleanEntity(action: EntityAction, raw: unknown, opts: { userText?: string; sample?: boolean; today?: string } = {}): Record<string, unknown> | null {
     const e = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
     const name = toPlainText(e.name ?? '').replace(/\s+/g, ' ').slice(0, 120);
     if (!name) return null;
-    const entity: Record<string, unknown> = { name };
-    const textKeys = action === 'CREATE_CLIENT' ? ['email', 'phone', 'address', 'notes']
-        : action === 'CREATE_JOB' ? ['client_name', 'address', 'start_date', 'description']
-            : ['description', 'category', 'unit', 'supplier'];
-    for (const k of textKeys) {
-        const v = toPlainText(e[k] ?? '').replace(/\s+/g, ' ').slice(0, 300);
+    let entity: Record<string, unknown> = { name };
+    for (const k of ENTITY_FIELDS[action]) {
+        const v = k === 'notes'
+            ? toPlainText(e[k] ?? '').replace(/[ \t]+/g, ' ').slice(0, 1000)
+            : toPlainText(e[k] ?? '').replace(/\s+/g, ' ').slice(0, 300);
         if (v) entity[k] = v;
     }
-    if (action === 'CREATE_CLIENT' && entity.email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(String(entity.email))) delete entity.email;
-    if (action === 'CREATE_JOB' && entity.start_date) {
-        const m = String(entity.start_date).match(/^\d{4}-\d{2}-\d{2}$/);
-        if (!m) delete entity.start_date;
+    if (action === 'CREATE_CLIENT') {
+        if (entity.email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(String(entity.email))) delete entity.email;
+        if (entity.phone && String(entity.phone).replace(/\D/g, '').length < 6) delete entity.phone;
+        if (opts.userText !== undefined) entity = guardClientEntity(entity, opts.userText, opts.sample === true);
+    }
+    if (action === 'CREATE_JOB') {
+        for (const k of ['start_date', 'end_date']) {
+            if (entity[k] && !/^\d{4}-\d{2}-\d{2}$/.test(String(entity[k]))) delete entity[k];
+        }
+        if (entity.start_date && entity.end_date && String(entity.end_date) < String(entity.start_date)) delete entity.end_date;
+        if (opts.sample) {
+            // Sample job: every box filled (the worker stays empty: a made-up name would trigger double-booking checks).
+            const today = opts.today || toLocalYmd();
+            if (!entity.address) entity.address = sampleAddressFor(name);
+            if (!entity.start_date) entity.start_date = today;
+            if (!entity.end_date) entity.end_date = normalizeDate('in 14 days', String(entity.start_date)) || today;
+        }
     }
     for (const k of ['quantity', 'price', 'cost']) {
         const n = toNumberOrUndefined(e[k]);
@@ -687,7 +806,6 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
     const jobIds = new Set((c.jobs || []).map(x => x.id));
     const invIds = new Set((c.inventory || []).map(x => x.id));
     const activeJob = req.scope !== 'dashboard' && c.active_job_id && jobIds.has(c.active_job_id) ? c.active_job_id : null;
-    const lowerText = userText.toLowerCase();
     const contextClientByName = (name: unknown): string | null => {
         const n = toPlainText(name ?? '').trim().toLowerCase();
         if (!n) return null;
@@ -741,14 +859,9 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
             case 'CREATE_CLIENT':
             case 'ADD_INVENTORY':
             case 'ADD_PRICE_BOOK_ITEM': {
-                const entity = cleanEntity(action, raw.entity);
+                // Clients: contact details only when the user typed them; sample requests get safe sample details.
+                const entity = cleanEntity(action, raw.entity, { userText, sample, today: c.today });
                 if (!entity) { skip(index, `the ${STEP_LABELS[action]} had no name`); continue; }
-                if (action === 'CREATE_CLIENT') {
-                    // Contact details only when the user typed them (no invented emails/phones in plans).
-                    if (entity.email && !lowerText.includes(String(entity.email).toLowerCase())) delete entity.email;
-                    const digits = String(entity.phone || '').replace(/\D/g, '');
-                    if (entity.phone && (digits.length < 7 || !userText.replace(/\D/g, '').includes(digits))) delete entity.phone;
-                }
                 const ref = makeRef(raw.ref, action === 'CREATE_CLIENT' ? `client_${String(entity.name)}` : `item_${steps.length + 1}`);
                 if (action === 'CREATE_CLIENT') clients.push({ ref, name: String(entity.name) });
                 steps.push({ id, action_type: action, ref, entity });
@@ -757,7 +870,7 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
             case 'CREATE_JOB': {
                 const rawEntity = (raw.entity && typeof raw.entity === 'object' ? raw.entity : {}) as Record<string, unknown>;
                 const fallbackName = sample ? 'Sample Job' : `New job ${c.today || ''}`.trim();
-                const entity = cleanEntity('CREATE_JOB', { ...rawEntity, name: toPlainText(rawEntity.name ?? '').trim() || fallbackName }) as Record<string, unknown>;
+                const entity = cleanEntity('CREATE_JOB', { ...rawEntity, name: toPlainText(rawEntity.name ?? '').trim() || fallbackName }, { sample, today: c.today }) as Record<string, unknown>;
                 const step: PlanStep = { id, action_type: action, ref: makeRef(raw.ref, `job_${jobs.length + 1}`), entity };
                 const existingClient = typeof raw.client_id === 'string' && clientIds.has(raw.client_id) ? raw.client_id : null;
                 const planClient = existingClient ? null : findCreated(clients, 'client', raw.client_ref ?? raw.client_id ?? entity.client_name);
@@ -768,6 +881,13 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
                 } else if (existingClient || namedClient) {
                     step.client_id = existingClient || namedClient;
                     entity.client_name = (c.clients || []).find(x => x.id === step.client_id)?.name;
+                }
+                // Sample job without its own address: the site is its client's address.
+                if (sample && !toPlainText(rawEntity.address ?? '').trim()) {
+                    const clientAddress = planClient
+                        ? steps.find(s => s.ref === planClient)?.entity?.address
+                        : (c.clients || []).find(x => x.id === step.client_id)?.address;
+                    if (clientAddress) entity.address = String(clientAddress);
                 }
                 jobs.push({ ref: step.ref, name: String(entity.name) });
                 steps.push(step);
@@ -884,12 +1004,17 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
                 reply_text: replyRaw || `Which document should I create? For example: ${DOC_TYPES.slice(0, 4).map(t => DOC_LABELS[t].toLowerCase()).join(', ')}.`,
             };
         }
-        const normalizeOpts: NormalizeOptions = { ...(ctx.normalize || {}), today: c.today, userText };
+        // Sample / test / random data: realistic made-up content in every box (no fact guards), except the
+        // values the app owns (numbers, status, payment link, job / profile boxes). Asked in this message, or
+        // earlier for the draft being completed (an old "test" message never turns a later real request into samples).
+        const sample = isSampleRequest(req.message) || (Boolean(c.pending_draft) && isSampleRequest(userText));
+        const normalizeOpts: NormalizeOptions = { ...(ctx.normalize || {}), today: c.today, userText: sample ? undefined : userText };
         const pending = c.pending_draft && resolveDocKey(c.pending_draft.document_type) === docType
             ? normalizePrefill(docType, c.pending_draft.prefill, normalizeOpts)
             : {};
         const fresh = normalizePrefill(docType, fieldsToObject(output, docType), normalizeOpts);
-        const prefill = mergeDraft(pending, fresh);
+        const prefill = mergeDraft(pending, sample ? dropSampleGuesses(docType, fresh, userText) : fresh);
+        if (sample) proposal.sample_data = true;
         const schema = getSchema(docType);
         const modelMissing = Array.isArray(output.missing_fields)
             ? output.missing_fields.filter(k => typeof k === 'string' && schema[k]?.ask && prefill[k] === undefined)
@@ -949,9 +1074,11 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
         case 'ADD_INVENTORY':
         case 'ADD_PRICE_BOOK_ITEM':
         case 'CREATE_JOB': {
-            const entity = cleanEntity(action, output.entity);
+            const sample = isSampleRequest(req.message);
+            const entity = cleanEntity(action, output.entity, { userText, sample, today: c.today });
             if (!entity) return { action_type: 'CHAT', reply_text: replyRaw || 'What name should I use?' };
             proposal.entity = entity;
+            if (sample && (action === 'CREATE_CLIENT' || action === 'CREATE_JOB')) proposal.sample_data = true;
             proposal.reply_text = replyRaw || 'Please confirm the details below.';
             return proposal;
         }

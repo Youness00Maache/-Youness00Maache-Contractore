@@ -52,7 +52,7 @@ export interface PlanDocument {
 }
 
 /** Types whose status list starts with Draft (STATUS_OPTIONS in components/forms/documentFields.ts). */
-const DRAFT_STATUS_TYPES = new Set<FormType>([FormType.Invoice, FormType.Estimate, FormType.TimeSheet, FormType.PurchaseOrder]);
+const DRAFT_STATUS_TYPES = new Set<FormType>([FormType.Invoice, FormType.Estimate, FormType.TimeSheet, FormType.PurchaseOrder, FormType.ChangeOrder]);
 
 /**
  * Defaults of a brand-new document, as each form builds them in `makeDefaults`.
@@ -78,13 +78,13 @@ export function makeDocumentDefaults(formType: FormType, job: Job, profile: User
         case FormType.Estimate:
             return {
                 title: '', estimateNumber: '', issueDate: today, expiryDate: addDaysISO(30, today), status: 'Draft',
-                lineItems: [{ ...blankLineItem(), unitCost: 0 }], notes: '',
+                lineItems: [{ ...blankLineItem(), unitCost: 0 }], discount: 0, taxRate: 0, notes: '',
                 terms: 'This estimate is valid for 30 days. Payment schedule: 50% deposit, 50% upon completion.',
                 ...company, ...client, ...style,
             };
         case FormType.WorkOrder:
             return {
-                title: '', workOrderNumber: '', date: today, status: 'Scheduled', description: '', materialsUsed: '', hours: 0, cost: 0,
+                title: '', workOrderNumber: '', date: today, status: 'Scheduled', assignedTo: job.workerName || '', description: '', materialsUsed: '', hours: 0, cost: 0,
                 terms: 'Payment is due upon completion of work. Any changes to the scope of work must be approved in writing.',
                 ...company, ...client, ...style,
             };
@@ -126,7 +126,7 @@ export function makeDocumentDefaults(formType: FormType, job: Job, profile: User
             };
         case FormType.ChangeOrder:
             return {
-                title: '', changeOrderNumber: '', date: today, reason: '', description: '', currentContractSum: 0, lineItems: [blankLineItem()],
+                title: '', changeOrderNumber: '', date: today, status: 'Draft', reason: '', description: '', currentContractSum: 0, lineItems: [blankLineItem()],
                 terms: 'The Contract Time will be increased by 0 days. All other terms and conditions of the original contract remain in full force and effect.',
                 ...company, ...client, ...style,
             };
