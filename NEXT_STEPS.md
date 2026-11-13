@@ -129,6 +129,11 @@ finish, then tsc + all tests (incl. scripts/requests-photos-check.ts, reminders-
 New: parity audit v2 (owner: client portal + per-client "get approval" don't work like production; temporary clients
 missing; review production again and add everything; nothing may be lost after logout/login) → writes
 docs/work/PARITY_V2.md, then implement it. Helper IDs: parity-v2 ae60c2aa3fda85201.
+**18:40:** committed pay + reminders + requests/photos (91322c3; note: it also picked up part of data-sync's
+ProfitCalculatorView/JobFinancialsModal change, which imports the not-yet-committed lib/userData.ts: commit data-sync next).
+APPLIED to production: migrations 0200 (pay/financing/review) and 0400 (requests + job photos). PENDING: 0300 reminders
+(being changed so its cron secret is generated inside the DB; then apply + deploy `reminders` function, verify_jwt off),
+0500 data-sync (after that helper finishes).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
