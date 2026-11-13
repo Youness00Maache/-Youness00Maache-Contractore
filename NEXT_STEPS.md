@@ -39,10 +39,10 @@ Then: `npx tsc --noEmit -p .`, check desktop + 375px phone width, `npm run build
 
 ## B. Unfinished work that was paused (in the working tree, NOT committed)
 
-A backup copy is in `docs/work/paused/` (`wip-tracked-changes.patch` + `wip-new-files.tar`).
+(Paused work was resumed and committed; the backup folder was removed.)
 `npx tsc --noEmit -p .` was clean at pause time.
 
-### B1. Templates (owner requests, all still to finish)
+### B1. Templates. ALL DONE 2026-11-13 (commit 1b419c3): field-placement sentinel test + fixes, 30 old designs restored, standard polished, 14 new (57 total), picker shows the real document, searchable PDF text. templates-qa 63,917 checks / 0 failures. (Original list kept below for reference.)
 Files: `utils/templates/registry.ts`, `themes.ts`, `blocks.ts`, `render.ts`, new `utils/templates/kit.ts`,
 new `utils/templates/designs/` (`standard.ts`, `premium1-4.ts`, `fresh1-2.ts`, `index.ts`),
 `components/forms/Sections.tsx`.
@@ -83,7 +83,10 @@ To finish:
 
 ---------------------------------------------------------------------------------------------------------
 
-## C. Checks still to do after A and B
+## C. Checks still to do (A and B are finished; build, seo:check, templates-qa, forms-prefill-qa, qa:document-ai all pass as of 2026-11-13 14:10)
+
+Everything below needs the owner signed in on localhost:3010 (Claude cannot type passwords).
+0. AI: run the owner's exact request ("one job, clients Michael and Jake, a daily report and an invoice each, just an example") and check the plan card, "Do it all", and the created job/clients/documents.
 
 1. Daily Job Report + new text editor: look at it in the browser (the forms work was only tested by
    scripts). Try every toolbar button, paste from Word/Google Docs, photo upload, checklist, table; then
