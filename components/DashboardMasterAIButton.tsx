@@ -5,22 +5,26 @@ interface DashboardMasterAIButtonProps {
     onOpen: () => void;
     /** Hide the floating mobile button (e.g. when another FAB is shown). */
     hideMobileFab?: boolean;
+    /** Button text on desktop (default "AI Command", as in the original app). */
+    label?: string;
 }
 
 /**
- * Opens the AI assistant from the dashboard header (desktop) or a floating button (mobile).
- * The panel itself is <AIAssistantPanel> mounted once by App.
+ * The original ContractorDocs AI trigger: rainbow-bordered "AI Command" pill on desktop and a floating
+ * rainbow button on mobile. Opens the AI assistant panel (<AIAssistantPanel>, mounted once by App).
  */
-export const DashboardMasterAIButton: React.FC<DashboardMasterAIButtonProps> = ({ onOpen, hideMobileFab }) => (
+export const DashboardMasterAIButton: React.FC<DashboardMasterAIButtonProps> = ({ onOpen, hideMobileFab, label = 'AI Command' }) => (
     <>
         <button
             type="button"
             id="dashboard-master-ai-btn-desktop"
             onClick={onOpen}
-            className="hidden h-9 shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[.98] md:inline-flex"
+            className="ai-button-premium-wrapper group relative hidden shrink-0 md:inline-flex"
         >
-            <SparklesIcon className="h-4 w-4" />
-            Ask AI
+            <span className="ai-button-premium-inner flex items-center gap-2.5 px-4 py-2">
+                <SparklesIcon className="h-4 w-4 text-primary" />
+                <span className="text-sm font-black uppercase tracking-widest">{label}</span>
+            </span>
         </button>
         {!hideMobileFab && (
             <button
@@ -28,12 +32,24 @@ export const DashboardMasterAIButton: React.FC<DashboardMasterAIButtonProps> = (
                 id="dashboard-master-ai-btn-mobile"
                 onClick={onOpen}
                 aria-label="Open the AI assistant"
-                className="fixed bottom-24 right-4 z-[150] inline-flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lift transition active:scale-95 md:hidden"
+                className="ai-button-premium-wrapper fixed bottom-24 right-4 z-[150] shadow-2xl md:hidden"
             >
-                <SparklesIcon className="h-6 w-6" />
+                <span className="ai-button-premium-inner rounded-full p-4">
+                    <SparklesIcon className="h-6 w-6 text-primary" />
+                </span>
             </button>
         )}
     </>
+);
+
+/** Same look, inline (job page header): rainbow border, "AI Assistant" label. */
+export const InlineAIButton: React.FC<{ onClick: () => void; label?: string }> = ({ onClick, label = 'AI Assistant' }) => (
+    <button type="button" onClick={onClick} className="ai-button-premium-wrapper group relative inline-flex shrink-0">
+        <span className="ai-button-premium-inner flex items-center gap-2 px-3.5 py-1.5">
+            <SparklesIcon className="h-4 w-4 text-primary" />
+            <span className="text-xs font-black uppercase tracking-widest">{label}</span>
+        </span>
+    </button>
 );
 
 export default DashboardMasterAIButton;

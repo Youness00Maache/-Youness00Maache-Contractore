@@ -19,7 +19,7 @@ import { EmptyState } from './components/ui/EmptyState.tsx';
 import { WifiOffIcon, AlertTriangleIcon, BriefcaseIcon, SparklesIcon } from './components/Icons.tsx';
 
 // ── AI (owned by the AI engineer) ────────────────────────────────────────────
-import { DashboardMasterAIButton } from './components/DashboardMasterAIButton.tsx';
+import { DashboardMasterAIButton, InlineAIButton } from './components/DashboardMasterAIButton.tsx';
 import { useAIAssistant } from './src/hooks/useAIAssistant.ts';
 const AIAssistantPanel = lazy(() => import('./src/ai/components/AssistantPanel.tsx'));
 
@@ -1315,16 +1315,7 @@ const App: React.FC = () => {
 
     const renderDashboardAI = () => <DashboardMasterAIButton onOpen={ai.openDashboard} />;
 
-    const renderJobAIButton = (job: Job) => (
-        <button
-            type="button"
-            onClick={() => ai.openForJob(job)}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 px-3.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[.98]"
-        >
-            <SparklesIcon className="h-4 w-4" />
-            <span>Ask AI</span>
-        </button>
-    );
+    const renderJobAIButton = (job: Job) => <InlineAIButton onClick={() => ai.openForJob(job)} />;
 
     // The assistant panel is mounted once at the root (see <AIAssistantPanel>), for dashboard and job mode.
     const renderJobAIModal = (_job: Job) => null;

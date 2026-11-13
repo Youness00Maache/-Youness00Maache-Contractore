@@ -57,9 +57,21 @@ function googleCredentials(): { clientId: string; clientSecret: string } {
   return { clientId, clientSecret };
 }
 
+/**
+ * Encryption secret for stored Gmail tokens: TOKEN_ENCRYPTION_KEY when set, otherwise a key derived from the
+ * project's own SUPABASE_SERVICE_ROLE_KEY (always present in Supabase functions, never exposed to browsers).
+ * Note: with the derived key, rotating the service-role key means users reconnect Gmail once.
+ */
+function encryptionSecret(): string | undefined {
+  const explicit = env('TOKEN_ENCRYPTION_KEY');
+  if (explicit) return explicit;
+  const serviceRole = env('SUPABASE_SERVICE_ROLE_KEY');
+  return serviceRole ? `contractordocs/gmail-token-key/v1:${serviceRole}` : undefined;
+}
+
 let keysPromise: Promise<TokenKeys> | null = null;
 function tokenKeys(): Promise<TokenKeys> {
-  const secret = env('TOKEN_ENCRYPTION_KEY');
+  const secret = encryptionSecret();
   if (!secret) throw notConfigured(['TOKEN_ENCRYPTION_KEY']);
   if (!keysPromise) {
     keysPromise = importKeys(secret).catch((e) => {
@@ -491,7 +503,7 @@ async function actionDisconnect(admin: SupabaseClient, body: Record<string, unkn
   // Revoke the grant at Google (best effort: the user can also remove it at myaccount.google.com/permissions).
   const tokens = await loadTokens(admin, account.id).catch(() => null);
   const encrypted = tokens?.refresh_token_encrypted || tokens?.access_token;
-  if (encrypted && isEncrypted(encrypted) && env('TOKEN_ENCRYPTION_KEY')) {
+  if (encrypted && isEncrypted(encrypted) && encryptionSecret()) {
     try {
       const keys = await tokenKeys();
       const token = await decryptString(keys, encrypted);
