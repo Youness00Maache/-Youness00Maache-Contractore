@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase.ts';
 import type { Client, Job } from '../../types.ts';
 import { parseSetupFieldsFromPrompt } from '../../utils/parseDocumentSetup.ts';
 import { detectNavigation, mockModelOutput } from '../../supabase/functions/ai-assistant/shared/mockModel.ts';
+import type { PlanRunState } from '../ai/planRunner.ts';
 import {
     buildProposal, sanitizeRequest,
     type RouterImage, type RouterProposal, type RouterRequestContext, type RouterResponse,
@@ -28,6 +29,8 @@ export interface ChatMessage {
     /** Short outcome shown on a finished card ("Opened in the editor", "2 emails sent"). */
     result?: string;
     isError?: boolean;
+    /** RUN_PLAN: per-step progress and the records created so far (kept for "Retry"). */
+    planRun?: PlanRunState;
 }
 
 export interface AIError {

@@ -8,8 +8,13 @@ import {
     DOC_LABELS, DOC_TYPES, getSchema, normalizePrefill, normalizeDate, toLocalYmd, type DocKey,
 } from '../src/config/documentFieldRequirements.ts';
 import {
-    buildProposal, isSendOnlyRequest, parseModelJson, sanitizeRequest, type ModelOutput, type RouterRequestContext,
+    buildProposal, buildResponseSchema, isSampleRequest, isSendOnlyRequest, parseModelJson, PLAN_MAX_STEPS, PLAN_STEP_ACTIONS, sanitizeRequest,
+    type ModelOutput, type ModelPlanStep, type PlanStep, type RouterRequestContext,
 } from '../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { buildPlanDocument, makeDocumentDefaults } from '../src/ai/planDocuments.ts';
+import { applyPlanEdits, runPlan, stepsNeedingJob, summarizePlanRun, type PlanIO, type PlanRunState } from '../src/ai/planRunner.ts';
+import { computeDocumentTotals } from '../utils/money.ts';
+import { DOC_TYPE_TO_FORM_TYPE } from '../src/config/docTypeMap.ts';
 import { mockModelOutput } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
 import { buildSystemPrompt, buildUserTurn } from '../supabase/functions/ai-assistant/shared/prompt.ts';
 import { createHandler } from '../supabase/functions/ai-assistant/handler.ts';
@@ -376,6 +381,275 @@ eq(buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: '' }, { request
     eq(resolveJobForDocumentRequest('Create a daily report.', routingJobs, routingClients), undefined, 'nothing named → never the first active job');
 }
 
+// ── 13. Multi-step plans (RUN_PLAN): one request → one plan → every step ──
+const OWNER_REQUEST = 'Create one job, two clients: Michael and Jake. Each client should have a daily report and an invoice. Just an example.';
+const PLAN_NOW = new Date(2026, 10, 13);
+{
+    // isSampleRequest
+    for (const t of ['Just an example.', 'fill it with sample data', 'make something up', 'this is a test', 'use dummy clients', 'demo data please'])
+        ok(isSampleRequest(t), `"${t}" is a sample request`);
+    for (const t of ['Daily report: took a soil sample from the trench', 'attach the pressure test report', 'for example the kitchen', 'Create an invoice for Morgan', 'test the water heater'])
+        ok(!isSampleRequest(t), `"${t}" is not a sample request`);
+
+    // The owner's request through the offline mock → ONE plan with every step.
+    const p = runLocalMockRouter(OWNER_REQUEST, 'dashboard', ctx);
+    eq(p.action_type, 'RUN_PLAN', 'owner request → RUN_PLAN (not just "create Michael")');
+    const steps = p.plan || [];
+    eq(steps.map(s => s.action_type), ['CREATE_CLIENT', 'CREATE_CLIENT', 'CREATE_JOB', 'GENERATE_DOCUMENT', 'GENERATE_DOCUMENT', 'GENERATE_DOCUMENT', 'GENERATE_DOCUMENT'], 'clients → job → 4 documents, in order');
+    const [michael, jake, newJob, ...docs] = steps;
+    eq([michael.entity?.name, jake.entity?.name], ['Michael', 'Jake'], 'both clients');
+    eq(docs.map(d => [d.document_type, d.client_ref, d.job_ref]), [
+        ['DAILY_REPORT', michael.ref, newJob.ref], ['INVOICE', michael.ref, newJob.ref],
+        ['DAILY_REPORT', jake.ref, newJob.ref], ['INVOICE', jake.ref, newJob.ref],
+    ], 'each client gets a daily report and an invoice, all on the one job');
+    ok(p.sample_data === true && /sample/i.test(p.reply_text), '"just an example" → sample data, said in the reply');
+    ok(docs.filter(d => d.document_type === 'INVOICE').every(d => (d.prefill?.lineItems as any[])?.length >= 1 && (d.prefill?.lineItems as any[]).every(i => i.rate > 0)), 'sample invoices have priced line items');
+    ok(docs.filter(d => d.document_type === 'DAILY_REPORT').every(d => String(d.prefill?.content).length > 50 && d.prefill?.weather), 'sample reports have a body and weather (no empty boxes)');
+    eq(new Set(steps.map(s => s.id)).size, steps.length, 'step ids unique');
+    eq(new Set(steps.map(s => s.ref)).size, steps.length, 'step refs unique');
+    ok(!steps.some(s => s.entity?.email || s.entity?.phone), 'no invented client contact details');
+
+    // Single requests keep their single action (no plan).
+    eq(runLocalMockRouter('Create a client named Sam Lee', 'dashboard', ctx).action_type, 'CREATE_CLIENT', 'one client → CREATE_CLIENT, not a plan');
+    eq(runLocalMockRouter('Create an invoice for 2 doors at $450 and 6 hours labor at $75', 'dashboard', ctx).action_type, 'GENERATE_DOCUMENT', 'one document → GENERATE_DOCUMENT, not a plan');
+    eq(runLocalMockRouter('Create a daily report and an invoice for this job: framed the east wall, 2 doors at $450', 'job', { ...ctx, active_job_id: job.id }).action_type, 'RUN_PLAN', 'two documents in one message → plan (job scope)');
+    {
+        const jp = runLocalMockRouter('Create a daily report and an invoice for this job: framed the east wall, 2 doors at $450', 'job', { ...ctx, active_job_id: job.id });
+        ok((jp.plan || []).every(s => s.job_id === job.id && !s.job_ref), 'job scope: plan documents go to the open job');
+    }
+
+    // What the real model did (CREATE_CLIENT + only the first step) is no longer possible when it sends the steps,
+    // and loose references / wrong order / forged ids are repaired or dropped.
+    const modelSteps: ModelPlanStep[] = [
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'INVOICE', client_ref: 'client:Jake', job_ref: 'job 1', line_items: [{ description: 'Labor', quantity: 8, rate: 65 }] },
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'DAILY_REPORT', client_id: 'Michael', job_id: 'job1', fields: [{ key: 'content', value: '<p>Framed the wall.</p>' }, { key: 'weather', value: 'Sunny' }] },
+        { action_type: 'CREATE_JOB', ref: 'job1', entity: { name: 'Kitchen' } },
+        { action_type: 'CREATE_CLIENT', ref: 'client_michael', entity: { name: 'Michael', email: 'michael@invented.test' } },
+        { action_type: 'CREATE_CLIENT', ref: 'client_jake', entity: { name: 'Jake' } },
+        { action_type: 'DELETE_ALL' },
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'SPACESHIP' },
+        { action_type: 'CREATE_CLIENT', entity: { name: '' } },
+    ];
+    const fixed = buildProposal({ action_type: 'CREATE_CLIENT', reply_text: 'Let me plan that.', entity: { name: 'Michael' }, plan_steps: modelSteps },
+        { request: req('Create a Kitchen job with clients Michael and Jake, an invoice for Jake and a daily report for Michael') });
+    eq(fixed.action_type, 'RUN_PLAN', 'single action + several plan_steps → RUN_PLAN');
+    const fs = fixed.plan || [];
+    eq(fs.map(s => s.action_type), ['CREATE_CLIENT', 'CREATE_CLIENT', 'CREATE_JOB', 'GENERATE_DOCUMENT', 'GENERATE_DOCUMENT'], 'creations run first');
+    const inv = fs.find(s => s.document_type === 'INVOICE')!;
+    const rep = fs.find(s => s.document_type === 'DAILY_REPORT')!;
+    eq([inv.client_ref, inv.job_ref, inv.job_id ?? null], ['client_jake', 'job1', null], '"client:Jake" / "job 1" resolve to the plan records');
+    eq([rep.client_ref, rep.client_id ?? null, rep.job_ref], ['client_michael', null, 'job1'], 'a name/ref in an id slot becomes a ref, never an id');
+    ok(!rep.prefill?.weather, 'not a sample request: weather the user never gave is dropped (fact guards apply in plans)');
+    ok(!fs.find(s => s.entity?.name === 'Michael')?.entity?.email, 'invented client email dropped');
+    eq((fixed.plan_notes || []).length, 3, 'three unusable steps reported (unknown action, unknown type, no name)');
+    ok((fixed.plan_notes || []).every(n => /^Step \d+ was left out/.test(n)), 'notes say which step and why');
+
+    // Existing records: ids from the context are kept, foreign ids are not.
+    const existing = buildProposal({ action_type: 'RUN_PLAN', reply_text: '', plan_steps: [
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'INVOICE', job_id: job.id, client_id: 'c-ob', line_items: [{ description: 'Door', quantity: 1, rate: 450 }] },
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'ESTIMATE', job_id: 'someone-elses-job', client_id: 'evil-client' },
+    ] }, { request: req('Invoice and estimate for OBrien') });
+    eq([existing.plan?.[0].job_id, existing.plan?.[0].client_id], [job.id, 'c-ob'], 'context ids kept');
+    eq([existing.plan?.[1].job_id ?? null, existing.plan?.[1].job_ref ?? null, existing.plan?.[1].client_id ?? null], [null, null, null], 'foreign ids dropped');
+    eq(stepsNeedingJob(existing.plan || []).map(s => s.id), [existing.plan?.[1].id], 'the card asks for a job for the unresolved document');
+
+    // One usable step → the single action (same card as today).
+    const one = buildProposal({ action_type: 'RUN_PLAN', reply_text: 'Add Sam?', plan_steps: [{ action_type: 'CREATE_CLIENT', entity: { name: 'Sam Lee', email: 'sam@x.com' } }] },
+        { request: req('add client Sam Lee sam@x.com') });
+    eq([one.action_type, one.entity?.name, one.entity?.email], ['CREATE_CLIENT', 'Sam Lee', 'sam@x.com'], 'one-step plan → CREATE_CLIENT');
+    eq(buildProposal({ action_type: 'RUN_PLAN', reply_text: 'Done!', plan_steps: [] }, { request: req('x') }).action_type, 'CHAT', 'empty plan → CHAT');
+
+    // Cap: at most PLAN_MAX_STEPS steps.
+    const many = buildProposal({ action_type: 'RUN_PLAN', reply_text: '', plan_steps: Array.from({ length: 25 }, (_, i) => ({ action_type: 'ADD_INVENTORY', entity: { name: `Item ${i + 1}`, quantity: 1 } })) },
+        { request: req('add 25 items') });
+    eq(many.plan?.length, PLAN_MAX_STEPS, `plans are capped at ${PLAN_MAX_STEPS} steps`);
+    ok((many.plan_notes || []).some(n => /up to 20 steps/.test(n)), 'the cap is explained');
+
+    // Scope rules.
+    const jobScoped = buildProposal({ action_type: 'RUN_PLAN', reply_text: '', plan_steps: [
+        { action_type: 'CREATE_CLIENT', entity: { name: 'Zed' } },
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'NOTE', fields: [{ key: 'content', value: 'Call the inspector' }] },
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'WORK_ORDER', fields: [{ key: 'description', value: 'Fix the leak' }] },
+    ] }, { request: req('note and work order', 'job', { active_job_id: job.id }) });
+    eq([jobScoped.action_type, jobScoped.plan?.map(s => s.action_type)], ['RUN_PLAN', ['GENERATE_DOCUMENT', 'GENERATE_DOCUMENT']], 'job scope: no client creation in plans');
+    eq(buildProposal({ action_type: 'RUN_PLAN', reply_text: '', plan_steps: modelSteps }, { request: req('x', 'form', { form_document_type: 'INVOICE' }) }).action_type, 'CHAT', 'form scope never runs plans');
+    const sendPlan = buildProposal({ action_type: 'RUN_PLAN', reply_text: '', plan_steps: [
+        { action_type: 'GENERATE_DOCUMENT', document_type: 'INVOICE' }, { action_type: 'GENERATE_DOCUMENT', document_type: 'ESTIMATE' },
+    ] }, { request: req('email the invoice INV-002 to Morgan Client') });
+    ok(!(sendPlan.plan || []).some(s => s.action_type === 'GENERATE_DOCUMENT'), 'a send request never creates documents through a plan');
+
+    // Gemini responseSchema: no unions, step object with optional fields, small enough.
+    const schema = buildResponseSchema('dashboard') as any;
+    const json = JSON.stringify(schema);
+    ok(!/"(anyOf|oneOf|allOf|\$ref)"/.test(json), 'response schema has no unions/refs');
+    eq(schema.properties.plan_steps.type, 'ARRAY', 'plan_steps is an array');
+    eq(schema.properties.plan_steps.items.required, ['action_type'], 'only action_type is required in a step');
+    eq(schema.properties.plan_steps.items.properties.action_type.enum, [...PLAN_STEP_ACTIONS], 'step actions enum');
+    eq(schema.properties.plan_steps.items.properties.fields.items.properties.key.enum, undefined, 'step field keys are plain strings (no second big enum)');
+    ok(json.length < 12_000, `response schema stays small (${json.length} chars)`);
+    eq((buildResponseSchema('job') as any).properties.plan_steps.items.properties.action_type.enum, ['GENERATE_DOCUMENT', 'UPDATE_JOB_STATUS'], 'job scope step actions');
+    eq((buildResponseSchema('form') as any).properties.plan_steps, undefined, 'form scope has no plan_steps');
+    const prompt = buildSystemPrompt(req('x'));
+    ok(prompt.includes('RUN_PLAN') && /PER client/.test(prompt) && /let's start with/.test(prompt) && /sample/i.test(prompt), 'prompt explains plans, linking and sample data');
+    ok(!buildSystemPrompt(req('x', 'form', { form_document_type: 'INVOICE' })).includes('RUN_PLAN'), 'form prompt has no plans');
+
+    // ── documents a plan saves: same defaults / merge / numbering / prepare as the forms ──
+    const planJob = { id: 'job-new', userId: 'u', name: 'Sample Job', clientName: '', clientAddress: '', startDate: TODAY, endDate: null, status: 'active' as const };
+    const invStep = docs.find(d => d.document_type === 'INVOICE' && d.client_ref === jake.ref)!;
+    const invDoc = buildPlanDocument('INVOICE', { ...invStep.prefill, status: 'Paid', invoiceNumber: 'INV-2026-11-001' }, {
+        job: planJob, client: { id: 'id-jake', name: 'Jake', address: '' }, clients: clients as any, profile: profile as any,
+        existingNumbers: ['INV-2026-11-001', 'inv-2026-11-002'], today: TODAY, now: PLAN_NOW,
+    });
+    const d = invDoc.data as any;
+    eq([invDoc.formType, invDoc.number, d.invoiceNumber], [FormType.Invoice, 'INV-2026-11-003', 'INV-2026-11-003'], 'next free number of the form series (taken model number replaced)');
+    eq([d.status, d.clientName, d.companyName, d.issueDate, d.dueDate], ['Draft', 'Jake', profile.companyName, TODAY, '2026-12-12'], 'Draft, the document\'s own client, company, form date defaults');
+    ok(d.isAiGenerated === true && typeof d.templateId === 'string' && d.templateId && d.themeColors?.primary, 'AI flag + template defaults');
+    ok((d.lineItems as any[]).every(i => typeof i.id === 'string' && typeof i.quantity === 'number' && typeof i.rate === 'number'), 'line items normalized like the form');
+    ok(computeDocumentTotals(d).total > 0, 'totals compute from the saved items');
+    const defaultKeys = new Set([...Object.keys(makeDocumentDefaults(FormType.Invoice, planJob as any, profile as any, TODAY)), 'isAiGenerated']);
+    eq(Object.keys(d).filter(k => !defaultKeys.has(k)), [], 'no keys beyond the form\'s own fields');
+    ok(!('__draftId' in d) && !('__autoSave' in d) && !('signatureUrl' in d && d.signatureUrl), 'no control keys, no signature');
+    eq(buildPlanDocument('INVOICE', { invoiceNumber: 'INV-77' }, { job: planJob as any, profile: profile as any, existingNumbers: [], today: TODAY }).number, 'INV-77', 'a free model number is kept');
+
+    const repDoc = buildPlanDocument('DAILY_REPORT', { content: '<p onclick="x()">Framed</p><script>alert(1)</script>', weather: 'Sunny' }, {
+        job: planJob as any, client: { name: 'Michael' }, profile: profile as any, existingNumbers: [], today: TODAY, now: PLAN_NOW,
+    }).data as any;
+    eq([repDoc.reportNumber, repDoc.projectName, repDoc.clientName, repDoc.date], ['DR-2026-11-001', 'Sample Job', 'Michael', TODAY], 'report number, project from the job, client from the plan');
+    ok(!/script|onclick/i.test(repDoc.content) && /Framed/.test(repDoc.content), 'report HTML sanitized like the form');
+    eq(repDoc.weather, 'Sunny', 'sample plan (no userText): sample weather kept');
+    const factual = buildPlanDocument('DAILY_REPORT', { content: '<p>Framed the wall.</p><p>No incidents.</p>', weather: 'Sunny' }, {
+        job: planJob as any, profile: profile as any, userText: 'Daily report: framed the wall', today: TODAY,
+    }).data as any;
+    ok(factual.weather === '' && !/No incidents/.test(factual.content), 'real plan: the daily-report fact guards still run before saving');
+    const expDoc = buildPlanDocument('EXPENSE_LOG', { lineItems: [{ description: 'Gas', quantity: 1, rate: 60 }], tax: 4.5 }, { job: planJob as any, profile: profile as any, today: TODAY }).data as any;
+    eq(expDoc.amount, 64.5, 'expense total = items + tax (the form\'s prepare)');
+    const matDoc = buildPlanDocument('MATERIAL_LOG', { items: [{ name: 'Studs', quantity: 10, unitCost: 4 }], deductInventory: true }, { job: planJob as any, profile: profile as any, today: TODAY }).data as any;
+    ok(matDoc.deductInventory === false && matDoc.items[0].name === 'Studs', 'material log never deducts stock from a plan');
+    for (const t of DOC_TYPES) {
+        const built = buildPlanDocument(t, {}, { job: planJob as any, profile: profile as any, today: TODAY, now: PLAN_NOW });
+        eq(built.formType, DOC_TYPE_TO_FORM_TYPE[t], `${t}: plan document has the form type`);
+        ok(built.data.isAiGenerated === true && typeof built.label === 'string' && built.label.length > 2, `${t}: plan document builds with defaults`);
+    }
+}
+
+async function planRunnerTests() {
+    const owner = runLocalMockRouter(OWNER_REQUEST, 'dashboard', ctx);
+    const steps = owner.plan as PlanStep[];
+    const makeIO = (opts: { failDocAt?: number; failJob?: boolean } = {}) => {
+        const log: string[] = [];
+        const saved: Array<{ docType: string; jobId: string; client: string | null }> = [];
+        const states: PlanRunState[] = [];
+        let docCalls = 0;
+        const io: PlanIO = {
+            async createClient(e) {
+                log.push(`client:${e.name}`);
+                const hit = clients.find(c => c.name === e.name);
+                return hit ? { client: { id: hit.id, name: hit.name }, reused: true } : { client: { id: `id-${e.name}`, name: String(e.name) } };
+            },
+            async createJob({ entity, client }) {
+                log.push(`job:${entity.name}`);
+                if (opts.failJob) throw new Error('PLAN_LIMIT: The Free plan includes 3 new jobs per month and you have used them all.');
+                return { id: 'job-new', name: String(entity.name), clientName: client?.name, clientId: client?.id || null };
+            },
+            getJob: id => (id === job.id ? { id: job.id, name: job.name, clientName: job.clientName } : null),
+            getClient: id => { const c = clients.find(x => x.id === id); return c ? { id: c.id, name: c.name } : null; },
+            async saveDocument({ docType, job: j, client }) {
+                docCalls++;
+                log.push(`doc:${docType}`);
+                if (opts.failDocAt === docCalls) throw new Error('PLAN_LIMIT: The Free plan includes 5 new documents per job each month.');
+                saved.push({ docType, jobId: j.id, client: client?.name ?? null });
+                return { id: `doc-${docCalls}`, label: `${docType} #${docCalls}`, link: `/jobs/${j.id}/forms/x/doc-${docCalls}` };
+            },
+            async addInventory(e) { return { label: String(e.name) }; },
+            async addPriceBookItem(e) { return { label: String(e.name) }; },
+            async restock() { return { label: 'ok' }; },
+            async updateJobStatus() { /* noop */ },
+            onProgress: s => { states.push(s); },
+        };
+        return { io, log, saved, states };
+    };
+
+    // Happy path: order, references, progress, links.
+    {
+        const { io, log, saved, states } = makeIO();
+        const state = await runPlan(steps, io);
+        eq(log, ['client:Michael', 'client:Jake', 'job:Sample Job', 'doc:DAILY_REPORT', 'doc:INVOICE', 'doc:DAILY_REPORT', 'doc:INVOICE'], 'steps run in order');
+        eq(saved.map(s => [s.docType, s.jobId, s.client]), [
+            ['DAILY_REPORT', 'job-new', 'Michael'], ['INVOICE', 'job-new', 'Michael'], ['DAILY_REPORT', 'job-new', 'Jake'], ['INVOICE', 'job-new', 'Jake'],
+        ], 'documents saved on the new job, each with its own new client');
+        ok(Object.values(state.results).every(r => r.status === 'done' && r.link), 'every step done with a link');
+        ok(states.some(s => Object.values(s.results).some(r => r.status === 'running')), 'progress reported while running');
+        eq(summarizePlanRun(state, steps).text, 'All 7 steps done', 'summary');
+        eq(state.jobs[steps[2].ref]?.id, 'job-new', 'created job remembered by ref');
+    }
+    // A failing step keeps the completed ones; retry runs only what failed and reuses created records.
+    {
+        const first = makeIO({ failDocAt: 3 });
+        const state = await runPlan(steps, first.io);
+        const failed = Object.entries(state.results).filter(([, r]) => r.status === 'error');
+        eq(failed.length, 1, 'one step failed');
+        eq([failed[0][1].code, /^The Free plan/.test(failed[0][1].message || '')], ['PLAN_LIMIT', true], 'PLAN_LIMIT code kept, prefix removed from the message');
+        eq(summarizePlanRun(state, steps).done, 6, 'the other 6 steps are done');
+        const retry = makeIO();
+        const again = await runPlan(steps, retry.io, state);
+        eq(retry.log, ['doc:DAILY_REPORT'], 'retry runs only the failed step (no duplicate clients/job/documents)');
+        eq(retry.saved[0], { docType: 'DAILY_REPORT', jobId: 'job-new', client: 'Jake' }, 'retry reuses the created job and client');
+        eq(summarizePlanRun(again, steps).failed, 0, 'all done after retry');
+    }
+    // The job fails → its documents are not saved (dependency), the clients stay created.
+    {
+        const { io, saved } = makeIO({ failJob: true });
+        const state = await runPlan(steps, io);
+        eq(steps.map(s => state.results[s.id].status), ['done', 'done', 'error', 'error', 'error', 'error', 'error'], 'documents wait for their job');
+        eq(saved.length, 0, 'nothing saved without its job');
+        ok(/was not created/.test(state.results[steps[3].id].message || ''), 'dependency explained');
+    }
+    // Card edits: remove the job (its documents follow unless re-attached), rename and remove a client.
+    {
+        const jobStep = steps[2];
+        const firstDoc = steps[3];
+        const edited = applyPlanEdits(steps, { removed: [jobStep.id, steps[1].id], names: { [steps[0].id]: 'Michael Brown' }, jobs: { [firstDoc.id]: `id:${job.id}` } });
+        eq(edited.filter(s => s.skip).map(s => s.id), [steps[1].id, jobStep.id, steps[4].id, steps[5].id, steps[6].id], 'removed job takes its documents along, except the re-attached one');
+        const { io, saved, log } = makeIO();
+        const state = await runPlan(edited, io);
+        eq(log, ['client:Michael Brown', `doc:DAILY_REPORT`], 'only the kept steps run');
+        eq(saved, [{ docType: 'DAILY_REPORT', jobId: job.id, client: 'Michael Brown' }], 'renamed client and the chosen existing job are used');
+        eq(state.results[jobStep.id].status, 'skipped', 'removed step shown as skipped');
+        const noClient = applyPlanEdits(steps, { removed: [steps[0].id] });
+        const r2 = makeIO();
+        await runPlan(noClient, r2.io);
+        eq(r2.saved.filter(s => s.client === 'Michael').length, 2, 'removing a client keeps its documents (client name only)');
+    }
+}
+
+await planRunnerTests();
+
+// The plan card renders every state (server render, no browser/login needed).
+{
+    const { createElement } = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { ProposalCard } = await import('../src/ai/components/ProposalCards.tsx');
+    const proposal = runLocalMockRouter(OWNER_REQUEST, 'dashboard', ctx);
+    const assistant = {
+        mode: 'dashboard', job: null, data: { clients, forms, jobs: [job], profile, inventory: [] },
+        runPlan: () => undefined, openLink: () => undefined, dismiss: () => undefined, upgradeFor: () => undefined,
+    } as any;
+    const render = (message: Record<string, unknown>) => renderToStaticMarkup(createElement(ProposalCard, { message: { id: 'm1', role: 'assistant', content: proposal.reply_text, proposal, ...message } as any, assistant }));
+    const pending = render({ status: 'pending' });
+    ok(pending.includes('Do it all (7 steps)') && pending.includes('Michael') && pending.includes('Jake') && pending.includes('Sample Job'), 'plan card lists every step with one "Do it all"');
+    ok(pending.includes('Sample data') && (pending.match(/aria-label="Remove this step"/g) || []).length === 7, 'sample notice + each step removable');
+    const steps = proposal.plan as PlanStep[];
+    const results = Object.fromEntries(steps.map((s, i) => [s.id, i < 5
+        ? { status: 'done', message: `step ${i + 1} ok`, link: `/jobs/job-new`, linkLabel: 'x' }
+        : i === 5 ? { status: 'error', message: 'The Free plan includes 5 new documents per job each month.', code: 'PLAN_LIMIT' } : { status: 'done', message: 'ok', link: '/x' }]));
+    const running = render({ status: 'working', planRun: { running: true, steps, results: { ...results, [steps[5].id]: { status: 'running' } }, jobs: {}, clients: {} } });
+    ok(/Working… \d of 7/.test(running) && !running.includes('Do it all'), 'progress while running, no second click possible');
+    const partial = render({ status: 'done', planRun: { running: false, steps, results, jobs: {}, clients: {} } });
+    ok(partial.includes('6 of 7 steps done') && partial.includes('Retry 1 failed step') && partial.includes('See plans'), 'partial run: summary, retry and plan-limit upgrade');
+    eq((partial.match(/>Open\s*<svg/g) || []).length, 6, 'a link for every created record');
+    ok(render({ status: 'dismissed', result: 'Cancelled' }).includes('Cancelled'), 'cancelled plan collapses');
+}
+
 // ── 12. Edge function handler: auth, CORS, plan limit, metering, model fallback ──
 type FakeCall = { url: string; init?: RequestInit };
 function makeFetch(opts: { used?: number; tier?: string; rpc?: 'ok' | 'missing' | 'limit'; modelResponses?: Array<{ status: number; body: unknown }> } = {}) {
@@ -466,6 +740,27 @@ async function handlerTests() {
         ok(!JSON.stringify(sent).includes('google_provider_token'), 'no Google OAuth token is ever sent');
         const json = await res.json() as any;
         eq((json.proposal.prefill.lineItems as any[])[0].rate, 450, 'fenced JSON parsed and normalized');
+    }
+    {
+        // RUN_PLAN end to end: mock provider, then the Gemini path with a plan answer.
+        const { f, calls } = makeFetch();
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: f, log: quiet })(post({ message: OWNER_REQUEST, scope: 'dashboard', context: ctx }, 'Bearer user-jwt'));
+        const json = await res.json() as any;
+        eq([res.status, json.proposal.action_type, json.proposal.plan.length], [200, 'RUN_PLAN', 7], 'mock provider answers the owner request with one 7-step plan');
+        eq(calls.filter(c => c.url.endsWith('/rpc/consume_usage')).length, 1, 'a plan is metered as one AI request');
+        const answer = { action_type: 'RUN_PLAN', reply_text: 'Here is the plan (sample data).', plan_steps: [
+            { action_type: 'CREATE_CLIENT', ref: 'client_michael', entity: { name: 'Michael' } },
+            { action_type: 'CREATE_CLIENT', ref: 'client_jake', entity: { name: 'Jake' } },
+            { action_type: 'CREATE_JOB', ref: 'job1', entity: { name: 'Example Job' } },
+            { action_type: 'GENERATE_DOCUMENT', document_type: 'INVOICE', job_ref: 'job1', client_ref: 'client_jake', line_items: [{ description: 'Labor', quantity: 8, rate: 65 }] },
+        ] };
+        const g = makeFetch({ modelResponses: [{ status: 200, body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(answer) }] } }] } }] });
+        const gres = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: g.f, log: quiet })(post({ message: OWNER_REQUEST, scope: 'dashboard', context: ctx }, 'Bearer user-jwt'));
+        const gjson = await gres.json() as any;
+        eq([gres.status, gjson.proposal.action_type, gjson.proposal.plan.map((s: any) => s.action_type).join(',')], [200, 'RUN_PLAN', 'CREATE_CLIENT,CREATE_CLIENT,CREATE_JOB,GENERATE_DOCUMENT'], 'Gemini plan answer → validated plan');
+        const sent = JSON.parse(String(g.calls.find(c => c.url.includes('generativelanguage'))?.init?.body));
+        ok(sent.generationConfig.responseSchema.properties.plan_steps && /RUN_PLAN/.test(sent.systemInstruction.parts[0].text), 'schema and prompt sent to Gemini include plans');
+        ok(g.calls[g.calls.length - 1] && g.calls.filter(c => c.url.includes('generativelanguage')).length === 1, 'one model call for the whole plan');
     }
     {
         const { f } = makeFetch({ modelResponses: [{ status: 200, body: { candidates: [{ content: { parts: [{ text: 'I am not JSON at all' }] } }] } }] });

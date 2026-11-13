@@ -30,7 +30,7 @@ const FALLBACK_MODEL = 'gemini-2.5-flash-lite';
 // Total time for all model attempts (the edge runtime allows 150 s). A slow first model is abandoned after
 // FIRST_ATTEMPT_MS so the fallback still has time to answer.
 const MODEL_TIMEOUT_MS = 100_000;
-const FIRST_ATTEMPT_MS = 30_000;
+const FIRST_ATTEMPT_MS = 60_000;
 /** Tried in order after the configured model; duplicates are skipped. */
 const BACKUP_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 /** Small thinking budget: enough for planning multi-step requests, keeps answers fast. */

@@ -1316,7 +1316,8 @@ const App: React.FC = () => {
         onDuplicateJob: (job: Job) => { setJobToDuplicate(job); setShowDuplicateJobModal(true); },
         onEmailsSent: () => handleEmailSent(),
         uploadImage: handleUploadDocumentImage,
-        refreshData: () => { const uid = sessionUserIdRef.current; if (uid) loadInventory(uid).catch(() => undefined); },
+        refreshData: () => { const uid = sessionUserIdRef.current; if (uid) { loadInventory(uid).catch(() => undefined); loadClients(uid).catch(() => undefined); loadRecentDocuments(uid).catch(() => undefined); refreshUsage(); } },
+        createJob: (values) => handleSaveJob(values, true),
     });
 
     const renderDashboardAI = () => <DashboardMasterAIButton onOpen={ai.openDashboard} />;

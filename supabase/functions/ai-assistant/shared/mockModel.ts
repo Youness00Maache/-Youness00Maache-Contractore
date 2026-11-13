@@ -5,7 +5,9 @@
  * copies facts that appear in the user's text.
  */
 import { DOC_LABELS, escapeHtml, normalizeDate, parseLineItemsText, resolveDocKey, toLocalYmd, type DocKey } from './documentSchema.ts';
-import { isSendOnlyRequest, type AppRoute, type ModelOutput, type RouterRequest } from './routerContract.ts';
+import {
+    isSampleRequest, isSendOnlyRequest, SCOPE_ACTIONS, type AppRoute, type ModelOutput, type ModelPlanStep, type RouterRequest,
+} from './routerContract.ts';
 
 const DOC_PATTERNS: Array<[DocKey, RegExp]> = [
     ['DAILY_REPORT', /\b(daily\s+(?:job\s+|construction\s+|site\s+)?report|site\s+report|field\s+report|job\s+report|daily\s+log)\b/i],
@@ -176,6 +178,115 @@ function extractFields(docType: DocKey, text: string, today: string): { fields: 
     };
 }
 
+/** Every document type named in the text, in the order they appear (each type once). */
+export function detectDocTypesInText(text: string): DocKey[] {
+    const found: Array<[number, DocKey]> = [];
+    for (const [type, re] of DOC_PATTERNS) {
+        const m = re.exec(text);
+        if (m && !found.some(([, t]) => t === type)) found.push([m.index, type]);
+    }
+    return found.sort((a, b) => a[0] - b[0]).map(([, t]) => t);
+}
+
+/** Client names the user asks to CREATE: "two clients: Michael and Jake", "add clients Ann, Bo & Cy". */
+function detectNewClientNames(text: string): string[] {
+    const re = /\b(?:(?:create|add|new)\s+(?:an?\s+)?(?:new\s+)?(?:clients?|customers?)|(?:one|two|three|four|five|six|\d+)\s+(?:new\s+)?(?:clients?|customers?)|(?:clients?|customers?)\s*:)\s*(?:named|called)?\s*:?\s*/gi;
+    const names: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+        let rest = text.slice(m.index + m[0].length);
+        for (;;) {
+            const name = rest.match(/^([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*)?)/);
+            if (!name) break;
+            if (!names.includes(name[1])) names.push(name[1]);
+            rest = rest.slice(name[0].length);
+            const sep = rest.match(/^\s*(?:,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)/);
+            if (!sep) break;
+            rest = rest.slice(sep[0].length);
+        }
+    }
+    return names.slice(0, 10);
+}
+
+/** Realistic sample content for "just an example" plans (index varies the numbers a little). */
+function sampleDocument(docType: DocKey, index: number, clientName?: string): Pick<ModelPlanStep, 'fields' | 'line_items'> {
+    const who = clientName ? ` for ${clientName}` : '';
+    const hours = 6 + (index % 3) * 2;
+    const items = [
+        { description: 'Labor (carpentry)', quantity: hours, rate: 65 },
+        { description: 'Materials and supplies', quantity: 1, rate: 240 + index * 35 },
+    ];
+    switch (docType) {
+        case 'DAILY_REPORT':
+            return { fields: [
+                { key: 'content', value: `<h3>Work Completed</h3><ul><li>Removed the old cabinets and countertop${who}</li><li>Framed the new pantry wall and installed blocking</li></ul><h3>Crew</h3><p>3 workers on site, ${hours} hours each.</p><h3>Materials</h3><p>12 2x4 studs, 2 boxes of framing nails.</p><h3>Next Steps</h3><p>Electrical rough-in and inspection.</p>` },
+                { key: 'weather', value: 'Sunny' }, { key: 'temperature', value: '72°F' },
+            ] };
+        case 'NOTE': return { fields: [{ key: 'title', value: `Site visit${who}` }, { key: 'content', value: 'Walked the site with the owner. Agreed on cabinet layout and paint colors.' }] };
+        case 'WORK_ORDER': return { fields: [{ key: 'description', value: 'Replace the kitchen faucet and fix the leak under the sink.' }, { key: 'hours', value: String(hours) }, { key: 'cost', value: '420' }] };
+        case 'TIME_SHEET': return { fields: [{ key: 'workerName', value: 'Alex Rivera' }, { key: 'hoursWorked', value: String(hours) }] };
+        case 'WARRANTY': return { fields: [{ key: 'duration', value: '1 year' }, { key: 'coverage', value: 'Labor and installation defects.' }] };
+        case 'RECEIPT': return { fields: [{ key: 'amount', value: String(500 + index * 50) }, { key: 'paymentMethod', value: 'Check' }] };
+        case 'MATERIAL_LOG': return { line_items: [{ description: '2x4 studs', quantity: 12, rate: 4.25, unit_cost: 4.25, supplier: 'City Supply' }] };
+        case 'CHANGE_ORDER': return { fields: [{ key: 'description', value: 'Add a pantry door' }, { key: 'reason', value: 'Client Request' }], line_items: items };
+        default: return { fields: docType === 'INVOICE' ? [{ key: 'notes', value: 'Thank you for your business.' }] : [], line_items: items };
+    }
+}
+
+/**
+ * Several things in one message (clients + a job + documents, or two document types) → RUN_PLAN.
+ * Returns null for single requests, which keep their single action.
+ */
+function mockPlan(req: RouterRequest, today: string): ModelOutput | null {
+    const text = req.message || '';
+    const allowed = SCOPE_ACTIONS[req.scope];
+    if (!allowed.includes('RUN_PLAN') || req.context?.pending_draft) return null;
+    const clients = allowed.includes('CREATE_CLIENT') ? detectNewClientNames(text) : [];
+    const jobWanted = allowed.includes('CREATE_JOB') && /\b(?:create|add|start|new|make|one|a|1)\s+(?:new\s+)?(?:job|project)\b(?!\s*(?:report|status|site))/i.test(text);
+    const docTypes = detectDocTypesInText(text);
+    const things = clients.length + (jobWanted ? 1 : 0) + docTypes.length;
+    if (things < 2 || (!clients.length && !jobWanted && docTypes.length < 2)) return null;
+
+    const sample = isSampleRequest(text);
+    const steps: ModelPlanStep[] = [];
+    const clientRefs = clients.map(name => {
+        const ref = `client_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+        steps.push({ action_type: 'CREATE_CLIENT', ref, entity: { name } });
+        return { ref, name };
+    });
+    if (jobWanted) {
+        const named = text.match(/\b(?:job|project)\s+(?:called|named)\s+["']?([^"'\n.,]{2,60})/i)?.[1]?.trim();
+        steps.push({ action_type: 'CREATE_JOB', ref: 'job1', entity: { name: named || (sample ? 'Sample Job' : null), client_name: clientRefs.length === 1 ? clientRefs[0].name : null }, client_ref: clientRefs.length === 1 ? clientRefs[0].ref : null });
+    }
+    const perClient = clientRefs.length > 1 && /\b(?:each|every|both|per)\s+(?:of\s+the\s+|of\s+them\b|client|customer)/i.test(text);
+    const owners: Array<{ ref: string; name: string } | null> = perClient ? clientRefs : [clientRefs.length === 1 ? clientRefs[0] : null];
+    let index = 0;
+    for (const owner of owners) {
+        for (const docType of docTypes) {
+            const content = sample ? sampleDocument(docType, index, owner?.name) : extractFields(docType, text, today);
+            steps.push({
+                action_type: 'GENERATE_DOCUMENT',
+                ref: `doc_${++index}`,
+                document_type: docType,
+                fields: content.fields || [],
+                line_items: content.line_items || [],
+                job_ref: jobWanted ? 'job1' : null,
+                client_ref: owner?.ref || null,
+            });
+        }
+    }
+    const parts = [
+        clients.length ? `${clients.length} client${clients.length === 1 ? '' : 's'}` : '',
+        jobWanted ? '1 job' : '',
+        index ? `${index} document${index === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(', ');
+    return {
+        action_type: 'RUN_PLAN',
+        reply_text: `Here is the plan: ${parts}.${sample ? ' The documents are filled with sample data.' : ''} Check it, then press "Do it all".`,
+        plan_steps: steps,
+    };
+}
+
 function findByName<T extends { id: string; name: string }>(text: string, list: T[] = []): T[] {
     const t = ` ${text.toLowerCase().replace(/[^a-z0-9' ]+/g, ' ')} `;
     return list.filter(x => {
@@ -220,7 +331,11 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
         };
     }
 
-    // 3) Continue a pending draft (answer to a gather question).
+    // 3) Several things at once → one plan with every step.
+    const plan = mockPlan(req, today);
+    if (plan) return plan;
+
+    // 4) Continue a pending draft (answer to a gather question).
     const pendingType = c.pending_draft ? resolveDocKey(c.pending_draft.document_type) : null;
     const docType = detectDocTypeFromText(text) || (pendingType && !/\b(open|go to|show)\b/i.test(t) ? pendingType : null);
     const wantsDoc = docType && (/\b(create|make|write|draft|generate|new|start|prepare|fill|log|record|add)\b/i.test(t) || docType === pendingType || text.length > 25);
@@ -237,7 +352,7 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
         };
     }
 
-    // 4) Job / entity actions.
+    // 5) Job / entity actions.
     const status = t.match(/\b(?:mark|set|change|move)\b[^.]*\b(complete|completed|done|finished|paused?|on hold|active|reopen(?:ed)?)\b/);
     if (status) {
         const s = /complet|done|finish/.test(status[1]) ? 'completed' : /pause|hold/.test(status[1]) ? 'paused' : 'active';
@@ -278,7 +393,7 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
         return { action_type: 'ADD_PRICE_BOOK_ITEM', reply_text: 'Add this price book item?', entity: { name: item || null, price: price ? Number(price.replace(/,/g, '')) : null } };
     }
 
-    // 5) Navigation.
+    // 6) Navigation.
     const route = detectNavigation(text);
     if (route) return { action_type: 'NAVIGATE_TO', reply_text: 'Opening it now.', route };
 

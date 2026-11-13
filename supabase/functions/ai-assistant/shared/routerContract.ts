@@ -15,7 +15,7 @@ import {
 export const ROUTER_ACTIONS = [
     'CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY',
     'CREATE_JOB', 'CREATE_CLIENT', 'ADD_INVENTORY', 'ADD_PRICE_BOOK_ITEM', 'RESTOCK_INVENTORY',
-    'UPDATE_JOB_STATUS', 'DUPLICATE_JOB', 'NAVIGATE_TO',
+    'UPDATE_JOB_STATUS', 'DUPLICATE_JOB', 'NAVIGATE_TO', 'RUN_PLAN',
 ] as const;
 export type RouterAction = typeof ROUTER_ACTIONS[number];
 
@@ -36,13 +36,26 @@ export const ACTION_POLICY: Record<RouterAction, 'reply' | 'card' | 'confirm' | 
     UPDATE_JOB_STATUS: 'confirm',
     DUPLICATE_JOB: 'confirm',
     NAVIGATE_TO: 'auto',
+    RUN_PLAN: 'confirm',
 };
 
 export const SCOPE_ACTIONS: Record<RouterScope, readonly RouterAction[]> = {
     dashboard: ROUTER_ACTIONS,
-    job: ['CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY', 'UPDATE_JOB_STATUS'],
+    job: ['CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY', 'UPDATE_JOB_STATUS', 'RUN_PLAN'],
     form: ['CHAT', 'GENERATE_DOCUMENT'],
 };
+
+/**
+ * Actions a RUN_PLAN step may use. Each runs like the single action, except that nothing opens
+ * a form: records are saved directly (documents as Draft) after the user pressed "Do it all".
+ */
+export const PLAN_STEP_ACTIONS = [
+    'CREATE_CLIENT', 'CREATE_JOB', 'GENERATE_DOCUMENT', 'ADD_INVENTORY', 'ADD_PRICE_BOOK_ITEM',
+    'RESTOCK_INVENTORY', 'UPDATE_JOB_STATUS',
+] as const;
+export type PlanStepAction = typeof PLAN_STEP_ACTIONS[number];
+/** Most steps one plan may contain (extra steps are dropped with a note). */
+export const PLAN_MAX_STEPS = 20;
 
 export const APP_ROUTES = [
     '/dashboard', '/clients', '/inventory', '/pricebook', '/analytics', '/calendar', '/communication',
@@ -202,12 +215,81 @@ export interface ModelOutput {
     quantity_delta?: number | null;
     email_subject?: string | null;
     email_body?: string | null;
+    /** RUN_PLAN: every step of a multi-part request, in order. */
+    plan_steps?: ModelPlanStep[];
 }
 
-/** Gemini `responseSchema` (OpenAPI subset). */
+/** One RUN_PLAN step as the model returns it (same payload keys as the single actions). */
+export interface ModelPlanStep {
+    action_type: string;
+    /** Short name later steps use to point at what this step creates ("client_jake", "job1"). */
+    ref?: string | null;
+    entity?: Record<string, unknown> | null;
+    document_type?: string | null;
+    fields?: Array<{ key: string; value: string }>;
+    line_items?: ModelOutput['line_items'];
+    /** ref of a CREATE_JOB step of this plan, or job_id of an existing job (CONTEXT DATA). */
+    job_ref?: string | null;
+    job_id?: string | null;
+    /** ref of a CREATE_CLIENT step of this plan, or client_id of an existing client (CONTEXT DATA). */
+    client_ref?: string | null;
+    client_id?: string | null;
+    inventory_item_id?: string | null;
+    quantity_delta?: number | null;
+    job_status?: string | null;
+}
+
+/**
+ * Gemini `responseSchema` (OpenAPI subset: no unions, so a plan step is one object with optional
+ * fields). The step's field `key` is a plain string on purpose: repeating the big key enum inside the
+ * step array would multiply the schema's states; unknown keys are dropped by `normalizePrefill`.
+ */
 export function buildResponseSchema(scope: RouterScope): Record<string, unknown> {
     const S = (extra: Record<string, unknown> = {}) => ({ type: 'STRING', ...extra });
     const N = (extra: Record<string, unknown> = {}) => ({ type: 'NUMBER', ...extra });
+    const lineItems = {
+        type: 'ARRAY',
+        items: {
+            type: 'OBJECT',
+            properties: { description: S(), quantity: N(), rate: N(), unit_cost: N({ nullable: true }), supplier: S({ nullable: true }) },
+            required: ['description'],
+        },
+    };
+    const entity = {
+        type: 'OBJECT',
+        nullable: true,
+        properties: {
+            name: S({ nullable: true }), email: S({ nullable: true }), phone: S({ nullable: true }), address: S({ nullable: true }),
+            notes: S({ nullable: true }), description: S({ nullable: true }), category: S({ nullable: true }), unit: S({ nullable: true }),
+            supplier: S({ nullable: true }), quantity: N({ nullable: true }), price: N({ nullable: true }), cost: N({ nullable: true }),
+            client_name: S({ nullable: true }), start_date: S({ nullable: true }),
+        },
+    };
+    const stepActions = PLAN_STEP_ACTIONS.filter(a => SCOPE_ACTIONS[scope].includes(a));
+    const planSteps = SCOPE_ACTIONS[scope].includes('RUN_PLAN') && stepActions.length ? {
+        plan_steps: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: {
+                    action_type: S({ enum: stepActions }),
+                    ref: S({ nullable: true }),
+                    entity,
+                    document_type: S({ enum: [...DOC_TYPES], nullable: true }),
+                    fields: { type: 'ARRAY', items: { type: 'OBJECT', properties: { key: S(), value: S() }, required: ['key', 'value'] } },
+                    line_items: lineItems,
+                    job_ref: S({ nullable: true }),
+                    job_id: S({ nullable: true }),
+                    client_ref: S({ nullable: true }),
+                    client_id: S({ nullable: true }),
+                    inventory_item_id: S({ nullable: true }),
+                    quantity_delta: N({ nullable: true }),
+                    job_status: S({ enum: [...JOB_STATUSES], nullable: true }),
+                },
+                required: ['action_type'],
+            },
+        },
+    } : {};
     return {
         type: 'OBJECT',
         properties: {
@@ -218,34 +300,19 @@ export function buildResponseSchema(scope: RouterScope): Record<string, unknown>
                 type: 'ARRAY',
                 items: { type: 'OBJECT', properties: { key: S({ enum: ALL_FIELD_KEYS }), value: S() }, required: ['key', 'value'] },
             },
-            line_items: {
-                type: 'ARRAY',
-                items: {
-                    type: 'OBJECT',
-                    properties: { description: S(), quantity: N(), rate: N(), unit_cost: N({ nullable: true }), supplier: S({ nullable: true }) },
-                    required: ['description'],
-                },
-            },
+            line_items: lineItems,
             missing_fields: { type: 'ARRAY', items: S() },
             job_id: S({ nullable: true }),
             client_ids: { type: 'ARRAY', items: S() },
             document_ids: { type: 'ARRAY', items: S() },
             route: S({ enum: [...APP_ROUTES], nullable: true }),
             job_status: S({ enum: [...JOB_STATUSES], nullable: true }),
-            entity: {
-                type: 'OBJECT',
-                nullable: true,
-                properties: {
-                    name: S({ nullable: true }), email: S({ nullable: true }), phone: S({ nullable: true }), address: S({ nullable: true }),
-                    notes: S({ nullable: true }), description: S({ nullable: true }), category: S({ nullable: true }), unit: S({ nullable: true }),
-                    supplier: S({ nullable: true }), quantity: N({ nullable: true }), price: N({ nullable: true }), cost: N({ nullable: true }),
-                    client_name: S({ nullable: true }), start_date: S({ nullable: true }),
-                },
-            },
+            entity,
             inventory_item_id: S({ nullable: true }),
             quantity_delta: N({ nullable: true }),
             email_subject: S({ nullable: true }),
             email_body: S({ nullable: true }),
+            ...planSteps,
         },
         required: ['action_type', 'reply_text'],
     };
@@ -291,6 +358,42 @@ export interface RouterProposal {
     quantity_delta?: number | null;
     email_subject?: string | null;
     email_body?: string | null;
+    /** RUN_PLAN: validated steps, in the order they run (creations first). */
+    plan?: PlanStep[];
+    /** RUN_PLAN: what was left out of the model's plan and why (shown on the card). */
+    plan_notes?: string[];
+    /** The user asked for example/sample data: documents carry realistic sample content. */
+    sample_data?: boolean;
+}
+
+/**
+ * One validated RUN_PLAN step. Ids are always ids from the request context; records created by
+ * an earlier step of the same plan are referenced by that step's `ref` (job_ref / client_ref).
+ */
+export interface PlanStep {
+    /** Stable id inside the plan ("s1", "s2", …). */
+    id: string;
+    action_type: PlanStepAction;
+    /** Unique within the plan; what job_ref / client_ref of later steps point to. */
+    ref: string;
+    /** CREATE_CLIENT / CREATE_JOB / ADD_INVENTORY / ADD_PRICE_BOOK_ITEM, validated like the single actions. */
+    entity?: Record<string, unknown>;
+    /** GENERATE_DOCUMENT */
+    document_type?: DocKey;
+    prefill?: Record<string, unknown>;
+    /** GENERATE_DOCUMENT: "ask" fields that stay empty (plans never stop to ask). */
+    missing_fields?: string[];
+    /** Job: ref of an earlier CREATE_JOB step, or an existing job id. At most one is set. */
+    job_ref?: string | null;
+    job_id?: string | null;
+    /** Client: ref of an earlier CREATE_CLIENT step, or an existing client id. At most one is set. */
+    client_ref?: string | null;
+    client_id?: string | null;
+    inventory_item_id?: string | null;
+    quantity_delta?: number | null;
+    job_status?: JobStatus | null;
+    /** Browser only: the user removed this step on the card (never set by the server). */
+    skip?: boolean;
 }
 
 export interface RouterResponseMeta {
@@ -315,11 +418,29 @@ export function isSendOnlyRequest(text: string): boolean {
     return !/\b(create|make|generate|write|draft|prepare|build|new|start|fill)\b/.test(before);
 }
 
+/**
+ * "Just an example", "sample data", "make something up": the user explicitly asks for made-up content,
+ * so plan documents may carry realistic sample values (the daily-report fact guards do not apply).
+ */
+export function isSampleRequest(text: string): boolean {
+    const t = text || '';
+    return /\bjust\s+(?:an?\s+)?(?:example|test|demo|sample|testing)\b/i.test(t)
+        || /\b(?:as|for)\s+an?\s+(?:example|test|demo)\b/i.test(t)
+        || /\b(?:it'?s|this\s+is)\s+(?:only\s+|just\s+)?an?\s+(?:test|example|demo)\b/i.test(t)
+        || /\b(?:example|sample|dummy|fake|mock|placeholder)\s+(?:data|content|values|text|numbers|entries|records|documents?|docs|clients?|jobs?|invoices?|estimates?|reports?)\b/i.test(t)
+        // "test report" / "test results" are real site documents: only data-like nouns count for test/demo
+        || /\b(?:test|demo)\s+(?:data|content|values|entries|records|documents|docs|clients?|jobs?|invoices?)\b/i.test(t)
+        || /\b(?:dummy|fake)\b/i.test(t)
+        || /\bmake\s+(?:something|stuff|it|them|things|everything|the\s+rest)\s+up\b|\bmade[- ]up\b/i.test(t)
+        || /\bfill\s+(?:it|them|everything)\s+(?:in\s+)?with\s+(?:examples?|samples?)\b/i.test(t);
+}
+
 const defaultReply: Partial<Record<RouterAction, string>> = {
     CHAT: 'How can I help with your jobs and documents?',
     GENERATE_DOCUMENT: 'Here is your draft. Check the fields, then open it to edit or save it.',
     PREPARE_EMAIL_BATCH: 'I prepared the email for you to review. Nothing is sent until you press Send.',
     NAVIGATE_TO: 'Opening that page.',
+    RUN_PLAN: 'Here is the plan. Check the steps, then press "Do it all".',
 };
 
 export interface BuildProposalContext {
@@ -373,6 +494,248 @@ function fieldsToObject(output: ModelOutput, docType: DocKey): Record<string, un
     return obj;
 }
 
+type EntityAction = 'CREATE_CLIENT' | 'CREATE_JOB' | 'ADD_INVENTORY' | 'ADD_PRICE_BOOK_ITEM';
+
+/** Validated entity for the create/add actions (single action and plan step), or null without a name. */
+function cleanEntity(action: EntityAction, raw: unknown): Record<string, unknown> | null {
+    const e = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+    const name = toPlainText(e.name ?? '').replace(/\s+/g, ' ').slice(0, 120);
+    if (!name) return null;
+    const entity: Record<string, unknown> = { name };
+    const textKeys = action === 'CREATE_CLIENT' ? ['email', 'phone', 'address', 'notes']
+        : action === 'CREATE_JOB' ? ['client_name', 'address', 'start_date', 'description']
+            : ['description', 'category', 'unit', 'supplier'];
+    for (const k of textKeys) {
+        const v = toPlainText(e[k] ?? '').replace(/\s+/g, ' ').slice(0, 300);
+        if (v) entity[k] = v;
+    }
+    if (action === 'CREATE_CLIENT' && entity.email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(String(entity.email))) delete entity.email;
+    if (action === 'CREATE_JOB' && entity.start_date) {
+        const m = String(entity.start_date).match(/^\d{4}-\d{2}-\d{2}$/);
+        if (!m) delete entity.start_date;
+    }
+    for (const k of ['quantity', 'price', 'cost']) {
+        const n = toNumberOrUndefined(e[k]);
+        if (n !== undefined && n >= 0 && (action === 'ADD_INVENTORY' || action === 'ADD_PRICE_BOOK_ITEM')) entity[k] = n;
+    }
+    return entity;
+}
+
+// ───────────────────────────── multi-step plans (RUN_PLAN) ─────────────────────────────
+
+const STEP_LABELS: Record<PlanStepAction, string> = {
+    CREATE_CLIENT: 'new client', CREATE_JOB: 'new job', GENERATE_DOCUMENT: 'document', ADD_INVENTORY: 'inventory item',
+    ADD_PRICE_BOOK_ITEM: 'price book item', RESTOCK_INVENTORY: 'stock change', UPDATE_JOB_STATUS: 'job status',
+};
+
+/** Creations run first so later steps can point at them; otherwise the model's order is kept. */
+const STEP_ORDER: Record<PlanStepAction, number> = {
+    CREATE_CLIENT: 0, CREATE_JOB: 1, GENERATE_DOCUMENT: 2, ADD_INVENTORY: 2, ADD_PRICE_BOOK_ITEM: 2, RESTOCK_INVENTORY: 2, UPDATE_JOB_STATUS: 3,
+};
+
+const refKey = (v: unknown): string => toPlainText(v ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+interface CreatedRef { ref: string; name: string }
+
+/**
+ * Finds the plan record a model reference points to. Accepts the exact ref ("client_jake"), loose
+ * spellings ("client:Jake", "Jake", "job 1") and the record's name. Unique matches only.
+ */
+function findCreated(list: CreatedRef[], kind: 'client' | 'job', raw: unknown): string | null {
+    const k = refKey(raw);
+    if (!k || !list.length) return null;
+    const exact = list.filter(x => refKey(x.ref) === k);
+    if (exact.length === 1) return exact[0].ref;
+    const strip = (s: string) => s.replace(kind === 'client' ? /^(?:clients?|customers?)/ : /^(?:jobs?|projects?)/, '');
+    const ks = strip(k);
+    if (!ks) return null;
+    const loose = list.filter(x => strip(refKey(x.ref)) === ks || refKey(x.name) === k || refKey(x.name) === ks || strip(refKey(x.name)) === ks);
+    return loose.length === 1 ? loose[0].ref : null;
+}
+
+/** The model's step as a single-action output (used when a "plan" has only one step). */
+function stepAsOutput(step: ModelPlanStep, action: PlanStepAction, reply: unknown): ModelOutput {
+    return {
+        action_type: action,
+        reply_text: typeof reply === 'string' ? reply : '',
+        document_type: step.document_type ?? null,
+        fields: step.fields,
+        line_items: step.line_items,
+        job_id: step.job_id ?? null,
+        client_ids: typeof step.client_id === 'string' ? [step.client_id] : [],
+        entity: step.entity ?? null,
+        inventory_item_id: step.inventory_item_id ?? null,
+        quantity_delta: step.quantity_delta ?? null,
+        job_status: step.job_status ?? null,
+    };
+}
+
+/**
+ * Validates a RUN_PLAN answer: caps the number of steps, drops steps the scope does not allow or that
+ * are unusable (with a note the card shows), resolves job/client references between steps, keeps ids
+ * only when they exist in the request context, and normalizes every document like a single draft.
+ * One usable step → that single action (so "create a client named X" never becomes a plan).
+ */
+function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildProposalContext, replyRaw: string): RouterProposal {
+    const req = ctx.request;
+    const c = req.context || {};
+    const allowed = SCOPE_ACTIONS[req.scope];
+    const stepActions = PLAN_STEP_ACTIONS.filter(a => allowed.includes(a));
+    const notes: string[] = [];
+    const userText = [...(req.history || []).filter(h => h.role === 'user').map(h => h.text), req.message].join('\n');
+    const sample = isSampleRequest(userText);
+    const sendOnly = isSendOnlyRequest(req.message);
+    const clientIds = new Set((c.clients || []).map(x => x.id));
+    const jobIds = new Set((c.jobs || []).map(x => x.id));
+    const invIds = new Set((c.inventory || []).map(x => x.id));
+    const activeJob = req.scope !== 'dashboard' && c.active_job_id && jobIds.has(c.active_job_id) ? c.active_job_id : null;
+    const lowerText = userText.toLowerCase();
+    const contextClientByName = (name: unknown): string | null => {
+        const n = toPlainText(name ?? '').trim().toLowerCase();
+        if (!n) return null;
+        const m = (c.clients || []).filter(x => x.name.trim().toLowerCase() === n);
+        return m.length === 1 ? m[0].id : null;
+    };
+
+    if (rawSteps.length > PLAN_MAX_STEPS) {
+        notes.push(`A plan can have up to ${PLAN_MAX_STEPS} steps, so I left out the last ${rawSteps.length - PLAN_MAX_STEPS}. Ask me again for the rest.`);
+    }
+
+    // 1) usable actions, creations first
+    const drafts: Array<{ raw: ModelPlanStep; action: PlanStepAction; index: number }> = [];
+    rawSteps.slice(0, PLAN_MAX_STEPS).forEach((s, index) => {
+        if (!s || typeof s !== 'object' || Array.isArray(s)) return;
+        const raw = s as ModelPlanStep;
+        const name = typeof raw.action_type === 'string' ? raw.action_type.trim().toUpperCase() : '';
+        const action = (ACTION_ALIASES[name]?.action || name) as PlanStepAction;
+        if (!(stepActions as readonly string[]).includes(action)) {
+            notes.push(`Step ${index + 1} was left out: ${name ? `"${name.toLowerCase().replace(/_/g, ' ')}" can't run in a plan here` : 'it had no action'}.`);
+            return;
+        }
+        if (sendOnly && action === 'GENERATE_DOCUMENT') {
+            notes.push(`Step ${index + 1} was left out: you asked to send documents, not to create new ones.`);
+            return;
+        }
+        drafts.push({ raw, action, index });
+    });
+    drafts.sort((a, b) => (STEP_ORDER[a.action] - STEP_ORDER[b.action]) || (a.index - b.index));
+
+    // 2) validate each step
+    const steps: PlanStep[] = [];
+    const usedRefs = new Set<string>();
+    const makeRef = (raw: unknown, fallback: string): string => {
+        const base = toPlainText(raw ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+            || fallback.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'step';
+        let ref = base;
+        for (let n = 2; usedRefs.has(ref); n++) ref = `${base}_${n}`;
+        usedRefs.add(ref);
+        return ref;
+    };
+    const clients: CreatedRef[] = [];
+    const jobs: CreatedRef[] = [];
+    const used: typeof drafts = [];
+    const skip = (index: number, why: string) => notes.push(`Step ${index + 1} was left out: ${why}.`);
+
+    for (const d of drafts) {
+        const { raw, action, index } = d;
+        const id = `s${steps.length + 1}`;
+        switch (action) {
+            case 'CREATE_CLIENT':
+            case 'ADD_INVENTORY':
+            case 'ADD_PRICE_BOOK_ITEM': {
+                const entity = cleanEntity(action, raw.entity);
+                if (!entity) { skip(index, `the ${STEP_LABELS[action]} had no name`); continue; }
+                if (action === 'CREATE_CLIENT') {
+                    // Contact details only when the user typed them (no invented emails/phones in plans).
+                    if (entity.email && !lowerText.includes(String(entity.email).toLowerCase())) delete entity.email;
+                    const digits = String(entity.phone || '').replace(/\D/g, '');
+                    if (entity.phone && (digits.length < 7 || !userText.replace(/\D/g, '').includes(digits))) delete entity.phone;
+                }
+                const ref = makeRef(raw.ref, action === 'CREATE_CLIENT' ? `client_${String(entity.name)}` : `item_${steps.length + 1}`);
+                if (action === 'CREATE_CLIENT') clients.push({ ref, name: String(entity.name) });
+                steps.push({ id, action_type: action, ref, entity });
+                break;
+            }
+            case 'CREATE_JOB': {
+                const rawEntity = (raw.entity && typeof raw.entity === 'object' ? raw.entity : {}) as Record<string, unknown>;
+                const fallbackName = sample ? 'Sample Job' : `New job ${c.today || ''}`.trim();
+                const entity = cleanEntity('CREATE_JOB', { ...rawEntity, name: toPlainText(rawEntity.name ?? '').trim() || fallbackName }) as Record<string, unknown>;
+                const step: PlanStep = { id, action_type: action, ref: makeRef(raw.ref, `job_${jobs.length + 1}`), entity };
+                const existingClient = typeof raw.client_id === 'string' && clientIds.has(raw.client_id) ? raw.client_id : null;
+                const planClient = existingClient ? null : findCreated(clients, 'client', raw.client_ref ?? raw.client_id ?? entity.client_name);
+                const namedClient = existingClient || planClient ? null : contextClientByName(entity.client_name);
+                if (planClient) {
+                    step.client_ref = planClient;
+                    entity.client_name = clients.find(x => x.ref === planClient)?.name;
+                } else if (existingClient || namedClient) {
+                    step.client_id = existingClient || namedClient;
+                    entity.client_name = (c.clients || []).find(x => x.id === step.client_id)?.name;
+                }
+                jobs.push({ ref: step.ref, name: String(entity.name) });
+                steps.push(step);
+                break;
+            }
+            case 'GENERATE_DOCUMENT': {
+                const docType = resolveDocKey(raw.document_type);
+                if (!docType) { skip(index, 'the document type was missing'); continue; }
+                const normalizeOpts: NormalizeOptions = { ...(ctx.normalize || {}), today: c.today, userText: sample ? undefined : userText };
+                const prefill = normalizePrefill(docType, fieldsToObject(raw as unknown as ModelOutput, docType), normalizeOpts);
+                const step: PlanStep = {
+                    id, action_type: action, ref: makeRef(raw.ref, `doc_${steps.length + 1}`), document_type: docType, prefill,
+                    missing_fields: getMissingAskFields(docType, prefill),
+                };
+                // Job: the open job (job scope) › an existing job id › a job of this plan › the only job of this plan.
+                const existingJob = activeJob || (typeof raw.job_id === 'string' && jobIds.has(raw.job_id) ? raw.job_id : null);
+                const planJob = existingJob ? null : findCreated(jobs, 'job', raw.job_ref ?? raw.job_id) || (jobs.length === 1 ? jobs[0].ref : null);
+                if (existingJob) step.job_id = existingJob;
+                else if (planJob) step.job_ref = planJob;
+                // Client: an existing client id › a client of this plan › the document's client name.
+                const existingClient = typeof raw.client_id === 'string' && clientIds.has(raw.client_id) ? raw.client_id : null;
+                const planClient = existingClient ? null : findCreated(clients, 'client', raw.client_ref ?? raw.client_id)
+                    || findCreated(clients, 'client', prefill.clientName);
+                const namedClient = existingClient || planClient ? null : contextClientByName(prefill.clientName);
+                if (planClient) step.client_ref = planClient;
+                else if (existingClient || namedClient) step.client_id = existingClient || namedClient;
+                steps.push(step);
+                break;
+            }
+            case 'RESTOCK_INVENTORY': {
+                const itemId = typeof raw.inventory_item_id === 'string' && invIds.has(raw.inventory_item_id) ? raw.inventory_item_id : null;
+                const delta = toNumberOrUndefined(raw.quantity_delta);
+                if (!itemId || delta === undefined || delta === 0) { skip(index, 'I could not tell which inventory item or how much'); continue; }
+                steps.push({ id, action_type: action, ref: makeRef(raw.ref, `stock_${steps.length + 1}`), inventory_item_id: itemId, quantity_delta: Math.max(-100000, Math.min(100000, delta)) });
+                break;
+            }
+            case 'UPDATE_JOB_STATUS': {
+                const status = (JOB_STATUSES as readonly string[]).includes(String(raw.job_status)) ? raw.job_status as JobStatus : null;
+                const existingJob = activeJob || (typeof raw.job_id === 'string' && jobIds.has(raw.job_id) ? raw.job_id : null);
+                const planJob = existingJob ? null : findCreated(jobs, 'job', raw.job_ref ?? raw.job_id);
+                if (!status || (!existingJob && !planJob)) { skip(index, 'I could not tell which job or which status'); continue; }
+                steps.push({ id, action_type: action, ref: makeRef(raw.ref, `status_${steps.length + 1}`), job_status: status, ...(existingJob ? { job_id: existingJob } : { job_ref: planJob }) });
+                break;
+            }
+        }
+        used.push(d);
+    }
+
+    if (!steps.length) {
+        return { action_type: 'CHAT', reply_text: [replyRaw && !/\b(?:done|created|saved|added)\b/i.test(replyRaw) ? replyRaw : '', ...notes].filter(Boolean).join(' ') || 'What should I do first?' };
+    }
+    if (steps.length === 1) {
+        // A one-step "plan" is just that action (same card and behavior as a direct request).
+        const single = buildProposal(stepAsOutput(used[0].raw, used[0].action, output.reply_text), ctx);
+        if (notes.length) single.reply_text = [single.reply_text, ...notes].filter(Boolean).join(' ');
+        return single;
+    }
+    return {
+        action_type: 'RUN_PLAN',
+        reply_text: replyRaw || defaultReply.RUN_PLAN!,
+        plan: steps,
+        plan_notes: notes,
+        ...(sample ? { sample_data: true } : {}),
+    };
+}
+
 /** The single gate between model output and the UI. Never throws. */
 export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): RouterProposal {
     const req = ctx.request;
@@ -384,6 +747,14 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
     let action: RouterAction = (ROUTER_ACTIONS as readonly string[]).includes(rawAction) ? rawAction as RouterAction : alias?.action || 'CHAT';
     let route: AppRoute | null = alias?.route || ((APP_ROUTES as readonly string[]).includes(String(output.route)) ? output.route as AppRoute : null);
     const replyRaw = toPlainText(output.reply_text ?? (output as unknown as Record<string, unknown>).message ?? '').slice(0, 2000);
+
+    // Multi-part request: RUN_PLAN, or a single action that still came with two or more plan steps.
+    const loose = output as unknown as Record<string, unknown>;
+    const rawSteps = Array.isArray(output.plan_steps) ? output.plan_steps : Array.isArray(loose.steps) ? loose.steps as unknown[] : [];
+    if (allowed.includes('RUN_PLAN') && (action === 'RUN_PLAN' || (rawSteps.length >= 2 && (PLAN_STEP_ACTIONS as readonly string[]).includes(action)))) {
+        return buildPlanProposal(output, rawSteps, ctx, replyRaw);
+    }
+
     if (!allowed.includes(action)) {
         action = 'CHAT';
     }
@@ -480,26 +851,8 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
         case 'ADD_INVENTORY':
         case 'ADD_PRICE_BOOK_ITEM':
         case 'CREATE_JOB': {
-            const e = (output.entity && typeof output.entity === 'object' ? output.entity : {}) as Record<string, unknown>;
-            const name = toPlainText(e.name ?? '').replace(/\s+/g, ' ').slice(0, 120);
-            if (!name) return { action_type: 'CHAT', reply_text: replyRaw || 'What name should I use?' };
-            const entity: Record<string, unknown> = { name };
-            const textKeys = action === 'CREATE_CLIENT' ? ['email', 'phone', 'address', 'notes']
-                : action === 'CREATE_JOB' ? ['client_name', 'address', 'start_date', 'description']
-                    : ['description', 'category', 'unit', 'supplier'];
-            for (const k of textKeys) {
-                const v = toPlainText(e[k] ?? '').replace(/\s+/g, ' ').slice(0, 300);
-                if (v) entity[k] = v;
-            }
-            if (action === 'CREATE_CLIENT' && entity.email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(String(entity.email))) delete entity.email;
-            if (action === 'CREATE_JOB' && entity.start_date) {
-                const m = String(entity.start_date).match(/^\d{4}-\d{2}-\d{2}$/);
-                if (!m) delete entity.start_date;
-            }
-            for (const k of ['quantity', 'price', 'cost']) {
-                const n = toNumberOrUndefined(e[k]);
-                if (n !== undefined && n >= 0 && (action === 'ADD_INVENTORY' || action === 'ADD_PRICE_BOOK_ITEM')) entity[k] = n;
-            }
+            const entity = cleanEntity(action, output.entity);
+            if (!entity) return { action_type: 'CHAT', reply_text: replyRaw || 'What name should I use?' };
             proposal.entity = entity;
             proposal.reply_text = replyRaw || 'Please confirm the details below.';
             return proposal;

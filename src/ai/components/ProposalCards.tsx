@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import {
     AlertTriangleIcon, BoxIcon, BriefcaseIcon, CalendarIcon, ChangeOrderIcon, CheckCircleIcon, CopyIcon, DailyReportIcon,
     EstimateIcon, ExpenseLogIcon, ExternalLinkIcon, InvoiceIcon, MailIcon, MaterialLogIcon, NoteIcon, PaperclipIcon,
-    ReceiptIcon, RefreshCwIcon, TagIcon, TimeSheetIcon, TruckIcon, UserIcon, WarrantyIcon, WorkOrderIcon, XCircleIcon,
+    ReceiptIcon, RefreshCwIcon, SparklesIcon, StarIcon, TagIcon, TimeSheetIcon, TrashIcon, TruckIcon, UndoIcon, UserIcon,
+    WarrantyIcon, WorkOrderIcon, XCircleIcon,
 } from '../../../components/Icons.tsx';
 import { formatMoney } from '../../../utils/money.ts';
 import { getFormLabel } from '../../../utils/aiMentionUtils.ts';
@@ -12,7 +13,8 @@ import {
 import type { ChatMessage } from '../../hooks/useMasterAIRouter.ts';
 import type { AIAssistant } from '../../hooks/useAIAssistant.ts';
 import { buildEmailDrafts, type AIEmailDraft } from '../emailBatch.ts';
-import type { RouterProposal } from '../../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import type { PlanStep, PlanStepAction, RouterProposal } from '../../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { applyPlanEdits, stepsNeedingJob, summarizePlanRun, type PlanStepResult } from '../planRunner.ts';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -443,10 +445,206 @@ const ConfirmCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = 
     );
 };
 
+// ───────────────────────────── multi-step plan ─────────────────────────────
+
+const STEP_ICONS: Record<PlanStepAction, IconType> = {
+    CREATE_CLIENT: UserIcon, CREATE_JOB: BriefcaseIcon, GENERATE_DOCUMENT: InvoiceIcon, ADD_INVENTORY: BoxIcon,
+    ADD_PRICE_BOOK_ITEM: TagIcon, RESTOCK_INVENTORY: BoxIcon, UPDATE_JOB_STATUS: CalendarIcon,
+};
+
+const STEP_TITLES: Record<PlanStepAction, string> = {
+    CREATE_CLIENT: 'New client', CREATE_JOB: 'New job', GENERATE_DOCUMENT: 'Document', ADD_INVENTORY: 'New inventory item',
+    ADD_PRICE_BOOK_ITEM: 'New price book item', RESTOCK_INVENTORY: 'Change stock', UPDATE_JOB_STATUS: 'Job status',
+};
+
+/** Short content summary of a document step ("2 items · $795.00", first words of a report). */
+function documentSummary(step: PlanStep): string {
+    const pre = step.prefill || {};
+    const items = (Array.isArray(pre.lineItems) ? pre.lineItems : Array.isArray(pre.items) ? pre.items : []) as Array<Record<string, unknown>>;
+    if (items.length) {
+        const total = items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number((i.rate ?? i.unitCost) || 0), 0);
+        return `${items.length} item${items.length === 1 ? '' : 's'}${total > 0 ? ` · ${formatMoney(total)}` : ''}`;
+    }
+    if (pre.amount != null) return formatMoney(pre.amount);
+    const text = toPlainText(pre.content ?? pre.description ?? pre.notes ?? pre.coverage ?? pre.title ?? '');
+    return text.length > 90 ? `${text.slice(0, 87)}…` : text;
+}
+
+const StepStatus: React.FC<{ result?: PlanStepResult; index: number; icon: IconType }> = ({ result, index, icon: Icon }) => {
+    const base = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold';
+    switch (result?.status) {
+        case 'running': return <span className={`${base} bg-primary/10 text-primary`} aria-label="Running"><RefreshCwIcon className="h-4 w-4 animate-spin" /></span>;
+        case 'done': return <span className={`${base} bg-success/15 text-success`} aria-label="Done"><CheckCircleIcon className="h-4 w-4" /></span>;
+        case 'error': return <span className={`${base} bg-destructive/10 text-destructive`} aria-label="Failed"><AlertTriangleIcon className="h-4 w-4" /></span>;
+        case 'skipped': return <span className={`${base} bg-muted text-muted-foreground`} aria-label="Skipped"><XCircleIcon className="h-4 w-4" /></span>;
+        case 'pending': return <span className={`${base} bg-muted text-muted-foreground`}>{index}</span>;
+        default: return <span className={`${base} bg-primary/10 text-primary`}><Icon className="h-[15px] w-[15px]" /></span>;
+    }
+};
+
+const PlanCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({ message, assistant }) => {
+    const p = message.proposal as RouterProposal;
+    const run = message.planRun;
+    const [removed, setRemoved] = useState<string[]>([]);
+    const [names, setNames] = useState<Record<string, string>>({});
+    const [jobPicks, setJobPicks] = useState<Record<string, string>>({});
+    const edited = useMemo(() => applyPlanEdits(p.plan || [], { removed, names, jobs: jobPicks }), [p.plan, removed, names, jobPicks]);
+    // Once started, the card shows (and a retry re-runs) exactly the steps that ran.
+    const steps = run?.steps?.length ? run.steps : edited;
+    const working = message.status === 'working';
+    const locked = Boolean(run) || working;
+    const needJob = locked ? [] : stepsNeedingJob(steps);
+    const active = steps.filter(s => !s.skip);
+    const summary = run ? summarizePlanRun(run, steps) : null;
+    const limit = run ? Object.values(run.results).find(r => r.code === 'PLAN_LIMIT') : undefined;
+    const { jobs, clients } = assistant.data;
+    if (message.status === 'dismissed') return <DoneRow message={message} />;
+
+    const nameOf = (ref?: string | null) => String(steps.find(s => s.ref === ref)?.entity?.name || '');
+    const jobName = (s: PlanStep) => (s.job_ref ? nameOf(s.job_ref) : s.job_id ? jobs.find(j => j.id === s.job_id)?.name || '' : '');
+    const clientName = (s: PlanStep) => (s.client_ref ? nameOf(s.client_ref) : s.client_id ? clients.find(c => c.id === s.client_id)?.name || '' : '');
+    const planJobs = steps.filter(s => s.action_type === 'CREATE_JOB' && !s.skip);
+    const toggle = (id: string) => setRemoved(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+    const doneCount = summary?.done ?? 0;
+    const runningCount = run ? active.filter(s => ['done', 'error', 'skipped'].includes(run.results[s.id]?.status || '')).length : 0;
+
+    const footer = working ? (
+        <span className="inline-flex min-h-[40px] items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Spinner /> Working… {runningCount} of {active.length}
+        </span>
+    ) : run ? (
+        summary && summary.failed > 0 ? (
+            <button type="button" className={btnPrimary} onClick={() => assistant.runPlan(message.id, steps)}>
+                <RefreshCwIcon className="h-4 w-4" /> Retry {summary.failed} failed step{summary.failed === 1 ? '' : 's'}
+            </button>
+        ) : null
+    ) : (
+        <>
+            <button type="button" className={btnGhost} onClick={() => assistant.dismiss(message.id)}>Cancel</button>
+            <button type="button" className={btnPrimary} disabled={!active.length || needJob.length > 0} onClick={() => assistant.runPlan(message.id, steps)}>
+                <CheckCircleIcon className="h-4 w-4" /> Do it all ({active.length} step{active.length === 1 ? '' : 's'})
+            </button>
+        </>
+    );
+
+    return (
+        <CardShell
+            icon={SparklesIcon}
+            title={run && !working ? (summary?.failed ? `${doneCount} of ${active.length} steps done` : `Done: ${doneCount} step${doneCount === 1 ? '' : 's'}`) : `Plan: ${active.length} step${active.length === 1 ? '' : 's'}`}
+            subtitle={run ? (working ? 'Running the steps in order…' : 'Open anything below to check or edit it.') : 'Check every step. Nothing is created until you press “Do it all”. Documents are saved as drafts.'}
+            footer={footer}
+        >
+            {p.sample_data && (
+                <p className="flex items-start gap-2 rounded-xl bg-primary/5 px-3 py-2 text-xs text-foreground">
+                    <SparklesIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span>Sample data: the documents are filled with example content. Edit them before you send anything.</span>
+                </p>
+            )}
+            <ol className="space-y-2" aria-label="Plan steps">
+                {steps.map((s, i) => {
+                    const result = run?.results[s.id];
+                    const userRemoved = removed.includes(s.id);
+                    const icon = s.action_type === 'GENERATE_DOCUMENT' && s.document_type ? DOC_ICONS[s.document_type] : STEP_ICONS[s.action_type];
+                    const editableName = !locked && !s.skip && ['CREATE_CLIENT', 'CREATE_JOB', 'ADD_INVENTORY', 'ADD_PRICE_BOOK_ITEM'].includes(s.action_type);
+                    const isDoc = s.action_type === 'GENERATE_DOCUMENT';
+                    const pickJob = !locked && (isDoc || s.action_type === 'UPDATE_JOB_STATUS') && !userRemoved && Boolean(jobPicks[s.id] || (!s.job_ref && !s.job_id) || s.skip);
+                    const title = isDoc && s.document_type ? DOC_LABELS[s.document_type]
+                        : s.action_type === 'RESTOCK_INVENTORY' ? `${assistant.data.inventory.find(it => it.id === s.inventory_item_id)?.name || 'Item'} ${Number(s.quantity_delta) > 0 ? '+' : ''}${s.quantity_delta}`
+                            : s.action_type === 'UPDATE_JOB_STATUS' ? `Mark as ${s.job_status}`
+                                : String(s.entity?.name || STEP_TITLES[s.action_type]);
+                    const details = isDoc
+                        ? [clientName(s) ? `For ${clientName(s)}` : '', jobName(s) ? `Job: ${jobName(s)}` : '', documentSummary(s)]
+                        : s.action_type === 'CREATE_JOB' ? [s.entity?.client_name ? `Client: ${String(s.entity.client_name)}` : '', s.entity?.address ? String(s.entity.address) : '']
+                            : s.action_type === 'CREATE_CLIENT' ? [String(s.entity?.email || ''), String(s.entity?.phone || '')]
+                                : s.action_type === 'UPDATE_JOB_STATUS' ? [jobName(s)] : [];
+                    return (
+                        <li key={s.id} className={`rounded-xl border px-3 py-2.5 ${result?.status === 'error' ? 'border-destructive/40 bg-destructive/5' : 'border-border'} ${s.skip && !result ? 'opacity-60' : ''}`}>
+                            <div className="flex items-start gap-2.5">
+                                <StepStatus result={result} index={i + 1} icon={icon} />
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{STEP_TITLES[s.action_type]}</p>
+                                    {editableName ? (
+                                        <input
+                                            className="input mt-0.5 h-9 py-1 text-[13px] font-semibold"
+                                            aria-label={`${STEP_TITLES[s.action_type]} name`}
+                                            value={names[s.id] ?? String(s.entity?.name || '')}
+                                            onChange={e => setNames(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                            maxLength={120}
+                                        />
+                                    ) : (
+                                        <p className={`break-words text-[13px] font-semibold text-foreground ${s.skip ? 'line-through' : ''}`}>{title}</p>
+                                    )}
+                                    {details.filter(Boolean).length > 0 && (
+                                        <p className="mt-0.5 break-words text-xs text-muted-foreground">{details.filter(Boolean).join(' · ')}</p>
+                                    )}
+                                    {isDoc && !locked && !s.skip && (s.missing_fields || []).length > 0 && s.document_type && (
+                                        <p className="mt-0.5 text-xs text-warning">Left empty: {(s.missing_fields || []).map(k => getSchema(s.document_type as DocKey)[k]?.label.toLowerCase() || k).join(', ')}</p>
+                                    )}
+                                    {s.skip && !result && !userRemoved && <p className="mt-0.5 text-xs text-muted-foreground">Skipped: its job was removed. Choose another job to keep it.</p>}
+                                    {pickJob && (
+                                        <select
+                                            className="input mt-1.5 min-h-[40px] text-[13px]"
+                                            aria-label="Job for this step"
+                                            value={jobPicks[s.id] || ''}
+                                            onChange={e => setJobPicks(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                        >
+                                            <option value="">Choose the job…</option>
+                                            {planJobs.map(j => <option key={j.ref} value={`ref:${j.ref}`}>New: {String(j.entity?.name || 'job')}</option>)}
+                                            {jobs.map(j => <option key={j.id} value={`id:${j.id}`}>{j.name}{j.clientName ? ` — ${j.clientName}` : ''}</option>)}
+                                        </select>
+                                    )}
+                                    {result?.message && result.status !== 'pending' && result.status !== 'running' && (
+                                        <p className={`mt-1 break-words text-xs ${result.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{result.message}</p>
+                                    )}
+                                </div>
+                                {!locked && (
+                                    <button
+                                        type="button"
+                                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                                        aria-label={userRemoved ? 'Keep this step' : 'Remove this step'}
+                                        title={userRemoved ? 'Keep this step' : 'Remove this step'}
+                                        onClick={() => toggle(s.id)}
+                                    >
+                                        {userRemoved ? <UndoIcon className="h-4 w-4" /> : <TrashIcon className="h-4 w-4" />}
+                                    </button>
+                                )}
+                                {result?.status === 'done' && result.link && (
+                                    <button type="button" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary hover:bg-primary/10" onClick={() => assistant.openLink(result.link as string)}>
+                                        Open <ExternalLinkIcon className="h-3.5 w-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                        </li>
+                    );
+                })}
+            </ol>
+            {(p.plan_notes || []).length > 0 && !run && (
+                <ul className="space-y-1 rounded-xl bg-warning/10 px-3 py-2 text-xs text-foreground">
+                    {(p.plan_notes || []).map(n => (
+                        <li key={n} className="flex items-start gap-2"><AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" /><span>{n}</span></li>
+                    ))}
+                </ul>
+            )}
+            {needJob.length > 0 && (
+                <p className="text-xs font-medium text-warning">Choose a job for {needJob.length === 1 ? 'the step' : `${needJob.length} steps`} marked above.</p>
+            )}
+            {limit && !working && (
+                <div className="rounded-xl border border-warning/40 bg-warning/10 p-3">
+                    <p className="text-xs text-foreground">{limit.message || 'You have reached a limit of your plan.'}</p>
+                    <button type="button" onClick={() => assistant.upgradeFor(limit.message || '')} className="mt-2 inline-flex min-h-[36px] items-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground">
+                        <StarIcon className="h-4 w-4" /> See plans
+                    </button>
+                </div>
+            )}
+        </CardShell>
+    );
+};
+
 export const ProposalCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({ message, assistant }) => {
     const p = message.proposal;
     if (!p || !message.status) return null;
     switch (p.action_type) {
+        case 'RUN_PLAN': return (p.plan || []).length ? <PlanCard message={message} assistant={assistant} /> : null;
         case 'GENERATE_DOCUMENT': return resolveDocKey(p.document_type) ? <DraftCard message={message} assistant={assistant} /> : null;
         case 'GATHER_INFO': return resolveDocKey(p.document_type) ? <SetupCard message={message} assistant={assistant} /> : null;
         case 'PREPARE_EMAIL_BATCH': return <EmailBatchCard message={message} assistant={assistant} />;

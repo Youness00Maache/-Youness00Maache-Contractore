@@ -5,14 +5,27 @@
  * The router only proposes. Every side effect below runs from an explicit click on a card:
  *   GENERATE_DOCUMENT → "Open & edit" / "Save"      PREPARE_EMAIL_BATCH → checkboxes + "Send" (exactly once)
  *   UPDATE_JOB_STATUS / DUPLICATE_JOB / CREATE_* / ADD_* / RESTOCK_INVENTORY → "Confirm"
+ *   RUN_PLAN → "Do it all": every step runs in order, documents are saved as Drafts (no form opens)
  *   NAVIGATE_TO is harmless and runs immediately.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase.ts';
-import { fetchFullDocuments } from '../../lib/documents.ts';
+import {
+    assertFullDocument, fetchFullDocuments, mapDocumentRow, primeDocumentCache, stripLightweightFlag,
+} from '../../lib/documents.ts';
+import { isMissingColumnError } from '../../lib/account.ts';
+import { FormType } from '../../types.ts';
 import type { Client, FormData, Job, UserProfile } from '../../types.ts';
+import { insertClient } from '../../components/ClientDetails.tsx';
+import { withSchemaFallback } from '../../components/viewKit.tsx';
+import { DOC_NUMBER_CONFIG } from '../../components/forms/formUtils.ts';
+import type { PlanStep } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { buildPlanDocument } from '../ai/planDocuments.ts';
+import {
+    PlanStepError, runPlan as runPlanSteps, stepsNeedingJob, summarizePlanRun, type PlanIO, type PlanJobRecord,
+} from '../ai/planRunner.ts';
 import { sendEmailBatch as sendBatchViaGmail } from '../../services/batchEmailSender.ts';
 import { finalizeDraft, formTypeForDoc, toFormPrefill } from '../../utils/documentDraft.ts';
 import { normalizeDocumentSetupPayload, buildSetupSubmissionText } from '../../utils/documentSetupPayload.ts';
@@ -46,8 +59,13 @@ export interface AIAssistantDeps {
     onEmailsSent?: (count: number) => void;
     /** Upload a photo to Storage and return its public URL (for report photos). */
     uploadImage?: (file: File) => Promise<string>;
-    /** Refresh App data after the assistant changed something (inventory, jobs). */
+    /** Refresh App data after the assistant changed something (inventory, clients, documents, usage). */
     refreshData?: () => void;
+    /**
+     * CORE's job creation without navigation (App: `handleSaveJob(values, true)`): checks the plan limit,
+     * inserts the job, adds it to the job list and resolves with its id. Throws a readable Error.
+     */
+    createJob?: (values: { name: string; clientName?: string; clientAddress?: string; startDate?: string; clientId?: string }) => Promise<string>;
 }
 
 export type AssistantMode = 'dashboard' | 'job';
@@ -64,6 +82,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
     const [jobId, setJobId] = useState<string | null>(null);
     const [composer, setComposer] = useState<Record<AssistantMode, string>>({ dashboard: '', job: '' });
     const sendingEmailsRef = useRef(false);
+    const runningPlanRef = useRef(false);
     /** user-message id → photos, to embed into the drafted report after upload */
     const photosRef = useRef(new Map<string, File[]>());
 
@@ -397,9 +416,205 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         }
     }, [chat, fail, finish]);
 
+    /**
+     * RUN_PLAN "Do it all" (and "Retry"): runs the (edited) steps in order. Clients, jobs and documents
+     * are saved directly: documents as Drafts with the forms' defaults, numbering and normalization
+     * (src/ai/planDocuments.ts), on the job and client the plan says. Progress is written to the message
+     * after every step; a failed step never undoes the others. Plan limits are enforced by the database
+     * (PLAN_LIMIT errors are shown on the step, with an upgrade button on the card).
+     */
+    const runPlan = useCallback(async (messageId: string, steps: PlanStep[]) => {
+        const msg = chat.messages.find(m => m.id === messageId);
+        const p = msg?.proposal;
+        if (!msg || p?.action_type !== 'RUN_PLAN' || msg.status === 'working' || runningPlanRef.current) return;
+        const uid = depsRef.current.session?.user?.id;
+        if (!uid) { fail(messageId, 'Please sign in again, then press "Do it all".'); return; }
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) { fail(messageId, 'You are offline. Reconnect, then press "Do it all" again.'); return; }
+        if (stepsNeedingJob(steps).length) return; // the card asks for a job first
+        runningPlanRef.current = true;
+        chat.updateMessage(messageId, { status: 'working' });
+
+        const facts = p.sample_data ? undefined : userText(chat.messages);
+        const numbers = new Map<FormType, Set<string>>();
+        const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+        const planError = (err: unknown, fallback: string): PlanStepError => {
+            if (err instanceof PlanStepError) return err;
+            const message = (err as { message?: string })?.message || fallback;
+            // DB triggers raise "PLAN_LIMIT: …"; CORE's job pre-check throws "…Free plan job limit…".
+            const limit = /PLAN_LIMIT|free plan|upgrade/i.test(message);
+            return new PlanStepError(message, limit ? 'PLAN_LIMIT' : (err as { code?: string })?.code);
+        };
+        const jobRecord = (j: Job): PlanJobRecord => ({
+            id: j.id, name: j.name, clientName: j.clientName, clientAddress: j.clientAddress, clientId: (j as Job & { clientId?: string }).clientId ?? null,
+        });
+        /** Numbers already used for this type: loaded documents + the database (same lookup as the forms) + this run. */
+        const numbersFor = async (formType: FormType): Promise<Set<string>> => {
+            const cached = numbers.get(formType);
+            if (cached) return cached;
+            const set = new Set<string>();
+            const cfg = DOC_NUMBER_CONFIG[formType];
+            if (cfg) {
+                for (const f of depsRef.current.forms) {
+                    const n = f.type === formType ? (f.data as unknown as Record<string, unknown>)?.[cfg.field] : null;
+                    if (typeof n === 'string' && n) set.add(n.toUpperCase());
+                }
+                const { data } = await supabase.from('documents').select(`num:data->>${cfg.field}`).eq('type', formType)
+                    .order('created_at', { ascending: false }).limit(1000);
+                for (const r of (data || []) as Array<{ num?: unknown }>) if (typeof r?.num === 'string' && r.num) set.add(r.num.toUpperCase());
+            }
+            numbers.set(formType, set);
+            return set;
+        };
+
+        /** Clients created during this run (App's list refreshes only at the end). */
+        const newClients = new Map<string, { id: string; name: string; address: string }>();
+        const io: PlanIO = {
+            async createClient(entity) {
+                const name = str(entity.name);
+                const key = name.toLowerCase();
+                const known = depsRef.current.clients.find(c => c.name.trim().toLowerCase() === key);
+                const existing = known ? { id: known.id, name: known.name, address: known.address || '' } : newClients.get(key);
+                if (existing) return { client: existing, reused: true };
+                try {
+                    const row = await insertClient({ name, email: str(entity.email), phone: str(entity.phone), address: str(entity.address), notes: str(entity.notes) }, uid);
+                    const client = { id: row.id, name: row.name, address: row.address || '' };
+                    newClients.set(key, client);
+                    return { client };
+                } catch (err) { throw planError(err, `Could not add ${name}.`); }
+            },
+            async createJob({ entity, client }) {
+                const d = depsRef.current;
+                const name = str(entity.name);
+                const values = {
+                    name,
+                    clientName: client?.name || str(entity.client_name) || undefined,
+                    clientAddress: str(entity.address) || client?.address || undefined,
+                    startDate: str(entity.start_date) || undefined,
+                    clientId: client?.id || undefined,
+                };
+                try {
+                    if (d.createJob) {
+                        const id = await d.createJob(values);
+                        return { id, name, clientName: values.clientName, clientAddress: values.clientAddress, clientId: values.clientId ?? null };
+                    }
+                    const row: Record<string, unknown> = {
+                        id: crypto.randomUUID(), user_id: uid, name, client_name: values.clientName || null, client_address: values.clientAddress || null,
+                        start_date: values.startDate || toLocalYmd(), end_date: null, status: 'active', ...(values.clientId ? { client_id: values.clientId } : {}),
+                    };
+                    const { error } = await withSchemaFallback(row, r => supabase.from('jobs').insert(r));
+                    if (error) throw error;
+                    return { id: String(row.id), name, clientName: values.clientName, clientAddress: values.clientAddress, clientId: values.clientId ?? null };
+                } catch (err) { throw planError(err, `Could not create the job ${name}.`); }
+            },
+            getJob(id) {
+                const j = depsRef.current.jobs.find(x => x.id === id);
+                return j ? jobRecord(j) : null;
+            },
+            getClient(id) {
+                const c = depsRef.current.clients.find(x => x.id === id);
+                return c ? { id: c.id, name: c.name, address: c.address || '' } : null;
+            },
+            async saveDocument({ step, docType, job, client }) {
+                const d = depsRef.current;
+                const formType = formTypeForDoc(docType);
+                const taken = await numbersFor(formType);
+                const known = d.jobs.find(j => j.id === job.id);
+                const built = buildPlanDocument(docType, step.prefill, {
+                    job: {
+                        id: job.id, userId: uid, name: job.name, clientName: job.clientName || '', clientAddress: job.clientAddress || '',
+                        startDate: known?.startDate || '', endDate: null, status: known?.status || 'active', workerName: known?.workerName,
+                    },
+                    client: client ? { id: client.id || undefined, name: client.name, address: client.address } : null,
+                    clients: d.clients,
+                    profile: d.profile,
+                    existingNumbers: taken,
+                    userText: facts,
+                    today: toLocalYmd(),
+                });
+                if (built.number) taken.add(built.number.toUpperCase());
+                const data = stripLightweightFlag(built.data);
+                assertFullDocument({ data });
+                const record: Record<string, unknown> = { id: crypto.randomUUID(), user_id: uid, job_id: job.id, type: built.formType, data };
+                const clientId = client?.id || job.clientId || null;
+                if (clientId) record.client_id = clientId;
+                let { error } = await supabase.from('documents').insert(record);
+                if (error && 'client_id' in record && isMissingColumnError(error)) {
+                    delete record.client_id;
+                    ({ error } = await supabase.from('documents').insert(record));
+                }
+                if (error) throw planError(error, `The ${built.formType.toLowerCase()} could not be saved.`);
+                primeDocumentCache(mapDocumentRow({ ...record, created_at: new Date().toISOString() }, true));
+                return { id: String(record.id), label: built.label, link: `/jobs/${job.id}/forms/${encodeURIComponent(built.formType)}/${record.id}` };
+            },
+            async addInventory(entity) {
+                const name = str(entity.name);
+                const row = {
+                    id: crypto.randomUUID(), user_id: uid, name, quantity: Math.max(0, num(entity.quantity) ?? 0), category: str(entity.category) || null,
+                    unit: str(entity.unit) || 'pcs', cost_price: Math.max(0, num(entity.cost) ?? num(entity.price) ?? 0), supplier: str(entity.supplier) || null,
+                    sku: null, location: null, low_stock_threshold: 5, is_assembly: false, assembly_items: [],
+                };
+                const { error } = await withSchemaFallback(row, r => supabase.from('inventory').insert(r));
+                if (error) throw planError(error, `Could not add ${name} to inventory.`);
+                return { label: name };
+            },
+            async addPriceBookItem(entity) {
+                const name = str(entity.name);
+                const row = {
+                    id: crypto.randomUUID(), user_id: uid, name, description: str(entity.description) || null, sku: null, category: str(entity.category) || 'General',
+                    type: 'service', unit: str(entity.unit) || null, taxable: true, rate: Math.max(0, num(entity.price) ?? 0), unit_cost: Math.max(0, num(entity.cost) ?? 0),
+                    markup: 0, images: [], is_assembly: false, assembly_items: [],
+                };
+                const { error } = await withSchemaFallback(row, r => supabase.from('saved_items').insert(r));
+                if (error) throw planError(error, `Could not add ${name} to the price book.`);
+                return { label: name };
+            },
+            async restock(itemId, delta) {
+                const item = (depsRef.current.inventory || []).find(i => i.id === itemId);
+                const { error } = await supabase.rpc('adjust_inventory', { p_item_id: itemId, p_delta: delta, p_reason: 'AI assistant', p_job_id: null });
+                if (error) throw new PlanStepError(/insufficient/i.test(error.message) ? 'Not enough stock for that change.' : `Stock was not changed: ${error.message}`);
+                return { label: `${item?.name || 'Item'} ${delta > 0 ? '+' : ''}${delta}` };
+            },
+            async updateJobStatus(job, status) {
+                const d = depsRef.current;
+                if (d.updateJobStatus && d.jobs.some(j => j.id === job.id)) { await d.updateJobStatus(job.id, status as Job['status']); return; }
+                const { error } = await supabase.from('jobs').update({ status }).eq('id', job.id);
+                if (error) throw planError(error, 'The job was not updated.');
+            },
+            onProgress(state) {
+                chat.updateMessage(messageId, { planRun: state });
+            },
+        };
+
+        try {
+            const state = await runPlanSteps(steps, io, msg.planRun);
+            const summary = summarizePlanRun(state, steps);
+            chat.updateMessage(messageId, { status: 'done', planRun: state, result: summary.text });
+        } catch (err) {
+            // runPlan never throws; this is only a safety net.
+            fail(messageId, err instanceof Error ? err.message : 'The plan stopped unexpectedly. Please try again.');
+        } finally {
+            runningPlanRef.current = false;
+            depsRef.current.refreshData?.();
+        }
+    }, [chat, fail, userText]);
+
+    /** Opens a page from a card link (closes the panel). */
+    const openLink = useCallback((route: string) => {
+        if (!route.startsWith('/')) return;
+        setIsOpen(false);
+        navigate(route);
+    }, [navigate]);
+
     const upgrade = useCallback(() => {
         dispatchUpgradeEvent(chat.error?.message || 'Upgrade to keep using the AI assistant this month.');
     }, [chat.error]);
+
+    /** Plan step hit a plan limit: close the panel so the upgrade window is visible, then open it. */
+    const upgradeFor = useCallback((message: string) => {
+        setIsOpen(false);
+        dispatchUpgradeEvent(message || 'Upgrade your plan to create more.');
+    }, []);
 
     return {
         isOpen, mode, job, openDashboard, openForJob, close,
@@ -413,8 +628,11 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         skipSetup,
         confirmAction,
         sendEmails,
+        runPlan,
+        openLink,
         dismiss,
         upgrade,
+        upgradeFor,
         data: { clients: deps.clients, forms: deps.forms, jobs: deps.jobs, profile: deps.profile, inventory: deps.inventory || [] },
     };
 }
