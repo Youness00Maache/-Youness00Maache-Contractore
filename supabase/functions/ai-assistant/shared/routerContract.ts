@@ -92,7 +92,36 @@ const ACTION_ALIASES: Record<string, { action: RouterAction; route?: AppRoute }>
 
 export interface ContextClient { id: string; name: string; email?: string; address?: string; phone?: string }
 export interface ContextJob { id: string; name: string; client_name?: string; client_id?: string; address?: string; status?: string }
-export interface ContextDocument { id: string; type: string; label: string; job_id?: string; client_name?: string }
+export interface ContextDocument { id: string; type: string; label: string; job_id?: string; client_name?: string; summary?: ContextDocumentSummary }
+/** One line of a document summary (description, quantity, unit price, line amount). */
+export interface ContextDocumentLine { desc: string; qty?: number; price?: number; amount?: number }
+/**
+ * Compact facts about one document so the assistant can answer "is the invoice paid?" or "what is on
+ * the estimate?". Built in the browser (src/ai/documentSummary.ts); clamped here. Money is in the
+ * document's own currency. Fields the browser does not know (list-only data) are left out.
+ */
+export interface ContextDocumentSummary {
+    number?: string;
+    status?: string;
+    /** issue / work date, YYYY-MM-DD */
+    date?: string;
+    /** invoice due date, estimate expiry, purchase order delivery date */
+    due_date?: string;
+    total?: number;
+    paid?: number;
+    balance_due?: number;
+    /** client signature (estimates / change orders) */
+    signed_by?: string;
+    signed_at?: string;
+    /** vendor (purchase orders, expenses), worker (time sheets), payment method (receipts) */
+    party?: string;
+    hours?: number;
+    /** short plain-text excerpt (reports, notes, work orders, receipts) */
+    note?: string;
+    items?: ContextDocumentLine[];
+    /** line items left out of `items` */
+    more_items?: number;
+}
 export interface ContextInventoryItem { id: string; name: string; quantity?: number; unit?: string }
 export interface ContextMention { kind: 'client' | 'document' | 'job'; id: string }
 
@@ -136,9 +165,67 @@ export const REQUEST_LIMITS = {
     images: 3,
     imageBase64Chars: 2_000_000, // ≈1.5 MB of JPEG per image
     bodyBytes: 7_500_000,
+    /** line items per document summary */
+    documentLines: 8,
+    /** all document summaries together (JSON chars, ≈4k tokens); later documents lose their lines, then their summary */
+    documentSummaryChars: 16_000,
 } as const;
 
 const str = (v: unknown, max = 300): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+const money = (v: unknown): number | undefined => {
+    const n = toNumberOrUndefined(v);
+    return n !== undefined && Math.abs(n) < 1e11 ? Math.round(n * 100) / 100 : undefined;
+};
+
+/** Clamps one document summary from the browser (unknown keys dropped, every value bounded). */
+function cleanDocumentSummary(raw: unknown): ContextDocumentSummary | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const s = raw as Record<string, unknown>;
+    const out: ContextDocumentSummary = {};
+    const text = (key: 'number' | 'status' | 'date' | 'due_date' | 'signed_by' | 'signed_at' | 'party' | 'note', max: number) => {
+        const v = toPlainText(typeof s[key] === 'string' ? s[key] : '').replace(/\s+/g, ' ').trim().slice(0, max);
+        if (v) out[key] = v;
+    };
+    text('number', 40); text('status', 30); text('date', 10); text('due_date', 10);
+    text('signed_by', 80); text('signed_at', 25); text('party', 80); text('note', 240);
+    for (const key of ['total', 'paid', 'balance_due', 'hours'] as const) {
+        const n = money(s[key]);
+        if (n !== undefined) out[key] = n;
+    }
+    const lines = Array.isArray(s.items) ? s.items : [];
+    const items = lines.slice(0, REQUEST_LIMITS.documentLines)
+        .filter((l): l is Record<string, unknown> => Boolean(l) && typeof l === 'object' && !Array.isArray(l))
+        .map(l => {
+            const line: ContextDocumentLine = { desc: toPlainText(typeof l.desc === 'string' ? l.desc : '').replace(/\s+/g, ' ').trim().slice(0, 80) };
+            const qty = money(l.qty); const price = money(l.price); const amount = money(l.amount);
+            if (qty !== undefined) line.qty = qty;
+            if (price !== undefined) line.price = price;
+            if (amount !== undefined) line.amount = amount;
+            return line;
+        })
+        .filter(l => l.desc);
+    if (items.length) out.items = items;
+    const more = Math.max(0, Math.floor(toNumberOrUndefined(s.more_items) ?? 0)) + Math.max(0, lines.length - REQUEST_LIMITS.documentLines);
+    if (more > 0) out.more_items = Math.min(more, 9999);
+    return Object.keys(out).length ? out : undefined;
+}
+
+/** Keeps the summaries inside REQUEST_LIMITS.documentSummaryChars (first documents are the most relevant). */
+function capDocumentSummaries(docs: ContextDocument[]): ContextDocument[] {
+    let budget: number = REQUEST_LIMITS.documentSummaryChars;
+    return docs.map(d => {
+        if (!d.summary) return d;
+        let size = JSON.stringify(d.summary).length;
+        if (size <= budget) { budget -= size; return d; }
+        const { items: _items, ...noLines } = d.summary;
+        const lean: ContextDocumentSummary = d.summary.items?.length ? { ...noLines, more_items: (d.summary.more_items || 0) + d.summary.items.length } : noLines;
+        size = JSON.stringify(lean).length;
+        if (size <= budget) { budget -= size; return { ...d, summary: lean }; }
+        const { summary: _s, ...bare } = d;
+        return bare;
+    });
+}
 
 /** Clamp and clean an incoming request. Throws `RouterInputError` on unusable input. */
 export class RouterInputError extends Error {
@@ -184,7 +271,12 @@ export function sanitizeRequest(body: unknown): RouterRequest {
             company_name: str(c.company_name, 120) || undefined,
             clients: arr(c.clients, REQUEST_LIMITS.clients).map(x => ({ id: str(x.id, 80), name: str(x.name, 120), email: str(x.email, 200) || undefined, address: str(x.address, 200) || undefined, phone: str(x.phone, 40) || undefined })).filter(x => x.id && x.name),
             jobs: arr(c.jobs, REQUEST_LIMITS.jobs).map(x => ({ id: str(x.id, 80), name: str(x.name, 120), client_name: str(x.client_name, 120) || undefined, client_id: str(x.client_id, 80) || undefined, address: str(x.address, 200) || undefined, status: str(x.status, 20) || undefined })).filter(x => x.id && x.name),
-            documents: arr(c.documents, REQUEST_LIMITS.documents).map(x => ({ id: str(x.id, 80), type: str(x.type, 40), label: str(x.label, 120), job_id: str(x.job_id, 80) || undefined, client_name: str(x.client_name, 120) || undefined })).filter(x => x.id && x.type),
+            documents: capDocumentSummaries(arr(c.documents, REQUEST_LIMITS.documents).map(x => {
+                const doc: ContextDocument = { id: str(x.id, 80), type: str(x.type, 40), label: str(x.label, 120), job_id: str(x.job_id, 80) || undefined, client_name: str(x.client_name, 120) || undefined };
+                const summary = cleanDocumentSummary(x.summary);
+                if (summary) doc.summary = summary;
+                return doc;
+            }).filter(x => x.id && x.type)),
             inventory: arr(c.inventory, REQUEST_LIMITS.inventory).map(x => ({ id: str(x.id, 80), name: str(x.name, 120), quantity: toNumberOrUndefined(x.quantity), unit: str(x.unit, 20) || undefined })).filter(x => x.id && x.name),
             mentions: arr(c.mentions, 20).map(x => ({ kind: (x.kind === 'document' || x.kind === 'job' ? x.kind : 'client') as ContextMention['kind'], id: str(x.id, 80) })).filter(x => x.id),
             pending_draft: pending && resolveDocKey(pending.document_type) && pending.prefill && typeof pending.prefill === 'object'
@@ -243,8 +335,14 @@ export interface ModelPlanStep {
  * Gemini `responseSchema` (OpenAPI subset: no unions, so a plan step is one object with optional
  * fields). The step's field `key` is a plain string on purpose: repeating the big key enum inside the
  * step array would multiply the schema's states; unknown keys are dropped by `normalizePrefill`.
+ *
+ * `compact` is the fallback the edge function sends when a model rejects the schema as too complex
+ * (400 INVALID_ARGUMENT): no field-key enum, no document-type enum inside plan steps. Everything it
+ * no longer constrains is still validated by `buildProposal`.
  */
-export function buildResponseSchema(scope: RouterScope): Record<string, unknown> {
+export const RESPONSE_SCHEMA_TYPES = ['STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY', 'OBJECT', 'NULL'] as const;
+export function buildResponseSchema(scope: RouterScope, options: { compact?: boolean } = {}): Record<string, unknown> {
+    const compact = options.compact === true;
     const S = (extra: Record<string, unknown> = {}) => ({ type: 'STRING', ...extra });
     const N = (extra: Record<string, unknown> = {}) => ({ type: 'NUMBER', ...extra });
     const lineItems = {
@@ -275,7 +373,7 @@ export function buildResponseSchema(scope: RouterScope): Record<string, unknown>
                     action_type: S({ enum: stepActions }),
                     ref: S({ nullable: true }),
                     entity,
-                    document_type: S({ enum: [...DOC_TYPES], nullable: true }),
+                    document_type: compact ? S({ nullable: true }) : S({ enum: [...DOC_TYPES], nullable: true }),
                     fields: { type: 'ARRAY', items: { type: 'OBJECT', properties: { key: S(), value: S() }, required: ['key', 'value'] } },
                     line_items: lineItems,
                     job_ref: S({ nullable: true }),
@@ -298,7 +396,7 @@ export function buildResponseSchema(scope: RouterScope): Record<string, unknown>
             document_type: S({ enum: [...DOC_TYPES], nullable: true }),
             fields: {
                 type: 'ARRAY',
-                items: { type: 'OBJECT', properties: { key: S({ enum: ALL_FIELD_KEYS }), value: S() }, required: ['key', 'value'] },
+                items: { type: 'OBJECT', properties: { key: compact ? S() : S({ enum: ALL_FIELD_KEYS }), value: S() }, required: ['key', 'value'] },
             },
             line_items: lineItems,
             missing_fields: { type: 'ARRAY', items: S() },

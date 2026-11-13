@@ -135,9 +135,12 @@ async function readFunctionError(error: unknown): Promise<AIError> {
         const status = res?.status || 0;
         let body: { error?: string; code?: string } | null = null;
         try { body = res ? await res.clone().json() : null; } catch { body = null; }
-        const code = body?.code || (status === 401 ? 'UNAUTHORIZED' : status === 402 ? 'PLAN_LIMIT' : status === 429 ? 'RATE_LIMITED' : status >= 500 ? 'AI_UPSTREAM' : 'ERROR');
+        const code = body?.code || (status === 401 ? 'UNAUTHORIZED' : status === 402 ? 'PLAN_LIMIT' : status === 429 ? 'RATE_LIMITED' : status === 503 ? 'AI_BUSY' : status >= 500 ? 'AI_UPSTREAM' : 'ERROR');
+        // The server's message is already user-facing; without one, never show a raw status code.
         const message = body?.error
-            || (status === 401 ? 'Your session has expired. Please sign in again.' : 'The AI assistant could not answer. Please try again.');
+            || (status === 401 ? 'Your session has expired. Please sign in again.'
+                : status === 503 || status === 429 ? 'The AI is busy right now. Please try again in a minute.'
+                    : 'The AI assistant could not answer. Please try again.');
         return { code, message: message.replace(/^PLAN_LIMIT:\s*/, '') };
     }
     if (error instanceof FunctionsRelayError) return { code: 'AI_UPSTREAM', message: 'The AI service is not reachable right now. Please try again in a moment.' };
@@ -285,7 +288,7 @@ export function useMasterAIRouter({ scope, scopeId = null, userId = null }: UseM
             const info = (err as { code?: string }).code
                 ? { code: String((err as { code?: string }).code), message: (err as Error).message }
                 : await readFunctionError(err);
-            const offline = ['NETWORK', 'AI_UPSTREAM', 'AI_TIMEOUT', 'AI_BUSY', 'USAGE_UNAVAILABLE', 'NOT_CONFIGURED'].includes(info.code);
+            const offline = ['NETWORK', 'AI_UPSTREAM', 'AI_UNAVAILABLE', 'AI_TIMEOUT', 'AI_BUSY', 'USAGE_UNAVAILABLE', 'NOT_CONFIGURED'].includes(info.code);
             const local = offline ? clientSideHeuristicRouter(text) : null;
             if (local) {
                 const replyMessageId = newId();

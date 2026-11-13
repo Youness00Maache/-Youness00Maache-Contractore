@@ -3,8 +3,9 @@
  * Deno and can be exercised from Node tests with a fake fetch).
  *
  * Pipeline: CORS → JWT (real signed-in user only) → input limits → plan limit + rate limit
- * (usage_events, service role) → model (Gemini JSON mode with responseSchema, or the mock)
- * → robust parse → buildProposal (validation/normalization) → meter usage → JSON response.
+ * (usage_events, service role) → model (Gemini JSON mode with responseSchema, or the mock; busy
+ * models are retried with a short backoff, then the next model is tried) → robust parse →
+ * buildProposal (validation/normalization) → meter usage (successful answers only) → JSON response.
  */
 import {
     buildProposal, buildResponseSchema, parseModelJson, RouterInputError, sanitizeRequest,
@@ -19,22 +20,66 @@ export interface HandlerDeps {
     fetch: typeof fetch;
     now?: () => Date;
     log?: (...args: unknown[]) => void;
+    /** Waits between retries of a busy model (tests pass a fake that does not wait). */
+    sleep?: (ms: number) => Promise<void>;
+    /** Tests only: shorter model time limits (defaults: MODEL_TIMEOUT_MS, 45 s per attempt, 12 s minimum). */
+    modelTimeouts?: { totalMs: number; attemptMs: number; minAttemptMs: number };
 }
 
 /** Monthly AI requests per plan. Keep in sync with lib/plans.ts (FREE_LIMITS.ai, PAID_AI_LIMITS). */
 export const AI_MONTHLY_LIMITS: Record<'free' | 'premium' | 'ai', number> = { free: 15, premium: 60, ai: 600 };
 
-// gemini-flash-latest hung for 100 s+ on 2026-11-13 while gemini-2.5-flash answered: use the stable model first.
-const DEFAULT_MODEL = 'gemini-2.5-flash';
-const FALLBACK_MODEL = 'gemini-2.5-flash-lite';
-// Total time for all model attempts (the edge runtime allows 150 s). A slow first model is abandoned after
-// FIRST_ATTEMPT_MS so the fallback still has time to answer.
-const MODEL_TIMEOUT_MS = 100_000;
-const FIRST_ATTEMPT_MS = 60_000;
-/** Tried in order after the configured model; duplicates are skipped. */
-const BACKUP_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
-/** Small thinking budget: enough for planning multi-step requests, keeps answers fast. */
+/**
+ * Models (Google's model list + deprecations page, checked 2026-11-13). The 2.5 models are closed to
+ * new users (2.5-flash-lite answers 404 "no longer available to new users", 2.5-flash is deprecated and
+ * routes to 3.5-flash-lite on 2026-12-01). gemini-3.5-flash is retired too (routed to 3.6-flash).
+ *   gemini-3.5-flash-lite  stable, Google's migration target for gemini-2.5-flash, same price, fastest
+ *   gemini-3.6-flash       stable, stronger Flash model (separate capacity), used when the first is busy
+ *   gemini-3.1-flash-lite  stable until 2027-05, cheapest; last resort
+ * GEMINI_MODEL (secret) is always tried first; duplicates are skipped.
+ */
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+export const BACKUP_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'] as const;
+/** Total time for all model attempts and waits (the edge runtime allows 150 s; the browser waits 130 s). */
+export const MODEL_TIMEOUT_MS = 100_000;
+/** One attempt of a model that is not the last one: a hanging model is abandoned so the next one has time. */
+const ATTEMPT_TIMEOUT_MS = 45_000;
+/** Never start an attempt with less time than this left. */
+const MIN_ATTEMPT_MS = 12_000;
+/** 503 "high demand" / 429: wait, then ask the same model again (first model twice, the others once). */
+const BUSY_BACKOFF_MS = [1_200, 3_000];
+/** A 429 that asks to wait longer than this moves on to the next model instead. */
+const MAX_BUSY_WAIT_MS = 6_000;
+/** Gemini 2.x: small thinking budget (planning multi-step requests, still fast). */
 const THINKING_BUDGET = 1024;
+/** Gemini 3+: thinking level (3.5-flash-lite defaults to "minimal", too little for multi-step plans). */
+const THINKING_LEVELS = ['MINIMAL', 'LOW', 'MEDIUM', 'HIGH'] as const;
+const DEFAULT_THINKING_LEVEL = 'LOW';
+
+/** Major version of a "gemini-<major>[.<minor>]-…" id; 0 for aliases like gemini-flash-latest. */
+export function geminiGeneration(model: string): number {
+    const m = model.match(/^(?:models\/)?gemini-(\d+)(?:\.\d+)?-/i);
+    return m ? Number(m[1]) : 0;
+}
+
+/** What one failed model attempt means for the user (the final message picks the most useful one). */
+type FailureKind = 'busy' | 'timeout' | 'bad_output' | 'schema' | 'unavailable';
+
+/** Honest, user-facing errors. Status codes and model names stay in the function logs. */
+const FAILURE_ERRORS: Record<FailureKind, { status: number; code: string; message: string }> = {
+    busy: { status: 503, code: 'AI_BUSY', message: 'The AI is busy right now. Please try again in a minute.' },
+    timeout: { status: 504, code: 'AI_TIMEOUT', message: 'The AI took too long to answer. Please try again, or ask for fewer things at once.' },
+    bad_output: { status: 502, code: 'AI_BAD_OUTPUT', message: 'The AI returned an answer I could not read. Please try again.' },
+    schema: { status: 502, code: 'AI_UPSTREAM', message: 'The AI could not handle this request. Please try again, or ask for fewer things at once.' },
+    unavailable: { status: 503, code: 'AI_UNAVAILABLE', message: 'The AI service is not available right now. Please try again in a few minutes.' },
+};
+const FAILURE_PRIORITY: FailureKind[] = ['busy', 'timeout', 'bad_output', 'schema', 'unavailable'];
+
+/** Seconds from a Google RetryInfo ("retryDelay": "12s"), or null. */
+function retryDelayMs(body: string): number | null {
+    const m = body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+    return m ? Math.round(Number(m[1]) * 1000) : null;
+}
 
 class HttpError extends Error {
     constructor(public status: number, public code: string, message: string) { super(message); }
@@ -82,6 +127,8 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
     const f = deps.fetch;
     const now = deps.now || (() => new Date());
     const log = deps.log || ((...a: unknown[]) => console.error('[ai-assistant]', ...a));
+    const sleep = deps.sleep || ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    const limits = deps.modelTimeouts || { totalMs: MODEL_TIMEOUT_MS, attemptMs: ATTEMPT_TIMEOUT_MS, minAttemptMs: MIN_ATTEMPT_MS };
 
     // Per-isolate burst guard (the usage_events check below is the real limit).
     const burst = new Map<string, number[]>();
@@ -143,9 +190,12 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
     }
 
     /**
-     * Records one AI request. Prefers the atomic `consume_usage` RPC (locks the profile row, re-checks
-     * the limit, updates ai_credits_used); falls back to a plain insert when the RPC does not exist.
-     * Only successful answers are metered. Throws PLAN_LIMIT when parallel requests crossed the limit.
+     * Records one AI request. Called ONLY after the model answered and the answer was validated:
+     * failed, refused, timed-out or cancelled requests are never metered (QA report 0b #19).
+     * Prefers the atomic `consume_usage` RPC (locks the profile row, re-checks the limit, updates
+     * ai_credits_used). The plain insert is used only when the RPC does not exist: after an RPC
+     * timeout or error the RPC may still have counted, and a second insert would count twice.
+     * Throws PLAN_LIMIT when parallel requests crossed the limit.
      */
     async function recordUsage(userId: string): Promise<void> {
         const rpc = await fetchWithTimeout(f, `${supabaseUrl}/rest/v1/rpc/consume_usage`, {
@@ -158,6 +208,11 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         if (/PLAN_LIMIT/.test(text)) {
             throw new HttpError(402, 'PLAN_LIMIT', 'PLAN_LIMIT: You have used all AI requests included in your plan this month. Upgrade your plan to keep using the assistant.');
         }
+        const rpcMissing = Boolean(rpc) && (rpc!.status === 404 || /PGRST202|Could not find the function/i.test(text));
+        if (!rpcMissing) {
+            log('usage rpc failed (not counted twice)', rpc?.status ?? 'timeout', text.slice(0, 200));
+            return;
+        }
         const res = await fetchWithTimeout(f, `${supabaseUrl}/rest/v1/usage_events`, {
             method: 'POST',
             headers: { ...restHeaders(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
@@ -169,8 +224,10 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
     async function callGemini(request: RouterRequest): Promise<{ output: ModelOutput; model: string }> {
         const key = env.get('GEMINI_API_KEY') || '';
         if (!key) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured yet (missing model key).');
-        const primary = (env.get('GEMINI_MODEL') || DEFAULT_MODEL).trim();
-        const models = [...new Set([primary, ...BACKUP_MODELS, FALLBACK_MODEL])];
+        const primary = (env.get('GEMINI_MODEL') || '').trim().replace(/^models\//, '') || DEFAULT_MODEL;
+        const models = [...new Set([primary, ...BACKUP_MODELS])];
+        const level = (env.get('GEMINI_THINKING_LEVEL') || '').trim().toUpperCase();
+        const thinkingLevel = (THINKING_LEVELS as readonly string[]).includes(level) ? level : DEFAULT_THINKING_LEVEL;
 
         const contents: Array<{ role: 'user' | 'model'; parts: Array<Record<string, unknown>> }> = [];
         for (const m of request.history || []) {
@@ -185,83 +242,118 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         if (contents.length && contents[contents.length - 1].role === 'user') contents.pop();
         contents.push({ role: 'user', parts: userParts });
 
-        const makeBody = (withThinking: boolean) => JSON.stringify({
-            systemInstruction: { parts: [{ text: buildSystemPrompt(request) }] },
-            contents,
-            generationConfig: {
-                responseMimeType: 'application/json',
-                responseSchema: buildResponseSchema(request.scope),
-                temperature: 0.2,
-                maxOutputTokens: 16384,
-                ...(withThinking ? { thinkingConfig: { thinkingBudget: THINKING_BUDGET } } : {}),
-            },
-        });
+        /**
+         * Gemini 3+: thinkingLevel and the default temperature (Google: changing it can cause loops).
+         * Gemini 2.x and aliases: thinkingBudget (still accepted by 3+ for backward compatibility) and a
+         * low temperature. Never both thinking fields (that is a 400).
+         */
+        const makeBody = (model: string, opts: { thinking: boolean; compact: boolean }) => {
+            const modern = geminiGeneration(model) >= 3;
+            return JSON.stringify({
+                systemInstruction: { parts: [{ text: buildSystemPrompt(request) }] },
+                contents,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: buildResponseSchema(request.scope, { compact: opts.compact }),
+                    ...(modern ? {} : { temperature: 0.2 }),
+                    maxOutputTokens: 16384,
+                    ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),
+                },
+            });
+        };
         const startedAt = Date.now();
+        const remaining = () => limits.totalMs - (Date.now() - startedAt);
+        const failures: FailureKind[] = [];
 
-        let lastError = '';
-        for (const [index, model] of models.entries()) {
-            let res: Response;
-            let withThinking = true;
+        models: for (const [index, model] of models.entries()) {
             const isLast = index === models.length - 1;
-            const post = () => {
-                // Never let the attempts together exceed the runtime limit.
-                const remaining = Math.max(10_000, MODEL_TIMEOUT_MS - (Date.now() - startedAt));
-                const budget = isLast ? remaining : Math.min(FIRST_ATTEMPT_MS, remaining);
-                return fetchWithTimeout(f, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-                    body: makeBody(withThinking),
-                }, budget);
-            };
-            try {
-                res = await post();
-                if (res.status === 400) {
-                    const peek = await res.clone().text().catch(() => '');
-                    if (/thinking/i.test(peek)) {
-                        // This model doesn't accept a thinking budget: ask again without it.
-                        withThinking = false;
-                        res = await post();
+            const opts = { thinking: true, compact: false };
+            let busyRetries = index === 0 ? BUSY_BACKOFF_MS.length : 1;
+            let busyAttempt = 0;
+            for (;;) {
+                const left = remaining();
+                if (left < limits.minAttemptMs) {
+                    if (!failures.length) failures.push('timeout');
+                    break models;
+                }
+                // A model that is not the last one gets at most ATTEMPT_TIMEOUT_MS, so a hanging model
+                // (gemini-flash-latest hung for 100 s on 2026-11-13) leaves time for the next one.
+                const budget = isLast ? left : Math.min(limits.attemptMs, left);
+                let res: Response;
+                try {
+                    res = await fetchWithTimeout(f, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+                        body: makeBody(model, opts),
+                    }, budget);
+                } catch (err) {
+                    const aborted = err instanceof Error && err.name === 'AbortError';
+                    log('model request failed', model, aborted ? `timeout after ${budget} ms` : String(err));
+                    failures.push(aborted ? 'timeout' : 'unavailable');
+                    continue models;
+                }
+
+                if (res.ok) {
+                    const data = await res.json().catch(() => null) as Record<string, any> | null;
+                    if (data?.promptFeedback?.blockReason) {
+                        throw new HttpError(422, 'AI_BLOCKED', 'The AI could not answer that request. Please rephrase it.');
                     }
+                    const candidate = data?.candidates?.[0];
+                    const finish = String(candidate?.finishReason || '');
+                    if (/SAFETY|PROHIBITED|BLOCKLIST|SPII|RECITATION/.test(finish)) {
+                        throw new HttpError(422, 'AI_BLOCKED', 'The AI could not answer that request. Please rephrase it.');
+                    }
+                    const text = (candidate?.content?.parts || [])
+                        .filter((p: Record<string, unknown>) => typeof p?.text === 'string' && !p.thought)
+                        .map((p: Record<string, unknown>) => p.text as string)
+                        .join('');
+                    const parsed = parseModelJson(text);
+                    if (parsed) return { output: parsed as unknown as ModelOutput, model };
+                    // Cut off (MAX_TOKENS) or not JSON: the next model may do better.
+                    log('unparseable model output', model, finish, text.slice(0, 200));
+                    failures.push('bad_output');
+                    continue models;
                 }
-            } catch (err) {
-                const aborted = err instanceof Error && err.name === 'AbortError';
-                log('model request failed', model, aborted ? 'timeout' : String(err));
-                if (aborted && (isLast || MODEL_TIMEOUT_MS - (Date.now() - startedAt) < 15_000)) {
-                    throw new HttpError(504, 'AI_TIMEOUT', 'The AI took too long to answer. Please try again, or ask for fewer things at once.');
+
+                const status = res.status;
+                const body = await res.text().catch(() => '');
+                log('model error', model, status, body.slice(0, 300));
+
+                // Bad API key: every model will refuse, stop here (the owner has to fix the secret).
+                if ((status === 400 || status === 401 || status === 403) && /API_KEY_INVALID|API key not valid|API key expired/i.test(body)) {
+                    throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not set up correctly on the server. Please try again later.');
                 }
-                lastError = aborted ? 'timeout' : 'network';
-                continue;
+                if (status === 400 && opts.thinking && /thinking/i.test(body)) {
+                    opts.thinking = false; // this model does not take the thinking setting: same model without it
+                    continue;
+                }
+                if (status === 400 && !opts.compact && /schema|too many states|nesting depth/i.test(body)) {
+                    opts.compact = true; // schema too complex for this model: same model, smaller schema
+                    continue;
+                }
+                const busy = status === 503 || status === 429 || (status >= 500 && /overloaded|high demand/i.test(body));
+                if (busy) {
+                    const asked = status === 429 ? retryDelayMs(body) : null;
+                    const wait = asked ?? BUSY_BACKOFF_MS[Math.min(busyAttempt, BUSY_BACKOFF_MS.length - 1)] + Math.floor(Math.random() * 300);
+                    if (busyRetries > 0 && wait <= MAX_BUSY_WAIT_MS && remaining() - wait >= limits.minAttemptMs) {
+                        busyRetries--;
+                        busyAttempt++;
+                        log('model busy, retrying', model, `in ${wait} ms`);
+                        await sleep(wait);
+                        continue;
+                    }
+                    failures.push('busy');
+                    continue models;
+                }
+                // 404 retired / "no longer available to new users", other 400s, 401/403, 500, 502, 504: next model.
+                failures.push(status === 400 && opts.compact ? 'schema' : 'unavailable');
+                continue models;
             }
-            if (!res.ok) {
-                const text = await res.text().catch(() => '');
-                log('model error', model, res.status, text.slice(0, 300));
-                lastError = `${res.status}`;
-                const modelProblem = res.status === 404 || (res.status === 400 && /model|not found|not supported|unsupported|invalid argument/i.test(text));
-                if (modelProblem || res.status >= 500) continue;
-                if (res.status === 429) throw new HttpError(503, 'AI_BUSY', 'The AI service is busy right now. Please try again in a minute.');
-                throw new HttpError(502, 'AI_UPSTREAM', 'The AI service returned an error. Please try again.');
-            }
-            const data = await res.json().catch(() => null) as Record<string, any> | null;
-            if (data?.promptFeedback?.blockReason) {
-                throw new HttpError(422, 'AI_BLOCKED', 'The AI could not answer that request. Please rephrase it.');
-            }
-            const candidate = data?.candidates?.[0];
-            const finish = String(candidate?.finishReason || '');
-            if (/SAFETY|PROHIBITED|BLOCKLIST|SPII|RECITATION/.test(finish)) {
-                throw new HttpError(422, 'AI_BLOCKED', 'The AI could not answer that request. Please rephrase it.');
-            }
-            const text = (candidate?.content?.parts || [])
-                .filter((p: Record<string, unknown>) => typeof p?.text === 'string' && !p.thought)
-                .map((p: Record<string, unknown>) => p.text as string)
-                .join('');
-            const parsed = parseModelJson(text);
-            if (!parsed) {
-                log('unparseable model output', model, finish, text.slice(0, 200));
-                throw new HttpError(502, 'AI_BAD_OUTPUT', 'The AI returned an answer I could not read. Please try again.');
-            }
-            return { output: parsed as unknown as ModelOutput, model };
         }
-        throw new HttpError(502, 'AI_UPSTREAM', `The AI service is unavailable right now (${lastError || 'unknown'}). Please try again later.`);
+        log('all models failed', models.join(' > '), failures.join(','));
+        const kind = FAILURE_PRIORITY.find(k => failures.includes(k)) || 'unavailable';
+        const e = FAILURE_ERRORS[kind];
+        throw new HttpError(e.status, e.code, e.message);
     }
 
     return async function handle(req: Request): Promise<Response> {
@@ -303,6 +395,12 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
                 : await callGemini(request);
 
             const proposal = buildProposal(output, { request });
+            // Only an answer the user actually receives is metered: when the browser already gave up
+            // (panel closed, Cancel, its own timeout) the request does not count.
+            if (req.signal?.aborted) {
+                log('client went away before the answer; not metered');
+                return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
+            }
             await recordUsage(user.id);
             const response: RouterResponse = { ok: true, proposal, meta: { provider, model, usage: { used: used + 1, limit, tier } } };
             return json(response, 200, cors);

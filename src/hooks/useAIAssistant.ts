@@ -34,7 +34,8 @@ import { getFormLabel, resolveMentionsInText, stripSystemContext, type ResolvedM
 import {
     DOC_LABELS, getMissingAskFields, resolveDocKey, toLocalYmd, type DocKey,
 } from '../config/documentFieldRequirements.ts';
-import type { RouterProposal, RouterRequestContext } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { REQUEST_LIMITS, type RouterProposal, type RouterRequestContext } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { DOCUMENT_SUMMARY_COLUMNS, summarizeDocument } from '../ai/documentSummary.ts';
 import { useMasterAIRouter, resolveJobForDocumentRequest, type ChatMessage } from './useMasterAIRouter.ts';
 import { imagesToHtml, toRouterImages, type PendingImage } from '../ai/attachments.ts';
 import { toEmailBatchItems, type AIEmailDraft } from '../ai/emailBatch.ts';
@@ -83,6 +84,8 @@ export function useAIAssistant(deps: AIAssistantDeps) {
     const [composer, setComposer] = useState<Record<AssistantMode, string>>({ dashboard: '', job: '' });
     const sendingEmailsRef = useRef(false);
     const runningPlanRef = useRef(false);
+    /** A message is being prepared (document facts / photos loading) before the request starts. */
+    const preparingRef = useRef(false);
     /** user-message id → photos, to embed into the drafted report after upload */
     const photosRef = useRef(new Map<string, File[]>());
 
@@ -130,8 +133,32 @@ export function useAIAssistant(deps: AIAssistantDeps) {
     const pendingGather = useCallback((): ChatMessage | undefined => [...chat.messages].reverse()
         .find(m => m.proposal?.action_type === 'GATHER_INFO' && m.status === 'pending'), [chat.messages]);
 
-    /** Context the router may use. Only ids/names: the user's own records, bounded in size. */
-    const buildContext = useCallback((text: string, mentions: ResolvedMention[], proceed = false): RouterRequestContext => {
+    /**
+     * Fresh facts (status, totals, payments, line items) for the open job's documents, or for the
+     * documents mentioned with # on the dashboard, so the assistant can answer "is the invoice paid?".
+     * One light query (JSON paths only, no logos or signature images), at most 4 s; on any failure
+     * the app's own copies are used (number and status).
+     */
+    const loadDocumentRows = useCallback(async (filter: { jobId?: string; ids?: string[] }): Promise<Map<string, Record<string, unknown>>> => {
+        const rows = new Map<string, Record<string, unknown>>();
+        const ids = Array.from(new Set(filter.ids || [])).slice(0, REQUEST_LIMITS.documents);
+        if (!filter.jobId && !ids.length) return rows;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 4000);
+        try {
+            const base = supabase.from('documents').select(DOCUMENT_SUMMARY_COLUMNS);
+            const scoped = filter.jobId ? base.eq('job_id', filter.jobId) : base.in('id', ids);
+            const { data, error } = await scoped.order('created_at', { ascending: false })
+                .limit(REQUEST_LIMITS.documents * 2).abortSignal(ctrl.signal);
+            if (!error) for (const r of (data || []) as unknown as Array<Record<string, unknown>>) if (r?.id) rows.set(String(r.id), r);
+        } catch { /* summaries fall back to the loaded documents */ } finally {
+            clearTimeout(timer);
+        }
+        return rows;
+    }, []);
+
+    /** Context the router may use. Only ids/names/document facts: the user's own records, bounded in size. */
+    const buildContext = useCallback((text: string, mentions: ResolvedMention[], proceed = false, freshDocs?: Map<string, Record<string, unknown>>): RouterRequestContext => {
         const d = depsRef.current;
         const lower = text.toLowerCase();
         const mentionedClientIds = new Set(mentions.filter(m => m.kind === 'client').map(m => m.id));
@@ -150,10 +177,14 @@ export function useAIAssistant(deps: AIAssistantDeps) {
             company_name: d.profile?.companyName || undefined,
             clients: clients.map(c => ({ id: c.id, name: c.name, email: c.email || undefined, address: c.address || undefined })),
             jobs: jobs.map(j => ({ id: j.id, name: j.name, client_name: j.clientName || undefined, address: j.clientAddress || undefined, status: j.status })),
-            documents: documents.map(f => ({
-                id: f.id, type: f.type, label: getFormLabel(f), job_id: f.jobId,
-                client_name: String((f.data as unknown as Record<string, unknown>)?.clientName || d.jobs.find(j => j.id === f.jobId)?.clientName || '') || undefined,
-            })),
+            documents: documents.map(f => {
+                const summary = summarizeDocument(f, freshDocs?.get(f.id));
+                return {
+                    id: f.id, type: f.type, label: getFormLabel(f), job_id: f.jobId,
+                    client_name: String((f.data as unknown as Record<string, unknown>)?.clientName || d.jobs.find(j => j.id === f.jobId)?.clientName || '') || undefined,
+                    ...(summary ? { summary } : {}),
+                };
+            }),
             inventory: inJob ? [] : (d.inventory || []).slice(0, 40).map(i => ({ id: i.id, name: i.name, quantity: i.quantity, unit: i.unit })),
             mentions: mentions.map(m => ({ kind: m.kind, id: m.id })),
             pending_draft: gather?.proposal?.document_type
@@ -192,7 +223,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         const display = rawText.trim();
         const text = stripSystemContext(display);
         const images = options.images || [];
-        if ((!text && !images.length) || chat.isProcessing) return;
+        if ((!text && !images.length) || chat.isProcessing || preparingRef.current) return;
         // "skip" / "go ahead" while a setup card is open: finish locally, no AI request.
         const gather = pendingGather();
         if (gather && text && !images.length && userAllowsEmptyOrProceed(text) && text.split(/\s+/).length <= 8) {
@@ -201,9 +232,19 @@ export function useAIAssistant(deps: AIAssistantDeps) {
             return;
         }
         const mentions = resolveMentionsInText(text, options.mentions || [], d.clients, d.forms);
-        const context = buildContext(text, mentions, Boolean(gather && userAllowsEmptyOrProceed(text)));
         setComposerText('');
-        const routerImages = images.length ? await toRouterImages(images) : [];
+        preparingRef.current = true;
+        let context: RouterRequestContext;
+        let routerImages: Awaited<ReturnType<typeof toRouterImages>> = [];
+        try {
+            const freshDocs = await loadDocumentRows(mode === 'job' && job
+                ? { jobId: job.id }
+                : { ids: mentions.filter(m => m.kind === 'document').map(m => m.id) });
+            context = buildContext(text, mentions, Boolean(gather && userAllowsEmptyOrProceed(text)), freshDocs);
+            routerImages = images.length ? await toRouterImages(images) : [];
+        } finally {
+            preparingRef.current = false;
+        }
         const { proposal, userMessageId, replyMessageId } = await chat.send(text, { context, images: routerImages, displayText: display || 'Sent photos' });
         if (images.length) photosRef.current.set(userMessageId, images.map(i => i.file));
         if (gather && proposal && proposal.action_type !== 'CHAT') chat.updateMessage(gather.id, { status: 'done', result: 'Updated' });
@@ -213,7 +254,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
             navigate(proposal.route);
             setIsOpen(false);
         }
-    }, [buildContext, chat, completeGather, navigate, pendingGather, setComposerText]);
+    }, [buildContext, chat, completeGather, job, loadDocumentRows, mode, navigate, pendingGather, setComposerText]);
 
     /** Photos sent in the user turn right before this assistant message. */
     const photosFor = useCallback((messageId: string): File[] => {

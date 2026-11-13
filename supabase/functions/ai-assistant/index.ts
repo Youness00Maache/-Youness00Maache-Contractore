@@ -1,6 +1,7 @@
 // Supabase Edge Function: ai-assistant (Deno).
 // Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (provided by Supabase),
-//      GEMINI_API_KEY, GEMINI_MODEL (default gemini-2.5-flash), SITE_URL,
+//      GEMINI_API_KEY, GEMINI_MODEL (default gemini-3.5-flash-lite; backups in handler.ts), SITE_URL,
+//      GEMINI_THINKING_LEVEL (Gemini 3+: minimal|low|medium|high, default low),
 //      AI_PROVIDER=mock for deterministic local testing without a key, AI_RATE_PER_MINUTE (default 10).
 import { createHandler } from './handler.ts';
 

@@ -17,7 +17,9 @@ import { computeDocumentTotals } from '../utils/money.ts';
 import { DOC_TYPE_TO_FORM_TYPE } from '../src/config/docTypeMap.ts';
 import { mockModelOutput } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
 import { buildSystemPrompt, buildUserTurn } from '../supabase/functions/ai-assistant/shared/prompt.ts';
-import { createHandler } from '../supabase/functions/ai-assistant/handler.ts';
+import { BACKUP_MODELS, DEFAULT_MODEL, MODEL_TIMEOUT_MS, createHandler, geminiGeneration } from '../supabase/functions/ai-assistant/handler.ts';
+import { summarizeDocument, summarizeDocumentData, DOCUMENT_SUMMARY_COLUMNS } from '../src/ai/documentSummary.ts';
+import { REQUEST_LIMITS, RESPONSE_SCHEMA_TYPES } from '../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { finalizeDraft, toFormPrefill } from '../utils/documentDraft.ts';
 import { normalizeDocumentSetupPayload, inferSingleMissingFieldSetup, getSetupFieldSpecsForDocument } from '../utils/documentSetupPayload.ts';
 import { userAllowsEmptyOrProceed, buildGatherInfoReply } from '../utils/documentMetadata.ts';
@@ -652,7 +654,9 @@ await planRunnerTests();
 
 // ── 12. Edge function handler: auth, CORS, plan limit, metering, model fallback ──
 type FakeCall = { url: string; init?: RequestInit };
-function makeFetch(opts: { used?: number; tier?: string; rpc?: 'ok' | 'missing' | 'limit'; modelResponses?: Array<{ status: number; body: unknown }> } = {}) {
+/** `'hang'` = the model never answers (until the handler aborts the request). */
+type FakeModelResponse = { status: number; body: unknown } | 'hang';
+function makeFetch(opts: { used?: number; tier?: string; rpc?: 'ok' | 'missing' | 'limit' | 'error'; modelResponses?: FakeModelResponse[] } = {}) {
     const calls: FakeCall[] = [];
     const modelQueue = [...(opts.modelResponses || [])];
     const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -673,10 +677,18 @@ function makeFetch(opts: { used?: number; tier?: string; rpc?: 'ok' | 'missing' 
         if (url.endsWith('/rest/v1/rpc/consume_usage')) {
             if (opts.rpc === 'missing') return new Response(JSON.stringify({ code: 'PGRST202', message: 'Could not find the function' }), { status: 404 });
             if (opts.rpc === 'limit') return new Response(JSON.stringify({ code: 'P0001', message: 'PLAN_LIMIT: You have used all 15 AI requests' }), { status: 400 });
+            if (opts.rpc === 'error') return new Response(JSON.stringify({ code: '57014', message: 'canceling statement due to statement timeout' }), { status: 500 });
             return new Response(JSON.stringify({ used: 1, remaining: 14 }), { status: 200 });
         }
         if (url.includes('generativelanguage.googleapis.com')) {
             const next = modelQueue.shift() || { status: 500, body: {} };
+            if (next === 'hang') {
+                return new Promise<Response>((_, reject) => {
+                    const signal = init?.signal;
+                    const fail = () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }));
+                    if (signal?.aborted) fail(); else signal?.addEventListener('abort', fail);
+                });
+            }
             return new Response(JSON.stringify(next.body), { status: next.status });
         }
         return new Response('not found', { status: 404 });
@@ -688,6 +700,13 @@ const post = (body: unknown, auth?: string, origin = 'https://contractordocs.app
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, ...(auth ? { Authorization: auth } : {}) }, body: JSON.stringify(body),
 });
 const quiet = () => undefined;
+const noWait = async () => undefined;
+const modelOf = (c: FakeCall) => decodeURIComponent(c.url.match(/\/models\/([^:]+):generateContent/)?.[1] || '');
+const isMeteringCall = (c: FakeCall) => c.init?.method === 'POST' && (c.url.includes('/rest/v1/usage_events') || c.url.includes('/rpc/consume_usage'));
+const geminiOk = (answer: unknown) => ({ status: 200, body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(answer) }] } }] } });
+const geminiErr = (status: number, message: string, extra: Record<string, unknown> = {}) => ({ status, body: { error: { code: status, message, status: status === 503 ? 'UNAVAILABLE' : status === 429 ? 'RESOURCE_EXHAUSTED' : status === 404 ? 'NOT_FOUND' : 'INVALID_ARGUMENT', ...extra } } });
+const HIGH_DEMAND = 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.';
+const RETIRED = (m: string) => `This model models/${m} is no longer available to new users. Please update your code to use models/gemini-3.5-flash-lite`;
 
 async function handlerTests() {
     const body = { message: 'Create an invoice for 2 doors at $450', scope: 'dashboard', context: ctx };
@@ -729,13 +748,15 @@ async function handlerTests() {
     }
     {
         const good = { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '```json\n{"action_type":"GENERATE_DOCUMENT","reply_text":"Draft ready","document_type":"INVOICE","line_items":[{"description":"Door","quantity":2,"rate":450}]}\n```' }] } }] };
-        const { f, calls } = makeFetch({ modelResponses: [{ status: 404, body: { error: { message: 'models/gemini-2.5-flash is not found' } } }, { status: 200, body: good }] });
-        const res = await createHandler(envOf({ GEMINI_API_KEY: 'test-key' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
-        eq(res.status, 200, 'falls back to gemini-2.5-flash-lite after a 404');
+        const { f, calls } = makeFetch({ modelResponses: [{ status: 404, body: { error: { code: 404, message: 'models/gemini-3.5-flash-lite is not found', status: 'NOT_FOUND' } } }, { status: 200, body: good }] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'test-key' }), { fetch: f, log: quiet, sleep: noWait })(post(body, 'Bearer user-jwt'));
+        eq(res.status, 200, 'falls back to gemini-3.6-flash after a 404');
         const modelCalls = calls.filter(c => c.url.includes('generativelanguage'));
-        ok(modelCalls[0].url.includes('/models/gemini-2.5-flash:') && modelCalls[1].url.includes('/models/gemini-2.5-flash-lite:'), 'primary then fallback model');
+        eq(modelCalls.map(modelOf), ['gemini-3.5-flash-lite', 'gemini-3.6-flash'], 'default model, then the next current model (404 is not retried)');
         const sent = JSON.parse(String(modelCalls[1].init?.body));
-        eq([sent.generationConfig.responseMimeType, typeof sent.generationConfig.responseSchema, sent.generationConfig.temperature <= 0.3], ['application/json', 'object', true], 'JSON mode + schema + low temperature');
+        eq([sent.generationConfig.responseMimeType, typeof sent.generationConfig.responseSchema], ['application/json', 'object'], 'JSON mode + schema');
+        eq([sent.generationConfig.temperature, sent.generationConfig.thinkingConfig], [undefined, { thinkingLevel: 'LOW' }], 'Gemini 3: default temperature, thinkingLevel (never a thinking budget too)');
+        eq((await res.clone().json() as any).meta.model, 'gemini-3.6-flash', 'the model that answered is reported');
         ok(new Headers(modelCalls[1].init?.headers).get('x-goog-api-key') === 'test-key' && !modelCalls[1].url.includes('key='), 'key in header, not URL');
         ok(!JSON.stringify(sent).includes('google_provider_token'), 'no Google OAuth token is ever sent');
         const json = await res.json() as any;
@@ -763,14 +784,224 @@ async function handlerTests() {
         ok(g.calls[g.calls.length - 1] && g.calls.filter(c => c.url.includes('generativelanguage')).length === 1, 'one model call for the whole plan');
     }
     {
-        const { f } = makeFetch({ modelResponses: [{ status: 200, body: { candidates: [{ content: { parts: [{ text: 'I am not JSON at all' }] } }] } }] });
-        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k', GEMINI_MODEL: 'gemini-2.5-flash' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
+        const { f, calls } = makeFetch({ modelResponses: [{ status: 200, body: { candidates: [{ content: { parts: [{ text: 'I am not JSON at all' }] } }] } }] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k', GEMINI_MODEL: 'gemini-2.5-flash' }), { fetch: f, log: quiet, sleep: noWait })(post(body, 'Bearer user-jwt'));
         const json = await res.json() as any;
-        eq([res.status, json.code], [502, 'AI_BAD_OUTPUT'], 'unreadable model output → clean 502');
+        eq([res.status, json.code], [502, 'AI_BAD_OUTPUT'], 'unreadable model output (and the other models failing) → clean 502');
+        const modelCalls = calls.filter(c => c.url.includes('generativelanguage'));
+        eq(modelCalls.map(modelOf), ['gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'], 'GEMINI_MODEL first, then every backup once (unreadable output tries the next model)');
+        const legacy = JSON.parse(String(modelCalls[0].init?.body)).generationConfig;
+        eq([legacy.temperature, legacy.thinkingConfig], [0.2, { thinkingBudget: 1024 }], 'Gemini 2.x: low temperature + thinking budget');
+        ok(!calls.some(isMeteringCall), 'a failed request is never metered');
         const missingKey = await createHandler(envOf(), { fetch: makeFetch().f, log: quiet })(post(body, 'Bearer user-jwt'));
         eq(missingKey.status, 503, 'no model key → 503 with a clear message');
     }
 }
 
+// ── 14. Model chain (NEXT_STEPS 0.1 / QA 0b #2): current models, busy retries, honest errors, no metering of failures ──
+async function modelChainTests() {
+    const body = { message: 'Create an invoice for 2 doors at $450', scope: 'dashboard', context: ctx };
+    const answer = { action_type: 'GENERATE_DOCUMENT', reply_text: 'Draft ready', document_type: 'INVOICE', line_items: [{ description: 'Door', quantity: 2, rate: 450 }] };
+    const run = async (env: Record<string, string>, responses: FakeModelResponse[], extra: { rpc?: 'ok' | 'missing' | 'limit' | 'error'; timeouts?: { totalMs: number; attemptMs: number; minAttemptMs: number }; req?: Request } = {}) => {
+        const waits: number[] = [];
+        const { f, calls } = makeFetch({ modelResponses: responses, rpc: extra.rpc });
+        const h = createHandler(envOf({ GEMINI_API_KEY: 'k', ...env }), { fetch: f, log: quiet, sleep: async ms => { waits.push(ms); }, modelTimeouts: extra.timeouts });
+        const started = Date.now();
+        const res = await h(extra.req || post(body, 'Bearer user-jwt'));
+        const json = await res.json() as any;
+        const models = calls.filter(c => c.url.includes('generativelanguage'));
+        return { res, json, calls, waits, models, names: models.map(modelOf), sent: models.map(c => JSON.parse(String(c.init?.body))), ms: Date.now() - started };
+    };
+
+    // Model ids: only current, stable models that new API users can call (Google model list, 2026-11-13).
+    eq(DEFAULT_MODEL, 'gemini-3.5-flash-lite', 'default model = Google\'s replacement for gemini-2.5-flash');
+    eq([...BACKUP_MODELS], ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'], 'backup chain');
+    ok(![DEFAULT_MODEL, ...BACKUP_MODELS].some(m => /gemini-2\.|gemini-3\.5-flash$|-latest|preview|-exp/.test(m)), 'no retired, closed-to-new-users, alias or preview model in the chain');
+    eq(['gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-4-hydrogen', 'gemini-flash-latest', 'models/gemini-3.6-flash'].map(geminiGeneration), [3, 2, 4, 0, 3], 'model generation parsing');
+    ok(MODEL_TIMEOUT_MS <= 100_000, 'all model attempts + waits stay inside 100 s (browser waits 130 s, runtime 150 s)');
+    {
+        const r = await run({ GEMINI_MODEL: 'gemini-3.6-flash' }, [geminiErr(404, 'nf'), geminiErr(404, 'nf'), geminiErr(404, 'nf')]);
+        eq(r.names, ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'], 'GEMINI_MODEL first, duplicates skipped');
+        eq([r.res.status, r.json.code], [503, 'AI_UNAVAILABLE'], 'every model missing → 503 AI_UNAVAILABLE');
+        ok(!/\d{3}|\(/.test(r.json.error) && /not available right now/.test(r.json.error), `no raw status code in the message ("${r.json.error}")`);
+        eq(r.waits, [], 'a 404 is never retried');
+        const space = await run({ GEMINI_MODEL: ' models/gemini-3.6-flash ' }, [geminiOk(answer)]);
+        eq(space.names, ['gemini-3.6-flash'], 'GEMINI_MODEL is trimmed and a "models/" prefix removed');
+    }
+
+    // The 15:02 incident: gemini-2.5-flash "high demand" 503, then gemini-2.5-flash-lite 404 "no longer available to new users".
+    {
+        const r = await run({ GEMINI_MODEL: 'gemini-2.5-flash' }, [
+            geminiErr(503, HIGH_DEMAND), geminiErr(503, HIGH_DEMAND), geminiErr(503, HIGH_DEMAND),
+            geminiErr(503, HIGH_DEMAND), geminiOk(answer),
+        ]);
+        eq(r.res.status, 200, 'busy first model → retried with backoff, then the next model answers');
+        eq(r.names, ['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash-lite'], 'first model: 1 try + 2 retries; next models: 1 try + 1 retry');
+        eq(r.waits.length, 3, 'three backoff waits');
+        ok(r.waits[0] >= 1200 && r.waits[0] < 1500 && r.waits[1] >= 3000 && r.waits[1] < 3300 && r.waits[2] >= 1200 && r.waits[2] < 1500, `short backoff with jitter (${r.waits.join(', ')} ms)`);
+        eq(r.calls.filter(isMeteringCall).length, 1, 'the successful answer is metered once (not once per attempt)');
+        eq(r.json.meta.model, 'gemini-3.5-flash-lite', 'answering model reported');
+    }
+    {
+        const r = await run({ GEMINI_MODEL: 'gemini-2.5-flash' }, [
+            geminiErr(503, HIGH_DEMAND), geminiErr(503, HIGH_DEMAND), geminiErr(503, HIGH_DEMAND),
+            geminiErr(404, RETIRED('gemini-3.5-flash-lite')),
+            geminiErr(503, HIGH_DEMAND), geminiErr(503, HIGH_DEMAND),
+            geminiErr(404, RETIRED('gemini-3.1-flash-lite')),
+        ]);
+        eq([r.res.status, r.json.code, r.json.error], [503, 'AI_BUSY', 'The AI is busy right now. Please try again in a minute.'], 'busy + retired everywhere → "busy, try again in a minute" (never "(404)")');
+        eq(r.names.length, 7, 'every model tried, busy ones retried');
+        ok(!r.calls.some(isMeteringCall), 'failed request not metered');
+    }
+    // 429: honour a short RetryInfo, skip to the next model when Google asks to wait long (quota).
+    {
+        const short = await run({}, [geminiErr(429, 'Resource has been exhausted', { details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '2s' }] }), geminiOk(answer)]);
+        eq([short.res.status, short.names, short.waits], [200, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite'], [2000]], '429 with retryDelay 2s → wait 2 s, same model');
+        const long = await run({}, [geminiErr(429, 'Quota exceeded', { details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '41s' }] }), geminiOk(answer)]);
+        eq([long.res.status, long.names, long.waits], [200, ['gemini-3.5-flash-lite', 'gemini-3.6-flash'], []], '429 asking for 41 s → next model right away');
+    }
+    // Schema / thinking rejections are retried on the same model with a smaller request.
+    {
+        const r = await run({}, [geminiErr(400, 'The specified schema produces a constraint that has too many states for serving.'), geminiOk(answer)]);
+        eq([r.res.status, r.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite']], 'schema too complex → same model, compact schema');
+        ok(Array.isArray(r.sent[0].generationConfig.responseSchema.properties.fields.items.properties.key.enum)
+            && r.sent[1].generationConfig.responseSchema.properties.fields.items.properties.key.enum === undefined, 'compact schema drops the field-key enum');
+        const t = await run({}, [geminiErr(400, 'Invalid JSON payload received. Unknown name "thinkingLevel" at generation_config.thinking_config'), geminiOk(answer)]);
+        eq([t.res.status, t.names, t.sent[1].generationConfig.thinkingConfig], [200, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite'], undefined], 'thinking setting refused → same model without it');
+        const lvl = await run({ GEMINI_THINKING_LEVEL: 'medium' }, [geminiOk(answer)]);
+        eq(lvl.sent[0].generationConfig.thinkingConfig, { thinkingLevel: 'MEDIUM' }, 'GEMINI_THINKING_LEVEL override');
+        const badLvl = await run({ GEMINI_THINKING_LEVEL: 'turbo' }, [geminiOk(answer)]);
+        eq(badLvl.sent[0].generationConfig.thinkingConfig, { thinkingLevel: 'LOW' }, 'unknown thinking level → LOW');
+        const key = await run({}, [geminiErr(400, 'API key not valid. Please pass a valid API key.', { details: [{ reason: 'API_KEY_INVALID' }] })]);
+        eq([key.res.status, key.json.code, key.names.length], [503, 'NOT_CONFIGURED', 1], 'invalid API key → stop at once with a setup message');
+    }
+    // A hanging model is abandoned in time so the next one can answer; the whole chain respects the budget.
+    {
+        const timeouts = { totalMs: 1500, attemptMs: 200, minAttemptMs: 100 };
+        const r = await run({}, ['hang', geminiOk(answer)], { timeouts });
+        eq([r.res.status, r.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.6-flash']], 'hanging model abandoned after its attempt budget, next model answers');
+        const all = await run({}, ['hang', 'hang', 'hang'], { timeouts });
+        eq([all.res.status, all.json.code], [504, 'AI_TIMEOUT'], 'all models hanging → 504 AI_TIMEOUT');
+        ok(all.ms < timeouts.totalMs + 700, `total budget respected (${all.ms} ms)`);
+        ok(!all.calls.some(isMeteringCall), 'timed-out request not metered');
+    }
+    // Unreadable output from the first model → the next model gets a chance.
+    {
+        const r = await run({}, [{ status: 200, body: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"action_type":"RUN_PLAN","reply_text":"Here' }] } }] } }, geminiOk(answer)]);
+        eq([r.res.status, r.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.6-flash']], 'cut-off JSON → next model');
+    }
+    // Usage: only answers the user receives are metered, and never twice.
+    {
+        const rpcErr = await run({ AI_PROVIDER: 'mock' }, [], { rpc: 'error' });
+        eq(rpcErr.res.status, 200, 'answer still returned when the usage RPC errors');
+        ok(!rpcErr.calls.some(c => c.url.endsWith('/rest/v1/usage_events') && c.init?.method === 'POST'), 'RPC error/timeout → no second insert (no double count)');
+        const ctrl = new AbortController();
+        const gone = new Request('http://fn.test/ai-assistant', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://contractordocs.app', Authorization: 'Bearer user-jwt' }, body: JSON.stringify(body), signal: ctrl.signal });
+        ctrl.abort();
+        const cancelled = await run({ AI_PROVIDER: 'mock' }, [], { req: gone });
+        eq(cancelled.res.status, 499, 'browser gone (panel closed / cancelled) → not answered');
+        ok(!cancelled.calls.some(isMeteringCall), 'cancelled request not metered');
+        const blocked = await run({}, [{ status: 200, body: { promptFeedback: { blockReason: 'SAFETY' } } }]);
+        eq([blocked.res.status, blocked.calls.some(isMeteringCall)], [422, false], 'blocked request not metered');
+    }
+    // Both scopes go through the same chain with the new models (dashboard was the one failing).
+    for (const scope of ['dashboard', 'job', 'form'] as const) {
+        const scopedBody = { message: 'Create an invoice for 2 doors at $450', scope, context: { ...ctx, active_job_id: job.id, form_document_type: 'INVOICE' } };
+        const r = await run({}, [geminiErr(503, HIGH_DEMAND), geminiOk(answer)], { req: post(scopedBody, 'Bearer user-jwt') });
+        eq([r.res.status, r.json.proposal?.action_type], [200, 'GENERATE_DOCUMENT'], `${scope} scope works with ${DEFAULT_MODEL} after a busy retry`);
+        eq(schemaProblems(r.sent[0].generationConfig.responseSchema), [], `${scope} schema sent to Gemini follows the documented Schema rules`);
+    }
+}
+
+// ── 15. Gemini responseSchema rules (OpenAPI subset documented for generateContent) ──
+const SCHEMA_KEYWORDS = new Set(['type', 'format', 'title', 'description', 'nullable', 'enum', 'items', 'maxItems', 'minItems', 'properties', 'required',
+    'propertyOrdering', 'minProperties', 'maxProperties', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'anyOf', 'example', 'default']);
+function schemaProblems(s: any, path = '$', depth = 0, out: string[] = []): string[] {
+    if (!s || typeof s !== 'object') { out.push(`${path}: not an object`); return out; }
+    for (const k of Object.keys(s)) if (!SCHEMA_KEYWORDS.has(k)) out.push(`${path}: unsupported keyword "${k}"`);
+    if (!(RESPONSE_SCHEMA_TYPES as readonly string[]).includes(s.type)) out.push(`${path}: bad type ${s.type}`);
+    if (depth > 6) out.push(`${path}: nested deeper than 6`);
+    if ('nullable' in s && typeof s.nullable !== 'boolean') out.push(`${path}: nullable must be boolean`);
+    if (s.enum !== undefined) {
+        if (s.type !== 'STRING') out.push(`${path}: enum on ${s.type}`);
+        if (!Array.isArray(s.enum) || !s.enum.length || s.enum.some((v: unknown) => typeof v !== 'string' || !v) || new Set(s.enum).size !== s.enum.length) out.push(`${path}: enum must be unique non-empty strings`);
+    }
+    if (s.type === 'OBJECT') {
+        const props = s.properties && typeof s.properties === 'object' ? s.properties : null;
+        if (!props || !Object.keys(props).length) out.push(`${path}: OBJECT needs non-empty properties`);
+        for (const r of s.required || []) if (!props || !(r in props)) out.push(`${path}: required "${r}" is not a property`);
+        for (const [k, v] of Object.entries(props || {})) schemaProblems(v, `${path}.${k}`, depth + 1, out);
+    } else if (s.properties || s.required) out.push(`${path}: properties on ${s.type}`);
+    if (s.type === 'ARRAY') {
+        if (!s.items) out.push(`${path}: ARRAY needs items`); else schemaProblems(s.items, `${path}[]`, depth + 1, out);
+    } else if (s.items) out.push(`${path}: items on ${s.type}`);
+    return out;
+}
+{
+    const count = (s: any): { props: number; enumValues: number } => {
+        let props = 0; let enumValues = (s.enum || []).length;
+        for (const v of Object.values(s.properties || {})) { const c = count(v); props += 1 + c.props; enumValues += c.enumValues; }
+        if (s.items) { const c = count(s.items); props += c.props; enumValues += c.enumValues; }
+        return { props, enumValues };
+    };
+    for (const scope of ['dashboard', 'job', 'form'] as const) {
+        for (const compact of [false, true]) {
+            const s = buildResponseSchema(scope, { compact });
+            eq(schemaProblems(s), [], `${scope}${compact ? ' (compact)' : ''} schema follows Gemini's Schema rules`);
+            ok(JSON.stringify(s).length < 8_000, `${scope}${compact ? ' (compact)' : ''} schema stays small (${JSON.stringify(s).length} chars)`);
+        }
+        const full = count(buildResponseSchema(scope));
+        const compact = count(buildResponseSchema(scope, { compact: true }));
+        ok(compact.enumValues < full.enumValues && compact.props === full.props, `${scope}: compact schema has fewer enum values (${compact.enumValues} < ${full.enumValues}), same properties`);
+    }
+    const dash = count(buildResponseSchema('dashboard'));
+    const jobS = count(buildResponseSchema('job'));
+    ok(dash.props === jobS.props && dash.enumValues - jobS.enumValues <= 20, `dashboard schema is not meaningfully bigger than the job schema (${dash.props}/${dash.enumValues} vs ${jobS.props}/${jobS.enumValues})`);
+}
+
+// ── 16. Job assistant sees document status, totals and line items (QA 0b #9) ──
+{
+    const lines = [{ description: 'Door', quantity: 2, rate: 450 }, { description: 'Labor', quantity: 6, rate: 75 }];
+    const inv = { invoiceNumber: 'INV-7', status: 'Sent', issueDate: '2026-11-01', dueDate: '2026-11-15', taxRate: 10, amountPaid: 100, lineItems: lines };
+    const s = summarizeDocumentData('Invoice', inv)!;
+    eq([s.number, s.status, s.date, s.due_date, s.total, s.paid, s.balance_due], ['INV-7', 'Sent', '2026-11-01', '2026-11-15', 1485, 100, 1385], 'invoice: number, status, dates, total with tax, paid, balance (utils/money)');
+    eq(s.items, [{ desc: 'Door', qty: 2, price: 450, amount: 900 }, { desc: 'Labor', qty: 6, price: 75, amount: 450 }], 'invoice line items');
+    const paid = summarizeDocumentData('Invoice', { ...inv, status: 'Paid', amountPaid: 0 })!;
+    eq([paid.paid, paid.balance_due], [1485, 0], 'status Paid = paid in full (same rule as job financials)');
+    eq(summarizeDocumentData('Invoice', { invoiceNumber: 'INV-7', status: 'Sent', __lightweight: true }), { number: 'INV-7', status: 'Sent' }, 'list row: number + status only, never a 0 total from missing lines');
+    const est = summarizeDocumentData('Estimate', { estimateNumber: 'EST-1', status: 'Accepted', clientSignedBy: 'Jane Roe', clientSignedAt: '2026-11-10T12:00:00Z', expiryDate: '2026-12-01', lineItems: lines })!;
+    eq([est.status, est.signed_by, est.signed_at, est.due_date, est.total], ['Accepted', 'Jane Roe', '2026-11-10', '2026-12-01', 1350], 'estimate: signature, expiry, total');
+    const many = summarizeDocumentData('Invoice', { invoiceNumber: 'INV-8', lineItems: Array.from({ length: 12 }, (_, i) => ({ description: `Line ${i + 1}`, quantity: 1, rate: 10 })) })!;
+    eq([many.items?.length, many.more_items, many.total], [REQUEST_LIMITS.documentLines, 12 - REQUEST_LIMITS.documentLines, 120], 'lines capped, the rest counted, total still from every line');
+    eq(summarizeDocumentData('Receipt', { receiptNumber: 'R-1', amount: '112.68', paymentMethod: 'Card', paymentStatus: 'Paid in full' }), { number: 'R-1', status: 'Paid in full', total: 112.68, paid: 112.68, party: 'Card' }, 'receipt');
+    eq(summarizeDocumentData('Material Log', { date: '2026-11-12', items: [{ name: 'Drywall', quantity: 10, unitCost: 12.5, supplier: 'HD' }] }), { date: '2026-11-12', items: [{ desc: 'Drywall', qty: 10, price: 12.5, amount: 125 }], total: 125 }, 'material log');
+    eq(summarizeDocumentData('Daily Job Report', { reportNumber: 'DR-3', date: '2026-11-12', content: '<h3>Work Completed</h3><p>Framed the east wall.</p>' })?.note, 'Work Completed Framed the east wall.', 'daily report: plain-text excerpt');
+    eq(summarizeDocumentData('Time Sheet', { workerName: 'Sam', date: '2026-11-12', hoursWorked: 8, overtimeHours: 2, status: 'Approved' }), { status: 'Approved', date: '2026-11-12', hours: 8, party: 'Sam', note: 'Overtime 2 h' }, 'time sheet');
+    const listRow = { id: 'inv-A', jobId: job.id, type: FormType.Invoice, createdAt: '', data: { invoiceNumber: 'INV-001', status: 'Sent', __lightweight: true } } as any;
+    eq(summarizeDocument(listRow, { invoiceNumber: 'INV-001', status: 'Paid', lineItems: lines })?.balance_due, 0, 'the freshly loaded row (status Paid) wins over the list copy');
+    ok(DOCUMENT_SUMMARY_COLUMNS.includes('lineItems:data->lineItems') && DOCUMENT_SUMMARY_COLUMNS.includes('status:data->>status') && !/logoUrl|[^t]signatureUrl|themeColors/.test(DOCUMENT_SUMMARY_COLUMNS), 'summary query loads facts only (no logos, signature images or styling)');
+
+    // Server clamps: unknown keys dropped, HTML stripped, lines capped, total size capped.
+    const dirty = sanitizeRequest({ message: 'is it paid?', scope: 'job', context: { ...ctx, active_job_id: job.id, documents: [
+        { id: 'inv-A', type: 'Invoice', label: 'Invoice #INV-001', job_id: job.id, summary: { status: 'Paid', total: '1,485.00', evil: 'x', note: '<script>alert(1)</script><p>Thanks</p>', items: Array.from({ length: 20 }, (_, i) => ({ desc: `<b>L${i}</b>`, qty: 1, price: 5, hack: true })) } },
+    ] } });
+    const ds = dirty.context!.documents![0].summary!;
+    eq([ds.status, ds.total, (ds as any).evil, ds.note, ds.items?.length, ds.items?.[0], ds.more_items], ['Paid', 1485, undefined, 'Thanks', REQUEST_LIMITS.documentLines, { desc: 'L0', qty: 1, price: 5 }, 20 - REQUEST_LIMITS.documentLines], 'summary sanitized and capped on the server');
+    const big = sanitizeRequest({ message: 'x', scope: 'job', context: { ...ctx, active_job_id: job.id, documents: Array.from({ length: 40 }, (_, i) => ({
+        id: `d${i}`, type: 'Invoice', label: `Invoice #${i}`, job_id: job.id,
+        summary: { number: `INV-${i}`, status: 'Sent', total: 100, note: 'n'.repeat(240), items: Array.from({ length: 8 }, (_, k) => ({ desc: 'x'.repeat(80), qty: k, price: 1 })) },
+    })) } });
+    const summaryChars = big.context!.documents!.reduce((n, d) => n + (d.summary ? JSON.stringify(d.summary).length : 0), 0);
+    ok(summaryChars <= REQUEST_LIMITS.documentSummaryChars, `all summaries together stay under ${REQUEST_LIMITS.documentSummaryChars} chars (${summaryChars})`);
+    ok(big.context!.documents![0].summary?.items?.length === 8 && big.context!.documents!.length === 40, 'the most relevant documents keep their lines; every document stays in the context');
+
+    // The summary reaches the model, and the prompt says how to use it.
+    const asked = req('is the invoice paid?', 'job', { active_job_id: job.id, documents: [{ id: 'inv-A', type: 'Invoice', label: 'Invoice #INV-001', job_id: job.id, summary: { status: 'Paid', total: 1485, paid: 1485, balance_due: 0 } }] });
+    ok(buildUserTurn(asked).includes('"summary":{"status":"Paid","total":1485,"paid":1485,"balance_due":0}'), 'document summary is in the CONTEXT DATA block');
+    ok(/is the invoice paid\?/.test(buildSystemPrompt(asked)) && /Never guess amounts or statuses/.test(buildSystemPrompt(asked)), 'prompt rule: answer document questions from the summary, never guess');
+    ok(/Exception: rule 15/.test(buildSystemPrompt(req('x'))) && /^15\. Example/m.test(buildSystemPrompt(req('x'))), 'plan rules renumbered consistently');
+}
+
 await handlerTests();
+await modelChainTests();
 console.log(`Document AI flow QA passed: ${checks} checks across ${DOC_TYPES.length} document types.`);
