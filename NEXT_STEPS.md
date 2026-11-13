@@ -97,6 +97,53 @@ Partly working / rough edges (do after the 8 bugs):
 Test data the QA left in the b@b.com account: jobs "QA Test Job", "QA Client Two - General", client "QA Client
 Two", price book "Kitchen cabinets"/"Outlet install", inventory "Drywall sheet", profit calc "QA calc".
 
+## 0c. New features from the competitor research (do AFTER 0 and 0b)
+
+Full report: `reports/Contractor software competitor feature gaps.md` (notes in
+`research_notes/Contractor software competitor feature gaps/`). Gap numbers (#) refer to the report. Main
+idea: ContractorDocs already beats rivals on documents. What's missing is automation that turns documents
+into money and new work. Use the contractor's OWN channels (their Gmail, their phone, their Stripe).
+Plan rule: Free = get paid + look professional at low volume; Premium $5 = automation, volume, crew; Premium+AI
+$10 = AI that writes and acts. Photo storage and AI tokens need per-tier caps. No telephony.
+
+**NOW (in this order; the payment webhook unlocks the rest):**
+1. Real "Pay now" (#2): contractor connects their own Stripe (Stripe Connect). Deposit, progress and balance
+   become pay buttons in the portal, email and a PDF QR code, and a webhook marks the invoice paid
+   automatically. (Needs the owner to create/connect a Stripe platform account: ask first.)
+2. Automatic reminders and follow-ups (#1): overdue invoices, estimate follow-ups and visit reminders sent on
+   a schedule (pg_cron) from the user's own Gmail. They stop by themselves on approval/payment. Free counts
+   toward the email cap, Premium unlimited, AI wording on Premium+AI.
+3. Request-a-quote link + QR code (#5): public mobile form (for the truck, yard sign, Google profile) that
+   creates a temporary client and a draft job. AI replies within minutes and drafts an estimate from the
+   photos and price book (AI reply on Premium+AI).
+4. Text / WhatsApp buttons (#9): open the phone's own messaging app with the message and portal link filled
+   in (no SMS bill). Free.
+5. Review request after payment (#7): one email/text with the contractor's Google review link when the
+   invoice is paid. Premium. (Verify Google's review-gating rules: ask everyone, not only happy clients.)
+6. Financing link on large estimates (#3): a field for the contractor's financing partner link (e.g.
+   Wisetack/Hearth), shown on big estimates.
+7. "Export everything" ZIP (all PDFs + CSVs) on every plan, including Free and after cancelling, plus a monthly
+   bookkeeper CSV (#4 step 1). Add a written "price promise" on the pricing page.
+8. Job photo timeline basics (#11): per-job photo stream tagged before/during/after, simple markup, one-tap
+   before/after photo report, shared in the portal.
+
+**NEXT:** good/better/best estimate options (#6); job budget vs actual + one-tap T&M invoice from time sheets and
+material logs (#12); pipeline board over jobs that moves by itself with document status (#8); crew clock-in
+links with no seat fee, location stamped only at the punch, feeding time sheets (#13); AI walkthrough and client
+progress updates from photos (#11); recurring service plans (#15); "papers" vault (insurance/permit expiry
+reminders + lien-waiver templates) (#17); punch lists (#18); supplier POs by email + low-stock reorder (#21);
+offline field drafts that sync later (#14).
+
+**LATER:** QuickBooks Online one-way sync, then Xero (#4); selections and allowances (#19); job phases strip
+instead of Gantt (#16); measurement calculator + AI reading of imported reports (#20); MCP connector for
+ChatGPT/Claude (#23); financing partner integration (#3); SMS credits (#9); voice receptionist via a partner,
+only if users ask (#10).
+
+**DON'T BUILD (for this audience):** voice AI receptionist / phone system, aerial 3D measurements, distributor
+catalog sync, RFIs/submittals/BIM, full Gantt with critical path, dispatch/route optimization/fleet GPS,
+marketing suites, payroll, AIA G702/G703 pay apps, in-house lending. The report lists the cheap alternative
+for each.
+
 ---------------------------------------------------------------------------------------------------------
 
 ## A. Landing page changes requested (screenshots, 2026-11-13). Do these first
