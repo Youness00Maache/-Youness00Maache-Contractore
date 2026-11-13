@@ -104,6 +104,15 @@ Partly working / rough edges (do after the 8 bugs):
 Test data the QA left in the b@b.com account: jobs "QA Test Job", "QA Client Two - General", client "QA Client
 Two", price book "Kitchen cabinets"/"Outlet install", inventory "Drywall sheet", profit calc "QA calc".
 
+**PROGRESS 2026-11-13 16:40: sections 0 and 0b DONE** (commits ab1f3f5 AI + deployed + GEMINI_MODEL=gemini-3.5-flash-lite,
+3b000bc app/jobs/clients/financials/pricing text, 2433c83 forms/signed lock/estimates/change orders/share/rounding).
+Still open from 0/0b: (a) in-app click-through of everything above needs the owner signed in; (b) NOT approved yet:
+database rule locking signed documents (+ skip stock deduction for a superseded signed estimate), profit-calculator
+table (0b.20), backfill linking old jobs' typed clients; (c) small follow-ups: add the new fields to the AI field list
+(supabase/functions/ai-assistant/shared/documentSchema.ts: estimate taxRate/discount, change order status, work order
+assignedTo, invoice amountPaid, receipt invoiceNumber) and redeploy; run the free-plan check before "Convert to
+invoice" / "Create revision" open a new form (App.tsx).
+
 ## 0c. New features from the competitor research (do AFTER 0 and 0b)
 
 Full report: `reports/Contractor software competitor feature gaps.md` (notes in
