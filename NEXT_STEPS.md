@@ -30,6 +30,73 @@ one-shot timer a few minutes after the reset (local time = UTC) to continue.
    inside the bordered tile. Make it look like the Camera and Photo buttons (one flat button: icon +
    label), with the recording state shown on that same button.
 
+## 0b. QA test report (owner's file "ContractorDocs QA Test Report.docx", Nov 13, 2026). Fix ALL, in this order
+
+Tested on localhost:3010 desktop Chrome + 375px. Bugs:
+1. **HIGH: signed estimates stay editable.** After the client signs, the estimate can be edited (a line changed
+   $1,500 → $9,999), it stays "Accepted", and the client link shows "Approved by …" next to the NEW total.
+   Fix: once signed, estimates AND change orders are read-only (show a banner "Signed by X on date").
+   Offer "Revise" that makes a new revision as Draft, clears the signature and needs a new client
+   signature. Enforce it on the server too (documents write guard: refuse changes to totals/lines of a
+   signed doc unless it goes back to Draft and the signature is cleared). The approval page must show
+   what was actually signed.
+2. **HIGH: dashboard AI Command fails on every request** ("…unavailable (404)", really HTTP 502). Same as
+   item 0.1 above (Gemini 2.5 models busy or retired). Also make the message show the real reason. Note:
+   the job-level assistant works; check why only the dashboard scope fails (bigger schema with plans?).
+3. **HIGH: job page document ⋮ menu opens UNDER the next card**, so Delete/Duplicate clicks open the other
+   document. Only the last row works. Fix: render the menu in a portal or give it a higher z-index above
+   sibling cards.
+4. **MEDIUM: free-plan document limit.** After deleting a document the UI says 11 of 12 and opens a new
+   form, but Save is refused by the server and the typed work is lost (upgrade popup). Duplicate is blocked
+   at 11 of 12 too. Fix: count the same way as the server (server counts creations this month per job,
+   deletions don't give a slot back). Show the right number, and check BEFORE the form opens, never lose
+   typed work: keep the draft and offer upgrade.
+5. **MEDIUM: plan gating.** Things the pricing table calls Premium work on Free (premium PDF designs like
+   Glassmorphism, client portal + e-signatures, inventory, price book, profit tracking). OWNER DECISION
+   needed: enforce, or change the pricing table. Before enforcing, check what the OLD app (25ae5cc) gated,
+   so existing free users don't lose something they had (owner rule). Recommendation: make the pricing table
+   match reality, and gate only what the old app gated.
+6. **MEDIUM: share email text with no company name** reads "Invoice INV-… from" and ends "Thank you," with
+   nothing after. Fall back to the user's name, then email.
+7. **MEDIUM: job financials.** Receipts don't count as Collected (a $112.68 receipt showed $0 until the
+   invoice was set to Paid). The accepted estimate and change orders don't appear. Fix: Collected = paid
+   invoices + receipts (no double count when a receipt references a paid invoice). Show contract value =
+   accepted estimate + approved change orders.
+8. **MEDIUM: clients typed when creating a job never appear in Clients** (count stays 0 even after that
+   client signed an estimate). Fix: creating a job with a new client name creates/links a client record
+   (match an existing one by name first), and backfill existing jobs without a client_id (ask the owner
+   before a production data backfill).
+
+Partly working / rough edges (do after the 8 bugs):
+9. Job AI Assistant can't see document status or line items ("is the invoice paid?" gets no answer). Add a
+   compact status/total/line summary to the job context.
+10. Insights profit (+$80: invoices − expense logs) ≠ Job financials (−$1,500.97: also materials + labor).
+    Use one definition everywhere and label it.
+11. Estimates: add tax and discount fields, and "Convert to invoice" after the client accepts.
+12. Change order: add a status field (Draft/Sent/Approved) and pre-fill "Current contract value" from the
+    accepted estimate (+ earlier approved change orders).
+13. Work order: add an "Assigned to" field (worker), which is used in the PDF too.
+14. Missing Share button on Purchase Order (send to vendor), Warranty, Work Order, Time Sheet, Note. Purchase
+    Order and Warranty also have no AI fill: add both.
+15. Client "New invoice" silently creates a "<Client> - General" job even if the invoice is discarded (uses
+    one of the 6 free jobs). Only create the job when the invoice is saved, or reuse the client's existing
+    "General" job.
+16. Validation: client phone accepts letters. Vendor email is only checked on Save (check while typing).
+    Progress billing accepts 150% (clamp to 0–100 with a message).
+17. Number fields pre-filled with 0 keep the zero ("0100") in price book cost/markup and the profit
+    calculator. Select-all on focus or start empty.
+18. Rounding: progress billing 50% of $99.99 − $20 shows $29.99; round half-up to cents ($30.00)
+    consistently.
+19. AI usage counter: failed AI requests seem to count (7 of 15 after 3 failures). Only count successful
+    answers.
+20. Profit calculator saved calculations are only in the browser. Save them to the account (DB) so they
+    sync across devices (keep the local ones: migrate them on first load).
+21. Time Sheet and Expense Log headers show raw "2026-11-13". Use the same "Nov 13, 2026" format as the others.
+22. Dev page `/qa-ai-documents` (AI mock test page) opens for signed-in users. Disable it in production
+    builds.
+Test data the QA left in the b@b.com account: jobs "QA Test Job", "QA Client Two - General", client "QA Client
+Two", price book "Kitchen cabinets"/"Outlet install", inventory "Drywall sheet", profit calc "QA calc".
+
 ---------------------------------------------------------------------------------------------------------
 
 ## A. Landing page changes requested (screenshots, 2026-11-13). Do these first
