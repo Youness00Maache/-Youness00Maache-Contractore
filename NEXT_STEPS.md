@@ -170,6 +170,8 @@ ab3e480c0eebe3ce2 (was writing an SVG-foreignObject page renderer so the PDF mat
 utils/templates/**, services/pdfGenerator.ts, Sections.tsx, scripts/templates-*) and AI-knowledge helper
 a5ff00bb5da18ddcd (knowledge base + retrieval + HOW_TO/"Do it for me"). Resume both after the 23:10 reset, then
 test, commit, redeploy ai-assistant.
+**23:15 cycle 1 started** (5-hour 0%, weekly 67%). Resumed templates ab3e480c0eebe3ce2 + AI-knowledge a5ff00bb5da18ddcd.
+New: #7 Export everything + bookkeeper CSV + price promise → aff2f94e4414c0f80. Pacing job: every 5 min, stop at 86%.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
