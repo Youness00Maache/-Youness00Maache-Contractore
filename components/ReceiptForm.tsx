@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { FormType, type ReceiptData, type UserProfile, type Job, type Client } from '../types.ts';
 import { generateReceiptPDF } from '../services/pdfGenerator.ts';
 import { toNumber } from '../utils/money.ts';
-import { ReceiptIcon, DollarIcon, ShareIcon } from './Icons.tsx';
+import { ReceiptIcon, DollarIcon } from './Icons.tsx';
 import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
-import { DateField, FieldGrid, FormSection, MoneyField, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
+import { DateField, FieldGrid, FormSection, MoneyField, TextAreaField, TextField } from './forms/Fields.tsx';
 import { ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
 import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
 import { isISODate, todayISO } from './forms/formUtils.ts';
@@ -82,21 +83,19 @@ const ReceiptForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave
             onDownload={form.download}
             onSaveAndDownload={form.saveAndDownload}
             preview={{ formType: FormType.Receipt, data: d, profile, job }}
-            actions={(
-                <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => setShareOpen(true)}>
-                    <ShareIcon className="h-4 w-4" /> Share
-                </button>
-            )}
+            actions={<ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />}
         >
             <FormSection title="Payment received" icon={DollarIcon}>
                 <FieldGrid>
                     <TextField label="Receipt #" value={d.receiptNumber} onChange={v => update({ receiptNumber: v })} />
                     <DateField label="Date received" value={d.date} onChange={v => update({ date: v })} />
                     <MoneyField label="Amount received" value={d.amount} onValueChange={v => update({ amount: v })} />
-                    <SelectField label="Payment method" value={d.paymentMethod} options={PAYMENT_METHODS} onChange={v => update({ paymentMethod: v })} />
+                    {/* free text like the original app ("Check #1234", "Card ending 4242"); the list only suggests */}
+                    <TextField label="Payment method" value={d.paymentMethod} onChange={v => update({ paymentMethod: v })} list="receipt-payment-methods" placeholder="e.g. Check #1234" autoComplete="off" />
                     <TextAreaField label="For" value={d.description} onChange={v => update({ description: v })} rows={3} fieldClassName="sm:col-span-2" placeholder="e.g. Deposit for kitchen remodel (invoice INV-2026-11-004)" />
                     <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} fieldClassName="sm:col-span-2" />
                 </FieldGrid>
+                <datalist id="receipt-payment-methods">{PAYMENT_METHODS.map(m => <option key={m} value={m} />)}</datalist>
             </FormSection>
 
             <ClientSection
@@ -124,7 +123,7 @@ const ReceiptForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave
                 docType={FormType.Receipt}
                 profile={profile}
                 documentId={documentId ?? form.lastSaveResult?.id}
-                publicToken={publicToken ?? null}
+                publicToken={publicToken ?? form.lastSaveResult?.public_token ?? null}
                 clients={clients}
                 job={job}
                 hasUnsavedChanges={form.isDirty}

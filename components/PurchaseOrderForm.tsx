@@ -160,6 +160,7 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, savedItems = [
                     inventoryItems={inventoryItems}
                     rateLabel="Unit price"
                     descriptionPlaceholder="Product name or SKU"
+                    inventoryPrice="cost"
                 />
                 <TotalsPanel totals={totals} totalLabel="Order total" />
                 <TextAreaField label="Notes to vendor" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Substitutions allowed? Invoice to…" />

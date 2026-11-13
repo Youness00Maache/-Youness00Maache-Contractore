@@ -95,6 +95,7 @@ export const DOCUMENT_FIELDS: Record<DocumentFormType, Record<string, FieldSpec>
         ...COMPANY, ...STYLE,
         clientId: text, clientName: text, projectName: text, projectAddress: text,
         reportNumber: text, date, weather: text, temperature: text,
+        crewSize: { kind: 'number' }, laborHours: { kind: 'number' },
         content: { kind: 'rich' }, tags: { kind: 'tags' },
         ai_visual_data: { kind: 'visual' },
     },
@@ -177,6 +178,7 @@ export const FIELD_ALIASES: Record<DocumentFormType, Record<string, string>> = {
     [FormType.DailyJobReport]: {
         number: 'reportNumber', documentNumber: 'reportNumber', description_html: 'content', richBody: 'content', body: 'content',
         description: 'content', clientAddress: 'projectAddress', jobName: 'projectName',
+        crew: 'crewSize', crewCount: 'crewSize', workers: 'crewSize', manpower: 'crewSize', totalLaborHours: 'laborHours', labor_hours: 'laborHours',
     },
     [FormType.TimeSheet]: {
         worker: 'workerName', employee: 'workerName', employeeName: 'workerName', hours: 'hoursWorked', regularHours: 'hoursWorked',

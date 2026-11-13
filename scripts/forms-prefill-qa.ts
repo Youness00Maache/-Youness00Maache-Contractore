@@ -37,7 +37,7 @@ const TYPES_TS_FIELDS: Record<DocumentFormType, string[]> = {
     [FormType.Invoice]: ['invoiceNumber', 'issueDate', 'dueDate', 'lineItems', 'taxRate', 'discount', 'shipping', 'notes', 'paypalLink', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'title', 'isProgressBilling', 'recurrence', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.Estimate]: ['title', 'estimateNumber', 'issueDate', 'expiryDate', 'lineItems', 'terms', 'notes', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.WorkOrder]: ['title', 'workOrderNumber', 'date', 'status', 'description', 'materialsUsed', 'hours', 'cost', 'terms', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'signatureUrl', 'logoUrl', 'ai_visual_data', 'templateId', 'themeColors'],
-    [FormType.DailyJobReport]: ['title', 'reportNumber', 'date', 'weather', 'temperature', 'logoUrl', 'signatureUrl', 'content', 'projectName', 'clientName', 'projectAddress', 'tags', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'ai_visual_data', 'templateId', 'themeColors'],
+    [FormType.DailyJobReport]: ['title', 'reportNumber', 'date', 'weather', 'temperature', 'crewSize', 'laborHours', 'logoUrl', 'signatureUrl', 'content', 'projectName', 'clientName', 'projectAddress', 'tags', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.TimeSheet]: ['title', 'workerName', 'date', 'hoursWorked', 'overtimeHours', 'notes', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'status', 'templateId', 'themeColors'],
     [FormType.MaterialLog]: ['title', 'date', 'items', 'projectName', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
     [FormType.ExpenseLog]: ['title', 'date', 'lineItems', 'vendor', 'category', 'amount', 'tax', 'notes', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
@@ -278,6 +278,10 @@ const merge = (type: FormType, prefill: Record<string, unknown>, prev: Record<st
     check('OCR date M/D (day > 12)', r.date === '2026-03-14', r.date);
     check('OCR items', r.lineItems.length === 2 && r.lineItems[0].price === 7.96 && r.lineItems[0].quantity === 2, r.lineItems);
     check('OCR vendor contact kept separate', r.vendorPhone === '(217) 555-0100' && Boolean(r.vendorAddress));
+    check('OCR no client on a plain store receipt', r.client === null, r.client);
+    check('OCR client from "Sold To:"', parseReceiptText('CITY SUPPLY\nSold To: Jane Smith\nTOTAL 10.00').client === 'Jane Smith');
+    check('OCR client on the line below "Bill to"', parseReceiptText('ACME LUMBER\nBILL TO\nMaple Street Builders LLC\n2 x STUD 7.96\nTOTAL 7.96').client === 'Maple Street Builders LLC');
+    check('OCR "Customer Copy" is not a client', parseReceiptText('ACE HARDWARE\nCUSTOMER COPY\nTOTAL 5.00').client === null);
     check('OCR ambiguous date follows locale (day-first)', parseDate('Date 04/05/2026', true) === '2026-05-04');
     check('OCR ambiguous date follows locale (month-first)', parseDate('Date 04/05/2026', false) === '2026-04-05');
 }

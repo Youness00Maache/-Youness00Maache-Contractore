@@ -24,6 +24,11 @@ interface LineItemsEditorProps {
     enableQuickAdd?: boolean;
     /** available stock for an inventory-linked line (null = not tracked) */
     availableStock?: (item: LineItem) => number | null;
+    /**
+     * Price used when an inventory item is picked onto a line with no price yet: 'sell' (documents sent to clients)
+     * uses the item's sell price when one is known, else its cost; 'cost' (purchase orders) always uses the cost.
+     */
+    inventoryPrice?: 'sell' | 'cost';
     descriptionPlaceholder?: string;
     addLabel?: string;
     rateLabel?: string;
@@ -77,7 +82,7 @@ const smallLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide
 const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
     items, onChange, mode = 'standard', showCost = false, savedItems = [], inventoryItems = [], enablePicker = true,
     enableInventory = true, enableQuickAdd = true, availableStock, descriptionPlaceholder = 'Describe the work or material',
-    addLabel = 'Add line', rateLabel = 'Rate', amountLabel = 'Amount', currency = 'USD',
+    addLabel = 'Add line', rateLabel = 'Rate', amountLabel = 'Amount', currency = 'USD', inventoryPrice = 'sell',
 }) => {
     const progress = mode === 'progress';
     const L = progress ? LAYOUTS.progress : showCost ? LAYOUTS.cost : LAYOUTS.standard;
@@ -122,13 +127,26 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
         setPickerFor(null);
     };
 
+    /** Sell price of an inventory item: a price stored on the row, else the price book item with the same name. */
+    const sellPriceOf = (inv: InventoryItem): number | null => {
+        const row = inv as InventoryItem & Record<string, unknown>;
+        for (const v of [row.sell_price, row.price, row.unit_price, row.rate]) {
+            if (v !== undefined && v !== null && v !== '' && toNumber(v) > 0) return toNumber(v);
+        }
+        const name = inv.name.trim().toLowerCase();
+        const book = catalog.find(s => s.name.trim().toLowerCase() === name && toNumber(s.rate) > 0);
+        return book ? toNumber(book.rate) : null;
+    };
+
     const pickInventory = (inv: InventoryItem) => {
         if (!pickerFor) return;
         const cost = toNumber(inv.cost_price);
+        const price = inventoryPrice === 'cost' ? cost : sellPriceOf(inv) ?? cost;
         onChange(items.map(li => li.id !== pickerFor ? li : {
             ...li,
             description: inv.name,
-            rate: cost,
+            // a price the user already typed is kept (as in the original app); only an empty price is filled
+            rate: toNumber(li.rate) !== 0 ? li.rate : price,
             unitCost: cost,
             quantity: toNumber(li.quantity) > 0 ? li.quantity : 1,
             inventoryItemId: inv.id,
@@ -158,7 +176,8 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
         }
     };
 
-    const canPick = enablePicker && (catalog.length > 0 || (enableInventory && inventoryItems.length > 0));
+    // Always offered (even with an empty price book / inventory): the picker explains how to add items.
+    const canPick = enablePicker;
 
     return (
         <div className="space-y-3">

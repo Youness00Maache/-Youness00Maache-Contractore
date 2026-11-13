@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { FormType, type ChangeOrderData, type UserProfile, type Job, type Client, type SavedItem, type InventoryItem } from '../types.ts';
 import { generateChangeOrderPDF } from '../services/pdfGenerator.ts';
 import { computeDocumentTotals, formatMoney, roundMoney, toNumber } from '../utils/money.ts';
-import { ChangeOrderIcon, ShareIcon, FileTextIcon, DollarIcon } from './Icons.tsx';
+import { ChangeOrderIcon, FileTextIcon, DollarIcon } from './Icons.tsx';
 import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, MoneyField, TextAreaField, TextField } from './forms/Fields.tsx';
 import { AIInsightsSection, ApprovalSection, ClientSection, CompanySection, SignatureSection, SummaryRow, TemplateSection } from './forms/Sections.tsx';
@@ -107,9 +108,7 @@ const ChangeOrderForm: React.FC<Props> = ({
             actions={(
                 <>
                     <AIFillButton jobId={job.id} formType={FormType.ChangeOrder} onApply={form.applyDraft} compact />
-                    <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => setShareOpen(true)}>
-                        <ShareIcon className="h-4 w-4" /> Share
-                    </button>
+                    <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
                 </>
             )}
         >

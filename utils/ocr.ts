@@ -3,7 +3,7 @@
  * The parsers are exported so they can be unit tested without running OCR.
  *
  * Results describe the RECEIPT: `vendor`, `vendorAddress`, `vendorPhone` are the store's details and must never be
- * written into the contractor's own company fields.
+ * written into the contractor's own company fields. `client` is the "Bill to / Sold to / Customer" name, if printed.
  */
 import type { Worker } from 'tesseract.js';
 
@@ -169,6 +169,26 @@ export const parseVendorContact = (text: string): { address: string | null; phon
     return { address, phone };
 };
 
+const CLIENT_LABEL = /^(?:bill(?:ed)?\s*to|sold\s*to|ship\s*to|customer(?:\s*name)?|client(?:\s*name)?|account\s*name)\b\s*[:#-]?\s*(.*)$/i;
+const NOT_A_NAME = /^(?:copy|receipt|number|no\b|id\b|acct|account\b|signature|sign\b|service|care|support|pickup|pick up|info|information|same|n\/a)/i;
+
+const looksLikeName = (value: string): boolean =>
+    value.length >= 3 && value.length <= 60 && /[a-z]{2,}/i.test(value) && !NOT_A_NAME.test(value)
+    && !/\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(value) && !/\d+\.\d{2}\b/.test(value) && !parseDate(value, false);
+
+/** "Bill to / Sold to / Customer: Jane Smith" (same line, or the line below an empty label). */
+export const parseClient = (text: string): string | null => {
+    const lines = text.split('\n').map(l => l.trim());
+    for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(CLIENT_LABEL);
+        if (!m) continue;
+        const sameLine = m[1].trim();
+        const candidate = (sameLine || lines[i + 1] || '').replace(/[^\w&'.,\- ]/g, '').replace(/\s+/g, ' ').trim();
+        if (looksLikeName(candidate)) return candidate;
+    }
+    return null;
+};
+
 export interface OCRLineItem {
     description: string;
     price: number;
@@ -215,6 +235,8 @@ export interface OCRResult {
     vendor: string | null;
     vendorAddress: string | null;
     vendorPhone: string | null;
+    /** customer / bill-to name printed on the receipt */
+    client: string | null;
     date: string | null;
     amount: number | null;
     tax: number | null;
@@ -231,6 +253,7 @@ export const parseReceiptText = (text: string, confidence = 0): OCRResult => {
         vendor: parseVendor(text),
         vendorAddress: address,
         vendorPhone: phone,
+        client: parseClient(text),
         date: parseDate(text),
         amount: parseAmount(text),
         tax: parseTax(text),

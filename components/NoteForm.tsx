@@ -35,7 +35,10 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, data, onSave, o
         makeDefaults: () => ({ title: '', content: '', tags: [], templateId: DEFAULT_TEMPLATE_ID, themeColors: { ...DEFAULT_THEME } }),
         hydrate: d => ({ ...d, title: d.title ?? '', content: d.content ?? '', tags: Array.isArray(d.tags) ? d.tags : [] }),
         prepare: d => ({ ...d, content: editorRef.current ? editorRef.current.getHtml() : sanitizeEditorHtml(d.content) }),
-        validate: d => (String(d.title || '').trim() || String(d.content || '').replace(/<[^>]+>/g, '').trim() ? null : 'Add a title or some text first.'),
+        // a photo-only or checklist-only note is fine (as in the original app)
+        validate: d => (String(d.title || '').trim() || String(d.content || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim() || /<(img|table|hr)\b/i.test(String(d.content || ''))
+            ? null
+            : 'Add a title, some text or a photo first.'),
     });
     const { data: d, update } = form;
 

@@ -50,7 +50,6 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
         hydrate: d => ({ ...d, logoUrl: d.logoUrl || profile.logoUrl || '', coverage: d.coverage ?? '', conditions: d.conditions ?? '' }),
         validate: d => {
             if (!String(d.warrantyNumber || '').trim()) return 'Add a warranty number.';
-            if (!String(d.clientName || '').trim()) return 'Add who the warranty is issued to.';
             if (!isISODate(d.completedDate)) return 'Add the completion date.';
             return null;
         },

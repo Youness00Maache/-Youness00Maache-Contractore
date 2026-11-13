@@ -50,12 +50,8 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             themeColors: { ...DEFAULT_THEME },
         }),
         hydrate: d => backfillCompany({ ...d, hoursWorked: toNumber(d.hoursWorked), overtimeHours: toNumber(d.overtimeHours), notes: d.notes ?? '', status: d.status || 'Draft' }, profile),
-        validate: d => {
-            if (!String(d.workerName || '').trim()) return 'Add the worker’s name.';
-            if (!isISODate(d.date)) return 'Add a valid date.';
-            if (toNumber(d.hoursWorked) + toNumber(d.overtimeHours) > 24) return 'Total hours for one day can’t be more than 24.';
-            return null;
-        },
+        // Worker and hours are optional and uncapped (as in the original app): a sheet may cover a whole week or a crew.
+        validate: d => (isISODate(d.date) ? null : 'Add a valid date.'),
     });
     const { data: d, update } = form;
     const total = Math.round((toNumber(d.hoursWorked) + toNumber(d.overtimeHours)) * 100) / 100;
@@ -79,12 +75,12 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             onSaveAndDownload={form.saveAndDownload}
             preview={{ formType: FormType.TimeSheet, data: d, profile, job }}
         >
-            <FormSection title="Hours" description="Time worked on this job for one day." icon={ClockIcon}>
+            <FormSection title="Hours" description="Time worked on this job: one day, a week or any period." icon={ClockIcon}>
                 <FieldGrid>
                     <TextField label="Worker" value={d.workerName} onChange={v => update({ workerName: v })} autoComplete="name" />
-                    <DateField label="Date" value={d.date} onChange={v => update({ date: v })} />
-                    <NumberField label="Regular hours" value={d.hoursWorked} max={24} onValueChange={v => update({ hoursWorked: v })} suffix="h" />
-                    <NumberField label="Overtime hours" value={d.overtimeHours} max={24} onValueChange={v => update({ overtimeHours: v })} suffix="h" />
+                    <DateField label="Date" value={d.date} onChange={v => update({ date: v })} hint="For a weekly sheet, use the week’s first or last day." />
+                    <NumberField label="Regular hours" value={d.hoursWorked} onValueChange={v => update({ hoursWorked: v })} suffix="h" />
+                    <NumberField label="Overtime hours" value={d.overtimeHours} onValueChange={v => update({ overtimeHours: v })} suffix="h" />
                     <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.timeSheet} onChange={v => update({ status: v })} />
                     <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Framing crew – Monday" />
                 </FieldGrid>

@@ -232,6 +232,9 @@ export interface DailyJobReportData extends DocumentStyle {
   projectName: string;
   clientName: string;
   projectAddress: string;
+  /** people on site and total labor hours (optional "Crew on site" / "Labor hours" cards on the PDF) */
+  crewSize?: number;
+  laborHours?: number;
   tags?: string[];
   companyName?: string;
   companyAddress?: string;

@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { FormType, type InvoiceData, type Job, type UserProfile, type SavedItem, type InventoryItem, type Client } from '../types.ts';
 import { generateInvoicePDF } from '../services/pdfGenerator.ts';
 import { computeDocumentTotals, toNumber } from '../utils/money.ts';
-import { InvoiceIcon, ShareIcon, ClockIcon, CreditCardIcon, FileTextIcon, PercentIcon } from './Icons.tsx';
+import { InvoiceIcon, ClockIcon, CreditCardIcon, FileTextIcon, PercentIcon } from './Icons.tsx';
 import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, SelectField, Segmented, TextAreaField, TextField, Toggle } from './forms/Fields.tsx';
 import { AIInsightsSection, ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
@@ -146,9 +147,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
             actions={(
                 <>
                     <AIFillButton jobId={job.id} formType={FormType.Invoice} onApply={form.applyDraft} compact />
-                    <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => setShareOpen(true)}>
-                        <ShareIcon className="h-4 w-4" /> Share
-                    </button>
+                    <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
                 </>
             )}
         >

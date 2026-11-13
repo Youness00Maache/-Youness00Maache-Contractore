@@ -124,6 +124,19 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
             if (items.length) { next.lineItems = normalizeLineItems(items); found.push(`${items.length} item${items.length === 1 ? '' : 's'}`); }
             if (r.amount !== null) { next.amount = r.amount; found.push('total'); }
             if (r.notes && !prev.notes) next.notes = r.notes;
+            // the store's address/phone go in the notes (printed), never in "Your company" (that is the contractor)
+            const contact = [r.vendorAddress, r.vendorPhone].filter(Boolean).join(' · ');
+            if (contact && !String(next.notes || '').includes(contact)) {
+                next.notes = [next.notes, `${r.vendor || 'Vendor'}: ${contact}`].filter(Boolean).join('\n');
+                found.push('vendor address');
+            }
+            // "Bill to / Sold to / Customer" on the receipt fills the client, as in the original app
+            if (r.client) {
+                const known = clients.find(c => c.name.trim().toLowerCase() === r.client!.trim().toLowerCase());
+                next.clientName = known?.name || r.client;
+                next.clientId = known?.id;
+                found.push('client');
+            }
             if (!prev.title && r.vendor) next.title = `${r.vendor} receipt`;
             const vendor = r.vendor || '';
             if (FUEL.test(vendor)) next.category = 'Fuel';
@@ -180,7 +193,7 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
         >
             <FormSection
                 title="Scan a receipt"
-                description="Take or upload a photo and we’ll fill in the vendor, date, items, tax and total."
+                description="Take or upload a photo and we’ll fill in the vendor, date, items, tax, total and the customer printed on it."
                 icon={ScanIcon}
                 actions={(
                     <button type="button" className="btn btn-primary min-h-[40px]" onClick={() => uploadRef.current?.click()} disabled={scanning}>

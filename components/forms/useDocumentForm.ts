@@ -56,6 +56,12 @@ export interface DocumentFormApi<T extends object> {
     /** replace data without marking dirty (system changes) */
     replaceSilently: (next: T) => void;
     save: () => Promise<boolean>;
+    /**
+     * Saves first when needed (new document or unsaved edits), e.g. before sharing, like the original app.
+     * 'saved': the document is saved and up to date; 'invalid': a required field is missing (the message is shown);
+     * 'failed': the save did not go through (offline, plan limit, ...; the reason is shown).
+     */
+    ensureSaved: () => Promise<'saved' | 'invalid' | 'failed'>;
     download: () => Promise<boolean>;
     saveAndDownload: () => Promise<void>;
     setFeedback: (f: FormFeedback | null) => void;
@@ -112,6 +118,10 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     const [justSaved, setJustSaved] = useState(false);
     const [lastSaveResult, setLastSaveResult] = useState<DocumentFormApi<T>['lastSaveResult']>(null);
     const savingRef = useRef(false);
+    const savePromiseRef = useRef<Promise<boolean> | null>(null);
+    const dirtyRef = useRef(false);
+    dirtyRef.current = isDirty;
+    const savedOnceRef = useRef(false);
     const downloadingRef = useRef(false);
     const mountedRef = useRef(true);
     useEffect(() => {
@@ -122,7 +132,10 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     const commit = useCallback((next: T, dirty: boolean) => {
         dataRef.current = next;
         setDataState(next);
-        if (dirty) setDirty(true);
+        if (dirty) {
+            dirtyRef.current = true;
+            setDirty(true);
+        }
     }, []);
 
     const update = useCallback((patch: Partial<T> | ((prev: T) => T)) => {
@@ -192,7 +205,8 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     };
 
     const save = useCallback(async (): Promise<boolean> => {
-        if (savingRef.current) return false;
+        // a save already running (auto-save, double click) is shared instead of being dropped
+        if (savingRef.current && savePromiseRef.current) return savePromiseRef.current;
         const before = dataRef.current;
         const payload = prepared();
         const problem = optsRef.current.validate?.(payload) || null;
@@ -203,25 +217,44 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         savingRef.current = true;
         setSaving(true);
         setFeedback(null);
-        try {
-            const result = await optsRef.current.onSave(payload);
-            if (result === false) throw new Error('Your changes were not saved. Please try again.');
-            markDraftConsumed(draftKeyRef.current);
-            if (mountedRef.current) {
-                if (result && typeof result === 'object') setLastSaveResult(result);
-                // edits typed while the save was running stay "unsaved"
-                setDirty(dataRef.current !== before);
-                setJustSaved(true);
+        const run = async (): Promise<boolean> => {
+            try {
+                const result = await optsRef.current.onSave(payload);
+                if (result === false) throw new Error('Your changes were not saved. Please try again.');
+                markDraftConsumed(draftKeyRef.current);
+                savedOnceRef.current = true;
+                const stillDirty = dataRef.current !== before; // edits typed while the save was running stay "unsaved"
+                dirtyRef.current = stillDirty;
+                if (mountedRef.current) {
+                    if (result && typeof result === 'object') setLastSaveResult(result);
+                    setDirty(stillDirty);
+                    setJustSaved(true);
+                }
+                return true;
+            } catch (e) {
+                if (mountedRef.current) setFeedback({ tone: 'error', message: errorMessage(e, 'Could not save. Please try again.') });
+                return false;
+            } finally {
+                savingRef.current = false;
+                savePromiseRef.current = null;
+                if (mountedRef.current) setSaving(false);
             }
-            return true;
-        } catch (e) {
-            if (mountedRef.current) setFeedback({ tone: 'error', message: errorMessage(e, 'Could not save. Please try again.') });
-            return false;
-        } finally {
-            savingRef.current = false;
-            if (mountedRef.current) setSaving(false);
-        }
+        };
+        const pending = run();
+        savePromiseRef.current = pending;
+        return pending;
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const ensureSaved = useCallback(async (): Promise<'saved' | 'invalid' | 'failed'> => {
+        if (savingRef.current && savePromiseRef.current) await savePromiseRef.current;
+        const persisted = !isNew || savedOnceRef.current;
+        if (persisted && !dirtyRef.current) return 'saved';
+        if (optsRef.current.validate?.(prepared())) {
+            await save(); // shows the validation message
+            return 'invalid';
+        }
+        return (await save()) ? 'saved' : 'failed';
+    }, [isNew, save]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const download = useCallback(async (): Promise<boolean> => {
         if (downloadingRef.current) return false;
@@ -301,12 +334,30 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         setField,
         replaceSilently,
         save,
+        ensureSaved,
         download,
         saveAndDownload,
         setFeedback,
         applyDraft,
         lastSaveResult,
     };
+}
+
+/**
+ * A new, unsigned document follows the profile logo when it arrives or changes while the form is open (as the
+ * original Daily Report did). A logo the user picked for this document is never replaced.
+ */
+export function useProfileLogoSync<T extends { logoUrl?: string; signatureUrl?: string }>(form: DocumentFormApi<T>, profileLogo: string | null | undefined) {
+    const lastProfileLogo = useRef(profileLogo || '');
+    useEffect(() => {
+        const next = profileLogo || '';
+        const prev = lastProfileLogo.current;
+        lastProfileLogo.current = next;
+        if (!form.isNew || !next || next === prev || form.data.signatureUrl) return;
+        const current = form.data.logoUrl || '';
+        if (current && current !== prev) return;
+        form.replaceSilently({ ...form.data, logoUrl: next });
+    }, [profileLogo]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** Fills empty company/branding fields of a saved document from the profile (never overwrites). */

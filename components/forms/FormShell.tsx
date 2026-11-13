@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import type { FormType, Job, UserProfile } from '../../types.ts';
 import { cn } from '../../lib/utils.ts';
-import { BackArrowIcon, CheckCircleIcon, AlertTriangleIcon, SparklesIcon, XCircleIcon, DownloadIcon, SaveIcon } from '../Icons.tsx';
+import { BackArrowIcon, CheckCircleIcon, AlertTriangleIcon, SparklesIcon, XCircleIcon, DownloadIcon, SaveIcon, ChevronDownIcon } from '../Icons.tsx';
+import { DropdownItem, DropdownMenu } from '../ui/DropdownMenu.tsx';
 import type { FormFeedback } from './useDocumentForm.ts';
 import { Spinner } from './Spinner.tsx';
 import { DocumentPreviewModal, PreviewButton } from './DocumentPreview.tsx';
@@ -87,6 +88,21 @@ export const FeedbackBanner: React.FC<{ feedback: FormFeedback | null; onDismiss
         </div>
     );
 };
+
+/** "More save options" menu next to Save: keeps Save & download reachable where there is no room for its own button. */
+const SaveOptionsMenu: React.FC<{ onSaveAndDownload: () => void; disabled: boolean; side: 'top' | 'bottom'; size: string }> = ({
+    onSaveAndDownload, disabled, side, size,
+}) => (
+    <DropdownMenu
+        asButton
+        side={side}
+        align="right"
+        label="More save options"
+        trigger={<span className={cn('btn btn-outline p-0', size)}><ChevronDownIcon className={cn('h-4 w-4', side === 'top' && 'rotate-180')} /></span>}
+    >
+        <DropdownItem onClick={onSaveAndDownload} disabled={disabled}><DownloadIcon className="h-4 w-4" /> Save &amp; download PDF</DropdownItem>
+    </DropdownMenu>
+);
 
 export interface FormShellProps {
     title: string;
@@ -186,6 +202,11 @@ export const FormShell: React.FC<FormShellProps> = ({
                             </button>
                         )}
                         <button type="button" className="btn btn-primary min-w-[96px]" onClick={onSave} disabled={busy}>{saveButtonContent}</button>
+                        {onSaveAndDownload && (
+                            <div className="xl:hidden">
+                                <SaveOptionsMenu onSaveAndDownload={onSaveAndDownload} disabled={busy} side="bottom" size="h-10 w-10" />
+                            </div>
+                        )}
                     </div>
                 </div>
                 {hasSecondary && (
@@ -207,6 +228,9 @@ export const FormShell: React.FC<FormShellProps> = ({
                 <div className="flex gap-2">
                     <button type="button" className="btn btn-outline h-11 flex-1" onClick={onDownload} disabled={busy}>{downloadButtonContent}</button>
                     <button type="button" className="btn btn-primary h-11 flex-[1.6]" onClick={onSave} disabled={busy}>{saveButtonContent}</button>
+                    {onSaveAndDownload && (
+                        <SaveOptionsMenu onSaveAndDownload={onSaveAndDownload} disabled={busy} side="top" size="h-11 w-11" />
+                    )}
                 </div>
             </div>
 

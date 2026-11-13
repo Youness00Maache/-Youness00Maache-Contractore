@@ -248,6 +248,152 @@ export const sanitizeEditorHtml = (value: unknown): string => {
     return hasDom ? domSanitize(html) : basicSanitizeHtml(html);
 };
 
+// ---------------------------------------------------------------------------
+// clean paste (Word, Google Docs, web pages)
+// ---------------------------------------------------------------------------
+const PASTE_KEEP = new Set([
+    'p', 'h1', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'blockquote', 'pre', 'code',
+    'br', 'hr', 'a', 'img', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'sub', 'sup', 'mark',
+]);
+const PASTE_RENAME: Record<string, string> = { h5: 'h4', h6: 'h4', del: 's', ins: 'u', cite: 'em', dfn: 'em', var: 'em', kbd: 'code', samp: 'code', tt: 'code' };
+const PASTE_BLOCKS = 'p,h1,h2,h3,h4,h5,h6,ul,ol,li,table,blockquote,pre,div,section,article,header,footer';
+const ALIGN_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'li', 'td', 'th']);
+
+/** Office/Docs junk removed before parsing: conditional comments, XML islands, <o:p>, styles, metadata. */
+const stripOfficeMarkup = (html: string): string =>
+    html
+        .replace(/<!--\[if[\s\S]*?<!\[endif\]-->/gi, '')
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<(style|xml|script|head|title)\b[\s\S]*?<\/\1\s*>/gi, '')
+        .replace(/<\/?(meta|link|html|body)\b[^>]*>/gi, '')
+        .replace(/<\/?[a-z]+:[a-z]+\b[^>]*>/gi, ''); // <o:p>, <w:sdt>, <v:shape> ...
+
+const domCleanPaste = (html: string): string => {
+    const doc = new DOMParser().parseFromString(`<div>${stripOfficeMarkup(html)}</div>`, 'text/html');
+    const root = doc.body.firstElementChild as HTMLElement | null;
+    if (!root) return '';
+    const unwrap = (el: Element) => el.replaceWith(...Array.from(el.childNodes));
+    const styleOf = (el: Element) => (el.getAttribute('style') || '').toLowerCase();
+    // a real CSS property, not Word's mso-bidi-font-weight & co.
+    const css = (style: string, prop: string, value: RegExp) => new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*${value.source}`).test(style);
+
+    // comments (Word's <![if !supportLists]> become comment nodes)
+    const comments = doc.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    const toRemove: Node[] = [];
+    for (let c = comments.nextNode(); c; c = comments.nextNode()) toRemove.push(c);
+    toRemove.forEach(c => c.parentNode?.removeChild(c));
+
+    // Google Docs wraps everything in <b id="docs-internal-guid-…" style="font-weight:normal">
+    root.querySelectorAll('b, strong').forEach(b => {
+        if ((b.id || '').startsWith('docs-internal-guid') || css(styleOf(b), 'font-weight', /(normal|[1-5]00)\b/)) unwrap(b);
+    });
+
+    // Word lists are paragraphs with mso-list styles and a typed bullet/number in an "Ignore" span: rebuild real lists.
+    const wordItems = Array.from(root.querySelectorAll('p')).filter(p => /mso-list\s*:/.test(styleOf(p)) || /MsoListParagraph/i.test(p.className));
+    let currentList: HTMLElement | null = null;
+    let lastItem: Element | null = null;
+    for (const p of wordItems) {
+        const marker = Array.from(p.querySelectorAll('span')).find(s => /mso-list\s*:\s*ignore/.test(styleOf(s)));
+        const markerText = (marker?.textContent || '').trim();
+        marker?.remove();
+        const ordered = /^\(?[0-9a-z]{1,4}[.)]/i.test(markerText);
+        const contiguous = lastItem && currentList && p.previousElementSibling === lastItem;
+        if (!contiguous || !currentList || (currentList.tagName === 'OL') !== ordered) {
+            currentList = doc.createElement(ordered ? 'ol' : 'ul');
+            p.before(currentList);
+        }
+        const li = doc.createElement('li');
+        li.append(...Array.from(p.childNodes));
+        currentList.append(li);
+        lastItem = p;
+        // keep the empty <p> as a position marker for the contiguity check, removed below
+        p.setAttribute('data-word-li', '1');
+    }
+    root.querySelectorAll('p[data-word-li]').forEach(p => p.remove());
+
+    const walk = (node: Element) => {
+        for (const child of Array.from(node.children)) {
+            const tag = child.tagName.toLowerCase();
+            if (DROP_WITH_CONTENT.has(tag)) { child.remove(); continue; }
+            walk(child);
+            const style = styleOf(child);
+            if (PASTE_RENAME[tag]) {
+                const renamed = doc.createElement(PASTE_RENAME[tag]);
+                renamed.append(...Array.from(child.childNodes));
+                child.replaceWith(renamed);
+                continue;
+            }
+            if (!PASTE_KEEP.has(tag)) {
+                // inline formatting expressed as CSS (Google Docs, web pages) becomes real tags
+                let inner: Node[] = Array.from(child.childNodes);
+                const wrapWith = (t: string) => { const w = doc.createElement(t); w.append(...inner); inner = [w]; };
+                if (css(style, 'font-weight', /(bold|bolder|[6-9]00)\b/)) wrapWith('strong');
+                if (css(style, 'font-style', /italic/)) wrapWith('em');
+                if (css(style, 'text-decoration(?:-line)?', /[^;]*underline/)) wrapWith('u');
+                if (css(style, 'text-decoration(?:-line)?', /[^;]*line-through/)) wrapWith('s');
+                if ((tag === 'div' || tag === 'section' || tag === 'article') && !child.querySelector(PASTE_BLOCKS)) {
+                    const p = doc.createElement('p');
+                    p.append(...inner);
+                    child.replaceWith(p);
+                } else {
+                    child.replaceWith(...inner);
+                }
+                continue;
+            }
+            const align = (style.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right|justify)/) || [])[1];
+            for (const a of Array.from(child.attributes)) {
+                const name = a.name.toLowerCase();
+                const v = a.value.trim();
+                const keep =
+                    (name === 'href' && tag === 'a' && /^(https?:|mailto:|tel:)/i.test(v)) ||
+                    (name === 'src' && tag === 'img' && (/^https?:\/\//i.test(v) || /^data:image\/(png|jpe?g|gif|webp);base64,/i.test(v))) ||
+                    (name === 'alt' && tag === 'img') ||
+                    ((name === 'colspan' || name === 'rowspan') && /^\d{1,2}$/.test(v));
+                if (!keep) child.removeAttribute(a.name);
+            }
+            if (tag === 'img' && !child.getAttribute('src')) { child.remove(); continue; }
+            if (tag === 'img') child.setAttribute('style', 'max-width:100%;height:auto');
+            if (tag === 'a') { child.setAttribute('target', '_blank'); child.setAttribute('rel', 'noopener noreferrer'); }
+            if (tag === 'a' && !child.getAttribute('href')) { unwrap(child); continue; }
+            if (align && align !== 'left' && ALIGN_TAGS.has(tag)) child.setAttribute('style', `text-align:${align}`);
+            if (tag === 'table') child.setAttribute('style', 'border-collapse:collapse;width:100%');
+        }
+    };
+    walk(root);
+
+    // Google Docs puts a <p> inside every list item: keep the text only
+    root.querySelectorAll('li').forEach(li => {
+        const only = li.children.length === 1 ? li.firstElementChild : null;
+        if (only && only.tagName === 'P' && !Array.from(li.childNodes).some(n => n.nodeType === 3 && (n.textContent || '').trim())) unwrap(only);
+    });
+    // drop empty inline wrappers and collapse runs of blank paragraphs (Word adds one per line break)
+    root.querySelectorAll('strong,b,em,i,u,s,strike,mark,sub,sup,code').forEach(el => { if (!el.textContent && !el.querySelector('img,br')) el.remove(); });
+    let blank = 0;
+    for (const p of Array.from(root.children)) {
+        const empty = p.tagName === 'P' && !(p.textContent || '').replace(/\u00a0/g, ' ').trim() && !p.querySelector('img');
+        blank = empty ? blank + 1 : 0;
+        if (empty && blank > 1) p.remove();
+    }
+    return root.innerHTML.trim();
+};
+
+/**
+ * Cleans HTML pasted from Word, Google Docs or web pages: keeps headings, paragraphs, lists, tables, links, images
+ * and bold/italic/underline/strikethrough; drops fonts, colors, sizes, classes, Office markup and anything unsafe.
+ * The result always goes through `sanitizeEditorHtml`.
+ */
+export const cleanPastedHtml = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    const html = String(value);
+    const hasDom = typeof window !== 'undefined' && typeof DOMParser !== 'undefined';
+    if (hasDom) return sanitizeEditorHtml(domCleanPaste(html));
+    return basicSanitizeHtml(
+        stripOfficeMarkup(html)
+            .replace(/<\/?(span|font|div|section|article|o:p)\b[^>]*>/gi, '')
+            .replace(/\s(class|style|id|lang|dir|face|size|color)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ''),
+    ).trim();
+};
+
 /** Plain text → minimal safe HTML for the rich editors. */
 export const plainTextToHtml = (value: string): string =>
     value

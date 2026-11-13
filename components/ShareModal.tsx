@@ -71,10 +71,17 @@ const dataUriToFile = (uri: string, name: string): File | null => {
     return new File([bytes], name, { type: m[1] || 'application/pdf' });
 };
 
+/** One or more comma/semicolon-separated addresses, each `name@domain`. */
+const isEmailList = (value: string) => {
+    const parts = value.split(/[;,]/).map(s => s.trim()).filter(Boolean);
+    return parts.length > 0 && parts.every(p => /^[^\s@?&,;]+@[^\s@?&,;]+\.[^\s@?&,;]+$/.test(p));
+};
+
 const ShareModal: React.FC<ShareModalProps> = ({
     isOpen, onClose, data, docType, profile, documentId, publicToken, clients = [], job, hasUnsavedChanges, onDownload, getPdfDataUri,
 }) => {
     const navigate = useNavigate();
+    const [recipient, setRecipient] = useState('');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
     const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -85,6 +92,16 @@ const ShareModal: React.FC<ShareModalProps> = ({
         const name = String(data?.clientName || '').trim().toLowerCase();
         return clients.find(c => c.id === id) || clients.find(c => name && c.name.trim().toLowerCase() === name) || null;
     }, [clients, data?.clientId, data?.clientName]);
+
+    // "To" box (as in the original app), prefilled with the client's saved email; typing keeps the user's address
+    const [recipientEdited, setRecipientEdited] = useState(false);
+    useEffect(() => {
+        if (!isOpen) { setRecipientEdited(false); return; }
+        if (!recipientEdited) setRecipient(client?.email?.trim() || '');
+    }, [isOpen, client?.email]); // eslint-disable-line react-hooks/exhaustive-deps
+    const recipientTrimmed = recipient.trim();
+    const recipientValid = !recipientTrimmed || isEmailList(recipientTrimmed);
+    const mailtoTo = recipientTrimmed && recipientValid ? recipientTrimmed.split(/[;,]/).map(s => s.trim()).filter(Boolean).join(',') : '';
 
     const canApprove = /^(estimate|change order)$/i.test(docType);
     const [portalLink, setPortalLink] = useState('');
@@ -173,6 +190,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                     documentType: docType,
                     clientId: client?.id,
                     clientEmail: client?.email,
+                    ...(mailtoTo ? { recipient: mailtoTo } : {}),
                     clientName: data?.clientName || client?.name,
                     subject,
                     body,
@@ -264,6 +282,26 @@ const ShareModal: React.FC<ShareModalProps> = ({
 
                     <div className="space-y-3">
                         <div>
+                            <label className="label" htmlFor="share-to">To</label>
+                            <input
+                                id="share-to"
+                                type="text"
+                                inputMode="email"
+                                autoComplete="email"
+                                autoCapitalize="off"
+                                spellCheck={false}
+                                className={`input ${recipientValid ? '' : 'border-destructive'}`}
+                                value={recipient}
+                                onChange={e => { setRecipient(e.target.value); setRecipientEdited(true); }}
+                                placeholder="client@example.com"
+                            />
+                            {!recipientValid ? (
+                                <p className="mt-1.5 text-xs font-medium text-destructive">Check the email address (separate several with a comma).</p>
+                            ) : !recipientTrimmed && (
+                                <p className="mt-1.5 text-xs text-muted-foreground">{client ? `${client.name} has no saved email.` : 'Type the email address to send to.'}</p>
+                            )}
+                        </div>
+                        <div>
                             <label className="label" htmlFor="share-subject">Subject</label>
                             <input id="share-subject" className="input" value={subject} onChange={e => setSubject(e.target.value)} />
                         </div>
@@ -280,7 +318,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                     </button>
                     <a
                         className="btn btn-secondary"
-                        href={`mailto:${/^[^\s@?&]+@[^\s@?&]+$/.test(client?.email || '') ? client!.email : ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+                        href={`mailto:${mailtoTo.split(',').map(encodeURIComponent).join(',').replace(/%40/g, '@')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
                     >
                         <MailIcon className="h-4 w-4" /> Open email app
                     </a>

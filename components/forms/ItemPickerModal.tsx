@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { InventoryItem, SavedItem } from '../../types.ts';
 import { cn } from '../../lib/utils.ts';
 import { formatMoney, toNumber } from '../../utils/money.ts';
-import { BoxIcon, SearchIcon, TagIcon, XCircleIcon } from '../Icons.tsx';
+import { BoxIcon, ExternalLinkIcon, SearchIcon, TagIcon, XCircleIcon } from '../Icons.tsx';
 
 interface ItemPickerModalProps {
     open: boolean;
@@ -75,7 +75,15 @@ const ItemPickerModal: React.FC<ItemPickerModalProps> = ({
                 <div className="flex-1 space-y-2 overflow-y-auto px-5 py-3">
                     {tab === 'pricebook' ? (
                         saved.length === 0 ? (
-                            <EmptyState icon={TagIcon} text={savedItems.length ? 'No items match your search.' : 'Your price book is empty. Save a line with the bookmark button, or add items from Price Book.'} />
+                            savedItems.length
+                                ? <EmptyState icon={TagIcon} text="No items match your search." />
+                                : (
+                                    <EmptyState
+                                        icon={TagIcon}
+                                        text="Your price book is empty. Save any line with the save button next to it, or add your services and materials in the Price Book. Then pick them here with their prices."
+                                        action={{ href: '/pricebook', label: 'Open Price Book' }}
+                                    />
+                                )
                         ) : saved.map(item => (
                             <button key={item.id} type="button" onClick={() => onPickSaved(item)} className="w-full rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent">
                                 <div className="flex items-start justify-between gap-3">
@@ -88,7 +96,9 @@ const ItemPickerModal: React.FC<ItemPickerModalProps> = ({
                             </button>
                         ))
                     ) : inventory.length === 0 ? (
-                        <EmptyState icon={BoxIcon} text={inventoryItems.length ? 'No items match your search.' : 'No inventory items yet. Add them from Inventory.'} />
+                        inventoryItems.length
+                            ? <EmptyState icon={BoxIcon} text="No items match your search." />
+                            : <EmptyState icon={BoxIcon} text="No inventory items yet. Add your stock in Inventory to pick it here and track quantities." action={{ href: '/inventory', label: 'Open Inventory' }} />
                     ) : inventory.map(item => {
                         const stock = toNumber(item.quantity);
                         const out = stock <= 0;
@@ -116,10 +126,17 @@ const ItemPickerModal: React.FC<ItemPickerModalProps> = ({
     );
 };
 
-const EmptyState: React.FC<{ icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; text: string }> = ({ icon: Icon, text }) => (
+/** `action` opens in a new tab so the document being edited (and its unsaved changes) stays open. */
+const EmptyState: React.FC<{ icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; text: string; action?: { href: string; label: string } }> = ({ icon: Icon, text, action }) => (
     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground"><Icon className="h-6 w-6" /></div>
         <p className="max-w-xs text-sm text-muted-foreground">{text}</p>
+        {action && (
+            <a href={action.href} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm min-h-[40px]">
+                <ExternalLinkIcon className="h-4 w-4" /> {action.label}
+            </a>
+        )}
+        {action && <p className="max-w-xs text-xs text-muted-foreground">Opens in a new tab, so this document stays open. Reopen the document to see new items.</p>}
     </div>
 );
 
