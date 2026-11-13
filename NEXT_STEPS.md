@@ -143,6 +143,12 @@ photos, profit calculator saving across logout.
 **19:05 helpers for 0d:** AI quality+UI a5ff00bb5da18ddcd (0d.1-4 + AI field list); UI polish ad82842e81aea70d2
 (0d.5-8); advanced calculator + tutorials a05bd498c73326970 (0d.9-10). Parity audit v2 ae60c2aa3fda85201 still running
 (→ docs/work/PARITY_V2.md, then implement).
+**19:45 production review v2 DONE** → docs/work/PARITY_V2.md (top 15 + smaller items). Real portal bug (verified on
+b@b.com data): documents of jobs whose client was only typed (e.g. "QA Client") belong to no client record, and the
+name matcher is exact/case-sensitive. Owner: Drafts may stay hidden; Sent/Accepted/Paid must show. APPROVED: DB change
+for portal & approval rules (migration 0600, to write+apply). NOT approved: backfilling old jobs to clients.
+Helpers: portal/approval/temporary clients abdb2d533f6fc5933; data fidelity (PARITY_V2 6,7,8,10,11,12,13,14)
+a13b8163ce3a8d37f. Calculator helper told: old Advanced mode = target margin + tax (default 20%).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
