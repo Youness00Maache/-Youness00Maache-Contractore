@@ -86,9 +86,10 @@ export const FIELD_CASES: FieldCase[] = [
       data: {
         ...company, ...c.data, ...t.data,
         invoiceNumber: 'INVNO-Q3', status: 'Overdue', issueDate: '2031-01-11', dueDate: '2031-02-22',
-        lineItems: [line(4, 3, 111.11)], discount: 12.34, taxRate: 8.25, shipping: 45.67,
+        lineItems: [line(4, 3, 111.11)], discount: 12.34, taxRate: 8.25, shipping: 45.67, amountPaid: 100,
         paypalLink: 'https://pay.example.com/q5', recurrence: { enabled: true, frequency: 'Quarterly', nextRunDate: '2031-04-11' },
         notes: 'NOTES-Q6 for the client', signatureUrl: SAMPLE_SIGNATURE, templateId: 'classic',
+        sourceEstimateId: 'est-1', sourceEstimateNumber: 'SRCEST-Q11',
       },
       expect: [
         ...companyExpect, ...c.expect, ...t.expect,
@@ -104,6 +105,11 @@ export const FIELD_CASES: FieldCase[] = [
         { field: 'discount', text: negMoney(12.34), slot: 'totals', label: 'Discount' },
         { field: 'taxRate', text: usd(26.48), slot: 'totals', label: 'Tax (8.25%)' },
         { field: 'shipping', text: usd(45.67), slot: 'totals', label: 'Shipping' },
+        // 333.33 - 12.34 + 8.25% tax (26.48) + 45.67 = 393.14; deposit 100 -> balance 293.14
+        { field: 'total', text: usd(393.14), slot: 'totals', label: 'Total' },
+        { field: 'amountPaid (deposit)', text: negMoney(100), slot: 'totals', label: 'Amount paid' },
+        { field: 'balance due', text: usd(293.14), slot: 'totals', label: 'Balance due', alsoUnder: ['Amount due'] },
+        { field: 'sourceEstimateNumber (converted from an estimate)', text: 'SRCEST-Q11', slot: 'meta', label: 'From estimate' },
         { field: 'paypalLink', text: 'https://pay.example.com/q5', slot: 'url' },
         { field: 'notes', text: 'NOTES-Q6 for the client', slot: 'section', label: 'Notes' },
         sigExpect('Authorized signature'),
@@ -119,7 +125,7 @@ export const FIELD_CASES: FieldCase[] = [
       data: {
         ...company, ...c.data, ...t.data,
         estimateNumber: 'ESTNO-Q3', status: 'Accepted', issueDate: '2031-03-03', expiryDate: '2031-04-14',
-        lineItems: [{ ...line(4, 2, 250.5), unitCost: 9876.54 }],
+        lineItems: [{ ...line(4, 2, 250.5), unitCost: 9876.54 }], discount: 21.5, taxRate: 7.5,
         notes: 'NOTES-Q6 estimate', terms: 'TERMS-Q7 estimate', signatureUrl: SAMPLE_SIGNATURE,
         clientSignatureUrl: SAMPLE_CLIENT_SIGNATURE, clientSignedAt: '2031-03-05T10:30:00', clientSignedBy: 'SIGNEDBY-Q8',
       },
@@ -130,6 +136,10 @@ export const FIELD_CASES: FieldCase[] = [
         { field: 'issueDate', text: fd('2031-03-03'), slot: 'meta', label: 'Estimate date' },
         { field: 'expiryDate', text: fd('2031-04-14'), slot: 'meta', label: 'Valid until' },
         { field: 'lineItems[].description', text: 'LINEDESC-Q4', slot: 'items' },
+        // 501.00 - 21.50 = 479.50; tax 7.5% = 35.96 (35.9625); total 515.46
+        { field: 'discount', text: negMoney(21.5), slot: 'totals', label: 'Discount' },
+        { field: 'taxRate', text: usd(35.96), slot: 'totals', label: 'Tax (7.5%)' },
+        { field: 'estimate total (with tax and discount)', text: usd(515.46), slot: 'totals', label: 'Estimate total' },
         { field: 'notes', text: 'NOTES-Q6 estimate', slot: 'section', label: 'Notes' },
         { field: 'terms', text: 'TERMS-Q7 estimate', slot: 'section', label: 'Terms & conditions' },
         sigExpect('Authorized signature'),
@@ -146,7 +156,7 @@ export const FIELD_CASES: FieldCase[] = [
       kind: 'workOrder', type: FormType.WorkOrder, job: JOB,
       data: {
         ...company, ...c.data, ...t.data,
-        workOrderNumber: 'WONO-Q3', status: 'On Hold', date: '2031-05-05',
+        workOrderNumber: 'WONO-Q3', status: 'On Hold', date: '2031-05-05', assignedTo: 'ASSIGNEE-Q8',
         description: 'SCOPE-Q4 replace the unit', materialsUsed: 'MATERIALS-Q5 copper', hours: 7.25, cost: 4321.09,
         terms: 'TERMS-Q7 work order', signatureUrl: SAMPLE_SIGNATURE,
       },
@@ -155,6 +165,7 @@ export const FIELD_CASES: FieldCase[] = [
         { field: 'workOrderNumber', text: 'WONO-Q3', slot: 'number' },
         { field: 'status', text: 'On Hold', slot: 'status' },
         { field: 'date', text: fd('2031-05-05'), slot: 'meta', label: 'Date' },
+        { field: 'assignedTo', text: 'ASSIGNEE-Q8', slot: 'meta', label: 'Assigned to' },
         { field: 'description', text: 'SCOPE-Q4 replace the unit', slot: 'section', label: 'Scope of work' },
         { field: 'materialsUsed', text: 'MATERIALS-Q5 copper', slot: 'section', label: 'Materials used' },
         { field: 'hours', text: '7.25 h', slot: 'fact', label: 'Labor hours' },
@@ -308,6 +319,7 @@ export const FIELD_CASES: FieldCase[] = [
       data: {
         ...company, ...c.data, ...t.data,
         receiptNumber: 'RECNO-Q3', date: '2031-11-11', amount: 777.77, paymentMethod: 'PAYMETHOD-Q4', description: 'FOR-Q5 deposit',
+        invoiceId: 'inv-1', invoiceNumber: 'FORINV-Q6',
         signatureUrl: SAMPLE_SIGNATURE,
       },
       expect: [
@@ -316,6 +328,7 @@ export const FIELD_CASES: FieldCase[] = [
         { field: 'date', text: fd('2031-11-11'), slot: 'meta', label: 'Date received', alsoUnder: ['Received from'] },
         { field: 'paymentMethod', text: 'PAYMETHOD-Q4', slot: 'meta', label: 'Payment method', alsoUnder: ['Received from'] },
         { field: 'description', text: 'FOR-Q5 deposit', slot: 'items' },
+        { field: 'invoiceNumber ("For invoice" picker)', text: '#FORINV-Q6', slot: 'meta', label: 'For invoice', alsoUnder: ['Received from'] },
         { field: 'amount', text: usd(777.77), slot: 'totals', label: 'Total received', alsoUnder: ['Amount received', 'Received from', 'Amount'] },
         sigExpect('Received by'),
       ],
@@ -329,13 +342,14 @@ export const FIELD_CASES: FieldCase[] = [
       kind: 'changeOrder', type: FormType.ChangeOrder, job: JOB,
       data: {
         ...company, ...c.data, ...t.data,
-        changeOrderNumber: 'CONO-Q3', date: '2031-12-12', reason: 'REASON-Q4 client request', description: 'CHANGEDESC-Q5 add outlet',
+        changeOrderNumber: 'CONO-Q3', status: 'Accepted', date: '2031-12-12', reason: 'REASON-Q4 client request', description: 'CHANGEDESC-Q5 add outlet',
         currentContractSum: 25000, lineItems: [line(6, 1, 1500)], terms: 'TERMS-Q7 change',
         signatureUrl: SAMPLE_SIGNATURE, clientSignatureUrl: SAMPLE_CLIENT_SIGNATURE, clientSignedAt: '2031-12-13T09:00:00', clientSignedBy: 'SIGNEDBY-Q8',
       },
       expect: [
         ...companyExpect, ...c.expect, ...t.expect,
         { field: 'changeOrderNumber', text: 'CONO-Q3', slot: 'number' },
+        { field: 'status (Accepted by the approval link -> Approved)', text: 'Approved', slot: 'status' },
         { field: 'date', text: fd('2031-12-12'), slot: 'meta', label: 'Date' },
         { field: 'reason', text: 'REASON-Q4 client request', slot: 'meta', label: 'Reason' },
         { field: 'description', text: 'CHANGEDESC-Q5 add outlet', slot: 'section', label: 'Description of change' },
@@ -414,6 +428,28 @@ FIELD_CASES.push(
       { field: 'lineItems[].previouslyBilled', text: usd(3000), slot: 'items', alsoUnder: ['Previously billed'] },
       { field: 'progress amount (this period)', text: usd(5000), slot: 'totals', label: 'Total', alsoUnder: ['This period', 'Subtotal', 'This invoice', 'Amount due', 'Progress billing summary'] },
       { field: 'progress summary', text: 'Total contract value', slot: 'section', label: 'Progress billing summary' },
+    ],
+    absent: noJobClient,
+  },
+  {
+    // half-up rounding (QA 0b.18): 50% of $99.99 = 49.995, minus $20 billed before = $30.00 (not $29.99)
+    kind: 'invoice', type: FormType.Invoice, job: JOB,
+    data: {
+      ...company, clientName: 'CLIENTNAME-Q2', clientAddress: 'CLIENTADDR-Q2 Street', invoiceNumber: 'INVNO-R3', issueDate: '2031-01-11', isProgressBilling: true,
+      lineItems: [{ id: 'r1', description: 'PHASEDESC-R4', quantity: 1, rate: 99.99, percentComplete: 50, previouslyBilled: 20 }],
+    },
+    expect: [
+      { field: 'progress amount rounded half-up', text: usd(30), slot: 'totals', label: 'Total', alsoUnder: ['This period', 'Subtotal', 'This invoice', 'Amount due', 'Progress billing summary'] },
+    ],
+    absent: [...noJobClient, { field: 'progress amount rounded down', text: usd(29.99) }],
+  },
+  {
+    // a change order with a credit line and a status that is not printed (Draft / Sent)
+    kind: 'changeOrder', type: FormType.ChangeOrder, job: JOB,
+    data: { ...company, clientName: 'CLIENTNAME-Q2', changeOrderNumber: 'CONO-P3', status: 'Sent', currentContractSum: 1000, lineItems: [line(9, 1, -250)] },
+    expect: [
+      { field: 'currentContractSum', text: usd(1000), slot: 'totals', label: 'Current contract value' },
+      { field: 'new contract total after a credit', text: usd(750), slot: 'totals', label: 'New contract total' },
     ],
     absent: noJobClient,
   },

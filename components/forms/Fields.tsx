@@ -167,12 +167,22 @@ export interface NumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInp
     suffix?: string;
 }
 
+/**
+ * Typed values above `max` (e.g. 150 in a "% done" box) are clamped right away, and a short message under the box
+ * says so, so the screen never shows a number that is not the one used in the totals.
+ */
 export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(({
     value, onValueChange, min = 0, max, decimals, allowNegative = false, prefix, suffix, className, onBlur, onFocus, ...rest
 }, ref) => {
     const numeric = toNumber(value);
     const [text, setText] = useState(() => (value === null || value === undefined || value === '' ? '' : formatNumber(numeric, decimals)));
+    const [limitNote, setLimitNote] = useState('');
     const focused = useRef(false);
+    useEffect(() => {
+        if (!limitNote) return;
+        const t = setTimeout(() => setLimitNote(''), 4000);
+        return () => clearTimeout(t);
+    }, [limitNote]);
 
     // follow external changes (AI prefill, picker) while not typing
     useEffect(() => {
@@ -199,9 +209,17 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         const parts = raw.split('.');
         if (parts.length > 2) raw = `${parts[0]}.${parts.slice(1).join('')}`;
         if (allowNegative) raw = raw.replace(/(?!^)-/g, '');
-        setText(raw);
         const parsed = raw === '' || raw === '-' || raw === '.' ? 0 : toNumber(raw);
-        onValueChange(clampValue(parsed));
+        const clamped = clampValue(parsed);
+        if (max !== undefined && parsed > max) {
+            // e.g. 150 typed in a 0–100 % box: show (and use) 100, and say why
+            setText(formatNumber(clamped, decimals));
+            setLimitNote(`Maximum is ${formatNumber(max, decimals)}${suffix ?? ''}. Set to ${formatNumber(max, decimals)}${suffix ?? ''}.`);
+        } else {
+            setText(raw);
+            if (limitNote) setLimitNote('');
+        }
+        onValueChange(clamped);
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
@@ -227,12 +245,18 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
             {...rest}
         />
     );
-    if (!prefix && !suffix) return input;
+    const note = limitNote ? <p role="status" className="mt-1 text-xs font-medium text-warning">{limitNote}</p> : null;
+    // the element tree never changes while typing (a remount would drop the focus): boxes with a maximum always
+    // have the wrapper that can hold the message
+    if (!prefix && !suffix) return max === undefined ? input : <div>{input}{note}</div>;
     return (
-        <div className="relative">
-            {prefix && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{prefix}</span>}
-            {input}
-            {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{suffix}</span>}
+        <div>
+            <div className="relative">
+                {prefix && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{prefix}</span>}
+                {input}
+                {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{suffix}</span>}
+            </div>
+            {note}
         </div>
     );
 });

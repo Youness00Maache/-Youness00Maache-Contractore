@@ -9,6 +9,7 @@
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import type { Client, FormData, Job, UserProfile } from '../types.ts';
 import { sanitizeRichText } from '../utils/escapeHtml.ts';
+import { senderIdentity } from '../utils/emailTemplates.ts';
 import {
     buildDocumentAttachments,
     getPreferredSender,
@@ -182,7 +183,7 @@ export async function sendEmailBatch(batch: EmailBatchItem[], ctx: BatchSendCont
                 to: recipient,
                 subject: item.subject,
                 html,
-                fromName: ctx.profile?.companyName || undefined,
+                fromName: senderIdentity(ctx.profile).displayName || undefined,
                 attachments: attachments.map(({ filename, mimeType, dataBase64 }) => ({ filename, mimeType, dataBase64 })),
             });
             sentKeys.add(key);

@@ -189,6 +189,9 @@ export interface InvoiceData extends DocumentStyle {
   title?: string;
   // Progress Invoicing fields
   isProgressBilling?: boolean;
+  /** set when the invoice was created with "Convert to invoice" from an accepted estimate */
+  sourceEstimateId?: string;
+  sourceEstimateNumber?: string;
   // Recurring Invoice fields
   recurrence?: { // Keep recurrence object for compatibility with logic
     enabled: boolean;
@@ -204,6 +207,8 @@ export interface WorkOrderData extends DocumentStyle {
   workOrderNumber: string;
   date: string;
   status: 'Scheduled' | 'In Progress' | 'On Hold' | 'Completed';
+  /** worker / crew the job is assigned to (suggested from the job's worker) */
+  assignedTo?: string;
   description: string;
   materialsUsed: string;
   hours: number;
@@ -292,9 +297,15 @@ export interface EstimateData extends DocumentStyle {
   issueDate: string;
   expiryDate: string;
   lineItems: LineItem[];
+  /** percent, e.g. 8.25 (same behaviour as invoices) */
+  taxRate?: number;
+  /** flat amount */
+  discount?: number;
   terms: string;
   notes: string;
   status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected';
+  /** id of the signed estimate this one revises ("Revise" on a signed estimate) */
+  revisionOf?: string;
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;
@@ -353,6 +364,10 @@ export interface ChangeOrderData extends DocumentStyle {
   currentContractSum: number;
   lineItems: LineItem[];
   terms: string;
+  /** stored like the other documents' status; the client approval link stores 'Accepted' (shown as Approved) */
+  status?: 'Draft' | 'Sent' | 'Approved' | 'Rejected' | 'Accepted';
+  /** id of the signed change order this one revises */
+  revisionOf?: string;
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;
@@ -415,6 +430,9 @@ export interface ReceiptData extends DocumentStyle {
   amount: number;
   description: string;
   paymentMethod: string;
+  /** the invoice this payment is for ("For invoice" picker); job financials count the receipt against it */
+  invoiceId?: string;
+  invoiceNumber?: string;
   companyName?: string;
   companyAddress?: string;
   companyPhone?: string;

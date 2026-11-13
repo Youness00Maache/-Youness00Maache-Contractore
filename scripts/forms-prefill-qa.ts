@@ -18,7 +18,12 @@ import { getDraftKey, isAutoSaveDraft, mergeDraftIntoForm } from '../hooks/useDo
 import { DOCUMENT_FIELDS, DOCUMENT_FORM_TYPES, type DocumentFormType, type FieldSpec } from '../components/forms/documentFields.ts';
 import { addMonthsISO, htmlToPlainText, localISODate, nextDocumentNumber, normalizeDateValue, normalizeLineItems, sanitizeEditorHtml } from '../components/forms/formUtils.ts';
 import { parseReceiptText, parseDate } from '../utils/ocr.ts';
-import { computeDocumentTotals } from '../utils/money.ts';
+import { computeDocumentTotals, lineItemAmount, roundMoney } from '../utils/money.ts';
+import {
+    buildInvoiceSeedFromEstimate, buildRevisionSeed, isClientSigned, revisionNumber, signedChangeProblem, unsignedPatch,
+} from '../components/forms/signedLock.ts';
+import { changeOrderStatus, computeContractValue, isApprovedChangeOrder } from '../components/forms/contractValue.ts';
+import { fillEmailPlaceholders, senderIdentity } from '../utils/emailTemplates.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 let passed = 0;
@@ -34,17 +39,17 @@ const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 // ---------------------------------------------------------------------------
 /** Fields from types.ts that an AI draft may fill, per type (client signatures, inventory flags and legacy fields excluded on purpose). */
 const TYPES_TS_FIELDS: Record<DocumentFormType, string[]> = {
-    [FormType.Invoice]: ['invoiceNumber', 'issueDate', 'dueDate', 'lineItems', 'taxRate', 'discount', 'shipping', 'notes', 'paypalLink', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'title', 'isProgressBilling', 'recurrence', 'ai_visual_data', 'templateId', 'themeColors'],
-    [FormType.Estimate]: ['title', 'estimateNumber', 'issueDate', 'expiryDate', 'lineItems', 'terms', 'notes', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors'],
-    [FormType.WorkOrder]: ['title', 'workOrderNumber', 'date', 'status', 'description', 'materialsUsed', 'hours', 'cost', 'terms', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'signatureUrl', 'logoUrl', 'ai_visual_data', 'templateId', 'themeColors'],
+    [FormType.Invoice]: ['invoiceNumber', 'issueDate', 'dueDate', 'lineItems', 'taxRate', 'discount', 'shipping', 'amountPaid', 'notes', 'paypalLink', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'title', 'isProgressBilling', 'recurrence', 'ai_visual_data', 'templateId', 'themeColors'],
+    [FormType.Estimate]: ['title', 'estimateNumber', 'issueDate', 'expiryDate', 'lineItems', 'taxRate', 'discount', 'terms', 'notes', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors'],
+    [FormType.WorkOrder]: ['title', 'workOrderNumber', 'date', 'status', 'assignedTo', 'description', 'materialsUsed', 'hours', 'cost', 'terms', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'signatureUrl', 'logoUrl', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.DailyJobReport]: ['title', 'reportNumber', 'date', 'weather', 'temperature', 'crewSize', 'laborHours', 'logoUrl', 'signatureUrl', 'content', 'projectName', 'clientName', 'projectAddress', 'tags', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.TimeSheet]: ['title', 'workerName', 'date', 'hoursWorked', 'overtimeHours', 'notes', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'status', 'templateId', 'themeColors'],
     [FormType.MaterialLog]: ['title', 'date', 'items', 'projectName', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
     [FormType.ExpenseLog]: ['title', 'date', 'lineItems', 'vendor', 'category', 'amount', 'tax', 'notes', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
     [FormType.Warranty]: ['title', 'warrantyNumber', 'clientName', 'projectAddress', 'completedDate', 'duration', 'coverage', 'conditions', 'signatureUrl', 'logoUrl', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.Note]: ['title', 'content', 'tags', 'templateId', 'themeColors'],
-    [FormType.Receipt]: ['title', 'receiptNumber', 'date', 'clientName', 'amount', 'description', 'paymentMethod', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientAddress', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
-    [FormType.ChangeOrder]: ['title', 'changeOrderNumber', 'date', 'description', 'reason', 'currentContractSum', 'lineItems', 'terms', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors'],
+    [FormType.Receipt]: ['title', 'receiptNumber', 'date', 'clientName', 'amount', 'description', 'paymentMethod', 'invoiceNumber', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientAddress', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
+    [FormType.ChangeOrder]: ['title', 'changeOrderNumber', 'date', 'status', 'description', 'reason', 'currentContractSum', 'lineItems', 'terms', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.PurchaseOrder]: ['title', 'poNumber', 'date', 'deliveryDate', 'status', 'vendorName', 'vendorAddress', 'vendorPhone', 'vendorEmail', 'shipToType', 'shipToName', 'shipToAddress', 'shipToPhone', 'deliveryInstructions', 'lineItems', 'notes', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'logoUrl', 'signatureUrl', 'templateId', 'themeColors'],
 };
 
@@ -195,6 +200,14 @@ const merge = (type: FormType, prefill: Record<string, unknown>, prev: Record<st
     check('Warranty ignores fields it does not have', !('companyName' in wa));
     const co = merge(FormType.ChangeOrder, { originalContractSum: '25000', changeReason: 'Client request', description_html: '<p>Add outlet</p>' });
     check('ChangeOrder aliases', co.currentContractSum === 25000 && co.reason === 'Client request' && co.description === 'Add outlet');
+    const est2 = merge(FormType.Estimate, { tax: '8.25', discount: '$50' });
+    check('Estimate tax alias → taxRate, discount money', est2.taxRate === 8.25 && est2.discount === 50, est2);
+    const wo2 = merge(FormType.WorkOrder, { assignee: 'Carlos' });
+    check('WorkOrder assignee → assignedTo', wo2.assignedTo === 'Carlos', wo2);
+    const co2 = merge(FormType.ChangeOrder, { status: 'approved' });
+    check('ChangeOrder status enum (approved → Approved)', co2.status === 'Approved', co2.status);
+    const inv2 = merge(FormType.Invoice, { deposit: '250' });
+    check('Invoice deposit → amountPaid', inv2.amountPaid === 250, inv2.amountPaid);
     const ts = merge(FormType.TimeSheet, { employee: 'Sam', hours: '8', overtime: '1.5', status: 'submitted' });
     check('TimeSheet aliases', ts.workerName === 'Sam' && ts.hoursWorked === 8 && ts.overtimeHours === 1.5 && ts.status === 'Submitted');
     const est = merge(FormType.Estimate, { validUntil: '2026-12-31', projectAddress: '5 Elm St', templateDescription: 'luxury gold' });
@@ -287,6 +300,111 @@ const merge = (type: FormType, prefill: Record<string, unknown>, prev: Record<st
     check('OCR "Customer Copy" is not a client', parseReceiptText('ACE HARDWARE\nCUSTOMER COPY\nTOTAL 5.00').client === null);
     check('OCR ambiguous date follows locale (day-first)', parseDate('Date 04/05/2026', true) === '2026-05-04');
     check('OCR ambiguous date follows locale (month-first)', parseDate('Date 04/05/2026', false) === '2026-04-05');
+}
+
+// ---------------------------------------------------------------------------
+// 6. money rounding (QA 0b.18): half-up to cents, the same in forms and PDFs
+// ---------------------------------------------------------------------------
+{
+    check('roundMoney 29.994999999999997 → 30 (50% of 99.99 − 20)', roundMoney(99.99 * 0.5 - 20) === 30, roundMoney(99.99 * 0.5 - 20));
+    check('roundMoney half-up 1.005 → 1.01, 2.675 → 2.68, 0.005 → 0.01', roundMoney(1.005) === 1.01 && roundMoney(2.675) === 2.68 && roundMoney(0.005) === 0.01);
+    check('roundMoney keeps 1.004 → 1, 0.1+0.2 → 0.3', roundMoney(1.004) === 1 && roundMoney(0.1 + 0.2) === 0.3);
+    check('roundMoney negative half away from zero (−29.995 → −30), no −0', roundMoney(-29.995) === -30 && Object.is(roundMoney(-0.001), 0));
+    const progressLine = { quantity: 1, rate: 99.99, percentComplete: 50, previouslyBilled: 20 };
+    check('progress line 50% of $99.99 − $20 = $30.00', lineItemAmount(progressLine, true) === 30, lineItemAmount(progressLine, true));
+    check('progress invoice total $30.00', computeDocumentTotals({ isProgressBilling: true, lineItems: [progressLine] }).total === 30);
+    check('progress % above 100 is clamped in the math', lineItemAmount({ quantity: 1, rate: 100, percentComplete: 150 }, true) === 100);
+    check('estimate totals with tax and discount', computeDocumentTotals({ lineItems: [{ quantity: 2, rate: 250.5 }], discount: 21.5, taxRate: 7.5 }).total === 515.46);
+}
+
+// ---------------------------------------------------------------------------
+// 7. signed estimates / change orders (QA 0b.1)
+// ---------------------------------------------------------------------------
+{
+    const signed = {
+        estimateNumber: 'EST-2026-11-004', status: 'Accepted', issueDate: '2026-11-01', expiryDate: '2026-12-01',
+        lineItems: [{ id: 'a', description: 'Cabinets', quantity: 1, rate: 1500, unitCost: 900 }], taxRate: 5, discount: 0,
+        terms: 'Net 30', notes: 'Scope', clientName: 'Jane', clientSignatureUrl: 'data:image/png;base64,AAAA', clientSignedAt: '2026-11-13T10:00:00Z', clientSignedBy: 'Jane Doe',
+        isAiGenerated: true, templateId: 'classic',
+    };
+    check('signed detection', isClientSigned(signed) && !isClientSigned({ status: 'Accepted' }) && !isClientSigned({ clientSignatureUrl: '', clientSignedAt: '' }));
+    const edited = { ...signed, lineItems: [{ ...signed.lineItems[0], rate: 9999 }] };
+    const problem = signedChangeProblem(signed, edited, 'estimate');
+    check('save refused: line price changed on a signed estimate', Boolean(problem && /Jane Doe/.test(problem) && /Nov 13, 2026/.test(problem)), problem);
+    check('save refused: tax changed on a signed estimate', Boolean(signedChangeProblem(signed, { ...signed, taxRate: 0 }, 'estimate')));
+    check('save refused: terms changed on a signed estimate', Boolean(signedChangeProblem(signed, { ...signed, terms: 'Net 60' }, 'estimate')));
+    check('allowed: design change on a signed estimate', signedChangeProblem(signed, { ...signed, templateId: 'modern' }, 'estimate') === null);
+    check('allowed: internal cost change (never printed)', signedChangeProblem(signed, { ...signed, lineItems: [{ ...signed.lineItems[0], unitCost: 1 }] }, 'estimate') === null);
+    check('allowed: unlock (signature cleared + Draft) with new lines', signedChangeProblem(signed, { ...edited, ...unsignedPatch() }, 'estimate') === null);
+    check('refused: signature cleared but not Draft', Boolean(signedChangeProblem(signed, { ...signed, ...unsignedPatch(), status: 'Accepted' }, 'estimate')));
+    check('allowed: anything on an unsigned estimate', signedChangeProblem({ ...signed, clientSignatureUrl: '', clientSignedAt: '' }, edited, 'estimate') === null);
+    const co = { changeOrderNumber: 'CO-1', currentContractSum: 1000, lineItems: [{ id: 'c', description: 'Outlet', quantity: 1, rate: 150 }], clientSignedAt: '2026-11-13T10:00:00Z', clientSignatureUrl: 'x' };
+    check('save refused: contract value changed on a signed change order', Boolean(signedChangeProblem(co, { ...co, currentContractSum: 2000 }, 'changeOrder')));
+    check('unsigned patch keeps the keys (empty, so the database does not restore them)', Object.keys(unsignedPatch()).includes('clientSignatureUrl') && unsignedPatch().clientSignatureUrl === '' && unsignedPatch().status === 'Draft');
+
+    check('revision numbers', revisionNumber('EST-2026-11-004') === 'EST-2026-11-004-R2' && revisionNumber('EST-2026-11-004-R2') === 'EST-2026-11-004-R3' && revisionNumber('') === '');
+    const rev = buildRevisionSeed(signed, 'estimate', 'doc-1', '2026-11-20') as Record<string, any>;
+    check('revision: Draft, new number, today, same lines/tax, linked, no signature, no AI flag',
+        rev.status === 'Draft' && rev.estimateNumber === 'EST-2026-11-004-R2' && rev.issueDate === '2026-11-20' && rev.expiryDate === '2026-12-20'
+        && rev.lineItems?.[0]?.rate === 1500 && rev.taxRate === 5 && rev.revisionOf === 'doc-1'
+        && !('clientSignatureUrl' in rev) && !('clientSignedAt' in rev) && !('isAiGenerated' in rev), rev);
+    check('revision lines are copies (the signed document is never mutated)', rev.lineItems[0] !== signed.lineItems[0]);
+    const coRev = buildRevisionSeed({ ...co, status: 'Accepted', reason: 'Client request' }, 'changeOrder', 'co-1', '2026-11-20') as Record<string, any>;
+    check('change order revision', coRev.changeOrderNumber === 'CO-1-R2' && coRev.status === 'Draft' && coRev.currentContractSum === 1000 && coRev.date === '2026-11-20' && coRev.revisionOf === 'co-1', coRev);
+
+    const inv = buildInvoiceSeedFromEstimate(signed, 'doc-1', { deposit: 300 }) as Record<string, any>;
+    check('convert to invoice: client, lines (cost kept), tax, discount, deposit, link back',
+        inv.clientName === 'Jane' && inv.lineItems?.[0]?.rate === 1500 && inv.lineItems?.[0]?.unitCost === 900 && inv.taxRate === 5 && inv.discount === 0
+        && inv.amountPaid === 300 && inv.sourceEstimateId === 'doc-1' && inv.sourceEstimateNumber === 'EST-2026-11-004' && inv.status === 'Draft'
+        && !('invoiceNumber' in inv) && !('clientSignatureUrl' in inv) && !('terms' in inv) && !('isAiGenerated' in inv), inv);
+    const invTotals = computeDocumentTotals(inv);
+    check('converted invoice total = estimate total, balance = total − deposit', invTotals.total === computeDocumentTotals(signed).total && invTotals.balanceDue === roundMoney(invTotals.total - 300), invTotals);
+    check('convert without deposit has no amountPaid', !('amountPaid' in buildInvoiceSeedFromEstimate(signed, 'x', { deposit: 0 })));
+}
+
+// ---------------------------------------------------------------------------
+// 8. change order status + contract value (QA 0b.12)
+// ---------------------------------------------------------------------------
+{
+    check('change order status: approval link "Accepted" shown as Approved', changeOrderStatus({ status: 'Accepted' }) === 'Approved' && changeOrderStatus({ clientSignedAt: 'x' }) === 'Approved' && changeOrderStatus({}) === 'Draft' && changeOrderStatus({ status: 'Sent' }) === 'Sent');
+    check('approved change order detection', isApprovedChangeOrder({ status: 'Approved' }) && isApprovedChangeOrder({ status: 'Accepted' }) && isApprovedChangeOrder({ clientSignedAt: 'x' }) && !isApprovedChangeOrder({ status: 'Sent' }));
+    const rows = [
+        { id: 'e1', type: 'Estimate', created_at: '2026-11-01T00:00:00Z', data: { status: 'Accepted', estimateNumber: 'EST-1', lineItems: [{ quantity: 1, rate: 10000 }], taxRate: 10, discount: 0 } },
+        { id: 'e0', type: 'Estimate', created_at: '2026-10-01T00:00:00Z', data: { status: 'Draft', lineItems: [{ quantity: 1, rate: 99999 }] } },
+        { id: 'c1', type: 'Change Order', created_at: '2026-11-02T00:00:00Z', data: { status: 'Approved', changeOrderNumber: 'CO-1', lineItems: [{ quantity: 1, rate: 500 }] } },
+        { id: 'c2', type: 'Change Order', created_at: '2026-11-03T00:00:00Z', data: { clientSignedAt: '2026-11-04', changeOrderNumber: 'CO-2', lineItems: [{ quantity: 1, rate: -200 }] } },
+        { id: 'c3', type: 'Change Order', created_at: '2026-11-05T00:00:00Z', data: { status: 'Sent', lineItems: [{ quantity: 1, rate: 700 }] } },
+        { id: 'c4', type: 'Change Order', created_at: '2026-11-09T00:00:00Z', data: { status: 'Approved', lineItems: [{ quantity: 1, rate: 800 }] } },
+    ];
+    const cv = computeContractValue(rows);
+    check('contract value = accepted estimate (with tax) + approved change orders', cv.estimateTotal === 11000 && cv.changeOrdersTotal === 1100 && cv.total === 12100, cv);
+    const earlier = computeContractValue(rows, { excludeId: 'c4', createdBefore: '2026-11-09T00:00:00Z' });
+    check('only EARLIER approved change orders count, never itself', earlier.total === 11300 && earlier.changeOrders.length === 2, earlier);
+    const revised = computeContractValue([...rows, { id: 'e2', type: 'Estimate', created_at: '2026-11-06T00:00:00Z', data: { status: 'Accepted', revisionOf: 'e1', lineItems: [{ quantity: 1, rate: 12000 }] } }]);
+    check('an accepted revision replaces the signed estimate it revises (not counted twice)', revised.estimateTotal === 12000 && revised.estimates.length === 1, revised);
+    check('no accepted estimate → nothing counted', computeContractValue([rows[1]]).total === 0);
+}
+
+// ---------------------------------------------------------------------------
+// 9. share email sender (QA 0b.6): company → name → email, never "from" with nothing
+// ---------------------------------------------------------------------------
+{
+    const values = (p: Parameters<typeof senderIdentity>[0]) => {
+        const s = senderIdentity(p);
+        return { '[My Company]': s.company, '[My Name]': s.name, '[Document Number]': 'INV-1', '[Client Name]': 'Jane' };
+    };
+    const subject = 'Invoice [Document Number] from [My Company]';
+    const body = 'Hi [Client Name],\n\nHere is invoice [Document Number].\n\nThank you,\n[My Name]\n[My Company]';
+    const noCompany = values({ name: 'Bob Builder', email: 'bob@x.com', companyName: '' });
+    check('no company: subject uses the name', fillEmailPlaceholders(subject, noCompany) === 'Invoice INV-1 from Bob Builder', fillEmailPlaceholders(subject, noCompany));
+    check('no company: sign-off is the name once', fillEmailPlaceholders(body, noCompany).endsWith('Thank you,\nBob Builder'), fillEmailPlaceholders(body, noCompany));
+    const onlyEmail = values({ name: '', email: 'bob@x.com', companyName: '' });
+    check('no company, no name: the email', fillEmailPlaceholders(subject, onlyEmail) === 'Invoice INV-1 from bob@x.com' && fillEmailPlaceholders(body, onlyEmail).endsWith('Thank you,\nbob@x.com'), fillEmailPlaceholders(body, onlyEmail));
+    const full = values({ name: 'Bob', email: 'bob@x.com', companyName: 'Acme' });
+    check('company and name: both lines', fillEmailPlaceholders(body, full).endsWith('Thank you,\nBob\nAcme'));
+    const companyOnly = values({ name: '', email: 'bob@x.com', companyName: 'Acme' });
+    check('company without a name: no blank line', fillEmailPlaceholders(body, companyOnly).endsWith('Thank you,\nAcme'), fillEmailPlaceholders(body, companyOnly));
+    check('subject never ends with a dangling "from"', fillEmailPlaceholders('Note [Document Number] from [My Company]', { '[Document Number]': '', '[My Company]': '' }) === 'Note');
 }
 
 // ---------------------------------------------------------------------------

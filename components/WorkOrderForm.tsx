@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FormType, type WorkOrderData, type UserProfile, type Job, type Client } from '../types.ts';
 import { generateWorkOrderPDF } from '../services/pdfGenerator.ts';
 import { toNumber } from '../utils/money.ts';
 import { WorkOrderIcon, FileTextIcon, ClockIcon } from './Icons.tsx';
+import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, MoneyField, NumberField, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
 import { AIInsightsSection, ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
@@ -24,7 +26,10 @@ interface Props {
     existingNumbers?: string[];
 }
 
-const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, existingNumbers }) => {
+const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, documentId, existingNumbers }) => {
+    const [shareOpen, setShareOpen] = useState(false);
+    // "Assigned to" suggestions: the job's worker first, then you
+    const assigneeSuggestions = Array.from(new Set([job.workerName, profile.name].map(n => String(n || '').trim()).filter(Boolean)));
     const form = useDocumentForm<WorkOrderData>({
         formType: FormType.WorkOrder,
         initial: data,
@@ -37,6 +42,7 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             workOrderNumber: '',
             date: todayISO(),
             status: 'Scheduled',
+            assignedTo: job.workerName || '',
             description: '',
             materialsUsed: '',
             hours: 0,
@@ -60,6 +66,7 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             description: d.description ?? '',
             materialsUsed: d.materialsUsed ?? '',
             terms: d.terms ?? '',
+            assignedTo: d.assignedTo ?? '',
             status: (STATUS_OPTIONS.workOrder as readonly string[]).includes(d.status) ? d.status : 'Scheduled',
         }, profile),
         validate: d => {
@@ -88,15 +95,30 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             onDownload={form.download}
             onSaveAndDownload={form.saveAndDownload}
             preview={{ formType: FormType.WorkOrder, data: d, profile, job }}
-            actions={<AIFillButton jobId={job.id} formType={FormType.WorkOrder} onApply={form.applyDraft} compact />}
+            actions={(
+                <>
+                    <AIFillButton jobId={job.id} formType={FormType.WorkOrder} onApply={form.applyDraft} compact />
+                    <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
+                </>
+            )}
         >
             <FormSection title="Work order details" icon={FileTextIcon}>
                 <FieldGrid>
                     <TextField label="Work order #" value={d.workOrderNumber} onChange={v => update({ workOrderNumber: v })} />
                     <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.workOrder} onChange={v => update({ status: v as WorkOrderData['status'] })} />
                     <DateField label="Date" value={d.date} onChange={v => update({ date: v })} />
+                    <TextField
+                        label="Assigned to"
+                        value={d.assignedTo}
+                        onChange={v => update({ assignedTo: v })}
+                        list="wo-assignees"
+                        placeholder={job.workerName ? `e.g. ${job.workerName}` : 'Worker or crew'}
+                        autoComplete="off"
+                        hint={job.workerName && d.assignedTo !== job.workerName ? <>Job worker: <button type="button" className="font-semibold text-primary underline-offset-2 hover:underline" onClick={() => update({ assignedTo: job.workerName })}>{job.workerName}</button></> : undefined}
+                    />
                     <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Replace water heater" />
                 </FieldGrid>
+                <datalist id="wo-assignees">{assigneeSuggestions.map(n => <option key={n} value={n} />)}</datalist>
             </FormSection>
 
             <ClientSection
@@ -129,6 +151,20 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} />
 
             <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                data={d}
+                docType={FormType.WorkOrder}
+                profile={profile}
+                documentId={documentId ?? form.lastSaveResult?.id}
+                clients={clients}
+                job={job}
+                hasUnsavedChanges={form.isDirty}
+                onDownload={form.download}
+                getPdfDataUri={async () => String(await generateWorkOrderPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
+            />
         </FormShell>
     );
 };

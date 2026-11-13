@@ -14,8 +14,14 @@ interface AIVoiceInputProps {
     /** Live, not-yet-final words (optional preview). */
     onInterim?: (text: string) => void;
     disabled?: boolean;
-    /** compact = icon button (chat composer); labeled = button with a caption (forms). */
-    variant?: 'compact' | 'labeled';
+    /** Called with a problem to show (microphone blocked, unsupported browser) or null when it is cleared. */
+    onProblem?: (message: string | null) => void;
+    /**
+     * compact = icon button (chat composer); labeled = button with a caption (forms);
+     * tile = ONE flat button (icon + label) that takes `className`, like the editor's Camera / Photo buttons; the
+     * recording state (and any problem) is shown on that same button.
+     */
+    variant?: 'compact' | 'labeled' | 'tile';
     className?: string;
 }
 
@@ -24,7 +30,7 @@ interface AIVoiceInputProps {
  * (browsers end a session after silence, so it restarts until the user presses Stop), and
  * parent re-renders never stop it because the callbacks are read from refs.
  */
-export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript, onInterim, disabled, variant = 'labeled', className = '' }) => {
+export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript, onInterim, onProblem, disabled, variant = 'labeled', className = '' }) => {
     const [isListening, setIsListening] = useState(false);
     const [isSupported, setIsSupported] = useState(true);
     const [problem, setProblem] = useState<string | null>(null);
@@ -32,8 +38,11 @@ export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript, onInte
     const wantListeningRef = useRef(false);
     const transcriptRef = useRef(onTranscript);
     const interimRef = useRef(onInterim);
+    const problemRef = useRef(onProblem);
     transcriptRef.current = onTranscript;
     interimRef.current = onInterim;
+    problemRef.current = onProblem;
+    useEffect(() => { problemRef.current?.(problem); }, [problem]);
 
     useEffect(() => {
         const API = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
@@ -110,6 +119,34 @@ export const AIVoiceInput: React.FC<AIVoiceInputProps> = ({ onTranscript, onInte
     };
 
     const label = isListening ? 'Stop dictation' : 'Dictate with your voice';
+    if (variant === 'tile') {
+        return (
+            <button
+                type="button"
+                onClick={toggle}
+                disabled={disabled}
+                title={problem || label}
+                aria-label={label}
+                aria-pressed={isListening}
+                className={`${className} ${isListening ? '!border-destructive/40 !bg-destructive/10 !text-destructive' : problem ? '!text-destructive' : ''}`}
+            >
+                {isListening ? (
+                    <span className="relative flex h-5 w-5 items-center justify-center" aria-hidden>
+                        <span className="absolute inset-0 animate-ping rounded-full bg-destructive/25" />
+                        <span className="relative h-3 w-3 rounded-sm bg-destructive" />
+                    </span>
+                ) : (
+                    <MicIcon className={`h-5 w-5 ${isSupported ? '' : 'opacity-40'}`} />
+                )}
+                {isListening ? (
+                    <span className="max-w-full truncate px-1">Listening…<span className="hidden sm:inline"> tap to stop</span></span>
+                ) : (
+                    <span className="max-w-full truncate px-1">{problem ? 'Voice unavailable' : 'Voice'}</span>
+                )}
+                {problem && <span role="status" className="sr-only">{problem}</span>}
+            </button>
+        );
+    }
     const button = (
         <button
             type="button"

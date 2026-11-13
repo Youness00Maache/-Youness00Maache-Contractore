@@ -44,6 +44,7 @@ export const STATUS_OPTIONS = {
     workOrder: ['Scheduled', 'In Progress', 'On Hold', 'Completed'],
     timeSheet: ['Draft', 'Submitted', 'Approved'],
     purchaseOrder: ['Draft', 'Sent', 'Received', 'Cancelled'],
+    changeOrder: ['Draft', 'Sent', 'Approved', 'Rejected'],
 } as const;
 
 export const EXPENSE_CATEGORIES = ['Material', 'Fuel', 'Food', 'Other'] as const;
@@ -71,7 +72,7 @@ export const DOCUMENT_FIELDS: Record<DocumentFormType, Record<string, FieldSpec>
         invoiceNumber: text, issueDate: date, dueDate: date,
         status: { kind: 'enum', options: STATUS_OPTIONS.invoice },
         lineItems: { kind: 'lineItems' }, isProgressBilling: { kind: 'bool' },
-        discount: money, taxRate: { kind: 'percent' }, shipping: money,
+        discount: money, taxRate: { kind: 'percent' }, shipping: money, amountPaid: money,
         notes: multiline, paypalLink: { kind: 'url' }, recurrence: { kind: 'recurrence' },
         ai_visual_data: { kind: 'visual' },
     },
@@ -80,14 +81,14 @@ export const DOCUMENT_FIELDS: Record<DocumentFormType, Record<string, FieldSpec>
         clientId: text, clientName: text, clientAddress: text,
         estimateNumber: text, issueDate: date, expiryDate: date,
         status: { kind: 'enum', options: STATUS_OPTIONS.estimate },
-        lineItems: { kind: 'lineItems' }, notes: multiline, terms: multiline,
+        lineItems: { kind: 'lineItems' }, discount: money, taxRate: { kind: 'percent' }, notes: multiline, terms: multiline,
         ai_visual_data: { kind: 'visual' },
     },
     [FormType.WorkOrder]: {
         ...COMPANY, ...STYLE,
         clientId: text, clientName: text, clientAddress: text,
         workOrderNumber: text, date,
-        status: { kind: 'enum', options: STATUS_OPTIONS.workOrder },
+        status: { kind: 'enum', options: STATUS_OPTIONS.workOrder }, assignedTo: text,
         description: multiline, materialsUsed: multiline, hours: { kind: 'number' }, cost: money, terms: multiline,
         ai_visual_data: { kind: 'visual' },
     },
@@ -130,12 +131,13 @@ export const DOCUMENT_FIELDS: Record<DocumentFormType, Record<string, FieldSpec>
     [FormType.Receipt]: {
         ...COMPANY, ...STYLE,
         clientId: text, clientName: text, clientAddress: text,
-        receiptNumber: text, date, amount: money, paymentMethod: text, description: multiline,
+        receiptNumber: text, date, amount: money, paymentMethod: text, description: multiline, invoiceNumber: text,
     },
     [FormType.ChangeOrder]: {
         ...COMPANY, ...STYLE,
         clientId: text, clientName: text, clientAddress: text,
         changeOrderNumber: text, date, reason: text, description: multiline,
+        status: { kind: 'enum', options: STATUS_OPTIONS.changeOrder },
         currentContractSum: money, lineItems: { kind: 'lineItems' }, terms: multiline,
         ai_visual_data: { kind: 'visual' },
     },
@@ -163,17 +165,20 @@ export const FIELD_ALIASES: Record<DocumentFormType, Record<string, string>> = {
         date: 'issueDate', invoiceDate: 'issueDate', number: 'invoiceNumber', documentNumber: 'invoiceNumber', invoice_number: 'invoiceNumber',
         paymentLink: 'paypalLink', payment_link: 'paypalLink', paymentUrl: 'paypalLink', items: 'lineItems', line_items: 'lineItems',
         tax_rate: 'taxRate', progressBilling: 'isProgressBilling', projectAddress: 'clientAddress',
+        deposit: 'amountPaid', depositPaid: 'amountPaid', amount_paid: 'amountPaid',
         description_html: 'notes', description: 'notes',
     },
     [FormType.Estimate]: {
         date: 'issueDate', number: 'estimateNumber', documentNumber: 'estimateNumber', estimate_number: 'estimateNumber',
         validUntil: 'expiryDate', dueDate: 'expiryDate', expirationDate: 'expiryDate', items: 'lineItems', line_items: 'lineItems',
         projectAddress: 'clientAddress', description_html: 'notes', description: 'notes',
+        tax_rate: 'taxRate', tax: 'taxRate',
     },
     [FormType.WorkOrder]: {
         number: 'workOrderNumber', documentNumber: 'workOrderNumber', description_html: 'description', content: 'description',
         scope: 'description', workDescription: 'description', materials: 'materialsUsed', laborHours: 'hours', hoursWorked: 'hours',
         estimatedCost: 'cost', amount: 'cost', total: 'cost', projectAddress: 'clientAddress',
+        assignee: 'assignedTo', assigned_to: 'assignedTo', technician: 'assignedTo', workerName: 'assignedTo', worker: 'assignedTo',
     },
     [FormType.DailyJobReport]: {
         number: 'reportNumber', documentNumber: 'reportNumber', description_html: 'content', richBody: 'content', body: 'content',
@@ -202,6 +207,7 @@ export const FIELD_ALIASES: Record<DocumentFormType, Record<string, string>> = {
     [FormType.Receipt]: {
         number: 'receiptNumber', documentNumber: 'receiptNumber', from: 'clientName', payer: 'clientName', receivedFrom: 'clientName',
         total: 'amount', method: 'paymentMethod', description_html: 'description', notes: 'description',
+        forInvoice: 'invoiceNumber', invoice: 'invoiceNumber', invoice_number: 'invoiceNumber',
     },
     [FormType.ChangeOrder]: {
         number: 'changeOrderNumber', documentNumber: 'changeOrderNumber', description_html: 'description', content: 'description',

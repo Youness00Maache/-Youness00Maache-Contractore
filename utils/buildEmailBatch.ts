@@ -1,6 +1,7 @@
 import { FormType, Client, FormData, UserProfile, Job } from '../types.ts';
 import type { EmailBatchItem } from '../services/batchEmailSender.ts';
 import { esc, sanitizeRichText } from './escapeHtml.ts';
+import { senderIdentity } from './emailTemplates.ts';
 
 const newItemId = () =>
     (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
@@ -109,7 +110,8 @@ export function buildEmailBatchFromInput(
 ): EmailBatchItem[] {
     const mentions = parseSystemContext(inputText);
     const prompt = getUserPrompt(inputText);
-    const companyName = ctx.profile?.companyName || 'Our Team';
+    // company → name → email (QA 0b.6)
+    const companyName = senderIdentity(ctx.profile).displayName || 'Our Team';
     const jobs = ctx.jobs || [];
 
     const clientMentions = mentions.filter(m => m.type === 'client');

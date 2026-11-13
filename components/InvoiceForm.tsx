@@ -97,6 +97,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
             discount: toNumber(d.discount),
             taxRate: toNumber(d.taxRate),
             shipping: toNumber(d.shipping),
+            // deposits / payments already received: absent stays absent (a Paid invoice then counts as paid in full)
+            ...(d.amountPaid !== undefined && d.amountPaid !== null ? { amountPaid: toNumber(d.amountPaid) } : {}),
             notes: d.notes ?? '',
             status: d.status || 'Draft',
         }, profile),
@@ -151,7 +153,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                 </>
             )}
         >
-            <FormSection title="Invoice details" icon={FileTextIcon}>
+            <FormSection title="Invoice details" icon={FileTextIcon} description={d.sourceEstimateNumber ? `Created from estimate ${d.sourceEstimateNumber}.` : undefined}>
                 <FieldGrid>
                     <TextField label="Invoice #" value={d.invoiceNumber} onChange={v => update({ invoiceNumber: v })} />
                     <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.invoice} onChange={v => update({ status: v as InvoiceData['status'] })} />
@@ -209,7 +211,11 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                 <TotalsPanel
                     totals={totals}
                     totalLabel="Total due"
-                    adjustments={{ discount: d.discount, taxRate: d.taxRate, shipping: d.shipping, onChange: patch => update(patch) }}
+                    adjustments={{
+                        discount: d.discount, taxRate: d.taxRate, shipping: d.shipping, amountPaid: d.amountPaid,
+                        fields: ['discount', 'taxRate', 'shipping', 'amountPaid'],
+                        onChange: patch => update(patch),
+                    }}
                 />
             </FormSection>
 

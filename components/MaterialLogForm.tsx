@@ -75,7 +75,8 @@ const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], in
     });
     const { data: d, update } = form;
     const items = d.items || [];
-    const total = roundMoney(items.reduce((s, it) => s + toNumber(it.quantity) * toNumber(it.unitCost), 0));
+    // each line is rounded to cents first, then summed: exactly like the PDF (utils/templates/model.ts)
+    const total = roundMoney(items.reduce((s, it) => s + roundMoney(toNumber(it.quantity) * toNumber(it.unitCost)), 0));
     const linkedCount = items.filter(i => i.inventoryItemId).length;
     const shortItems = items
         .filter(it => { const available = stockOf(it); return available !== null && toNumber(it.quantity) > available; })
@@ -165,7 +166,7 @@ const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], in
                                         </div>
                                         <div className="col-span-2 flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-sm md:col-span-1 md:block md:bg-transparent md:px-0 md:py-2.5 md:text-right">
                                             <span className="text-muted-foreground md:hidden">Total</span>
-                                            <span className="font-semibold tabular-nums">{formatMoney(toNumber(it.quantity) * toNumber(it.unitCost))}</span>
+                                            <span className="font-semibold tabular-nums">{formatMoney(roundMoney(toNumber(it.quantity) * toNumber(it.unitCost)))}</span>
                                         </div>
                                     </div>
                                     <div className="absolute right-2 top-2 md:static">

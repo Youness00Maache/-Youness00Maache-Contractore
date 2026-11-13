@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormType, UserProfile } from '../../types.ts';
 import { supabase } from '../../lib/supabase.ts';
-import { DOC_NUMBER_CONFIG, errorMessage, nextDocumentNumber } from './formUtils.ts';
+import { DOC_NUMBER_CONFIG, errorMessage, newId, nextDocumentNumber } from './formUtils.ts';
 import { isDraftConsumed, markDraftConsumed, mergeDraftIntoForm, useDocumentDraftPrefill, type DraftPrefillState } from '../../hooks/useDocumentDraftPrefill.ts';
 
 /**
@@ -13,6 +13,19 @@ import { isDraftConsumed, markDraftConsumed, mergeDraftIntoForm, useDocumentDraf
  */
 export type SaveOutcome = void | boolean | { id?: string; public_token?: string | null } | null | undefined;
 export type SaveHandler<T> = (data: T) => Promise<SaveOutcome> | SaveOutcome;
+
+/**
+ * A NEW document opened already filled from another document ("Convert to invoice", "Revise" of a signed
+ * estimate): `prefillData = makeSeedPrefill(data)`. The seed is used as-is (normalized by the form's `hydrate`),
+ * never merged as an AI draft (no "AI draft" badge, no field filtering).
+ */
+export const SEED_KEY = '__seedData';
+export const makeSeedPrefill = (data: Record<string, unknown>): Record<string, unknown> => ({ __draftId: `seed-${newId()}`, [SEED_KEY]: data });
+export const seedOf = (prefill: unknown): Record<string, unknown> | null => {
+    if (!prefill || typeof prefill !== 'object' || Array.isArray(prefill)) return null;
+    const seed = (prefill as Record<string, unknown>)[SEED_KEY];
+    return seed && typeof seed === 'object' && !Array.isArray(seed) ? (seed as Record<string, unknown>) : null;
+};
 
 export interface FormFeedback {
     tone: 'success' | 'error' | 'info';
@@ -34,6 +47,13 @@ export interface UseDocumentFormOptions<T extends object> {
     validate?: (data: T) => string | null;
     /** last-moment transform before save/download (e.g. flush a rich-text editor) */
     prepare?: (data: T) => T;
+    /**
+     * Refuses a save by comparing it with the last saved version (null for a document never saved), e.g. the totals
+     * of an estimate the client already signed. Returns an error message or null.
+     */
+    guard?: (next: T, lastSaved: T | null) => string | null;
+    /** async check right before the save is sent (e.g. "did the client sign while this was open?"); message blocks it */
+    beforeSave?: (next: T, lastSaved: T | null) => Promise<string | null>;
     /** document numbers the parent already knows about (merged with a database lookup) */
     existingNumbers?: string[];
     autoSaveDelayMs?: number;
@@ -53,8 +73,8 @@ export interface DocumentFormApi<T extends object> {
     /** user edit: merges a patch (or applies an updater) and marks the form dirty */
     update: (patch: Partial<T> | ((prev: T) => T)) => void;
     setField: <K extends keyof T>(key: K, value: T[K]) => void;
-    /** replace data without marking dirty (system changes) */
-    replaceSilently: (next: T) => void;
+    /** replace data without marking dirty (system changes); an updater reads the latest data */
+    replaceSilently: (next: T | ((prev: T) => T)) => void;
     save: () => Promise<boolean>;
     /**
      * Saves first when needed (new document or unsaved edits), e.g. before sharing, like the original app.
@@ -69,6 +89,8 @@ export interface DocumentFormApi<T extends object> {
     applyDraft: (payload: unknown) => number;
     /** last successful save result from the parent (id / public_token when provided) */
     lastSaveResult: { id?: string; public_token?: string | null } | null;
+    /** the data as last saved (the opened document until the first save; null for a new document) */
+    lastSaved: T | null;
 }
 
 /** Existing numbers of this document type for the current user (RLS scopes the query to the owner). */
@@ -104,14 +126,21 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         return base;
     }, [numberCfg]);
 
+    const seed = isNew ? seedOf(options.prefillData) : null;
     const [data, setDataState] = useState<T>(() => {
         if (options.initial) return options.hydrate ? options.hydrate(options.initial) : options.initial;
-        return buildNew();
+        const base = buildNew();
+        if (!seed) return base;
+        const seeded = { ...base, ...seed } as T;
+        return options.hydrate ? options.hydrate(seeded) : seeded;
     });
     const dataRef = useRef<T>(data);
     dataRef.current = data;
+    const [lastSaved, setLastSaved] = useState<T | null>(() => (options.initial ? data : null));
+    const lastSavedRef = useRef<T | null>(lastSaved);
 
-    const [isDirty, setDirty] = useState(false);
+    // a seeded document has not been saved yet: leaving it asks first
+    const [isDirty, setDirty] = useState(Boolean(seed));
     const [saving, setSaving] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [feedback, setFeedback] = useState<FormFeedback | null>(null);
@@ -148,12 +177,15 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         update(prev => (prev[key] === value ? prev : { ...prev, [key]: value }));
     }, [update]);
 
-    const replaceSilently = useCallback((next: T) => commit(next, false), [commit]);
+    const replaceSilently = useCallback((next: T | ((prev: T) => T)) => {
+        const value = typeof next === 'function' ? (next as (p: T) => T)(dataRef.current) : next;
+        if (value !== dataRef.current) commit(value, false);
+    }, [commit]);
 
     // ---- AI prefill (applied exactly once per draft) ----
     const draft = useDocumentDraftPrefill<T>({
         formType,
-        prefillData: options.prefillData,
+        prefillData: seed ? undefined : options.prefillData,
         getData: () => dataRef.current,
         setData: next => commit(next, true),
         makeBase: buildNew,
@@ -209,7 +241,7 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         if (savingRef.current && savePromiseRef.current) return savePromiseRef.current;
         const before = dataRef.current;
         const payload = prepared();
-        const problem = optsRef.current.validate?.(payload) || null;
+        const problem = optsRef.current.validate?.(payload) || optsRef.current.guard?.(payload, lastSavedRef.current) || null;
         if (problem) {
             setFeedback({ tone: 'error', message: problem });
             return false;
@@ -219,14 +251,18 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         setFeedback(null);
         const run = async (): Promise<boolean> => {
             try {
+                const blocked = optsRef.current.beforeSave ? await optsRef.current.beforeSave(payload, lastSavedRef.current) : null;
+                if (blocked) throw new Error(blocked);
                 const result = await optsRef.current.onSave(payload);
                 if (result === false) throw new Error('Your changes were not saved. Please try again.');
                 markDraftConsumed(draftKeyRef.current);
                 savedOnceRef.current = true;
+                lastSavedRef.current = payload;
                 const stillDirty = dataRef.current !== before; // edits typed while the save was running stay "unsaved"
                 dirtyRef.current = stillDirty;
                 if (mountedRef.current) {
                     if (result && typeof result === 'object') setLastSaveResult(result);
+                    setLastSaved(payload);
                     setDirty(stillDirty);
                     setJustSaved(true);
                 }
@@ -249,7 +285,7 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         if (savingRef.current && savePromiseRef.current) await savePromiseRef.current;
         const persisted = !isNew || savedOnceRef.current;
         if (persisted && !dirtyRef.current) return 'saved';
-        if (optsRef.current.validate?.(prepared())) {
+        if (optsRef.current.validate?.(prepared()) || optsRef.current.guard?.(prepared(), lastSavedRef.current)) {
             await save(); // shows the validation message
             return 'invalid';
         }
@@ -275,7 +311,7 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     /** Download first (the save may navigate away), then save. */
     const saveAndDownload = useCallback(async () => {
         if (savingRef.current || downloadingRef.current) return;
-        const problem = optsRef.current.validate?.(prepared()) || null;
+        const problem = optsRef.current.validate?.(prepared()) || optsRef.current.guard?.(prepared(), lastSavedRef.current) || null;
         if (problem) {
             setFeedback({ tone: 'error', message: problem });
             return;
@@ -340,6 +376,7 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         setFeedback,
         applyDraft,
         lastSaveResult,
+        lastSaved,
     };
 }
 

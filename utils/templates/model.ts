@@ -239,7 +239,8 @@ const standardTotals = (data: any, fmt: FormatOptions, grandLabel: string, opts:
   if (tot.taxRate > 0 || tot.tax > 0) lines.push({ label: `Tax (${formatNumber(tot.taxRate, 3)}%)`, value: money(tot.tax, fmt) });
   if (tot.shipping > 0) lines.push({ label: 'Shipping', value: money(tot.shipping, fmt) });
   lines.push({ label: grandLabel, value: money(tot.total, fmt), kind: 'grand' });
-  const paid = opts.paidInFull && isBlank(data?.amountPaid) ? tot.total : tot.amountPaid;
+  // "Paid" with no amount (or 0) typed means paid in full; a positive amount typed is shown as is
+  const paid = opts.paidInFull && !(tot.amountPaid > 0) ? tot.total : tot.amountPaid;
   const balance = roundMoney(Math.max(0, tot.total - paid));
   if (paid > 0) {
     lines.push({ label: 'Amount paid', value: negMoney(paid, fmt), kind: 'muted' });
@@ -356,6 +357,7 @@ export const buildDocumentModel = (
         meta('Invoice date', d.issueDate || d.date, fd),
         meta('Due date', d.dueDate, fd),
         meta('Project', projectName),
+        meta('From estimate', d.sourceEstimateNumber),
         meta('Payment terms', d.paymentTerms),
         meta('PO number', d.poNumber),
         d.recurrence?.enabled ? meta('Billing', `Recurring · ${str(d.recurrence.frequency) || 'Monthly'}`) : null,
@@ -418,7 +420,8 @@ export const buildDocumentModel = (
       const signed = (v: number) => (v < 0 ? negMoney(v, fmt) : `+${money(v, fmt)}`);
       model.number = t(d.changeOrderNumber);
       model.numberLabel = 'Change Order No.';
-      model.status = badge(d.status);
+      // the approval link stores "Accepted"; change orders say "Approved" (form status: Draft/Sent/Approved/Rejected)
+      model.status = badge(/^accepted$/i.test(str(d.status).trim()) || (!str(d.status).trim() && has(d.clientSignatureUrl)) ? 'Approved' : d.status);
       model.parties = compact([clientParty('Owner / client')]);
       model.meta = compact([meta('Date', d.date, fd), meta('Project', projectName), meta('Reason', d.reason)]);
       model.keyDate = meta('Date', d.date, fd);
@@ -465,7 +468,7 @@ export const buildDocumentModel = (
       model.numberLabel = 'Work Order No.';
       model.status = badge(d.status, /^$/);
       model.parties = compact([clientParty('Customer / service location')]);
-      model.meta = compact([meta('Date', d.date, fd), meta('Project', projectName)]);
+      model.meta = compact([meta('Date', d.date, fd), meta('Assigned to', d.assignedTo), meta('Project', projectName)]);
       model.keyDate = meta('Date', d.date, fd);
       model.facts = compact([
         has(d.hours) ? { label: 'Labor hours', value: esc(`${formatNumber(d.hours, 2)} h`) } : null,
@@ -674,7 +677,7 @@ export const buildDocumentModel = (
       model.numberLabel = 'Receipt No.';
       model.status = { text: esc(status || 'Payment received'), tone: /partial|deposit/i.test(status) ? 'warn' : 'good' };
       model.parties = compact([clientParty('Received from')]);
-      model.meta = compact([meta('Date received', d.date, fd), meta('Payment method', d.paymentMethod), meta('Project', projectName), meta('For invoice', d.invoiceNumber)]);
+      model.meta = compact([meta('Date received', d.date, fd), meta('Payment method', d.paymentMethod), meta('Project', projectName), meta('For invoice', has(d.invoiceNumber) ? `#${str(d.invoiceNumber).trim().replace(/^#/, '')}` : '')]);
       model.keyDate = meta('Date', d.date, fd);
       model.highlight = { label: 'Amount received', value: esc(money(amount, fmt)) };
       model.intro = `Received from <strong>${clientName ? esc(clientName) : 'the client'}</strong> the sum of <strong>${esc(money(amount, fmt))}</strong>${has(d.paymentMethod) ? ` by ${t(d.paymentMethod)}` : ''}${has(d.date) ? ` on ${esc(fd(d.date))}` : ''}.`;

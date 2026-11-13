@@ -693,8 +693,9 @@ const coastal: ThemeDef = {
     if (!m.totals.length && !m.paymentLink && !m.summaryNotes.length) return '';
     const grand = m.totals.find((t) => t.kind === 'grand');
     const balance = m.totals.find((t) => t.kind === 'balance');
-    const small = m.totals.filter((t) => t !== grand && t !== balance);
     const big = balance || grand;
+    // with a balance due (deposit / payment received) the total stays printed in the small rows
+    const small = m.totals.filter((t) => t !== big);
     return block('cd-summary cs-summary', `<div class="cd-summary-side">${small.length ? `<div class="cs-small">${small.map((t) => `<div class="cs-srow"><span>${t.label} :</span><span class="cd-num">${t.value}</span></div>`).join('')}</div>` : ''}${payButton(m)}${summaryNotes(m)}</div>${big ? `<div class="cs-big"><span class="cs-big-label">${big.label} :</span> <span class="cd-num">${big.value}</span></div>` : ''}`);
   },
   footer: ({ m }) => `<div class="cd-footer cs-footer"><div class="cs-f-left"><div>${m.company.email || m.company.phone ? `Questions about this ${m.title.toLowerCase()}? Contact us at ${m.company.email || m.company.phone}.` : ''}</div>${m.closing ? `<div class="cs-thanks">${m.closing}</div>` : ''}<div class="cd-pageno"></div></div><div class="cs-f-right"><div class="cs-f-name">${m.company.name}</div>${lines([...m.company.addressLines, m.company.phone, m.company.website].filter(Boolean))}</div></div>`,

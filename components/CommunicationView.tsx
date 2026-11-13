@@ -9,7 +9,7 @@ import {
 } from './Icons.tsx';
 import { Avatar, ConfirmDialog, EmptyState, Modal, Notice, PageHeader, Spinner, StatusBadge, cx } from './commsKit.tsx';
 import EmailTemplateSelector from './EmailTemplateSelector.tsx';
-import { applyTemplateVariables, plainTextToEmailHtml, safeColor, type EmailTemplateDefinition } from '../utils/emailTemplates.ts';
+import { applyTemplateVariables, fillEmailPlaceholders, plainTextToEmailHtml, safeColor, senderIdentity, type EmailTemplateDefinition } from '../utils/emailTemplates.ts';
 import { sanitizeRichText } from '../utils/escapeHtml.ts';
 import { computeDocumentTotals, formatMoney } from '../utils/money.ts';
 import { isPaidTier, normalizeTier } from '../lib/plans.ts';
@@ -323,12 +323,13 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
         const values: Record<string, string> = {
             '[Client Name]': c?.name?.split(' ')[0] || 'there',
             '[Job Name]': jobNameFor(docs),
-            '[My Company]': profile?.companyName || profile?.name || '',
-            '[My Name]': profile?.name || '',
+            // company → name → email (QA 0b.6)
+            '[My Company]': senderIdentity(profile).company,
+            '[My Name]': senderIdentity(profile).name,
             '[Document Number]': docs.map((d) => d.data.number).filter(Boolean).join(', ') || docs.map((d) => d.type).join(', '),
             '[Total Amount]': totalFor(docs) || 'the amount shown',
         };
-        return Object.entries(values).reduce((acc, [k, v]) => acc.split(k).join(v), text).replace(/\n{3,}/g, '\n\n').trim();
+        return fillEmailPlaceholders(text, values);
     };
 
     const suggestedCopy = (docs: ClientDocSummary[], c: Client | null) => {
@@ -488,11 +489,11 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
             return applyTemplateVariables(template.html, {
                 body: inner,
                 logo_url: profile?.logoUrl || '',
-                company_name: profile?.companyName || '',
+                company_name: senderIdentity(profile).company,
                 company_address: profile?.address || '',
                 company_phone: profile?.phone || '',
                 company_website: profile?.website || '',
-                user_name: profile?.name || '',
+                user_name: senderIdentity(profile).name,
                 user_job_title: profile?.jobTitle || '',
                 user_phone: profile?.phone || '',
                 user_website: profile?.website || '',
@@ -561,7 +562,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
                 subject: subject.trim(),
                 text: plainBody,
                 html: composeHtml(),
-                fromName: profile?.companyName || profile?.name || undefined,
+                fromName: senderIdentity(profile).displayName || undefined,
                 attachments,
             });
             setSentInfo({ to: toList, from: res.from || sender.gmail_address, attachments: attachments.length });

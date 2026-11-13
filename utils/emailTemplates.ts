@@ -17,6 +17,47 @@ export const safeColor = (value: unknown, fallback = '#2563eb'): string => {
   return HEX_COLOR.test(v) ? v : fallback;
 };
 
+/**
+ * Who an email is from when the profile has gaps (QA 0b.6: never "Invoice INV-1 from" or a bare "Thank you,"):
+ * `company` falls back to the user's name, then their email; `name` falls back to the email only when there is no
+ * company either (so a sign-off never repeats the same line twice).
+ */
+export const senderIdentity = (
+  profile?: { companyName?: string | null; name?: string | null; email?: string | null } | null,
+  companyOverride?: string | null,
+): { company: string; name: string; displayName: string } => {
+  const company = String(companyOverride || profile?.companyName || '').trim();
+  const name = String(profile?.name || '').trim();
+  const email = String(profile?.email || '').trim();
+  const displayName = company || name || email;
+  return { company: displayName, name: name || (company ? '' : email), displayName };
+};
+
+/**
+ * Replaces `[Placeholders]` in a plain-text subject/body. A line made only of placeholders that are all empty is
+ * dropped (no blank sign-off line), the same line is never printed twice in a row (name = company), and a subject
+ * never ends with a dangling "from" / "for".
+ */
+export const fillEmailPlaceholders = (text: string, values: Record<string, string>): string => {
+  const keys = Object.keys(values);
+  const out: string[] = [];
+  for (const line of String(text || '').split('\n')) {
+    let filled = line;
+    for (const k of keys) filled = filled.split(k).join(values[k] ?? '');
+    const onlyPlaceholders = line.trim() !== '' && keys.some(k => line.includes(k))
+      && keys.reduce((rest, k) => rest.split(k).join(''), line).replace(/[\s,.;:–—-]/g, '') === '';
+    if (onlyPlaceholders && !filled.replace(/[\s,.;:–—-]/g, '')) continue;
+    const prev = out.length ? out[out.length - 1].trim() : '';
+    if (filled.trim() && prev && filled.trim() === prev && keys.some(k => line.includes(k))) continue;
+    out.push(filled.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/, ''));
+  }
+  return out.join('\n')
+    .replace(/ \(\)/g, '')
+    .replace(/\s+(from|for)\s*$/i, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
 /** Converts the plain-text message the user typed into safe HTML (escaped, line breaks kept). */
 export const plainTextToEmailHtml = (text: string): string =>
   String(text || '')

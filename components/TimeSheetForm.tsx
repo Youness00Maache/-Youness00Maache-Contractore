@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FormType, type TimeSheetData, type UserProfile, type Job, type Client } from '../types.ts';
 import { generateTimeSheetPDF } from '../services/pdfGenerator.ts';
-import { toNumber } from '../utils/money.ts';
+import { roundMoney, toNumber } from '../utils/money.ts';
 import { TimeSheetIcon, ClockIcon } from './Icons.tsx';
+import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, NumberField, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
 import { ClientSection, CompanySection, SignatureSection, SummaryRow, TemplateSection } from './forms/Sections.tsx';
 import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
-import { isISODate, todayISO } from './forms/formUtils.ts';
+import { formatDisplayDate, isISODate, todayISO } from './forms/formUtils.ts';
 import { STATUS_OPTIONS } from './forms/documentFields.ts';
 
 interface Props {
@@ -23,7 +25,8 @@ interface Props {
     existingNumbers?: string[];
 }
 
-const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData }) => {
+const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, documentId }) => {
+    const [shareOpen, setShareOpen] = useState(false);
     const form = useDocumentForm<TimeSheetData>({
         formType: FormType.TimeSheet,
         initial: data,
@@ -54,12 +57,12 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
         validate: d => (isISODate(d.date) ? null : 'Add a valid date.'),
     });
     const { data: d, update } = form;
-    const total = Math.round((toNumber(d.hoursWorked) + toNumber(d.overtimeHours)) * 100) / 100;
+    const total = roundMoney(toNumber(d.hoursWorked) + toNumber(d.overtimeHours)); // same rounding as the PDF
 
     return (
         <FormShell
             title="Time sheet"
-            subtitle={[d.workerName, d.date].filter(Boolean).join(' · ') || 'New time sheet'}
+            subtitle={[d.workerName, d.date ? formatDisplayDate(d.date) : ''].filter(Boolean).join(' · ') || 'New time sheet'}
             icon={TimeSheetIcon}
             status={d.status}
             aiGenerated={Boolean((d as any).isAiGenerated)}
@@ -74,6 +77,7 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             onDownload={form.download}
             onSaveAndDownload={form.saveAndDownload}
             preview={{ formType: FormType.TimeSheet, data: d, profile, job }}
+            actions={<ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />}
         >
             <FormSection title="Hours" description="Time worked on this job: one day, a week or any period." icon={ClockIcon}>
                 <FieldGrid>
@@ -104,6 +108,20 @@ const TimeSheetForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
             <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Signature" description="Worker or supervisor signature." />
 
             <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                data={d}
+                docType={FormType.TimeSheet}
+                profile={profile}
+                documentId={documentId ?? form.lastSaveResult?.id}
+                clients={clients}
+                job={job}
+                hasUnsavedChanges={form.isDirty}
+                onDownload={form.download}
+                getPdfDataUri={async () => String(await generateTimeSheetPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
+            />
         </FormShell>
     );
 };

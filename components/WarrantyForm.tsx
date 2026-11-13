@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FormType, type WarrantyData, type UserProfile, type Job, type Client } from '../types.ts';
 import { generateWarrantyPDF } from '../services/pdfGenerator.ts';
 import { WarrantyIcon, ShieldCheckIcon, BriefcaseIcon } from './Icons.tsx';
+import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
+import AIFillButton from './forms/AIFillButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, TextAreaField, TextField } from './forms/Fields.tsx';
 import { AIInsightsSection, ClientSection, LogoField, SignatureSection, TemplateSection } from './forms/Sections.tsx';
@@ -25,7 +28,8 @@ type WarrantyState = WarrantyData & { clientId?: string };
 
 const DURATIONS = ['90 Days', '6 Months', '1 Year', '2 Years', '5 Years', '10 Years', 'Lifetime'];
 
-const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, existingNumbers }) => {
+const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, documentId, existingNumbers }) => {
+    const [shareOpen, setShareOpen] = useState(false);
     const form = useDocumentForm<WarrantyState>({
         formType: FormType.Warranty,
         initial: data as WarrantyState | null,
@@ -73,6 +77,12 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
             onDownload={form.download}
             onSaveAndDownload={form.saveAndDownload}
             preview={{ formType: FormType.Warranty, data: d, profile, job }}
+            actions={(
+                <>
+                    <AIFillButton jobId={job.id} formType={FormType.Warranty} onApply={form.applyDraft} compact />
+                    <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
+                </>
+            )}
         >
             <FormSection title="Warranty details" icon={ShieldCheckIcon}>
                 <FieldGrid>
@@ -112,6 +122,20 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
             <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Authorized signature" />
 
             <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                data={d}
+                docType={FormType.Warranty}
+                profile={profile}
+                documentId={documentId ?? form.lastSaveResult?.id}
+                clients={clients}
+                job={job}
+                hasUnsavedChanges={form.isDirty}
+                onDownload={form.download}
+                getPdfDataUri={async () => String(await generateWarrantyPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
+            />
         </FormShell>
     );
 };

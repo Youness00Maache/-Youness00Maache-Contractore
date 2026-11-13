@@ -44,8 +44,17 @@ export const toNumber = (value: unknown): number => {
   return 0;
 };
 
-/** Rounds to cents without floating point drift. */
-export const roundMoney = (value: number): number => Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
+/**
+ * Rounds to cents, half-up (half away from zero: 29.995 → 30.00, −29.995 → −30.00), without floating point drift.
+ * Binary noise is removed first: 50% of $99.99 − $20 is 29.994999999999997 in floating point, which must round
+ * like the 29.995 it stands for (Number.EPSILON alone is far too small at this magnitude).
+ */
+export const roundMoney = (value: number): number => {
+  const n = toNumber(value);
+  if (n === 0) return 0;
+  const cents = Math.round(Number((Math.abs(n) * 100).toPrecision(15)));
+  return cents === 0 ? 0 : (Math.sign(n) * cents) / 100;
+};
 
 /** Amount a single line contributes to this document. */
 export const lineItemAmount = (item: MoneyLineItem | null | undefined, isProgressBilling = false): number => {

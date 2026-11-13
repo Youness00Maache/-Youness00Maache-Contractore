@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FormType, type PurchaseOrderData, type UserProfile, type Job, type Client, type SavedItem, type InventoryItem } from '../types.ts';
 import { generatePurchaseOrderPDF } from '../services/pdfGenerator.ts';
 import { computeDocumentTotals } from '../utils/money.ts';
 import { TruckIcon, FileTextIcon, MapPinIcon, BoxIcon, BriefcaseIcon } from './Icons.tsx';
+import ShareModal from './ShareModal.tsx';
+import ShareButton from './forms/ShareButton.tsx';
+import AIFillButton from './forms/AIFillButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, Segmented, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
 import { CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
@@ -27,7 +30,16 @@ interface Props {
     existingNumbers?: string[];
 }
 
-const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, savedItems = [], inventoryItems = [], onSave, onBack, onUploadImage, prefillData, existingNumbers }) => {
+/** One address, `name@domain.tld` (same rule as the share window's "To"). */
+const VENDOR_EMAIL_RE = /^[^\s@?&,;]+@[^\s@?&,;]+\.[^\s@?&,;]{2,}$/;
+const vendorEmailProblem = (value: string | undefined | null): string | null => {
+    const v = String(value || '').trim();
+    return v && !VENDOR_EMAIL_RE.test(v) ? 'This email doesn’t look right (example: orders@supplier.com).' : null;
+};
+
+const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], savedItems = [], inventoryItems = [], onSave, onBack, onUploadImage, prefillData, documentId, existingNumbers }) => {
+    const [shareOpen, setShareOpen] = useState(false);
+    const [vendorEmailTouched, setVendorEmailTouched] = useState(false);
     const form = useDocumentForm<PurchaseOrderData>({
         formType: FormType.PurchaseOrder,
         initial: data ?? null,
@@ -78,12 +90,15 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, savedItems = [
             if (!String(d.vendorName || '').trim()) return 'Add the vendor (supplier) name.';
             if (!isISODate(d.date)) return 'Add a valid order date.';
             if (d.deliveryDate && isISODate(d.deliveryDate) && d.deliveryDate < d.date) return 'The required-by date is before the order date.';
-            if (d.vendorEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.vendorEmail.trim())) return 'The vendor email doesn’t look right.';
+            if (vendorEmailProblem(d.vendorEmail)) return 'The vendor email doesn’t look right.';
             return null;
         },
     });
     const { data: d, update } = form;
     const totals = computeDocumentTotals({ lineItems: d.lineItems });
+    // checked while typing (once the address has an "@" or the box was left), not only on Save (QA 0b.16)
+    const emailProblem = vendorEmailProblem(d.vendorEmail);
+    const showEmailProblem = Boolean(emailProblem) && (vendorEmailTouched || String(d.vendorEmail || '').includes('@'));
 
     const setShipTo = (type: string) => {
         if (type === 'Job Site') {
@@ -113,6 +128,12 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, savedItems = [
             onDownload={form.download}
             onSaveAndDownload={form.saveAndDownload}
             preview={{ formType: FormType.PurchaseOrder, data: d, profile, job }}
+            actions={(
+                <>
+                    <AIFillButton jobId={job.id} formType={FormType.PurchaseOrder} onApply={form.applyDraft} compact />
+                    <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
+                </>
+            )}
         >
             <FormSection title="Order details" icon={FileTextIcon}>
                 <FieldGrid>
@@ -132,7 +153,19 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, savedItems = [
             <FormSection title="Vendor" description="The supplier you’re ordering from." icon={BriefcaseIcon}>
                 <FieldGrid>
                     <TextField label="Vendor name" value={d.vendorName} onChange={v => update({ vendorName: v })} placeholder="e.g. Home Depot Pro" />
-                    <TextField label="Vendor email" type="email" inputMode="email" value={d.vendorEmail} onChange={v => update({ vendorEmail: v })} placeholder="orders@supplier.com" />
+                    <TextField
+                        label="Vendor email"
+                        type="email"
+                        inputMode="email"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        value={d.vendorEmail}
+                        onChange={v => update({ vendorEmail: v })}
+                        onBlur={() => setVendorEmailTouched(true)}
+                        placeholder="orders@supplier.com"
+                        error={showEmailProblem ? emailProblem : undefined}
+                        hint="Used as “To” when you share this order."
+                    />
                     <TextField label="Vendor phone" type="tel" value={d.vendorPhone} onChange={v => update({ vendorPhone: v })} />
                     <TextField label="Vendor address" value={d.vendorAddress} onChange={v => update({ vendorAddress: v })} />
                 </FieldGrid>
@@ -171,6 +204,22 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, savedItems = [
             <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Authorized signature" />
 
             <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            <ShareModal
+                isOpen={shareOpen}
+                onClose={() => setShareOpen(false)}
+                data={d}
+                docType={FormType.PurchaseOrder}
+                profile={profile}
+                documentId={documentId ?? form.lastSaveResult?.id}
+                clients={clients}
+                job={job}
+                defaultRecipient={emailProblem ? '' : d.vendorEmail}
+                recipientName={d.vendorName || 'there'}
+                hasUnsavedChanges={form.isDirty}
+                onDownload={form.download}
+                getPdfDataUri={async () => String(await generatePurchaseOrderPDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
+            />
         </FormShell>
     );
 };

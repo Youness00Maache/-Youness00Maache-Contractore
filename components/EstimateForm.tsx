@@ -1,20 +1,25 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FormType, type EstimateData, type UserProfile, type Job, type Client, type SavedItem, type InventoryItem } from '../types.ts';
 import { generateEstimatePDF } from '../services/pdfGenerator.ts';
-import { computeDocumentCost, computeDocumentTotals, formatMoney, roundMoney } from '../utils/money.ts';
-import { EstimateIcon, FileTextIcon, TrendingUpIcon, EyeIcon, EyeOffIcon } from './Icons.tsx';
+import { computeDocumentCost, computeDocumentTotals, formatMoney, roundMoney, toNumber } from '../utils/money.ts';
+import { EstimateIcon, FileTextIcon, TrendingUpIcon, EyeIcon, EyeOffIcon, InvoiceIcon, AlertTriangleIcon } from './Icons.tsx';
 import ShareModal from './ShareModal.tsx';
 import ShareButton from './forms/ShareButton.tsx';
 import { FormShell } from './forms/FormShell.tsx';
-import { DateField, FieldGrid, FormSection, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
+import { DateField, FieldGrid, FormSection, MoneyField, SelectField, TextAreaField, TextField } from './forms/Fields.tsx';
 import { AIInsightsSection, ApprovalSection, ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
 import LineItemsEditor from './forms/LineItemsEditor.tsx';
 import TotalsPanel from './forms/TotalsPanel.tsx';
 import AIFillButton from './forms/AIFillButton.tsx';
-import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
+import { Spinner } from './forms/Spinner.tsx';
+import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, makeSeedPrefill, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
 import { addDaysISO, blankLineItem, isISODate, normalizeLineItems, todayISO } from './forms/formUtils.ts';
 import { STATUS_OPTIONS } from './forms/documentFields.ts';
 import { makeStockLookup } from './forms/inventory.ts';
+import { buildInvoiceSeedFromEstimate, isClientSigned, signedChangeProblem } from './forms/signedLock.ts';
+import { LockedFieldset, SignedLockBanner, makeSignatureCheck, useSignedLock } from './forms/SignedLock.tsx';
+import { fetchInvoicesFromEstimate } from './forms/jobDocuments.ts';
 
 interface Props {
     job: Job;
@@ -32,13 +37,76 @@ interface Props {
     existingNumbers?: string[];
 }
 
+/** "Convert to invoice": deposit already received + a warning when an invoice was already made from this estimate. */
+const ConvertDialog: React.FC<{
+    open: boolean;
+    estimate: EstimateData;
+    total: number;
+    jobId: string;
+    estimateId?: string;
+    busy: boolean;
+    onCancel: () => void;
+    onConvert: (deposit: number) => void;
+    onOpenInvoice: (id: string) => void;
+}> = ({ open, estimate, total, jobId, estimateId, busy, onCancel, onConvert, onOpenInvoice }) => {
+    const [deposit, setDeposit] = useState(0);
+    const [existing, setExisting] = useState<Array<{ id: string; number: string }>>([]);
+    React.useEffect(() => {
+        if (!open || !estimateId) { setExisting([]); return; }
+        let active = true;
+        fetchInvoicesFromEstimate(jobId, estimateId).then(list => { if (active) setExisting(list); });
+        return () => { active = false; };
+    }, [open, jobId, estimateId]);
+    if (!open) return null;
+    const lines = (estimate.lineItems || []).filter(li => String(li.description || '').trim() || toNumber(li.rate)).length;
+    return (
+        <div className="modal-backdrop" onClick={() => !busy && onCancel()}>
+            <div className="modal-panel p-6" role="dialog" aria-modal="true" aria-labelledby="convert-title" onClick={e => e.stopPropagation()}>
+                <h3 id="convert-title" className="text-lg font-semibold text-foreground">Convert {estimate.estimateNumber || 'this estimate'} to an invoice</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                    Opens a new draft invoice{estimate.clientName ? ` for ${estimate.clientName}` : ''} with the {lines} line{lines === 1 ? '' : 's'}, tax and discount of this estimate ({formatMoney(total)}). You can review it before saving.
+                </p>
+                {existing.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
+                        <p className="flex items-start gap-2 font-medium"><AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" /> Already converted: {existing.map(i => i.number || 'an invoice').join(', ')}.</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {existing.slice(0, 3).map(i => (
+                                <button key={i.id} type="button" className="btn btn-outline btn-sm min-h-[36px]" onClick={() => onOpenInvoice(i.id)}>Open {i.number || 'invoice'}</button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                <div className="mt-4">
+                    <MoneyField
+                        label="Deposit already received (optional)"
+                        value={deposit}
+                        onValueChange={v => setDeposit(Math.min(v, total))}
+                        hint="Shown on the invoice as paid; the balance due is the rest."
+                        fieldClassName="sm:max-w-xs"
+                    />
+                </div>
+                <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" className="btn btn-outline" onClick={onCancel} disabled={busy}>Cancel</button>
+                    <button type="button" className="btn btn-primary" onClick={() => onConvert(deposit)} disabled={busy}>
+                        {busy ? <><Spinner /> Opening…</> : <><InvoiceIcon className="h-4 w-4" /> {existing.length ? 'Create another invoice' : 'Create invoice'}</>}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const EstimateForm: React.FC<Props> = ({
     job, profile, data, clients = [], savedItems = [], inventoryItems = [], onSave, onBack, onUploadImage, publicToken, prefillData, documentId, existingNumbers,
 }) => {
+    const navigate = useNavigate();
     const [showCosts, setShowCosts] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
+    const [convertOpen, setConvertOpen] = useState(false);
+    const [converting, setConverting] = useState(false);
     const download = (d: EstimateData) => generateEstimatePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID);
     const stockLookup = useMemo(() => makeStockLookup(inventoryItems, data), [inventoryItems, data]);
+    const idRef = useRef<string | undefined>(documentId);
 
     const form = useDocumentForm<EstimateData>({
         formType: FormType.Estimate,
@@ -56,6 +124,8 @@ const EstimateForm: React.FC<Props> = ({
                 expiryDate: addDaysISO(30, issueDate),
                 status: 'Draft',
                 lineItems: [{ ...blankLineItem(), unitCost: 0 }],
+                discount: 0,
+                taxRate: 0,
                 notes: '',
                 terms: 'This estimate is valid for 30 days. Payment schedule: 50% deposit, 50% upon completion.',
                 companyName: profile.companyName || '',
@@ -70,7 +140,15 @@ const EstimateForm: React.FC<Props> = ({
                 themeColors: { ...DEFAULT_THEME },
             };
         },
-        hydrate: d => backfillCompany({ ...d, lineItems: normalizeLineItems(d.lineItems, false), notes: d.notes ?? '', terms: d.terms ?? '', status: d.status || 'Draft' }, profile),
+        hydrate: d => backfillCompany({
+            ...d,
+            lineItems: normalizeLineItems(d.lineItems, false),
+            discount: toNumber(d.discount),
+            taxRate: toNumber(d.taxRate),
+            notes: d.notes ?? '',
+            terms: d.terms ?? '',
+            status: d.status || 'Draft',
+        }, profile),
         validate: d => {
             if (!String(d.estimateNumber || '').trim()) return 'Add an estimate number.';
             if (!isISODate(d.issueDate)) return 'Add a valid issue date.';
@@ -79,14 +157,41 @@ const EstimateForm: React.FC<Props> = ({
             // go negative and flags it in the inventory history; line rows already show stock warnings.
             return null;
         },
+        // a signed estimate keeps what the client signed (QA 0b.1); "Revise" makes a new version
+        guard: (next, lastSaved) => signedChangeProblem(lastSaved, next, 'estimate'),
+        beforeSave: makeSignatureCheck('estimate', () => idRef.current),
     });
     const { data: d, update } = form;
+    idRef.current = documentId ?? form.lastSaveResult?.id;
+    const lock = useSignedLock({ form, kind: 'estimate', formType: FormType.Estimate, job, documentId: idRef.current, numberKey: 'estimateNumber' });
+    const locked = lock.locked;
     const totals = computeDocumentTotals(d);
     const cost = computeDocumentCost(d);
-    const profit = roundMoney(totals.subtotal - cost);
-    const margin = totals.subtotal > 0 ? (profit / totals.subtotal) * 100 : 0;
+    // revenue is what the client pays for the work (after the discount, before tax)
+    const revenue = roundMoney(totals.subtotal - totals.discount);
+    const profit = roundMoney(revenue - cost);
+    const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
     const marginTone = margin >= 30 ? 'text-success' : margin >= 15 ? 'text-warning' : 'text-destructive';
-    const token = publicToken ?? form.lastSaveResult?.public_token ?? null;
+    const token = lock.newToken ?? publicToken ?? form.lastSaveResult?.public_token ?? null;
+    const accepted = isClientSigned(d) || d.status === 'Accepted';
+
+    const openConvert = async () => {
+        // the invoice links back to the SAVED estimate
+        if ((await form.ensureSaved()) !== 'saved') return;
+        setConvertOpen(true);
+    };
+    const convert = (deposit: number) => {
+        setConverting(true);
+        const seed = buildInvoiceSeedFromEstimate(form.data, idRef.current, { deposit });
+        setConvertOpen(false);
+        setConverting(false);
+        navigate(`/jobs/${job.id}/forms/${encodeURIComponent(FormType.Invoice)}`, { state: { prefillData: makeSeedPrefill(seed), fromJob: true } });
+    };
+    const convertButton = (
+        <button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={() => void openConvert()} disabled={form.busy}>
+            <InvoiceIcon className="h-4 w-4" /> Convert to invoice
+        </button>
+    );
 
     return (
         <FormShell
@@ -108,37 +213,42 @@ const EstimateForm: React.FC<Props> = ({
             preview={{ formType: FormType.Estimate, data: d, profile, job }}
             actions={(
                 <>
-                    <AIFillButton jobId={job.id} formType={FormType.Estimate} onApply={form.applyDraft} compact />
+                    {!locked && <AIFillButton jobId={job.id} formType={FormType.Estimate} onApply={form.applyDraft} compact />}
+                    {!locked && accepted && convertButton}
                     <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
                 </>
             )}
         >
-            <FormSection title="Estimate details" icon={FileTextIcon}>
-                <FieldGrid>
-                    <TextField label="Estimate #" value={d.estimateNumber} onChange={v => update({ estimateNumber: v })} />
-                    <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.estimate} onChange={v => update({ status: v as EstimateData['status'] })} />
-                    <DateField label="Issue date" value={d.issueDate} onChange={v => update({ issueDate: v })} />
-                    <DateField
-                        label="Valid until"
-                        value={d.expiryDate}
-                        onChange={v => update({ expiryDate: v })}
-                        error={d.expiryDate && d.issueDate && d.expiryDate < d.issueDate ? 'Expiry is before the issue date.' : undefined}
-                    />
-                    <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Kitchen renovation quote" fieldClassName="sm:col-span-2" />
-                </FieldGrid>
-            </FormSection>
+            {locked && <SignedLockBanner data={d} kind="estimate" onRevise={lock.openRevise} actions={convertButton} />}
 
-            <ClientSection
-                clients={clients}
-                job={job}
-                clientId={(d as any).clientId}
-                clientName={d.clientName}
-                address={d.clientAddress}
-                onChange={patch => update(patch as Partial<EstimateData>)}
-                description="Who this estimate is for."
-            />
+            <LockedFieldset locked={locked} className="space-y-6">
+                <FormSection title="Estimate details" icon={FileTextIcon}>
+                    <FieldGrid>
+                        <TextField label="Estimate #" value={d.estimateNumber} onChange={v => update({ estimateNumber: v })} />
+                        <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.estimate} onChange={v => update({ status: v as EstimateData['status'] })} />
+                        <DateField label="Issue date" value={d.issueDate} onChange={v => update({ issueDate: v })} />
+                        <DateField
+                            label="Valid until"
+                            value={d.expiryDate}
+                            onChange={v => update({ expiryDate: v })}
+                            error={d.expiryDate && d.issueDate && d.expiryDate < d.issueDate ? 'Expiry is before the issue date.' : undefined}
+                        />
+                        <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Kitchen renovation quote" fieldClassName="sm:col-span-2" />
+                    </FieldGrid>
+                </FormSection>
 
-            <CompanySection data={d} onChange={patch => update(patch)} onUploadImage={onUploadImage} />
+                <ClientSection
+                    clients={clients}
+                    job={job}
+                    clientId={(d as any).clientId}
+                    clientName={d.clientName}
+                    address={d.clientAddress}
+                    onChange={patch => update(patch as Partial<EstimateData>)}
+                    description="Who this estimate is for."
+                />
+
+                <CompanySection data={d} onChange={patch => update(patch)} onUploadImage={onUploadImage} />
+            </LockedFieldset>
 
             <FormSection
                 title="Items"
@@ -150,33 +260,42 @@ const EstimateForm: React.FC<Props> = ({
                     </button>
                 )}
             >
-                <LineItemsEditor
-                    items={d.lineItems}
-                    onChange={items => update({ lineItems: items })}
-                    showCost={showCosts}
-                    rateLabel="Price"
-                    savedItems={savedItems}
-                    inventoryItems={inventoryItems}
-                    availableStock={stockLookup}
-                />
-                {showCosts && (
-                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/40 p-4 sm:grid-cols-4">
-                        <div><p className="label mb-1">Revenue</p><p className="text-lg font-bold tabular-nums">{formatMoney(totals.subtotal)}</p></div>
-                        <div><p className="label mb-1">Your cost</p><p className="text-lg font-bold tabular-nums">{formatMoney(cost)}</p></div>
-                        <div><p className="label mb-1">Profit</p><p className={`text-lg font-bold tabular-nums ${profit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatMoney(profit)}</p></div>
-                        <div><p className="label mb-1">Margin</p><p className={`text-lg font-bold tabular-nums ${marginTone}`}>{margin.toFixed(1)}%</p></div>
-                    </div>
-                )}
-                <TotalsPanel totals={totals} totalLabel="Estimate total" />
+                <LockedFieldset locked={locked} className="space-y-5">
+                    <LineItemsEditor
+                        items={d.lineItems}
+                        onChange={items => update({ lineItems: items })}
+                        showCost={showCosts}
+                        rateLabel="Price"
+                        savedItems={savedItems}
+                        inventoryItems={inventoryItems}
+                        availableStock={stockLookup}
+                    />
+                    {showCosts && (
+                        <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/40 p-4 sm:grid-cols-4">
+                            <div><p className="label mb-1">Revenue</p><p className="text-lg font-bold tabular-nums">{formatMoney(revenue)}</p></div>
+                            <div><p className="label mb-1">Your cost</p><p className="text-lg font-bold tabular-nums">{formatMoney(cost)}</p></div>
+                            <div><p className="label mb-1">Profit</p><p className={`text-lg font-bold tabular-nums ${profit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatMoney(profit)}</p></div>
+                            <div><p className="label mb-1">Margin</p><p className={`text-lg font-bold tabular-nums ${marginTone}`}>{margin.toFixed(1)}%</p></div>
+                        </div>
+                    )}
+                    <TotalsPanel
+                        totals={totals}
+                        totalLabel="Estimate total"
+                        adjustments={{ discount: d.discount, taxRate: d.taxRate, fields: ['discount', 'taxRate'], onChange: patch => update(patch) }}
+                    />
+                </LockedFieldset>
             </FormSection>
 
-            <FormSection title="Notes & terms" description="Printed on the estimate.">
-                <TextAreaField label="Notes" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Scope, exclusions, schedule…" />
-                <TextAreaField label="Terms & conditions" value={d.terms} onChange={v => update({ terms: v })} rows={4} />
-            </FormSection>
+            <LockedFieldset locked={locked} className="space-y-6">
+                <FormSection title="Notes & terms" description="Printed on the estimate.">
+                    <TextAreaField label="Notes" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Scope, exclusions, schedule…" />
+                    <TextAreaField label="Terms & conditions" value={d.terms} onChange={v => update({ terms: v })} rows={4} />
+                </FormSection>
+            </LockedFieldset>
 
             <ApprovalSection
-                documentId={documentId ?? form.lastSaveResult?.id}
+                key={lock.newToken || 'approval'}
+                documentId={idRef.current}
                 docLabel="Estimate"
                 publicToken={token}
                 clientSignatureUrl={d.clientSignatureUrl}
@@ -185,11 +304,26 @@ const EstimateForm: React.FC<Props> = ({
                 clientName={d.clientName}
             />
 
-            <AIInsightsSection data={d.ai_visual_data} onRemove={() => update({ ai_visual_data: undefined })} />
+            <LockedFieldset locked={locked} className="space-y-6">
+                <AIInsightsSection data={d.ai_visual_data} onRemove={() => update({ ai_visual_data: undefined })} />
 
-            <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} description="Your signature authorizes this estimate." />
+                <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} description="Your signature authorizes this estimate." />
+            </LockedFieldset>
 
             <TemplateSection templateId={d.templateId} themeColors={d.themeColors} onChange={patch => update(patch)} />
+
+            {lock.dialogs}
+            <ConvertDialog
+                open={convertOpen}
+                estimate={d}
+                total={totals.total}
+                jobId={job.id}
+                estimateId={idRef.current}
+                busy={converting}
+                onCancel={() => setConvertOpen(false)}
+                onConvert={convert}
+                onOpenInvoice={id => { setConvertOpen(false); navigate(`/jobs/${job.id}/forms/${encodeURIComponent(FormType.Invoice)}/${id}`, { state: { fromJob: true } }); }}
+            />
 
             <ShareModal
                 isOpen={shareOpen}
@@ -197,7 +331,7 @@ const EstimateForm: React.FC<Props> = ({
                 data={d}
                 docType={FormType.Estimate}
                 profile={profile}
-                documentId={documentId ?? form.lastSaveResult?.id}
+                documentId={idRef.current}
                 publicToken={token}
                 clients={clients}
                 job={job}

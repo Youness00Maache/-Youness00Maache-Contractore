@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Client, EmailTemplate, Job, UserProfile } from '../types.ts';
 import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
 import { approvalUrl, copyToClipboard, ensureApprovalToken, ensurePortalKey, portalUrl } from '../utils/clientLinks.ts';
+import { fillEmailPlaceholders, senderIdentity } from '../utils/emailTemplates.ts';
 import { CopyIcon, MailIcon, XCircleIcon, DownloadIcon, ShareIcon, GlobeIcon, UsersIcon, CheckIcon, AlertTriangleIcon } from './Icons.tsx';
 
 interface ShareModalProps {
@@ -24,6 +25,10 @@ interface ShareModalProps {
     onDownload?: () => Promise<unknown> | void;
     /** PDF as a data URI, used for the phone share sheet */
     getPdfDataUri?: () => Promise<string>;
+    /** "To" when the document is not for a saved client (e.g. a purchase order goes to the vendor's email) */
+    defaultRecipient?: string;
+    /** name used for "Hi [Client Name]" when it is not the client (e.g. the vendor) */
+    recipientName?: string;
 }
 
 const NUMBER_KEYS = ['invoiceNumber', 'estimateNumber', 'workOrderNumber', 'changeOrderNumber', 'poNumber', 'receiptNumber', 'reportNumber', 'warrantyNumber'];
@@ -44,6 +49,12 @@ export const documentTotalOf = (data: any): number | null => {
 
 const defaultTemplate = (docType: string, hasLink: boolean): EmailTemplate => {
     const type = docType.toLowerCase();
+    if (type === 'purchase order') {
+        return {
+            subject: 'Purchase Order [Document Number] from [My Company]',
+            body: `Hello [Client Name],\n\nPlease find attached purchase order [Document Number] ([Total Amount]). Please confirm availability and the delivery date.\n\nThank you,\n[My Name]\n[My Company]`,
+        };
+    }
     if (type === 'invoice') {
         return {
             subject: 'Invoice [Document Number] from [My Company]',
@@ -79,6 +90,7 @@ const isEmailList = (value: string) => {
 
 const ShareModal: React.FC<ShareModalProps> = ({
     isOpen, onClose, data, docType, profile, documentId, publicToken, clients = [], job, hasUnsavedChanges, onDownload, getPdfDataUri,
+    defaultRecipient, recipientName,
 }) => {
     const navigate = useNavigate();
     const [recipient, setRecipient] = useState('');
@@ -97,8 +109,8 @@ const ShareModal: React.FC<ShareModalProps> = ({
     const [recipientEdited, setRecipientEdited] = useState(false);
     useEffect(() => {
         if (!isOpen) { setRecipientEdited(false); return; }
-        if (!recipientEdited) setRecipient(client?.email?.trim() || '');
-    }, [isOpen, client?.email]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (!recipientEdited) setRecipient(defaultRecipient?.trim() || client?.email?.trim() || '');
+    }, [isOpen, client?.email, defaultRecipient]); // eslint-disable-line react-hooks/exhaustive-deps
     const recipientTrimmed = recipient.trim();
     const recipientValid = !recipientTrimmed || isEmailList(recipientTrimmed);
     const mailtoTo = recipientTrimmed && recipientValid ? recipientTrimmed.split(/[;,]/).map(s => s.trim()).filter(Boolean).join(',') : '';
@@ -128,20 +140,18 @@ const ShareModal: React.FC<ShareModalProps> = ({
         if (!isOpen) return;
         const key = `${docType.toLowerCase().replace(/\s+/g, '_')}_default`;
         const tpl = profile.emailTemplates?.[key] || defaultTemplate(docType, Boolean(shareLink));
-        const fill = (text: string) => {
-            const values: Record<string, string> = {
-                '[Client Name]': data?.clientName || client?.name || 'there',
-                '[Job Name]': data?.projectName || job?.name || 'your project',
-                '[My Company]': data?.companyName || profile.companyName || '',
-                '[My Name]': profile.name || '',
-                '[Document Number]': number || docType,
-                '[Total Amount]': total !== null ? formatMoney(total) : '',
-                '[Link]': shareLink,
-            };
-            let out = text;
-            for (const [k, v] of Object.entries(values)) out = out.split(k).join(v);
-            return out.replace(/ \(\)/g, '').replace(/\n{3,}/g, '\n\n').trim();
-        };
+        // company → name → email, so the text never reads "… from" or ends with a bare "Thank you," (QA 0b.6)
+        const sender = senderIdentity(profile, data?.companyName);
+        const fill = (text: string) => fillEmailPlaceholders(text, {
+            '[Client Name]': recipientName || data?.clientName || client?.name || 'there',
+            '[Job Name]': data?.projectName || job?.name || 'your project',
+            '[My Company]': sender.company,
+            '[My Name]': sender.name,
+            // documents without a number (notes, time sheets) use their title, never the type twice ("Note Note")
+            '[Document Number]': number || String(data?.title || '').trim(),
+            '[Total Amount]': total !== null ? formatMoney(total) : '',
+            '[Link]': shareLink,
+        });
         setSubject(fill(tpl.subject));
         if (!bodyEdited) setBody(fill(tpl.body));
     }, [isOpen, shareLink]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -191,7 +201,8 @@ const ShareModal: React.FC<ShareModalProps> = ({
                     clientId: client?.id,
                     clientEmail: client?.email,
                     ...(mailtoTo ? { recipient: mailtoTo } : {}),
-                    clientName: data?.clientName || client?.name,
+                    // a vendor (purchase order) is not one of your clients: only the address is passed
+                    ...(recipientName ? {} : { clientName: data?.clientName || client?.name }),
                     subject,
                     body,
                 },
@@ -228,7 +239,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                     <div className="min-w-0">
                         <h3 id="share-title" className="text-lg font-semibold">Share {docType.toLowerCase()}</h3>
                         <p className="truncate text-sm text-muted-foreground">
-                            {[number, data?.clientName, total !== null ? formatMoney(total) : ''].filter(Boolean).join(' · ')}
+                            {[number || data?.title, recipientName || data?.clientName, total !== null ? formatMoney(total) : ''].filter(Boolean).join(' · ')}
                         </p>
                     </div>
                     <button type="button" onClick={onClose} className="btn btn-ghost h-10 w-10 shrink-0 p-0" aria-label="Close"><XCircleIcon className="h-5 w-5" /></button>
@@ -298,7 +309,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                             {!recipientValid ? (
                                 <p className="mt-1.5 text-xs font-medium text-destructive">Check the email address (separate several with a comma).</p>
                             ) : !recipientTrimmed && (
-                                <p className="mt-1.5 text-xs text-muted-foreground">{client ? `${client.name} has no saved email.` : 'Type the email address to send to.'}</p>
+                                <p className="mt-1.5 text-xs text-muted-foreground">{client && !recipientName ? `${client.name} has no saved email.` : 'Type the email address to send to.'}</p>
                             )}
                         </div>
                         <div>

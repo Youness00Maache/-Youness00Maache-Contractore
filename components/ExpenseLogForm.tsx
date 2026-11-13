@@ -8,7 +8,7 @@ import { DateField, FieldGrid, FormSection, MoneyField, SelectField, TextAreaFie
 import { ClientSection, CompanySection, SignatureSection, SummaryRow, TemplateSection } from './forms/Sections.tsx';
 import LineItemsEditor from './forms/LineItemsEditor.tsx';
 import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
-import { blankLineItem, isISODate, normalizeLineItems, todayISO } from './forms/formUtils.ts';
+import { blankLineItem, formatDisplayDate, isISODate, normalizeLineItems, todayISO } from './forms/formUtils.ts';
 import { EXPENSE_CATEGORIES } from './forms/documentFields.ts';
 import { processReceiptImage, terminateOCRWorker, type OCRResult } from '../utils/ocr.ts';
 import { assertUsableImage, compressImage, describeImageError } from '../utils/imageCompression.ts';
@@ -176,7 +176,7 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
     return (
         <FormShell
             title="Expense"
-            subtitle={[d.vendor, d.date].filter(Boolean).join(' · ') || 'New expense'}
+            subtitle={[d.vendor, d.date ? formatDisplayDate(d.date) : ''].filter(Boolean).join(' · ') || 'New expense'}
             icon={ExpenseLogIcon}
             aiGenerated={Boolean((d as any).isAiGenerated)}
             isDirty={form.isDirty}

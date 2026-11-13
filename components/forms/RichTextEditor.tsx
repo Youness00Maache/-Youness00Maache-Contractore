@@ -829,7 +829,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
             )}
             <div className="grid grid-cols-3 gap-2">
                 <button type="button" className={toolButton} onClick={startCamera}><CameraIcon className="h-5 w-5" /> Camera</button>
-                <div className="flex items-center justify-center rounded-xl border border-border bg-card"><AIVoiceInput onTranscript={handleVoice} /></div>
+                <AIVoiceInput variant="tile" className={toolButton} onTranscript={handleVoice} onProblem={msg => { if (msg) setNotice({ tone: 'warn', text: msg }); }} />
                 <button type="button" className={toolButton} onClick={() => { rememberSelection(); fileRef.current?.click(); }} disabled={uploading}>
                     {uploading ? <Spinner className="h-5 w-5" /> : <UploadImageIcon className="h-5 w-5" />} {uploading ? 'Adding…' : 'Photo'}
                 </button>
