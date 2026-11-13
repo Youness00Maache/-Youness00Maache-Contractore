@@ -11,7 +11,7 @@ site today); no Docker; don't push unless asked; no generic "vibe-coded" design 
 
 All in `pages/LandingPage.tsx` unless noted. Reload the page first: some screenshots showed an older version.
 
-1. **Delete** the whole "WHAT YOU CAN DO / One week on a remodel, without the paper chase" section
+1. ~~DONE (commit below)~~ **Delete** the whole "WHAT YOU CAN DO / One week on a remodel, without the paper chase" section
    (Mon–Fri planner, `pages/LandingPage.tsx` around line 295, plus its `WEEK` data array around line 64 and
    any helpers in `pages/components/LandingVisuals.tsx` that only it uses).
 2. **"How it works" 3 cards** (01 Add a job and your client / 02 Create documents / 03 Send, sign and get

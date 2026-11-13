@@ -4,7 +4,7 @@ import { Container, SectionHeader, ButtonLink, CheckList, FaqList, CtaBand, Eyeb
 import { AppMockup, AiMockup, PortalMockup, InvoicePaper, EmailMockup, InventoryMockup, ProfitMockup, StatusStrip } from './components/Mockups.tsx';
 import {
   DocumentShelf, PostStamp, StockTag, MarginDial, RecordingPill, PhoneTodayMockup, TradesTape, JobFolder, DocFan, PaidTrack,
-  WeekArtifact, SpecPlate, type WeekDay,
+  SpecPlate,
 } from './components/LandingVisuals.tsx';
 import { PlanCards, PeriodToggle, type Period } from './components/PlanCards.tsx';
 import { ArrowRight } from './components/icons.tsx';
@@ -61,14 +61,6 @@ const MoreCard: React.FC<{
     </div>
   </article>
 );
-
-const WEEK: { day: WeekDay; title: string; text: string }[] = [
-  { day: 'Mon', title: 'Estimate before you leave the driveway', text: 'Walk the job, dictate the scope and let the assistant draft the estimate from your price book. Review it, send it from your phone.' },
-  { day: 'Tue', title: 'Approved and signed online', text: 'Your client opens the portal link, approves the estimate and signs. The deposit invoice goes out from your own Gmail.' },
-  { day: 'Wed', title: 'Scope change? Change order first', text: 'The client wants pantry pull-outs. Price the change, add the extra day, get it signed before the crew touches it.' },
-  { day: 'Thu', title: 'Daily report in five minutes', text: 'Crew, hours, weather, work completed, deliveries and photos, logged on site and stored with the job.' },
-  { day: 'Fri', title: 'Progress invoice and real numbers', text: 'Bill the percent complete, record the payment, and see invoiced vs. costs and your margin so far.' },
-];
 
 const STEPS = [
   { title: 'Add a job and your client', text: 'Create a job with the client and site address. Add your logo and business details once; they appear on every document.', visual: <JobFolder /> },
@@ -283,40 +275,6 @@ const LandingPage: React.FC = () => {
               </li>
             ))}
           </ol>
-        </Container>
-      </section>
-
-      {/* ------------------------------------------------------------ A week with ContractorDocs */}
-      <section aria-labelledby="week-heading" className="py-20 sm:py-28">
-        <Container>
-          <SectionHeader
-            id="week-heading"
-            eyebrow="What you can do"
-            title="One week on a remodel, without the paper chase"
-            subtitle="An example of how the pieces fit together on a typical job."
-          />
-          <div className="mx-auto mt-14 max-w-4xl overflow-hidden rounded-3xl border border-border bg-card shadow-card">
-            <div aria-hidden="true" className="flex items-center justify-between gap-4 border-b border-border bg-muted/50 px-5 py-3 sm:px-7">
-              <span className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Maple St. kitchen remodel</span>
-              <span className="font-mono text-[11px] text-muted-foreground">Week 46</span>
-            </div>
-            <ol className="divide-y divide-border">
-              {WEEK.map((w) => (
-                <li key={w.day} className="grid grid-cols-[56px_minmax(0,1fr)] sm:grid-cols-[88px_minmax(0,1fr)_auto]">
-                  <div className="row-span-2 border-r-2 border-red-200/80 pt-6 text-center sm:row-span-1 sm:pt-7">
-                    <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-brand-700">{w.day}</span>
-                  </div>
-                  <div className="px-4 pt-5 sm:px-7 sm:py-6">
-                    <h3 className="text-base font-bold text-foreground sm:text-lg">{w.title}</h3>
-                    <p className="mt-1 text-[15px] leading-relaxed text-muted-foreground">{w.text}</p>
-                  </div>
-                  <div className="px-4 pb-6 pt-4 sm:flex sm:items-center sm:py-6 sm:pl-0 sm:pr-7">
-                    <WeekArtifact day={w.day} />
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
         </Container>
       </section>
 
