@@ -4,6 +4,31 @@ Work is paused at the owner's request. Nothing has been pushed to GitHub. The lo
 `http://localhost:3010` (Vite dev server, connected to the REAL production database `iauteblvljppwzsxloyd`).
 Owner's rules for this work: never remove a feature the old app had (old app = commit `25ae5cc` = the live
 site today); no Docker; don't push unless asked; no generic "vibe-coded" design (icon-in-a-square cards).
+**Pacing rule (updated 2026-11-13 15:10):** stop at **80%** of the 5-hour limit (check with
+`mcp__ccd_session_mgmt__get_usage` before each major step), commit finished work, update this file, and set a
+one-shot timer a few minutes after the reset (local time = UTC) to continue.
+
+---------------------------------------------------------------------------------------------------------
+
+## 0. NEW fixes reported by the owner (2026-11-13 ~15:05). Do these FIRST
+
+1. **AI fails with "The AI service is unavailable right now (404)."** Cause, from the `ai-assistant` logs at
+   15:02: `gemini-2.5-flash` answered **503** ("model is currently experiencing high demand"), then the
+   fallback `gemini-2.5-flash-lite` answered **404**: "no longer available to new users, use
+   models/gemini-3.5-flash-lite". (Earlier, `gemini-flash-latest` hung.) Fix in
+   `supabase/functions/ai-assistant/handler.ts`:
+   - Replace the backup list with models that exist now (e.g. `gemini-3.5-flash`, then
+     `gemini-3.5-flash-lite`; confirm the current names on Google's model list first) and set the
+     `GEMINI_MODEL` secret to the best one (needs the owner's explicit OK: it's a live setting).
+   - On 503/overloaded: retry the same model once or twice with a short backoff before moving on.
+   - The error shown to users should say "busy, try again in a minute", not "(404)".
+   - Update `scripts/document-ai-flow-qa.ts` model-name checks, bundle and redeploy `ai-assistant`, and test
+     the owner's request: "create new clients Jack and Paul and assign to them a daily report and an
+     invoice, filled with random information because this is just a test".
+2. **Voice button is a box inside a box** (Note / Daily Report editor, the Camera · Voice · Photo row under
+   the text editor). Owner: "a card inside a card is bad". The Voice tile has its own bordered round icon
+   inside the bordered tile. Make it look like the Camera and Photo buttons (one flat button: icon +
+   label), with the recording state shown on that same button.
 
 ---------------------------------------------------------------------------------------------------------
 
