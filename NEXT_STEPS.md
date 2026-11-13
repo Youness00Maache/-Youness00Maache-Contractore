@@ -125,6 +125,10 @@ requests+photos FINISHED (199 checks; migration 0400 written); pay, reminders an
 doing a visual check; data-sync was writing the sync module). On resume: SendMessage pay/reminders/data-sync to
 finish, then tsc + all tests (incl. scripts/requests-photos-check.ts, reminders-check.ts), commit, apply migrations
 0200/0300/0400/0500, deploy the reminders + gmail functions.
+**18:13 new window:** reminders FINISHED (141 checks; migration 0300; mounts handed to pay). Resumed pay + data-sync.
+New: parity audit v2 (owner: client portal + per-client "get approval" don't work like production; temporary clients
+missing; review production again and add everything; nothing may be lost after logout/login) → writes
+docs/work/PARITY_V2.md, then implement it. Helper IDs: parity-v2 ae60c2aa3fda85201.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
