@@ -17,6 +17,7 @@ import {
     type ReminderBasics, type ReminderKind, type ReminderSettings, type TemplateKey,
 } from '../../lib/reminders.ts';
 import { cx, hourLabel, InlineNote, Switch } from './ui.tsx';
+import HelpButton from '../help/HelpButton.tsx';
 
 interface Props {
     onUpgradeClick?: () => void;
@@ -129,7 +130,7 @@ const ReminderSettingsCard: React.FC<Props> = ({ onUpgradeClick }) => {
                 <h2 id="settings-reminders-title" className="text-base font-semibold">Reminders &amp; follow-ups</h2>
                 <p className="mt-0.5 text-sm text-muted-foreground">Chases unpaid invoices and unanswered estimates from your own Gmail, on a schedule.</p>
             </div>
-            {right}
+            <div className="flex shrink-0 items-center gap-1"><HelpButton topic="reminders" iconOnly />{right}</div>
         </div>
     );
 

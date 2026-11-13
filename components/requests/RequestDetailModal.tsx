@@ -18,6 +18,7 @@ import {
     type ConvertResult,
 } from './requestsApi.ts';
 import { addRequestPhotosToJob } from '../photos/photosApi.ts';
+import { isClientCreatedWithJob } from '../../utils/clientPortalRules.ts';
 
 export interface EstimateHandoff { jobId: string; prompt: string; images: PendingImage[] }
 
@@ -53,11 +54,13 @@ const RequestDetailModal: React.FC<Props> = ({
     const [busy, setBusy] = useState<'' | 'convert' | 'ai' | 'archive' | 'delete'>('');
     const [converting, setConverting] = useState(false);
     const [jobName, setJobName] = useState('');
+    const [temporary, setTemporary] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const req = request;
 
     useEffect(() => {
         setConverting(false);
+        setTemporary(false);
         setConfirmDelete(false);
         setUrls({});
         if (!req) return;
@@ -82,13 +85,26 @@ const RequestDetailModal: React.FC<Props> = ({
     const mail = mailHref(req.email, 'Your quote request');
     const map = mapsHref(req.address);
 
+    /** Marks the client the conversion just CREATED as temporary (never an existing client it matched). */
+    const markTemporary = async (res: ConvertResult): Promise<ConvertResult> => {
+        if (!res.client?.id || res.already || !isClientCreatedWithJob(res.client, res.job)) return res;
+        try {
+            const { setClientTemporary } = await import('../ClientDetails.tsx');
+            return { ...res, client: { ...(await setClientTemporary({ id: String(res.client.id), notes: res.client.notes ?? null }, true)) } };
+        } catch (error) {
+            toast.error(`The client was created but could not be marked as temporary. ${describeError(error)}`);
+            return res;
+        }
+    };
+
     /** Creates the client + job; returns the job id (null when refused). */
-    const convert = async (name: string): Promise<string | null> => {
+    const convert = async (name: string, asTemporary = false): Promise<string | null> => {
         if (!navigator.onLine) { toast.error("You're offline. Reconnect to create the job."); return null; }
         if (!checkJobLimit()) return null;
         setBusy('convert');
         try {
-            const res = await convertQuoteRequest(req.id, name, localYmd());
+            let res = await convertQuoteRequest(req.id, name, localYmd());
+            if (asTemporary) res = await markTemporary(res);
             onConverted(res);
             const next: QuoteRequest = { ...req, status: 'converted', jobId: String(res.job.id), clientId: res.client?.id ?? null, convertedAt: new Date().toISOString() };
             onChanged(next);
@@ -123,7 +139,7 @@ const RequestDetailModal: React.FC<Props> = ({
         }
         setBusy('ai');
         try {
-            const jobId = req.jobId || (await convert(jobName || jobNameFromRequest(req)));
+            const jobId = req.jobId || (await convert(jobName || jobNameFromRequest(req), temporary));
             if (!jobId) return;
             setBusy('ai');
             const files = await downloadRequestPhotos(req.photoPaths, MAX_AI_IMAGES).catch(() => [] as File[]);
@@ -261,8 +277,15 @@ const RequestDetailModal: React.FC<Props> = ({
                             Adds {req.name} to your clients (or uses the client with the same email, phone or name) and creates an active job
                             {photoCount ? ' with their photos as “Before” photos' : ''}. It counts toward your plan’s monthly jobs and clients.
                         </p>
+                        <label className="mt-3 flex min-h-[40px] cursor-pointer items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 text-sm">
+                            <input type="checkbox" className="h-5 w-5 accent-[hsl(var(--primary))]" checked={temporary} onChange={(e) => setTemporary(e.target.checked)} disabled={busy === 'convert'} />
+                            <span>
+                                <span className="font-medium text-foreground">Mark as temporary client</span>
+                                <span className="block text-xs text-muted-foreground">For a one-off job: kept under “Temporary” on the Clients page (an existing client it matches stays as it is).</span>
+                            </span>
+                        </label>
                         <div className="mt-3 flex flex-wrap gap-2">
-                            <button type="button" className="btn btn-primary" onClick={() => void convert(jobName)} disabled={busy === 'convert' || !jobName.trim()}>
+                            <button type="button" className="btn btn-primary" onClick={() => void convert(jobName, temporary)} disabled={busy === 'convert' || !jobName.trim()}>
                                 {busy === 'convert' ? 'Creating…' : 'Create client & job'}
                             </button>
                             <button type="button" className="btn btn-outline" onClick={() => setConverting(false)} disabled={busy === 'convert'}>Cancel</button>

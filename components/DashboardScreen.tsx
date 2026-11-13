@@ -9,6 +9,8 @@ import { getDocumentTitle, isUnseenClientSignedDocument } from '../lib/documents
 import type { Translation } from '../utils/translations.ts';
 import type { UsageSnapshot } from '../lib/account.ts';
 import { isPaidTier, type PlanTier } from '../lib/plans.ts';
+import { MobileHeaderSlot, useHeaderSlot } from './AppNav.tsx';
+import HelpButton from './help/HelpButton.tsx';
 
 type StatusFilter = 'All' | Job['status'];
 type SortKey = 'newest' | 'oldest' | 'name' | 'start';
@@ -125,6 +127,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
     const paid = isPaidTier(plan);
     const firstName = (userName || '').trim().split(/\s+/)[0] || '';
+    const headerTitleSlot = useHeaderSlot('title');
 
     const clientNames = useMemo(
         () => Array.from(new Set(jobs.map(j => j.clientName).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -175,18 +178,32 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
         { value: 'inactive', label: 'Inactive' },
     ];
 
+    // English keeps the time-of-day greeting; other languages use their translated welcome (as the old app did).
+    const title = `${t.welcome && t.welcome !== 'Welcome' ? t.welcome : greeting()}${firstName ? `, ${firstName}` : ''}`;
+    const subtitle = loading ? 'Loading your jobs...' : activeCount > 0 ? `You have ${activeCount} active ${activeCount === 1 ? 'job' : 'jobs'}.` : 'Create a job to start making documents.';
+
     return (
         <div className="page">
+            {/* Phones: the greeting lives in the app bar (no near-empty bar above a second header). */}
+            <MobileHeaderSlot name="title">
+                <h1 className="truncate text-[15px] font-semibold leading-tight text-foreground">{title}</h1>
+                <p className="truncate text-xs leading-tight text-muted-foreground">{subtitle}</p>
+            </MobileHeaderSlot>
+            {/* ...and so do the header's quick actions (the AI button portals itself there too) */}
+            {headerTitleSlot && (
+                <MobileHeaderSlot name="actions">
+                    <HelpButton topic="dashboard" iconOnly className="!h-9 !w-9" />
+                </MobileHeaderSlot>
+            )}
+
             {/* Header */}
-            <div className="page-header">
+            <div className={`page-header ${headerTitleSlot ? 'hidden md:flex' : ''}`}>
                 <div className="min-w-0">
-                    {/* English keeps the time-of-day greeting; other languages use their translated welcome (as the old app did). */}
-                    <h1 className="page-title truncate">{t.welcome && t.welcome !== 'Welcome' ? t.welcome : greeting()}{firstName ? `, ${firstName}` : ''}</h1>
-                    <p className="page-subtitle">
-                        {loading ? 'Loading your jobs...' : activeCount > 0 ? `You have ${activeCount} active ${activeCount === 1 ? 'job' : 'jobs'}.` : 'Create a job to start making documents.'}
-                    </p>
+                    <h1 className="page-title truncate">{title}</h1>
+                    <p className="page-subtitle">{subtitle}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <HelpButton topic="dashboard" />
                     {aiSlot}
                     <button type="button" onClick={onNewJob} className="btn btn-primary hidden sm:inline-flex">
                         <PlusIcon className="h-4 w-4" /> {t.newJob || 'New job'}

@@ -24,6 +24,7 @@ import {
     type ClientDocSummary,
     type ClientJobSummary,
 } from '../utils/clientLinks.ts';
+import { TEMP_TAG, computeDocState, isLegacyDocument, isTemporaryNotes, isUnpaidInvoice, stripTempTag, withTempTag } from '../utils/clientPortalRules.ts';
 import { Client, FormType, type FormData as FormDataType, type Job, type UserProfile } from '../types.ts';
 import {
     Avatar,
@@ -83,7 +84,8 @@ export interface CommunicationPrefill {
 }
 
 export const CLIENT_COLUMNS = 'id, user_id, name, email, phone, address, notes, portal_key, created_at';
-export const TEMP_TAG = '[TEMPORARY]';
+/** Temporary clients: `[TEMPORARY]` in the notes, exactly like the original app (utils/clientPortalRules.ts). */
+export { TEMP_TAG, stripTempTag };
 export const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
 
 export interface ClientDraft {
@@ -96,8 +98,19 @@ export interface ClientDraft {
 
 export const EMPTY_DRAFT: ClientDraft = { name: '', email: '', phone: '', address: '', notes: '' };
 
-export const isTemporaryClient = (c: Pick<Client, 'notes'> | null | undefined) => !!c?.notes && c.notes.includes(TEMP_TAG);
-export const stripTempTag = (notes?: string | null) => String(notes || '').replace(TEMP_TAG, '').trim();
+export const isTemporaryClient = (c: Pick<Client, 'notes'> | null | undefined) => isTemporaryNotes(c?.notes);
+
+/** Makes a client temporary or regular (only the `[TEMPORARY]` marker in the notes changes). */
+export async function setClientTemporary(client: Pick<Client, 'id' | 'notes'>, temporary: boolean): Promise<Client> {
+    const { data, error } = await supabase
+        .from('clients')
+        .update({ notes: withTempTag(client.notes, temporary) })
+        .eq('id', client.id)
+        .select(CLIENT_COLUMNS)
+        .single();
+    if (error) throw new Error(error.message || 'Could not update the client.');
+    return data as Client;
+}
 export const firstName = (name?: string | null) => String(name || '').trim().split(/\s+/)[0] || 'there';
 
 export const draftFromClient = (c: Partial<Client> | null | undefined): ClientDraft => ({
@@ -234,13 +247,13 @@ export const DocTypeIcon: React.FC<{ type: string; className?: string }> = ({ ty
     return <Icon className={className} />;
 };
 
-/** Signed / declined state of an estimate or change order (lightweight data). */
+/**
+ * Signed / declined / expired / open, with the client portal's rules (lightweight data): Approved counts as signed,
+ * and estimates made before the upgrade stay signable after their "valid until" date, like in the original app.
+ */
 export const approvalState = (doc: ClientDocSummary): 'signed' | 'declined' | 'expired' | 'open' => {
-    const status = String(doc.data.status || '');
-    if (doc.data.clientSignedAt || status === 'Accepted') return 'signed';
-    if (doc.data.clientDeclinedAt || status === 'Rejected') return 'declined';
-    if (doc.type === FormType.Estimate && isExpired(doc.data.expiryDate)) return 'expired';
-    return 'open';
+    const state = computeDocState(doc.type, doc.data, doc.createdAt);
+    return state === 'readonly' ? 'open' : state;
 };
 
 /* =====================================================================
@@ -466,8 +479,8 @@ export const ClientFormModal: React.FC<{
                         onChange={(e) => setTemporary(e.target.checked)}
                     />
                     <span>
-                        <span className="font-medium text-foreground">Temporary client</span>
-                        <span className="block text-xs text-muted-foreground">Walk-ins and one-off jobs. You can convert them later.</span>
+                        <span className="font-medium text-foreground">Mark as temporary client</span>
+                        <span className="block text-xs text-muted-foreground">Walk-ins and one-off jobs. Kept under “Temporary” on the Clients page; you can convert them to regular later.</span>
                     </span>
                 </label>
             </form>
@@ -475,8 +488,30 @@ export const ClientFormModal: React.FC<{
     );
 };
 
+/**
+ * "Ask again" on a declined estimate / change order: saves it with the status Sent (the rest of the document, the
+ * decline included, unchanged). The database then reopens it: decline cleared, and the same link and the portal
+ * accept a new answer (20261113000600). Returns false when the database kept it declined.
+ */
+export async function reopenDeclinedDocument(documentId: string): Promise<boolean> {
+    const { data: row, error } = await supabase.from('documents').select('data').eq('id', documentId).single();
+    if (error) throw new Error(`Could not load the document: ${error.message}`);
+    const data = ((row as { data?: Record<string, unknown> } | null)?.data || {}) as Record<string, unknown>;
+    if (data.__lightweight) throw new Error('Could not load the document. Please try again.');
+    const { data: saved, error: saveError } = await supabase
+        .from('documents')
+        .update({ data: { ...data, status: 'Sent' } })
+        .eq('id', documentId)
+        .select('status:data->>status, clientDeclinedAt:data->>clientDeclinedAt')
+        .single();
+    if (saveError) throw new Error(saveError.message || 'Could not reopen the document.');
+    const s = saved as { status?: string | null; clientDeclinedAt?: string | null } | null;
+    return String(s?.status || '') === 'Sent' && !s?.clientDeclinedAt;
+}
+
 /* =====================================================================
-   RequestApprovalModal (COMM-012 link UI, COMM-021)
+   RequestApprovalModal = "Get approval" (old ClientsView "Get Approval Link"): every estimate and change order of
+   the client, newest first, any status, with Copy link on each (COMM-012 link UI, COMM-021)
    ===================================================================== */
 
 export const RequestApprovalModal: React.FC<{
@@ -525,7 +560,7 @@ export const RequestApprovalModal: React.FC<{
     }, [open, client, load]);
 
     const linkFor = async (doc: ClientDocSummary): Promise<string> => {
-        // Always ask the server: an old token may belong to a link that expired (60 days) and gets reissued.
+        // Always ask the server: a token whose link expired, or that the client used before the document was reopened, is reissued.
         const token = await ensureApprovalToken(doc.id);
         if (token !== doc.publicToken) {
             setDocs((prev) => prev?.map((d) => (d.id === doc.id ? { ...d, publicToken: token } : d)) ?? prev);
@@ -561,14 +596,36 @@ export const RequestApprovalModal: React.FC<{
         try {
             const url = await linkFor(doc);
             const label = documentLabel(doc.type, doc.data);
+            const toSign = approvalState(doc) === 'open';
             onEmail({
                 clientId: client.id,
                 clientName: client.name,
                 clientEmail: client.email || undefined,
                 documentIds: [doc.id],
-                subject: `Please review and approve ${label}`,
-                body: `Hi ${firstName(client.name)},\n\nPlease review and approve ${label} here:\n${url}\n\nThank you!`,
+                subject: toSign ? `Please review and approve ${label}` : label,
+                body: toSign
+                    ? `Hi ${firstName(client.name)},\n\nPlease review and approve ${label} here:\n${url}\n\nThank you!`
+                    : `Hi ${firstName(client.name)},\n\nHere is ${label}:\n${url}\n\nThank you!`,
             });
+        } catch (err) {
+            setActionError(getErrorMessage(err));
+        } finally {
+            setBusyId(null);
+        }
+    };
+
+    const askAgain = async (doc: ClientDocSummary) => {
+        setBusyId(doc.id);
+        setActionError(null);
+        setInfo(null);
+        try {
+            const reopened = await reopenDeclinedDocument(doc.id);
+            if (!reopened) {
+                setActionError(`${documentLabel(doc.type, doc.data)} is still marked declined. Open it, set its status to Sent and save, or make a new version.`);
+                return;
+            }
+            setDocs((prev) => prev?.map((d) => (d.id === doc.id ? { ...d, data: { ...d.data, status: 'Sent', clientDeclinedAt: undefined } } : d)) ?? prev);
+            setInfo(`${documentLabel(doc.type, doc.data)} is open again. Copy or email the link: the client can sign it or decline it again.`);
         } catch (err) {
             setActionError(getErrorMessage(err));
         } finally {
@@ -610,8 +667,8 @@ export const RequestApprovalModal: React.FC<{
                 open={open && !!client}
                 onClose={onClose}
                 size="lg"
-                title="Request approval"
-                description={client ? <>Send {client.name} a secure link to review and sign an estimate or change order. No login needed.</> : undefined}
+                title="Get approval link"
+                description={client ? <>Pick an estimate or change order and send {client.name} its secure link to review and sign it. No login needed.</> : undefined}
                 footer={<button type="button" className="btn btn-outline min-h-[40px]" onClick={onClose}>Close</button>}
             >
                 <div className="space-y-3">
@@ -661,35 +718,58 @@ export const RequestApprovalModal: React.FC<{
                                                 )}
                                                 {state === 'declined' && (
                                                     <p className="mt-1 text-xs font-medium text-destructive">
-                                                        Declined{doc.data.clientDeclinedAt ? ` on ${fmtDate(doc.data.clientDeclinedAt, true)}` : ''}. Edit it or create a new version to ask again.
+                                                        Declined{doc.data.clientDeclinedAt ? ` on ${fmtDate(doc.data.clientDeclinedAt, true)}` : ''}. Change it if needed, then “Ask again” (or set its status back to Sent) so the client can answer again.
                                                     </p>
                                                 )}
                                                 {state === 'expired' && (
                                                     <p className="mt-1 text-xs font-medium text-warning">
-                                                        Expired on {fmtDate(doc.data.expiryDate)}. Update the expiry date on the estimate to send it again.
+                                                        Valid until {fmtDate(doc.data.expiryDate)}: the client can view it but not sign it. Move the “valid until” date on the estimate to let them sign.
+                                                    </p>
+                                                )}
+                                                {state === 'open' && isExpired(doc.data.expiryDate) && isLegacyDocument(doc.createdAt) && (
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        Valid-until date passed ({fmtDate(doc.data.expiryDate)}); made before the upgrade, so the client can still sign it, as before.
+                                                    </p>
+                                                )}
+                                                {state === 'open' && String(doc.data.status || '') === 'Draft' && (
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        Draft: the link works, but the client portal shows it only once its status is Sent.
                                                     </p>
                                                 )}
                                             </div>
                                         </div>
-                                        {state === 'open' && (
-                                            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                                <button
-                                                    type="button"
-                                                    className={cx('btn min-h-[40px]', copiedId === doc.id ? 'btn-secondary text-success' : 'btn-outline')}
-                                                    onClick={() => copyLink(doc)}
-                                                    disabled={busyId === doc.id}
-                                                >
-                                                    {copiedId === doc.id ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
-                                                    {copiedId === doc.id ? 'Link copied' : 'Copy link'}
-                                                </button>
+                                        {/* Copy link on every row, like the original "Get Approval Link" (signed / declined / expired
+                                            ones open read-only for the client) */}
+                                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                            <button
+                                                type="button"
+                                                className={cx('btn min-h-[40px]', copiedId === doc.id ? 'btn-secondary text-success' : 'btn-outline')}
+                                                onClick={() => copyLink(doc)}
+                                                disabled={busyId === doc.id}
+                                            >
+                                                {copiedId === doc.id ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+                                                {copiedId === doc.id ? 'Link copied' : state === 'open' ? 'Copy link' : 'Copy view link'}
+                                            </button>
+                                            {state === 'declined' ? (
                                                 <button
                                                     type="button"
                                                     className="btn btn-primary min-h-[40px]"
+                                                    onClick={() => askAgain(doc)}
+                                                    disabled={busyId === doc.id}
+                                                >
+                                                    {busyId === doc.id ? <Spinner /> : <RefreshCwIcon className="h-4 w-4" />} Ask again
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className={cx('btn min-h-[40px]', state === 'open' ? 'btn-primary' : 'btn-outline')}
                                                     onClick={() => emailLink(doc)}
                                                     disabled={busyId === doc.id}
                                                 >
                                                     <SendIcon className="h-4 w-4" /> Email link
                                                 </button>
+                                            )}
+                                            {state === 'open' && (
                                                 <button
                                                     type="button"
                                                     className="btn btn-ghost min-h-[40px]"
@@ -698,8 +778,8 @@ export const RequestApprovalModal: React.FC<{
                                                 >
                                                     <RefreshCwIcon className="h-4 w-4" /> New link
                                                 </button>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
                                         {manualLink?.id === doc.id && (
                                             <div className="mt-3">
                                                 <label className="label" htmlFor={`manual-link-${doc.id}`}>Copy this link</label>
@@ -832,8 +912,9 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
         const invoices = (docs || []).filter((d) => d.type === FormType.Invoice);
         const billable = invoices.filter((d) => !['Draft', 'Cancelled'].includes(String(d.data.status || 'Draft')));
         const invoiced = billable.reduce((s, d) => s + docTotal(d), 0);
+        // same rule as the client portal's "Outstanding balance": every invoice not Paid / Cancelled (drafts excluded)
         const outstanding = invoices
-            .filter((d) => ['Sent', 'Overdue'].includes(String(d.data.status || '')))
+            .filter((d) => isUnpaidInvoice(d.data))
             .reduce((s, d) => s + docTotal(d), 0);
         const openJobs = (jobs || []).filter((j) => j.status === 'active' || j.status === 'paused').length;
         return { invoiced, outstanding, openJobs, documents: (docs || []).length };
@@ -925,6 +1006,21 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
     };
 
     const emailClient = () => goToCommunication({ clientId: client.id, clientName: client.name, clientEmail: client.email || undefined });
+
+    /* ---------- temporary → regular (old "Convert to Regular") ---------- */
+    const [convertBusy, setConvertBusy] = useState(false);
+    const [convertError, setConvertError] = useState<string | null>(null);
+    const convertToRegular = async () => {
+        setConvertBusy(true);
+        setConvertError(null);
+        try {
+            applyClientUpdate(await setClientTemporary(client, false));
+        } catch (err) {
+            setConvertError(getErrorMessage(err, 'Could not convert this client.'));
+        } finally {
+            setConvertBusy(false);
+        }
+    };
 
     /* ---------- notes ---------- */
     const startNotes = () => {
@@ -1055,11 +1151,16 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 subtitle={client.created_at ? `Client since ${fmtDate(client.created_at)}` : 'Client profile'}
                 actions={
                     <>
+                        {temporary && (
+                            <button type="button" className="btn btn-outline min-h-[40px] border-warning/50 text-warning" onClick={convertToRegular} disabled={convertBusy}>
+                                {convertBusy ? <Spinner /> : <CheckIcon className="h-4 w-4" />} Convert to regular
+                            </button>
+                        )}
                         <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowEdit(true)}>
                             <EditIcon className="h-4 w-4" /> Edit
                         </button>
                         <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowApproval(true)}>
-                            <PenIcon className="h-4 w-4" /> Request approval
+                            <PenIcon className="h-4 w-4" /> Get approval
                         </button>
                         <button type="button" className="btn btn-primary min-h-[40px]" onClick={emailClient}>
                             <MailIcon className="h-4 w-4" /> Email client
@@ -1076,6 +1177,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 }
             />
 
+            {convertError && <Notice tone="danger" className="mb-4" onClose={() => setConvertError(null)}>{convertError}</Notice>}
             {loadError && (
                 <Notice tone="danger" title="Some information could not be loaded" className="mb-4" action={<button type="button" className="btn btn-outline btn-sm min-h-[36px]" onClick={load}>Retry</button>}>
                     {loadError}

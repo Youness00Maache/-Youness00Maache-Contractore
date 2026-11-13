@@ -8,6 +8,7 @@ import {
   ActionMenu, ConfirmDialog, EmptyState, GridIcon, InlineError, LayersIcon, NoticeToast, PageHeader, Pager, RowsIcon, Segmented,
   SkeletonGrid, fetchAllPages, friendlyError, getCurrentUserId, money, ownStoragePath, uploadToOwnFolder, useNotice, withSchemaFallback,
 } from './viewKit.tsx';
+import HelpButton from './help/HelpButton.tsx';
 import { marginFromPrice } from '../utils/stockMath.ts';
 import { toNumber } from '../utils/money.ts';
 import { compressImage } from '../utils/imageCompression.ts';
@@ -316,6 +317,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
         subtitle={loading ? 'Loading your items…' : `${items.length} item${items.length === 1 ? '' : 's'} · ${categories.length} categor${categories.length === 1 ? 'y' : 'ies'}`}
         actions={
           <>
+            <HelpButton topic="pricebook" />
             <button type="button" className="btn btn-outline" onClick={() => openNew(true)}><LayersIcon className="h-4 w-4" /> New kit</button>
             <button type="button" className="btn btn-primary" onClick={() => openNew(false)}><PlusIcon className="h-4 w-4" /> New item</button>
           </>

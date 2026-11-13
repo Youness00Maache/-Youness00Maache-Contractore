@@ -162,7 +162,7 @@ const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], in
                                         </div>
                                         <div className="min-w-0">
                                             <span className={mobileLabel}>Unit cost</span>
-                                            <NumberInput value={it.unitCost} onValueChange={v => patchItem(it.id, { unitCost: v })} decimals={2} prefix="$" aria-label={`Material ${index + 1} unit cost`} />
+                                            <NumberInput value={it.unitCost} onValueChange={v => patchItem(it.id, { unitCost: v })} decimals={2} maxDecimals={4} prefix="$" aria-label={`Material ${index + 1} unit cost`} />
                                         </div>
                                         <div className="col-span-2 flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-sm md:col-span-1 md:block md:bg-transparent md:px-0 md:py-2.5 md:text-right">
                                             <span className="text-muted-foreground md:hidden">Total</span>
@@ -193,6 +193,14 @@ const MaterialLogForm: React.FC<Props> = ({ job, profile, data, clients = [], in
                         ? 'Link a row to an inventory item (box button) to use this.'
                         : `${linkedCount} linked item${linkedCount === 1 ? '' : 's'}. Stock is updated when you save; editing quantities later only moves the difference, and turning this off returns the items to stock.`}
                 />
+                {d.deductInventory && data && !data.deductInventory && linkedCount > 0 && (
+                    // the original app took the items out of stock when the log was first saved, then stored the switch
+                    // as off: turning it on for such a log would take them out a second time (PARITY_V2 D7)
+                    <p role="status" className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
+                        This log was saved with this switch off. If these items were already taken out of stock when the log was first
+                        saved (older logs did that automatically), turning it on takes them out again. Check the stock history first.
+                    </p>
+                )}
                 {d.deductInventory && shortItems.length > 0 && (
                     <p className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
                         Low stock: {shortItems.join(', ')}. You can still save; the inventory will show these items as oversold.

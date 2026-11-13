@@ -82,7 +82,22 @@ const validDate = (v: unknown): string | null => {
 // =====================================================================================
 export interface ProfitCalcItem { id: string; description: string; cost: number; charge: number }
 
-/** Same shape as the old localStorage `profit_calcs` entries (old app and this app). */
+/**
+ * Calculator inputs that are not lines or tax (old app's Simple / Advanced switch and its Target Margin).
+ * Tax / VAT on/off and rate keep their own columns.
+ */
+export interface ProfitCalcSettings {
+    mode: 'simple' | 'advanced';
+    targetMargin: number;
+}
+
+/**
+ * The settings travel inside the `items` jsonb array (no extra column) as one entry with this id; it is taken out
+ * again when the row is read, so it never shows as a line.
+ */
+export const PROFIT_SETTINGS_ITEM_ID = '__calc_settings';
+
+/** Same shape as the old localStorage `profit_calcs` entries (old app and this app), plus optional `settings`. */
 export interface SavedProfitCalc {
     id: string;
     name: string;
@@ -92,6 +107,7 @@ export interface SavedProfitCalc {
     vatRate: number;
     vatEnabled: boolean;
     margin: number;
+    settings?: ProfitCalcSettings;
 }
 
 /** public.profit_calculations row (migration 20261113000500). */
@@ -99,7 +115,7 @@ export interface ProfitCalcRow {
     id: string;
     user_id?: string;
     name: string;
-    items: ProfitCalcItem[];
+    items: Array<ProfitCalcItem | { id: typeof PROFIT_SETTINGS_ITEM_ID; description: ''; cost: 0; charge: 0; settings: ProfitCalcSettings }>;
     tax_enabled: boolean;
     tax_rate: number;
     margin: number;
@@ -120,22 +136,38 @@ const MAX_NAME = 120;
 const MAX_DESCRIPTION = 500;
 const MAX_LINES = 500;
 
+/** Cleans calculator settings from any source. Null = none (old calculations). */
+export const normalizeProfitSettings = (raw: unknown): ProfitCalcSettings | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    const s = raw as Record<string, unknown>;
+    return {
+        mode: s.mode === 'advanced' ? 'advanced' : 'simple',
+        targetMargin: clamp(finite(s.targetMargin, 30), 0, 99.9),
+    };
+};
+
+const isSettingsEntry = (i: Record<string, unknown>) => i.id === PROFIT_SETTINGS_ITEM_ID;
+
+const normalizeProfitItem = (i: Record<string, unknown>, makeId: () => string): ProfitCalcItem => ({
+    id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : makeId(),
+    description: String(i.description ?? '').slice(0, MAX_DESCRIPTION),
+    cost: finite(i.cost),
+    charge: finite(i.charge),
+});
+
 /** Cleans one saved calculation from any source (old app, this app, the database). Null = unusable. */
 export const normalizeProfitCalc = (raw: unknown, makeId: () => string = newUuid, now: () => string = () => new Date().toISOString()): SavedProfitCalc | null => {
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
     if (!Array.isArray(r.items)) return null;
     const name = String(r.name ?? '').trim().slice(0, MAX_NAME) || 'Untitled calculation';
-    const items: ProfitCalcItem[] = r.items
-        .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object')
+    const entries = r.items.filter((i): i is Record<string, unknown> => !!i && typeof i === 'object');
+    const settingsEntry = entries.find(isSettingsEntry);
+    const items: ProfitCalcItem[] = entries
+        .filter((i) => !isSettingsEntry(i))
         .slice(0, MAX_LINES)
-        .map((i) => ({
-            id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : makeId(),
-            description: String(i.description ?? '').slice(0, MAX_DESCRIPTION),
-            cost: finite(i.cost),
-            charge: finite(i.charge),
-        }));
-    return {
+        .map((i) => normalizeProfitItem(i, makeId));
+    const calc: SavedProfitCalc = {
         id: isUuid(r.id) ? r.id.toLowerCase() : makeId(),
         name,
         date: validDate(r.date) || now(),
@@ -144,6 +176,9 @@ export const normalizeProfitCalc = (raw: unknown, makeId: () => string = newUuid
         vatEnabled: r.vatEnabled === true || r.vatEnabled === 'true',
         margin: finite(r.margin),
     };
+    const settings = normalizeProfitSettings(r.settings ?? settingsEntry?.settings);
+    if (settings) calc.settings = settings;
+    return calc;
 };
 
 export const parseProfitList = (value: unknown): SavedProfitCalc[] => {
@@ -170,7 +205,9 @@ export const profitCalcToRow = (calc: SavedProfitCalc, userId?: string): ProfitC
     id: calc.id,
     ...(userId ? { user_id: userId } : {}),
     name: calc.name.trim().slice(0, MAX_NAME) || 'Untitled calculation',
-    items: calc.items.slice(0, MAX_LINES),
+    items: calc.settings
+        ? [...calc.items.slice(0, MAX_LINES), { id: PROFIT_SETTINGS_ITEM_ID, description: '', cost: 0, charge: 0, settings: calc.settings }]
+        : calc.items.slice(0, MAX_LINES),
     tax_enabled: !!calc.vatEnabled,
     tax_rate: clamp(finite(calc.vatRate), 0, 100),
     margin: clamp(finite(calc.margin), -1e9, 1e9),
@@ -500,4 +537,161 @@ export const syncLabelSheet = async (store: KeyValueStore, remote: SettingsRemot
         put(store, pendingKey, null);
     }
     return action;
+};
+
+// =====================================================================================
+// Help: first-run app tour (components/help/*), public.user_settings 'help.tour'
+// =====================================================================================
+export const HELP_TOUR_SETTING = 'help.tour';
+/** Device copy, per user (not wiped on logout: it only says "this person already saw the tour"). */
+export const helpTourLocalKey = (uid: string) => `cd.help.tour:${uid}`;
+
+const tourSeenValue = (v: unknown): boolean => !!v && typeof v === 'object' && (v as { seen?: unknown }).seen === true;
+
+/** Reads one user_settings value: 'account' = read ('device' = table not there yet, 'offline' = unreachable). */
+export const readSetting = async (remote: SettingsRemote, uid: string, key: string): Promise<{ mode: SyncMode; value: unknown }> => {
+    const res = await safeCall(() => remote.read(uid, [key]));
+    if (res.error) return { mode: modeFor(res.error, isMissingTableError), value: null };
+    const row = (res.data || []).find((r) => r && r.key === key);
+    return { mode: 'account', value: row ? row.value : null };
+};
+
+/**
+ * Has this user finished or skipped the first-run tour? The account decides (so another device or a new login
+ * doesn't show it again); the device copy answers instantly. null = can't tell right now (offline): don't show it.
+ */
+export const loadTourSeen = async (store: KeyValueStore, remote: SettingsRemote, uid: string): Promise<boolean | null> => {
+    if (get(store, helpTourLocalKey(uid)) === '1') {
+        // seen here, but the account write never landed: try again quietly
+        if (get(store, pendingFieldKey(HELP_TOUR_SETTING, uid)) === '1') void saveSetting(store, remote, uid, HELP_TOUR_SETTING, { seen: true, at: new Date().toISOString() });
+        return true;
+    }
+    const res = await readSetting(remote, uid, HELP_TOUR_SETTING);
+    if (res.mode === 'account') {
+        if (tourSeenValue(res.value)) {
+            put(store, helpTourLocalKey(uid), '1');
+            return true;
+        }
+        return false;
+    }
+    return res.mode === 'device' ? false : null;
+};
+
+/** Tour finished or skipped: remembered on this device right away and in the account (retried at the next check). */
+export const saveTourSeen = async (store: KeyValueStore, remote: SettingsRemote, uid: string): Promise<SyncMode> => {
+    put(store, helpTourLocalKey(uid), '1');
+    return saveSetting(store, remote, uid, HELP_TOUR_SETTING, { seen: true, at: new Date().toISOString() });
+};
+
+
+// =====================================================================================
+// Appearance & language (PARITY_V2 C1): follow the account to every device.
+//   account: public.user_settings 'ui.preferences' = { theme, language, updatedAt } (migration 20261113000500),
+//            mirrored into profiles.theme / profiles.language (existing columns: read by the old app, and the fallback
+//            while the migration isn't applied)
+//   device:  'theme' (unscoped, paints the first screen before anyone is signed in) + 'cd.ui.language'
+//   pending: cd.pending.ui.preferences:<uid> = a change made while the account couldn't be reached (pushed at the next
+//            login instead of being overwritten by the older account value)
+// =====================================================================================
+export const UI_PREFS_SETTING = 'ui.preferences';
+export const THEME_LOCAL_KEY = 'theme'; // = lib/account.ts THEME_STORAGE_KEY
+export const LANGUAGE_LOCAL_KEY = 'cd.ui.language';
+
+export type UiTheme = 'light' | 'dark' | 'blue';
+export interface UiPrefs { theme?: UiTheme; language?: string }
+
+const LANGUAGE_NAME = /^[A-Za-z][A-Za-z ]{1,39}$/;
+
+export const normalizeUiTheme = (v: unknown): UiTheme | undefined => (v === 'light' || v === 'dark' || v === 'blue' ? v : undefined);
+
+/** Keeps only valid values; never throws. */
+export const normalizeUiPrefs = (raw: unknown): UiPrefs => {
+    if (!raw || typeof raw !== 'object') return {};
+    const r = raw as Record<string, unknown>;
+    const out: UiPrefs = {};
+    const theme = normalizeUiTheme(r.theme);
+    if (theme) out.theme = theme;
+    if (typeof r.language === 'string' && LANGUAGE_NAME.test(r.language.trim())) out.language = r.language.trim();
+    return out;
+};
+
+const hasPrefs = (p: UiPrefs) => Boolean(p.theme || p.language);
+
+export const uiPrefsPendingKey = (uid: string) => pendingFieldKey(UI_PREFS_SETTING, uid);
+
+/** profiles.theme / profiles.language (existing columns). */
+export interface ProfilePrefsRemote {
+    update(uid: string, patch: { theme?: string; language?: string }): Promise<{ error: DbError | null }>;
+}
+
+const writeDeviceUiPrefs = (store: KeyValueStore, prefs: UiPrefs) => {
+    if (prefs.theme) put(store, THEME_LOCAL_KEY, prefs.theme);
+    if (prefs.language) put(store, LANGUAGE_LOCAL_KEY, prefs.language);
+};
+
+/** This device's copy (instant paint). */
+export const readDeviceUiPrefs = (store: KeyValueStore): UiPrefs =>
+    normalizeUiPrefs({ theme: get(store, THEME_LOCAL_KEY), language: get(store, LANGUAGE_LOCAL_KEY) });
+
+/**
+ * Saves the theme and/or language to the account (user_settings + the profile columns) and this device. A save that
+ * reaches neither is kept as pending and pushed at the next login. `skipProfile`: the caller already wrote the profile
+ * columns (Settings → Save).
+ */
+export const saveUiPrefs = async (
+    store: KeyValueStore, settings: SettingsRemote, profiles: ProfilePrefsRemote, uid: string, input: UiPrefs,
+    opts: { skipProfile?: boolean; now?: () => string } = {},
+): Promise<SyncMode> => {
+    const prefs = normalizeUiPrefs(input);
+    if (!hasPrefs(prefs)) return 'failed';
+    writeDeviceUiPrefs(store, prefs);
+    const pendingKey = uiPrefsPendingKey(uid);
+    const pending = { ...normalizeUiPrefs(readJson(store, pendingKey)), ...prefs };
+    const queued = writeJson(store, pendingKey, pending);
+    const value = { ...pending, updatedAt: (opts.now || (() => new Date().toISOString()))() };
+    const set = await safeCall(() => settings.upsert(uid, UI_PREFS_SETTING, value));
+    const prof = opts.skipProfile
+        ? { error: null }
+        : await safeCall(() => profiles.update(uid, { ...(pending.theme ? { theme: pending.theme } : {}), ...(pending.language ? { language: pending.language } : {}) }));
+    if (!set.error || !prof.error) {
+        // a newer change may have been queued while this one was in flight: keep it
+        const now = normalizeUiPrefs(readJson(store, pendingKey));
+        if (now.theme === pending.theme && now.language === pending.language) put(store, pendingKey, null);
+        return 'account';
+    }
+    if (!queued) return 'failed';
+    return isMissingTableError(set.error) && isMissingColumn(prof.error) ? 'device' : 'offline';
+};
+
+export interface UiPrefsSyncResult {
+    /** what to apply now */
+    prefs: UiPrefs;
+    /** push = a device change that never reached the account was uploaded; pull = the account values were applied */
+    action: 'push' | 'pull';
+}
+
+/**
+ * At login: a pending device change wins (and is uploaded); otherwise the account decides: user_settings first, the
+ * profile columns (`profile`, already loaded) for anything it doesn't have. The device copy follows. Never throws.
+ */
+export const syncUiPrefs = async (
+    store: KeyValueStore, settings: SettingsRemote, profiles: ProfilePrefsRemote, uid: string, profile: UiPrefs,
+): Promise<UiPrefsSyncResult> => {
+    const fromProfile = normalizeUiPrefs(profile);
+    const pending = normalizeUiPrefs(readJson(store, uiPrefsPendingKey(uid)));
+    const res = await safeCall(() => settings.read(uid, [UI_PREFS_SETTING]));
+    const row = !res.error ? (res.data || []).find((r) => r && r.key === UI_PREFS_SETTING) : undefined;
+    const fromSettings = normalizeUiPrefs(row?.value);
+    if (hasPrefs(pending)) {
+        const prefs = { ...fromProfile, ...fromSettings, ...pending };
+        await saveUiPrefs(store, settings, profiles, uid, prefs);
+        return { prefs, action: 'push' };
+    }
+    const prefs = { ...fromProfile, ...fromSettings };
+    writeDeviceUiPrefs(store, prefs);
+    // first login with this version: copy the profile values into user_settings once (quietly)
+    if (!res.error && !row && hasPrefs(fromProfile)) {
+        void safeCall(() => settings.upsert(uid, UI_PREFS_SETTING, { ...fromProfile, updatedAt: new Date().toISOString() }));
+    }
+    return { prefs, action: 'pull' };
 };

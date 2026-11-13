@@ -13,6 +13,8 @@ export interface JobFormValues {
   workerName?: string;
   /** Set when an existing client was picked (jobs.client_id). */
   clientId?: string | null;
+  /** A new client name becomes a saved client: true = a temporary one (walk-in, `[TEMPORARY]` in its notes). */
+  clientTemporary?: boolean;
 }
 
 interface JobFormProps {
@@ -55,6 +57,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
   const [endDate, setEndDate] = useState(() => pick(prefillData, 'endDate', 'end_date'));
   const [workerName, setWorkerName] = useState(() => pick(prefillData, 'workerName', 'worker_name', 'worker'));
   const [selectedClientId, setSelectedClientId] = useState<string>('new');
+  const [clientTemporary, setClientTemporary] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fetchedClients, setFetchedClients] = useState<Client[]>([]);
@@ -104,6 +107,10 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
     }
   };
 
+  // a typed name that isn't a saved client becomes a new client when the job is created (it can be a temporary one)
+  const isNewClientName = selectedClientId === 'new' && !!clientName.trim()
+    && !clients.some(c => c.name.trim().toLowerCase() === clientName.trim().toLowerCase());
+
   const dateError = useMemo(() => (endDate && startDate && endDate < startDate ? 'End date must be on or after the start date.' : null), [startDate, endDate]);
   const canSubmit = jobName.trim() && clientName.trim() && !loading && !dateError;
 
@@ -122,6 +129,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
         endDate: endDate || null,
         workerName: workerName.trim(),
         clientId: selectedClientId !== 'new' ? selectedClientId : null,
+        clientTemporary: isNewClientName && clientTemporary,
       });
     } catch (err: any) {
       setError(err?.message || 'Could not create the job. Please try again.');
@@ -191,6 +199,15 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
                 <input id="clientAddress" className="input" value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="e.g. 123 Main St" />
               </div>
             </div>
+            {isNewClientName && (
+              <label className="flex min-h-[40px] cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2 text-sm">
+                <input type="checkbox" className="h-5 w-5 accent-[hsl(var(--primary))]" checked={clientTemporary} onChange={(e) => setClientTemporary(e.target.checked)} />
+                <span>
+                  <span className="font-medium text-foreground">Mark as temporary client</span>
+                  <span className="block text-xs text-muted-foreground">“{clientName.trim()}” is added to your clients. Temporary ones (walk-ins) stay under “Temporary” until you convert them.</span>
+                </span>
+              </label>
+            )}
           </fieldset>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

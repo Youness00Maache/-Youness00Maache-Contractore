@@ -2,20 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CalculatorIcon, DownloadIcon, FolderIcon, PlusIcon, RefreshCwIcon, SaveIcon, TrashIcon, TrendingUpIcon } from './Icons.tsx';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 import { FormType, type UserProfile } from '../types.ts';
-import { ConfirmDialog, EmptyState, Field, InlineError, Modal, NoticeToast, NumberInput, PageHeader, XIcon, money, useNotice } from './viewKit.tsx';
-import { roundMoney, toNumber } from '../utils/money.ts';
+import { ConfirmDialog, EmptyState, Field, InlineError, Modal, NoticeToast, NumberInput, PageHeader, Segmented, XIcon, money, useNotice } from './viewKit.tsx';
+import { toNumber } from '../utils/money.ts';
 import { toLocalYMD } from '../utils/localDates.ts';
+import {
+  DEFAULT_TARGET_MARGIN, DEFAULT_TAX_RATE, applyTargetMargin, marginHealth, profitSummary, targetMarginError, type CalcMode,
+} from '../lib/profitCalc.ts';
 import {
   deleteProfitCalculation, loadProfitCalculations, pendingProfitCalculationCount, readLocalProfitCalculations, saveProfitCalculation,
   type SavedProfitCalc, type SyncMode,
 } from '../lib/userData.ts';
+import type { ProfitCalcItem } from '../lib/userDataSync.ts';
+import HelpButton from './help/HelpButton.tsx';
 
-interface ProfitItem {
-  id: string;
-  description: string;
-  cost: number;
-  charge: number;
-}
+type ProfitItem = ProfitCalcItem;
 
 /** Saved calculations live in the account (public.profit_calculations, lib/userData.ts); the device keeps a copy. */
 type SavedCalculation = SavedProfitCalc;
@@ -28,19 +28,17 @@ interface ProfitCalculatorViewProps {
 const newRow = (description = ''): ProfitItem => ({ id: crypto.randomUUID(), description, cost: 0, charge: 0 });
 const starterRows = () => [newRow('Materials'), newRow('Labor')];
 
-/** Pure profit math (exported for reuse/tests). Margin = profit / revenue, markup = profit / cost. */
-export const profitSummary = (items: ProfitItem[], taxEnabled: boolean, taxRate: number) => {
-  const totalCost = roundMoney(items.reduce((s, i) => s + toNumber(i.cost), 0));
-  const totalCharge = roundMoney(items.reduce((s, i) => s + toNumber(i.charge), 0));
-  const profit = roundMoney(totalCharge - totalCost);
-  const margin = totalCharge > 0 ? (profit / totalCharge) * 100 : 0;
-  const markup = totalCost > 0 ? (profit / totalCost) * 100 : 0;
-  const taxAmount = taxEnabled ? roundMoney(totalCharge * (Math.max(0, toNumber(taxRate)) / 100)) : 0;
-  return { totalCost, totalCharge, profit, margin, markup, taxAmount, totalWithTax: roundMoney(totalCharge + taxAmount) };
+/**
+ * Simple / Advanced, as in the old app: Simple = lines + summary; Advanced adds Target Margin pricing and Tax / VAT.
+ * The last mode used is remembered on this device; a saved calculation carries its own mode.
+ */
+const MODE_KEY = 'cd.calc.mode';
+const readMode = (): CalcMode => {
+  try { return window.localStorage.getItem(MODE_KEY) === 'advanced' ? 'advanced' : 'simple'; } catch { return 'simple'; }
 };
-
-/** Price that yields `marginPct` on `cost` (0 ≤ margin < 100). */
-export const priceForMargin = (cost: number, marginPct: number) => roundMoney(toNumber(cost) / (1 - marginPct / 100));
+const rememberMode = (m: CalcMode) => {
+  try { window.localStorage.setItem(MODE_KEY, m); } catch { /* storage unavailable */ }
+};
 
 /** Where a save ended up, in words. */
 const savedWhere = (mode: SyncMode, name: string, updated: boolean): { kind: 'success' | 'info' | 'error'; text: string } => {
@@ -50,20 +48,21 @@ const savedWhere = (mode: SyncMode, name: string, updated: boolean): { kind: 'su
   return { kind: 'error', text: 'Could not save the calculation. Check your connection and try again.' };
 };
 
-const health = (margin: number, hasRevenue: boolean) => {
-  if (!hasRevenue) return { label: 'Enter your prices', className: 'badge-muted' };
-  if (margin < 0) return { label: 'Loss', className: 'badge-danger' };
-  if (margin < 15) return { label: 'Low margin', className: 'badge-danger' };
-  if (margin < 30) return { label: 'Thin margin', className: 'badge-warning' };
-  return { label: 'Healthy margin', className: 'badge-success' };
-};
+/** Summary card edge + badge by margin (the old app colored the whole summary card the same way). */
+const TONE = {
+  muted: { badge: 'badge-muted', edge: 'border-t-border' },
+  danger: { badge: 'badge-danger', edge: 'border-t-destructive' },
+  warning: { badge: 'badge-warning', edge: 'border-t-warning' },
+  success: { badge: 'badge-success', edge: 'border-t-success' },
+} as const;
 
 const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, profile }) => {
+  const [mode, setModeState] = useState<CalcMode>(readMode);
   const [items, setItems] = useState<ProfitItem[]>(starterRows);
   const [calcName, setCalcName] = useState('');
   const [taxEnabled, setTaxEnabled] = useState(false);
-  const [taxRate, setTaxRate] = useState(8);
-  const [targetMargin, setTargetMargin] = useState(30);
+  const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE);
+  const [targetMargin, setTargetMargin] = useState(DEFAULT_TARGET_MARGIN);
   const [saved, setSaved] = useState<SavedCalculation[]>([]);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
@@ -77,6 +76,11 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
   const [busy, setBusy] = useState(false);
   const { notice, notify, clear } = useNotice();
   const uid = profile?.id || '';
+  const advanced = mode === 'advanced';
+  /** Tax only shows (and counts in the summary and PDF) in Advanced, like the old app. */
+  const taxOn = advanced && taxEnabled;
+
+  const setMode = (m: CalcMode) => { setModeState(m); rememberMode(m); setTargetError(null); };
 
   // Device copy first (instant, works offline), then the account list (uploads anything saved only on this device).
   useEffect(() => {
@@ -94,18 +98,21 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
     return () => { cancelled = true; };
   }, [uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const s = useMemo(() => profitSummary(items, taxEnabled, taxRate), [items, taxEnabled, taxRate]);
-  const h = health(s.margin, s.totalCharge > 0);
+  const s = useMemo(() => profitSummary(items, taxOn, taxRate), [items, taxOn, taxRate]);
+  const h = marginHealth(s.margin, s.totalCharge > 0);
+  const tone = TONE[h.tone];
   const dirty = items.some((i) => i.cost || i.charge || (i.description && !['Materials', 'Labor'].includes(i.description))) || items.length !== 2;
 
   const update = (id: string, patch: Partial<ProfitItem>) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
-  const applyTargetMargin = () => {
-    if (!Number.isFinite(targetMargin) || targetMargin < 0 || targetMargin >= 100) { setTargetError('Enter a margin from 0 to 99.9%.'); return; }
+  /** Old app's "Calculate Pricing": prices every line with a cost for the target margin. */
+  const calculatePricing = () => {
+    const problem = targetMarginError(targetMargin);
+    if (problem) { setTargetError(problem); return; }
     const withCost = items.filter((i) => toNumber(i.cost) > 0).length;
     if (!withCost) { setTargetError('Enter your cost on at least one line first.'); return; }
     setTargetError(null);
-    setItems((prev) => prev.map((i) => (toNumber(i.cost) > 0 ? { ...i, charge: priceForMargin(i.cost, targetMargin) } : i)));
+    setItems((prev) => applyTargetMargin(prev, targetMargin));
     notify('success', `Prices set for a ${targetMargin}% margin on ${withCost} line${withCost === 1 ? '' : 's'} with a cost.`);
   };
 
@@ -114,7 +121,10 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
     if (!name || busy) return;
     if (!uid) { notify('error', 'Your account is still loading. Try again in a moment.'); return; }
     const existing = saved.find((c) => c.name.toLowerCase() === name.toLowerCase());
-    const calc: SavedCalculation = { id: existing?.id || crypto.randomUUID(), name, date: new Date().toISOString(), items, vatRate: taxRate, vatEnabled: taxEnabled, margin: s.margin };
+    const calc: SavedCalculation = {
+      id: existing?.id || crypto.randomUUID(), name, date: new Date().toISOString(), items,
+      vatRate: taxRate, vatEnabled: taxEnabled, margin: s.margin, settings: { mode, targetMargin },
+    };
     setBusy(true);
     try {
       const res = await saveProfitCalculation(uid, calc);
@@ -147,6 +157,12 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
     setItems(calc.items.map((i) => ({ id: i.id || crypto.randomUUID(), description: String(i.description || ''), cost: toNumber(i.cost), charge: toNumber(i.charge) })));
     setTaxEnabled(!!calc.vatEnabled);
     setTaxRate(toNumber(calc.vatRate));
+    if (calc.settings) {
+      setTargetMargin(calc.settings.targetMargin);
+      setMode(calc.settings.mode);
+    } else if (calc.vatEnabled) {
+      setMode('advanced'); // older saves: show the tax they were saved with
+    }
     setCalcName(calc.name);
     setLoadOpen(false);
     notify('info', `Loaded "${calc.name}".`);
@@ -156,6 +172,7 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
     setItems(starterRows());
     setCalcName('');
     setTaxEnabled(false);
+    setTargetError(null);
     setResetOpen(false);
   };
 
@@ -170,8 +187,8 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
         reportNumber: `PC-${toLocalYMD(now).replace(/-/g, '')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`,
         date: now.toLocaleDateString(),
         items: items.map((i) => ({ id: i.id, description: i.description || 'Item', cost: toNumber(i.cost), charge: toNumber(i.charge) })),
-        vatEnabled: taxEnabled,
-        vatRate: taxEnabled ? taxRate : 0,
+        vatEnabled: taxOn,
+        vatRate: taxOn ? taxRate : 0,
         totalCost: s.totalCost,
         totalRevenue: s.totalCharge,
         grossProfit: s.profit,
@@ -210,6 +227,7 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
         subtitle={calcName ? <>Editing <strong className="text-foreground">{calcName}</strong></> : 'Price a job and check your margin before you quote it.'}
         actions={
           <>
+            <HelpButton topic="calculator" />
             <button type="button" className="btn btn-outline" onClick={() => setLoadOpen(true)}><FolderIcon className="h-4 w-4" /> Saved{saved.length ? ` (${saved.length})` : ''}</button>
             <button type="button" className="btn btn-outline" onClick={() => { setSaveName(calcName); setSaveOpen(true); }}><SaveIcon className="h-4 w-4" /> Save</button>
             <button type="button" className="btn btn-primary" onClick={exportPdf} disabled={exporting}><DownloadIcon className="h-4 w-4" /> {exporting ? 'Creating PDF…' : 'Export PDF'}</button>
@@ -217,95 +235,114 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="space-y-5">
-          <section className="card card-pad">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">Line items</h2>
-                <p className="text-xs text-muted-foreground">Your cost and what you charge the client for each part of the job.</p>
-              </div>
-              <button type="button" className="btn btn-ghost btn-sm h-10" onClick={() => (dirty ? setResetOpen(true) : reset())}><RefreshCwIcon className="h-4 w-4" /> Reset</button>
-            </div>
-            <div className="hidden grid-cols-[minmax(0,1fr)_8rem_8rem_2.5rem] gap-2 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid">
-              <span>Description</span><span>Your cost</span><span>Client price</span><span />
-            </div>
-            <ul className="space-y-3 sm:space-y-2">
-              {items.map((item, idx) => {
-                const lineProfit = toNumber(item.charge) - toNumber(item.cost);
-                return (
-                  <li key={item.id} className="grid grid-cols-2 gap-2 rounded-xl border border-border p-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_2.5rem] sm:items-center sm:border-0 sm:p-0">
-                    <div className="col-span-2 flex items-center gap-2 sm:col-span-1">
-                      <label htmlFor={`pc-d-${item.id}`} className="sr-only">Description</label>
-                      <input id={`pc-d-${item.id}`} className="input" value={item.description} onChange={(e) => update(item.id, { description: e.target.value })} placeholder={`Line ${idx + 1}`} maxLength={120} />
-                      <button type="button" aria-label="Remove line" className="btn btn-ghost h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive sm:hidden" onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}><XIcon className="h-4 w-4" /></button>
-                    </div>
-                    <div>
-                      <label htmlFor={`pc-c-${item.id}`} className="mb-1 block text-xs text-muted-foreground sm:sr-only">Your cost</label>
-                      <NumberInput id={`pc-c-${item.id}`} value={item.cost} onValue={(n) => update(item.id, { cost: n })} placeholder="0.00" />
-                    </div>
-                    <div>
-                      <label htmlFor={`pc-p-${item.id}`} className="mb-1 block text-xs text-muted-foreground sm:sr-only">Client price</label>
-                      <NumberInput id={`pc-p-${item.id}`} value={item.charge} onValue={(n) => update(item.id, { charge: n })} placeholder="0.00" />
-                    </div>
-                    <button type="button" aria-label="Remove line" className="btn btn-ghost hidden h-10 w-10 p-0 text-muted-foreground hover:text-destructive sm:inline-flex" onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}><TrashIcon className="h-4 w-4" /></button>
-                    {(toNumber(item.cost) > 0 || toNumber(item.charge) > 0) && (
-                      <p className={`col-span-2 text-xs sm:col-span-4 sm:px-1 ${lineProfit < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
-                        Profit {money(lineProfit)}{toNumber(item.charge) > 0 ? ` · ${((lineProfit / toNumber(item.charge)) * 100).toFixed(1)}% margin` : ''}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {items.length === 0 && <EmptyState compact icon={<CalculatorIcon />} title="No lines" description="Add a line for each cost of the job." />}
-            <button type="button" className="btn btn-outline mt-4 w-full border-dashed" onClick={() => setItems((prev) => [...prev, newRow()])}><PlusIcon className="h-4 w-4" /> Add line</button>
-          </section>
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <Segmented<CalcMode>
+          ariaLabel="Calculator mode"
+          value={mode}
+          onChange={setMode}
+          options={[{ value: 'simple', label: 'Simple' }, { value: 'advanced', label: 'Advanced' }]}
+        />
+        <p className="text-xs text-muted-foreground">
+          {advanced ? 'Target margin pricing and sales tax / VAT.' : 'Your cost and your price for each line. Advanced adds target margin pricing and tax.'}
+        </p>
+      </div>
 
-          <section className="card card-pad space-y-4">
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Price for a target margin</h2>
-              <p className="text-xs text-muted-foreground">Sets each line's price to cost ÷ (1 − margin). Lines without a cost keep their price.</p>
+      {advanced && (
+        <section className="card card-pad mb-5 border-primary/25" aria-label="Advanced tools">
+          <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Target margin</h2>
+                <p className="text-xs text-muted-foreground">Sets each line's price to reach a {Number.isFinite(targetMargin) ? targetMargin : 0}% margin on your cost: cost ÷ (1 − margin). Lines without a cost keep their price.</p>
+              </div>
+              {targetError && <InlineError>{targetError}</InlineError>}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <Field label="Target margin (%)" htmlFor="pc-target" className="sm:w-48">
+                  <NumberInput id="pc-target" value={targetMargin} onValue={(n) => { setTargetMargin(n); setTargetError(null); }} />
+                </Field>
+                <button type="button" className="btn btn-primary" onClick={calculatePricing}><TrendingUpIcon className="h-4 w-4" /> Calculate pricing</button>
+              </div>
             </div>
-            {targetError && <InlineError>{targetError}</InlineError>}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <Field label="Target margin (%)" htmlFor="pc-target" className="sm:w-48">
-                <NumberInput id="pc-target" value={targetMargin} onValue={(n) => { setTargetMargin(n); setTargetError(null); }} />
-              </Field>
-              <button type="button" className="btn btn-outline" onClick={applyTargetMargin}><TrendingUpIcon className="h-4 w-4" /> Apply to prices</button>
-            </div>
-            <div className="border-t border-border pt-4">
+            <div className="border-t border-border pt-4 md:min-w-[15rem] md:border-l md:border-t-0 md:pl-5 md:pt-0">
               <label className="flex min-h-[40px] cursor-pointer items-center justify-between gap-3">
                 <span>
-                  <span className="block text-sm font-medium text-foreground">Add sales tax / VAT</span>
-                  <span className="block text-xs text-muted-foreground">Tax is charged on the client price and does not change your profit.</span>
+                  <span className="block text-sm font-medium text-foreground">Tax / VAT</span>
+                  <span className="block text-xs text-muted-foreground">Charged on the client price; it doesn't change your profit.</span>
                 </span>
                 <input type="checkbox" className="h-5 w-5 accent-[hsl(var(--primary))]" checked={taxEnabled} onChange={(e) => setTaxEnabled(e.target.checked)} />
               </label>
               {taxEnabled && (
-                <Field label="Tax rate (%)" htmlFor="pc-tax" className="mt-2 sm:w-48">
+                <Field label="Tax rate (%)" htmlFor="pc-tax" className="mt-2 sm:w-40">
                   <NumberInput id="pc-tax" value={taxRate} onValue={(n) => setTaxRate(Math.min(100, n))} />
                 </Field>
               )}
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="card card-pad self-start">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Line items</h2>
+              <p className="text-xs text-muted-foreground">
+                {advanced ? 'Enter your costs and let Calculate pricing set the prices, or enter them yourself.' : 'Your cost and what you charge the client for each part of the job.'}
+              </p>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm h-10" onClick={() => (dirty ? setResetOpen(true) : reset())}><RefreshCwIcon className="h-4 w-4" /> Reset</button>
+          </div>
+          <div className="hidden grid-cols-[minmax(0,1fr)_8rem_8rem_2.5rem] gap-2 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid">
+            <span>Description</span><span>Your cost</span><span>Client price</span><span />
+          </div>
+          <ul className="space-y-3 sm:space-y-2">
+            {items.map((item, idx) => {
+              const lineProfit = toNumber(item.charge) - toNumber(item.cost);
+              return (
+                <li key={item.id} className="grid grid-cols-2 gap-2 rounded-xl border border-border p-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_2.5rem] sm:items-center sm:border-0 sm:p-0">
+                  <div className="col-span-2 flex items-center gap-2 sm:col-span-1">
+                    <label htmlFor={`pc-d-${item.id}`} className="sr-only">Description</label>
+                    <input id={`pc-d-${item.id}`} className="input" value={item.description} onChange={(e) => update(item.id, { description: e.target.value })} placeholder={`Line ${idx + 1}`} maxLength={120} />
+                    <button type="button" aria-label="Remove line" className="btn btn-ghost h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive sm:hidden" onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}><XIcon className="h-4 w-4" /></button>
+                  </div>
+                  <div>
+                    <label htmlFor={`pc-c-${item.id}`} className="mb-1 block text-xs text-muted-foreground sm:sr-only">Your cost</label>
+                    <NumberInput id={`pc-c-${item.id}`} value={item.cost} onValue={(n) => update(item.id, { cost: n })} placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label htmlFor={`pc-p-${item.id}`} className="mb-1 block text-xs text-muted-foreground sm:sr-only">Client price</label>
+                    <NumberInput id={`pc-p-${item.id}`} value={item.charge} onValue={(n) => update(item.id, { charge: n })} placeholder="0.00" />
+                  </div>
+                  <button type="button" aria-label="Remove line" className="btn btn-ghost hidden h-10 w-10 p-0 text-muted-foreground hover:text-destructive sm:inline-flex" onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}><TrashIcon className="h-4 w-4" /></button>
+                  {(toNumber(item.cost) > 0 || toNumber(item.charge) > 0) && (
+                    <p className={`col-span-2 text-xs sm:col-span-4 sm:px-1 ${lineProfit < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      Profit {money(lineProfit)}{toNumber(item.charge) > 0 ? ` · ${((lineProfit / toNumber(item.charge)) * 100).toFixed(1)}% margin` : ''}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {items.length === 0 && <EmptyState compact icon={<CalculatorIcon />} title="No lines" description="Add a line for each cost of the job." />}
+          <button type="button" className="btn btn-outline mt-4 w-full border-dashed" onClick={() => setItems((prev) => [...prev, newRow()])}><PlusIcon className="h-4 w-4" /> Add line</button>
+        </section>
 
         <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <section className="card card-pad">
-            <div className="mb-4 flex items-center justify-between gap-2">
+          <section className={`card card-pad border-t-4 ${tone.edge}`}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-foreground">Summary</h2>
-              <span className={`badge ${h.className}`}>{h.label}</span>
+              <div className="flex items-center gap-1.5">
+                {taxOn && <span className="badge badge-muted">Tax included</span>}
+                <span className={`badge ${tone.badge}`}>{h.label}</span>
+              </div>
             </div>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Client price</dt><dd className="font-semibold tabular-nums">{money(s.totalCharge)}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Your cost</dt><dd className="font-semibold tabular-nums">− {money(s.totalCost)}</dd></div>
+              {taxOn && <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Tax ({taxRate}%)</dt><dd className="tabular-nums">+ {money(s.taxAmount)}</dd></div>}
               <div className="flex justify-between gap-3 border-t border-border pt-2 text-base"><dt className="font-semibold">Profit</dt><dd className={`font-bold tabular-nums ${s.profit < 0 ? 'text-destructive' : 'text-success'}`}>{money(s.profit)}</dd></div>
-              {taxEnabled && (
-                <>
-                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Tax ({taxRate}%)</dt><dd className="tabular-nums">+ {money(s.taxAmount)}</dd></div>
-                  <div className="flex justify-between gap-3 rounded-xl bg-muted px-3 py-2"><dt className="font-semibold">Client pays</dt><dd className="font-bold tabular-nums">{money(s.totalWithTax)}</dd></div>
-                </>
+              {taxOn && (
+                <div className="flex justify-between gap-3 rounded-xl bg-muted px-3 py-2"><dt className="font-semibold">Total with tax</dt><dd className="font-bold tabular-nums">{money(s.totalWithTax)}</dd></div>
               )}
             </dl>
             <div className="mt-4 grid grid-cols-2 gap-3">
@@ -361,7 +398,10 @@ const ProfitCalculatorView: React.FC<ProfitCalculatorViewProps> = ({ onBack, pro
             {saved.map((c) => (
               <li key={c.id} className="flex items-center gap-2 py-2">
                 <button type="button" className="min-w-0 flex-1 rounded-lg px-2 py-2 text-left hover:bg-muted" onClick={() => doLoad(c)}>
-                  <span className="block truncate font-semibold text-foreground">{c.name}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-semibold text-foreground">{c.name}</span>
+                    {c.settings?.mode === 'advanced' && <span className="badge badge-muted shrink-0 px-1.5 py-0 text-[10px]">Advanced</span>}
+                  </span>
                   <span className="block text-xs text-muted-foreground">{new Date(c.date).toLocaleDateString()} · {toNumber(c.margin).toFixed(1)}% margin · {c.items.length} line{c.items.length === 1 ? '' : 's'}</span>
                 </button>
                 <button type="button" aria-label={`Delete ${c.name}`} className="btn btn-ghost h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive" onClick={() => setDeleteFor(c)}><TrashIcon className="h-4 w-4" /></button>

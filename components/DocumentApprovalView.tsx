@@ -7,8 +7,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.ts';
 import SignaturePad from './SignaturePad.tsx';
 import { Avatar, Notice, SkeletonRows, Spinner, StatusBadge, cx, getErrorMessage } from './commsKit.tsx';
-import { documentLabel, isExpired, isMissingFunctionError } from '../utils/clientLinks.ts';
-import { computeDocumentTotals, formatMoney, lineItemAmount, toNumber, type DocumentTotals } from '../utils/money.ts';
+import { documentLabel, isMissingFunctionError } from '../utils/clientLinks.ts';
+import { formatMoney, lineItemAmount, toNumber } from '../utils/money.ts';
+import {
+    SIGNABLE_TYPES, documentTotals, isDeclinedData, isPastExpiryDate, isSignedData, parseDocState, stateOfDoc, type DocState,
+} from '../utils/clientPortalRules.ts';
 import { safeUrl } from '../utils/escapeHtml.ts';
 import { generateDocumentBase64 } from '../services/pdfGenerator.ts';
 import type { Job, UserProfile } from '../types.ts';
@@ -39,6 +42,8 @@ export interface PublicDocument {
     jobId: string;
     createdAt: string;
     data: Record<string, any>;
+    /** the database's signing verdict (open / signed / declined / expired / readonly); null from an older database */
+    state?: DocState | null;
 }
 
 export interface SigningOutcome {
@@ -49,9 +54,8 @@ export interface SigningOutcome {
 
 /** A state the link/document is in that replaces the normal review UI. */
 export type LinkProblem = 'signed' | 'declined' | 'expired' | 'invalid';
-export type DocState = 'open' | 'signed' | 'declined' | 'expired' | 'readonly';
-
-export const SIGNABLE_TYPES = ['Estimate', 'Change Order'];
+export type { DocState };
+export { SIGNABLE_TYPES, documentTotals, isDeclinedData, isSignedData };
 
 export const str = (value: unknown): string => (value === null || value === undefined ? '' : String(value)).trim();
 
@@ -89,6 +93,7 @@ export const normalizeDocument = (raw: unknown): PublicDocument | null => {
         jobId: str(r.job_id ?? r.jobId),
         createdAt: str(r.created_at ?? r.createdAt),
         data: parseJsonObject(r.data),
+        state: parseDocState(r.state),
     };
 };
 
@@ -149,32 +154,13 @@ const mailHref = (email: string): string => (/^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.
    Document state + totals
    ===================================================================================== */
 
-export const isSignedData = (d: Record<string, any>) =>
-    str(d.status) === 'Accepted' || !!str(d.clientSignatureUrl) || !!str(d.clientSignedAt);
-export const isDeclinedData = (d: Record<string, any>) => str(d.status) === 'Rejected' || !!str(d.clientDeclinedAt);
 export const signerNameOf = (d: Record<string, any>) => str(d.clientSignerName) || str(d.clientSignedBy);
 
-export const getDocState = (doc: PublicDocument): DocState => {
-    if (!SIGNABLE_TYPES.includes(doc.type)) return 'readonly';
-    if (isSignedData(doc.data)) return 'signed';
-    if (isDeclinedData(doc.data)) return 'declined';
-    if (isExpired(str(doc.data.expiryDate))) return 'expired';
-    return 'open';
-};
-
-/** computeDocumentTotals(), with a fallback for documents that only carry a flat `amount`. */
-export const documentTotals = (d: Record<string, any>): DocumentTotals & { hasMoney: boolean } => {
-    const totals = computeDocumentTotals(d);
-    const hasItems = Array.isArray(d.lineItems) && d.lineItems.length > 0;
-    if (!hasItems) {
-        const amount = toNumber(d.amount);
-        if (amount > 0) {
-            const paid = Math.max(0, toNumber(d.amountPaid));
-            return { ...totals, subtotal: amount, taxableAmount: amount, total: amount, amountPaid: paid, balanceDue: Math.max(0, amount - paid), hasMoney: true };
-        }
-    }
-    return { ...totals, hasMoney: hasItems };
-};
+/**
+ * Signing state: the database's verdict when it sent one (old-app estimates stay signable after their "valid until"
+ * date, a re-sent declined estimate is open again), else the same rules computed here (utils/clientPortalRules.ts).
+ */
+export const getDocState = (doc: PublicDocument): DocState => stateOfDoc(doc);
 
 export const currencyOf = (d: Record<string, any>) => str(d.currency) || 'USD';
 
@@ -226,7 +212,7 @@ export const classifySigningError =(message: string): LinkProblem | 'signature' 
     if (/already (been )?(signed|accepted|approved)/.test(m)) return 'signed';
     if (/declined|rejected/.test(m)) return 'declined';
     if (/expired/.test(m)) return 'expired';
-    if (/invalid|not found|no longer/.test(m)) return 'invalid';
+    if (/invalid|not found|no longer|already used/.test(m)) return 'invalid';
     return null;
 };
 
@@ -615,6 +601,8 @@ export const DocumentDetail: React.FC<{
         ['Status', doc.type === 'Work Order' ? str(d.status) : ''],
         ['Hours', toNumber(d.hours) > 0 ? String(toNumber(d.hours)) : ''],
         ['Warranty period', str(d.duration)],
+        ['Paid by', doc.type === 'Receipt' ? str(d.paymentMethod) : ''],
+        ['For invoice', doc.type === 'Receipt' ? str(d.invoiceNumber) : ''],
         ['Weather', [str(d.weather), str(d.temperature)].filter(Boolean).join(' · ')],
     ] as Array<[string, string]>).filter(([, v]) => !!v);
 
@@ -774,6 +762,12 @@ export const DocumentDetail: React.FC<{
                 <Notice tone="warning" title={`This ${typeNoun(doc.type)} expired${fmtDate(d.expiryDate) ? ` on ${fmtDate(d.expiryDate)}` : ''}`}>
                     Prices and availability may have changed. Contact {contractorName(contractor)} for an updated version.
                 </Notice>
+            )}
+            {/* estimates made before the upgrade stay signable after their date (the original app never checked it) */}
+            {state === 'open' && isPastExpiryDate(d.expiryDate) && (
+                <p className="text-sm text-muted-foreground">
+                    The “valid until” date ({fmtDate(d.expiryDate)}) has passed. You can still sign it online; contact {contractorName(contractor)} if anything has changed.
+                </p>
             )}
         </article>
     );
@@ -1081,6 +1075,8 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
     const [outcome, setOutcome] = useState<SigningOutcome | null>(null);
     const [pageError, setPageError] = useState('');
     const [signInView, setSignInView] = useState(false);
+    /** false when the link itself can't sign (already used by the client); null when the database didn't say */
+    const [linkCanSign, setLinkCanSign] = useState<boolean | null>(null);
     const signRef = useRef<HTMLDivElement>(null);
 
     const load = useCallback(async (silent = false) => {
@@ -1097,6 +1093,8 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
             const payload = parseRpcPayload(data);
             const d = normalizeDocument(payload.document);
             if (!d) throw new Error('Document not found');
+            const link = parseRpcPayload(payload.link);
+            setLinkCanSign(typeof link.can_sign === 'boolean' ? link.can_sign : link.used_at ? false : null);
             setDoc(d);
             setContractor(normalizeContractor(payload.contractor));
             setStatus('ready');
@@ -1111,7 +1109,9 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
     useEffect(() => { load(); }, [load]);
 
     const state: DocState | LinkProblem | null = doc ? (problem && problem !== 'invalid' ? problem : getDocState(doc)) : null;
-    const canSign = state === 'open' && !outcome;
+    // an open document behind a link the client already used (the contractor must send a new link)
+    const linkUsed = state === 'open' && linkCanSign === false && !outcome;
+    const canSign = state === 'open' && !outcome && !linkUsed;
 
     // Mobile: show a fixed "Review & sign" bar until the signing panel scrolls into view.
     useEffect(() => {
@@ -1129,6 +1129,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
         if (!doc) return { title: '', subtitle: '' };
         const noun = typeNoun(doc.type);
         if (outcome) return { title: outcome.kind === 'signed' ? 'All set' : 'Response sent', subtitle: `Your response to this ${noun} was recorded.` };
+        if (linkUsed) return { title: 'This link was already used', subtitle: `Ask ${company} for a new link to sign this ${noun}.` };
         switch (state) {
             case 'signed': return { title: 'Already approved', subtitle: `This ${noun} has already been signed. You can download a copy below.` };
             case 'declined': return { title: 'Declined', subtitle: `This ${noun} was declined. Contact ${company} if you'd like to discuss it.` };
@@ -1136,7 +1137,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
             case 'open': return { title: 'Review and approve', subtitle: `${company} sent you ${article(noun)} ${noun} to review and sign.` };
             default: return { title: doc.type, subtitle: `Shared with you by ${company}.` };
         }
-    }, [doc, state, outcome, company]);
+    }, [doc, state, outcome, company, linkUsed]);
 
     if (status === 'loading') return <PublicPageSkeleton />;
     if (status === 'error' || !doc || !contractor) {

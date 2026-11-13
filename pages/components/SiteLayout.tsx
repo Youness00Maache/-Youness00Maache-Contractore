@@ -22,6 +22,7 @@ const FOOTER_COLUMNS: { title: string; links: { to: string; label: string }[] }[
       { to: '/templates', label: 'Templates' },
       { to: '/invoice-generator', label: 'Invoice generator' },
       { to: '/estimate-generator', label: 'Estimate generator' },
+      { to: '/help', label: 'Help center' },
     ],
   },
   {

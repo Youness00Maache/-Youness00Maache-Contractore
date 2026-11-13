@@ -3,11 +3,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import type { Client, FormData as FormDataType, Job, UserProfile } from '../types.ts';
 import {
-    BoldIcon, CheckCircleIcon, ChevronDownIcon, CopyIcon, EyeIcon, GoogleIcon, ItalicIcon, LinkIcon,
-    ListIcon, ListOrderedIcon, MailIcon, PaletteIcon, PaperclipIcon, PlusIcon, RefreshCwIcon, RemoveFormatIcon, SearchIcon,
-    SendIcon, StarIcon, TrashIcon, UsersIcon, XCircleIcon,
+    CheckCircleIcon, ChevronDownIcon, CopyIcon, EyeIcon, GoogleIcon, PaletteIcon, PaperclipIcon, PlusIcon, RefreshCwIcon, SearchIcon,
+    SendIcon, ShieldCheckIcon, StarIcon, TrashIcon, UsersIcon, XCircleIcon,
 } from './Icons.tsx';
+import RichTextEditor, { type RichTextEditorHandle } from './forms/RichTextEditor.tsx';
 import { Avatar, ConfirmDialog, EmptyState, Modal, Notice, PageHeader, Spinner, StatusBadge, cx } from './commsKit.tsx';
+import HelpButton from './help/HelpButton.tsx';
 import EmailTemplateSelector from './EmailTemplateSelector.tsx';
 import { applyTemplateVariables, fillEmailPlaceholders, plainTextToEmailHtml, safeColor, senderIdentity, type EmailTemplateDefinition } from '../utils/emailTemplates.ts';
 import { sanitizeRichText } from '../utils/escapeHtml.ts';
@@ -229,9 +230,8 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
 
     /* ------------------------------------------------------------ message */
     const [subject, setSubject] = useState('');
-    const editorRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<RichTextEditorHandle>(null);
     const [bodyHtml, setBodyHtml] = useState('');
-    const [bodyEmpty, setBodyEmpty] = useState(true);
     // COMM-014: once the user (or a prefill) wrote the text, nothing may overwrite it automatically.
     const subjectDirty = useRef(false);
     const bodyDirty = useRef(false);
@@ -240,70 +240,23 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
     const [secondaryColor, setSecondaryColor] = useState('#1e40af');
     const [showTemplates, setShowTemplates] = useState(false);
     const [showPreview, setShowPreview] = useState(false);
-    const [linkEditor, setLinkEditor] = useState<{ url: string; range: Range | null } | null>(null);
     const [copied, setCopied] = useState(false);
     const [inserting, setInserting] = useState<string | null>(null);
 
-    const setEditorHtml = (html: string) => {
-        const safe = sanitizeRichText(html);
-        if (editorRef.current) editorRef.current.innerHTML = safe;
-        setBodyHtml(safe);
-        setBodyEmpty(!htmlToPlain(safe));
-    };
+    /** Replaces the whole message (suggested text, prefill, reset). The editor shows it unless the user is typing in it. */
+    const setEditorHtml = (html: string) => setBodyHtml(sanitizeRichText(html));
 
-    const onEditorInput = () => {
-        const html = editorRef.current?.innerHTML || '';
+    const onEditorChange = (html: string) => {
         bodyDirty.current = true;
         setBodyHtml(html);
-        setBodyEmpty(!htmlToPlain(html));
     };
 
-    const exec = (command: string, value?: string) => {
-        editorRef.current?.focus();
-        document.execCommand(command, false, value);
-        onEditorInput();
-    };
-
+    /** Inserts text at the caret (or at the end) of the message, as one undoable step; line breaks are kept. */
     const insertText = (text: string) => {
-        const editor = editorRef.current;
-        if (!editor) return;
-        editor.focus();
-        const sel = window.getSelection();
-        if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) {
-            const range = document.createRange();
-            range.selectNodeContents(editor);
-            range.collapse(false);
-            sel?.removeAllRanges();
-            sel?.addRange(range);
-        }
-        document.execCommand('insertText', false, text);
-        onEditorInput();
-    };
-
-    const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-        // Paste as plain text: never import foreign HTML/scripts into the email.
-        e.preventDefault();
-        document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
-        onEditorInput();
-    };
-
-    const openLinkEditor = () => {
-        const sel = window.getSelection();
-        const range = sel && sel.rangeCount && editorRef.current?.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
-        setLinkEditor({ url: 'https://', range });
-    };
-    const applyLink = () => {
-        if (!linkEditor) return;
-        const url = linkEditor.url.trim();
-        if (!/^(https?:\/\/[^\s"<>]+|mailto:[^\s"<>]+)$/i.test(url)) return;
-        const editor = editorRef.current;
-        editor?.focus();
-        const sel = window.getSelection();
-        if (linkEditor.range && sel) { sel.removeAllRanges(); sel.addRange(linkEditor.range); }
-        if (!sel || sel.isCollapsed) document.execCommand('insertText', false, url);
-        else document.execCommand('createLink', false, url);
-        setLinkEditor(null);
-        onEditorInput();
+        if (!text) return;
+        const html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r?\n/g, '<br>');
+        editorRef.current?.insertHtml(html);
+        bodyDirty.current = true;
     };
 
     /* ------------------------------------------------------------ suggested text */
@@ -618,12 +571,17 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
     const busy = phase === 'preparing' || phase === 'sending';
 
     /* ------------------------------------------------------------ render */
-    const accountPill = accounts === null ? (
-        <div className="skeleton h-10 w-44 rounded-full" />
-    ) : accounts.length === 0 ? (
+    const connectButton = (
         <button type="button" className="btn btn-primary min-h-[44px]" onClick={() => connectGmail()} disabled={connecting}>
             {connecting ? <Spinner label="Opening Google…" /> : <><GoogleIcon className="h-4 w-4" /> Connect Gmail</>}
         </button>
+    );
+    // One "Connect Gmail" only: the intro card has it when it is shown, the header otherwise (e.g. after a load error).
+    const showConnectCard = accounts !== null && accounts.length === 0 && !accountsError;
+    const accountPill = accounts === null ? (
+        <div className="skeleton h-10 w-44 rounded-full" />
+    ) : accounts.length === 0 ? (
+        showConnectCard ? null : connectButton
     ) : (
         <div className="relative">
             <button
@@ -691,7 +649,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
                 badge={!paid && usage && usage.limit !== null ? (
                     <span className={cx('badge', remaining === 0 ? 'badge-danger' : 'badge-primary')}>{usage.emails_this_month}/{usage.limit} emails this month</span>
                 ) : undefined}
-                actions={accountPill}
+                actions={<><HelpButton topic="messages" />{accountPill}</>}
             />
 
             <div className="space-y-3">
@@ -709,16 +667,17 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
                 {prefillNotice && <Notice tone="info" onClose={() => setPrefillNotice(null)}>{prefillNotice}</Notice>}
             </div>
 
-            {accounts !== null && accounts.length === 0 && !accountsError && (
-                <div className="card card-pad mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><MailIcon className="h-6 w-6" /></div>
+            {showConnectCard && (
+                <div className="card mt-4 flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:px-6">
                     <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground">Connect Gmail to send from your own address</p>
-                        <p className="mt-1 text-sm text-muted-foreground">ContractorDocs only asks permission to <strong>send</strong> email. It can't read your inbox. You can disconnect at any time.</p>
+                        <p className="font-semibold text-foreground">Send from your own Gmail address</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Clients see your name and email, and replies land in your inbox.</p>
+                        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <ShieldCheckIcon className="h-3.5 w-3.5 shrink-0 text-success" />
+                            Send-only permission: ContractorDocs can't read your inbox. Disconnect any time.
+                        </p>
                     </div>
-                    <button type="button" className="btn btn-primary min-h-[44px]" onClick={() => connectGmail()} disabled={connecting}>
-                        {connecting ? <Spinner label="Opening Google…" /> : <><GoogleIcon className="h-4 w-4" /> Connect Gmail</>}
-                    </button>
+                    <div className="shrink-0 [&>button]:w-full sm:[&>button]:w-auto">{connectButton}</div>
                 </div>
             )}
 
@@ -870,53 +829,16 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
 
                         <div>
                             <span className="label" id="comm-body-label">Message</span>
-                            <div className="overflow-hidden rounded-xl border border-input bg-card focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
-                                <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/40 px-2 py-1.5" role="toolbar" aria-label="Formatting">
-                                    {[
-                                        { icon: BoldIcon, label: 'Bold', run: () => exec('bold') },
-                                        { icon: ItalicIcon, label: 'Italic', run: () => exec('italic') },
-                                        { icon: ListIcon, label: 'Bulleted list', run: () => exec('insertUnorderedList') },
-                                        { icon: ListOrderedIcon, label: 'Numbered list', run: () => exec('insertOrderedList') },
-                                        { icon: LinkIcon, label: 'Link', run: openLinkEditor },
-                                        { icon: RemoveFormatIcon, label: 'Clear formatting', run: () => exec('removeFormat') },
-                                    ].map(({ icon: Icon, label, run }) => (
-                                        <button key={label} type="button" className="btn btn-ghost h-10 w-10 p-0" onMouseDown={(e) => e.preventDefault()} onClick={run} title={label} aria-label={label} disabled={busy}>
-                                            <Icon className="h-4 w-4" />
-                                        </button>
-                                    ))}
-                                </div>
-                                {linkEditor && (
-                                    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-2">
-                                        <input
-                                            className="input min-w-0 flex-1 py-2"
-                                            type="url"
-                                            value={linkEditor.url}
-                                            onChange={(e) => setLinkEditor({ ...linkEditor, url: e.target.value })}
-                                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } if (e.key === 'Escape') setLinkEditor(null); }}
-                                            aria-label="Link address"
-                                            data-autofocus
-                                        />
-                                        <button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={applyLink} disabled={!/^(https?:\/\/[^\s"<>]+\.[^\s"<>]+|mailto:[^\s"<>]+@[^\s"<>]+)$/i.test(linkEditor.url.trim())}>Add link</button>
-                                        <button type="button" className="btn btn-ghost btn-sm min-h-[40px]" onClick={() => setLinkEditor(null)}>Cancel</button>
-                                    </div>
-                                )}
-                                <div className="relative">
-                                    {bodyEmpty && (
-                                        <p className="pointer-events-none absolute left-4 top-3 text-sm text-muted-foreground/70" aria-hidden="true">Write your message…</p>
-                                    )}
-                                    <div
-                                        ref={editorRef}
-                                        role="textbox"
-                                        aria-multiline="true"
-                                        aria-labelledby="comm-body-label"
-                                        contentEditable={!busy}
-                                        suppressContentEditableWarning
-                                        onInput={onEditorInput}
-                                        onPaste={onPaste}
-                                        className="min-h-[220px] max-h-[50vh] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-foreground outline-none [&_a]:text-primary [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6"
-                                    />
-                                </div>
-                            </div>
+                            <RichTextEditor
+                                ref={editorRef}
+                                mode="email"
+                                value={bodyHtml}
+                                onChange={onEditorChange}
+                                disabled={busy}
+                                minHeight={220}
+                                ariaLabel="Message"
+                                placeholder="Write your message… Type / for headings, lists and tables."
+                            />
                         </div>
 
                         <div>

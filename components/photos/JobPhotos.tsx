@@ -24,6 +24,7 @@ import {
     signedPhotoUrls, updateJobPhoto,
 } from './photosApi.ts';
 import PhotoViewer from './PhotoViewer.tsx';
+import HelpButton from '../help/HelpButton.tsx';
 
 const PhotoMarkupEditor = React.lazy(() => import('./PhotoMarkupEditor.tsx'));
 
@@ -390,6 +391,7 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                             {selecting ? 'Done' : 'Select'}
                         </button>
                     )}
+                    <HelpButton topic="photos" className="ml-auto" />
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-2">

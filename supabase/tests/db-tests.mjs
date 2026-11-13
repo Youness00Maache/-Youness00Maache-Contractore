@@ -324,7 +324,7 @@ async function main() {
   ok(!browserExpiry.error && new Date(browserExpiry.data.approval_expires_at) < new Date(), 'browser cannot extend a link by writing approval_expires_at');
   const newToken = crypto.randomUUID();
   const regen = await A.db.from('documents').update({ public_token: newToken }).eq('id', co2.id).select('public_token, approval_expires_at').single();
-  ok(!regen.error && regen.data.public_token === newToken && new Date(regen.data.approval_expires_at) > new Date(), 'regenerating the token issues a fresh 60-day link', regen.error);
+  ok(!regen.error && regen.data.public_token === newToken && regen.data.approval_expires_at === null, 'regenerating the token issues a fresh link with no end date', regen.error);
   const regenSign = await anon.rpc('approve_document_by_token', { doc_token: newToken, p_signature: PNG });
   ok(!regenSign.error, 'new link works');
   const oldTokenDead = await anon.rpc('get_document_by_token', { doc_token: co2.public_token });
@@ -332,7 +332,48 @@ async function main() {
   const expiredEstimate = await one(A.db.from('documents').insert({ job_id: jobP.id, client_id: clientA.id, type: 'Estimate', data: { status: 'Sent', expiryDate: '2020-01-01' } }).select().single());
   const signExpired = await anon.rpc('sign_document_via_portal', { p_key: clientA.portal_key, p_doc_id: expiredEstimate.id, p_signature: PNG });
   ok(errMatches(signExpired, /expired/), 'estimate past its expiryDate cannot be signed');
-  const newKey = 'a'.repeat(8) + crypto.randomUUID().replace(/-/g, '');
+
+  // 20261113000600: portal & approval rules of the original app
+  ok(co.approval_expires_at === null && expiredEstimate.approval_expires_at === null, 'new approval links have no end date (like the old app)', co.approval_expires_at);
+  const legacyEst = await one(admin.from('documents').insert({ user_id: A.id, job_id: jobP.id, client_id: clientA.id, type: 'Estimate', created_at: '2026-10-01T12:00:00Z', data: { estimateNumber: 'EST-OLD', status: 'Sent', expiryDate: '2026-10-08' } }).select().single());
+  const portal2 = await anon.rpc('get_portal_data', { p_key: clientA.portal_key });
+  const stateOf = (id) => (portal2.data?.documents || []).find((d) => d.id === id)?.state;
+  ok(stateOf(legacyEst.id) === 'open' && stateOf(expiredEstimate.id) === 'expired' && stateOf(est.id) === 'signed' && stateOf(est2.id) === 'declined', 'portal sends each document state (old estimates never expire)', portal2.data?.documents?.map((d) => [d.data.estimateNumber, d.state]));
+  const signLegacy = await anon.rpc('sign_document_via_portal', { p_key: clientA.portal_key, p_doc_id: legacyEst.id, p_signature: PNG, p_signer_name: 'Hank' });
+  ok(!signLegacy.error, 'estimate made by the old app can be signed after its expiry date', signLegacy.error);
+  const noStatus = await one(A.db.from('documents').insert({ job_id: jobP.id, client_id: clientA.id, type: 'Daily Job Report', data: { reportNumber: 'R-1' } }).select().single());
+  const ids2 = ((await anon.rpc('get_portal_data', { p_key: clientA.portal_key })).data?.documents || []).map((d) => d.id);
+  ok(ids2.includes(noStatus.id) && !ids2.includes(draft.id), 'portal shows documents without a status and still hides drafts');
+  // a declined estimate the contractor re-sends is open again (same link and portal)
+  const staleAfterDecline = await A.db.from('documents').update({ data: { estimateNumber: 'EST-101', status: 'Sent', lineItems: [] } }).eq('id', est2.id).select('data').single();
+  ok(!staleAfterDecline.error && staleAfterDecline.data.data.status === 'Rejected' && staleAfterDecline.data.data.clientDeclineReason === 'Too expensive', 'a form opened before the decline cannot undo it', staleAfterDecline.data?.data);
+  const declinedRow = await one(A.db.from('documents').select('data, public_token').eq('id', est2.id).single());
+  const resent = await A.db.from('documents').update({ data: { ...declinedRow.data, status: 'Sent', notes: 'cheaper now' } }).eq('id', est2.id).select('data, approval_used_at').single();
+  ok(!resent.error && resent.data.data.status === 'Sent' && resent.data.data.clientDeclinedAt === '' && resent.data.approval_used_at === null, 're-sending a declined estimate reopens it', resent.data);
+  const signReopened = await anon.rpc('approve_document_by_token', { doc_token: declinedRow.public_token, p_signature: PNG, p_signer_name: 'Hank' });
+  ok(!signReopened.error, 'the same link can sign the reopened estimate', signReopened.error);
+  const fakeDecline = await A.db.from('documents').update({ data: { ...expiredEstimate.data, clientDeclinedAt: '2026-01-01T00:00:00Z' } }).eq('id', expiredEstimate.id).select('data').single();
+  ok(!fakeDecline.error && !('clientDeclinedAt' in fakeDecline.data.data), 'the browser cannot write a client decline', fakeDecline.data?.data);
+  // a change order marked Approved by the contractor is not offered for signing
+  const coApproved = await one(A.db.from('documents').insert({ job_id: jobP.id, client_id: clientA.id, type: 'Change Order', data: { changeOrderNumber: 'CO-9', status: 'Approved' } }).select().single());
+  const coView = await anon.rpc('get_document_by_token', { doc_token: coApproved.public_token });
+  ok(!coView.error && coView.data.document.state === 'signed' && coView.data.link.can_sign === false, 'Approved change order is read-only', coView.data);
+  // receipts: the shared link opens (view only); they show in the portal
+  const receipt = await one(A.db.from('documents').insert({ job_id: jobP.id, client_id: clientA.id, type: 'Receipt', data: { receiptNumber: 'RC-1', amount: 120 } }).select().single());
+  const rcView = await anon.rpc('get_document_by_token', { doc_token: receipt.public_token });
+  ok(!rcView.error && rcView.data.document.state === 'readonly' && rcView.data.link.can_sign === false, 'receipt link opens view-only', rcView.error);
+  const rcSign = await anon.rpc('approve_document_by_token', { doc_token: receipt.public_token, p_signature: PNG });
+  ok(errMatches(rcSign, /not available|not found/i), 'a receipt cannot be signed', rcSign.error);
+  // client created after the documents: matched by name (trimmed, any case) through the document or the job
+  const jobLegacy = await one(A.db.from('jobs').insert({ name: 'QA Test Job', client_name: 'QA Client' }).select().single());
+  const legacyInv = await one(A.db.from('documents').insert({ job_id: jobLegacy.id, type: 'Invoice', data: { invoiceNumber: 'INV-QA', status: 'Paid' } }).select().single());
+  const legacyEst2 = await one(A.db.from('documents').insert({ job_id: jobLegacy.id, type: 'Estimate', data: { estimateNumber: 'EST-QA', status: 'Accepted', clientName: ' qa client ' } }).select().single());
+  const qaClient = await one(A.db.from('clients').insert({ name: 'QA Client' }).select().single());
+  const qaIds = ((await anon.rpc('get_portal_data', { p_key: qaClient.portal_key })).data?.documents || []).map((d) => d.id);
+  ok(qaIds.includes(legacyInv.id) && qaIds.includes(legacyEst2.id), 'a client created later sees the older documents of that name', qaIds);
+  const otherIds = ((await anon.rpc('get_portal_data', { p_key: clientA2.portal_key })).data?.documents || []).map((d) => d.id);
+  ok(!otherIds.includes(legacyInv.id), 'other clients do not');
+  const newKey ='a'.repeat(8) + crypto.randomUUID().replace(/-/g, '');
   const keyRegen = await A.db.from('clients').update({ portal_key: newKey }).eq('id', clientA.id).select('portal_key').single();
   ok(!keyRegen.error && keyRegen.data.portal_key === newKey, 'owner can regenerate the portal key', keyRegen.error);
   const oldPortal = await anon.rpc('get_portal_data', { p_key: clientA.portal_key });

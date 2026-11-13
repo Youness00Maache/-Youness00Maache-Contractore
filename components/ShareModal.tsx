@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Client, EmailTemplate, Job, UserProfile } from '../types.ts';
 import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
 import { approvalUrl, copyToClipboard, ensureApprovalToken, ensurePortalKey, portalUrl } from '../utils/clientLinks.ts';
+import { shareLinkKind } from '../utils/clientPortalRules.ts';
 import { fillEmailPlaceholders, payNowLine, senderIdentity, withPayLine } from '../utils/emailTemplates.ts';
 import { payLinkFor } from '../lib/payments.ts';
 import { shortShareMessage } from '../lib/messaging.ts';
@@ -120,10 +121,13 @@ const ShareModal: React.FC<ShareModalProps> = ({
     const mailtoTo = recipientTrimmed && recipientValid ? recipientTrimmed.split(/[;,]/).map(s => s.trim()).filter(Boolean).join(',') : '';
 
     const canApprove = /^(estimate|change order)$/i.test(docType);
+    // The message links to this document's own page (it opens for drafts too, which the portal doesn't show, and
+    // for receipts); internal paperwork (purchase orders, time sheets, logs, notes) gets no client link at all.
+    const clientFacing = shareLinkKind(docType) === 'document';
     const [portalLink, setPortalLink] = useState('');
-    const [approvalLink, setApprovalLink] = useState(publicToken ? approvalUrl(publicToken) : '');
+    const [approvalLink, setApprovalLink] = useState(publicToken && clientFacing ? approvalUrl(publicToken) : '');
     const [bodyEdited, setBodyEdited] = useState(false);
-    const shareLink = portalLink || approvalLink;
+    const shareLink = clientFacing ? approvalLink : '';
     const total = documentTotalOf(data);
     const number = documentNumberOf(data);
     const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -141,17 +145,21 @@ const ShareModal: React.FC<ShareModalProps> = ({
         payLine,
     });
 
-    // links: the client's portal (created for legacy clients without a key) is what the message points to
+    // links: the document's own link goes in the message (a working one: reissued when the old link expired, or was
+    // used before the document was reopened); the client's portal (key created for legacy clients) is a second option
     useEffect(() => {
         if (!isOpen) return;
         setBodyEdited(false);
-        setApprovalLink(publicToken ? approvalUrl(publicToken) : '');
-        if (!client) { setPortalLink(''); return; }
+        setApprovalLink(clientFacing && publicToken ? approvalUrl(publicToken) : '');
         let active = true;
-        if (client.portal_key) setPortalLink(portalUrl(client.portal_key));
+        if (clientFacing && documentId) {
+            ensureApprovalToken(documentId).then(token => { if (active) setApprovalLink(approvalUrl(token)); }).catch(() => undefined);
+        }
+        if (!client || !clientFacing) setPortalLink('');
+        else if (client.portal_key) setPortalLink(portalUrl(client.portal_key));
         else ensurePortalKey(client).then(key => { if (active) setPortalLink(portalUrl(key)); }).catch(() => undefined);
         return () => { active = false; };
-    }, [isOpen, client, publicToken]);
+    }, [isOpen, client, publicToken, documentId, clientFacing]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -194,14 +202,15 @@ const ShareModal: React.FC<ShareModalProps> = ({
         else flash('error', 'Copying isn’t allowed here. Select the text and copy it manually.');
     };
 
+    const linkCopiedText = canApprove ? 'Approval link copied.' : 'Link copied.';
     const copyApprovalLink = async () => {
         if (!documentId) return;
         try {
             const url = approvalUrl(await ensureApprovalToken(documentId));
             setApprovalLink(url);
-            await copy(url, 'Approval link copied.');
+            await copy(url, linkCopiedText);
         } catch (e) {
-            flash('error', e instanceof Error ? e.message : 'Could not create the approval link.');
+            flash('error', e instanceof Error ? e.message : 'Could not create the link.');
         }
     };
 
@@ -286,10 +295,10 @@ const ShareModal: React.FC<ShareModalProps> = ({
                             <span className="flex items-center gap-2 font-semibold text-foreground"><DownloadIcon className="h-4 w-4 text-primary" /> {busy === 'download' ? 'Creating…' : 'Download PDF'}</span>
                             <span className="text-xs text-muted-foreground">Attach it anywhere</span>
                         </button>
-                        {canApprove && (documentId || approvalLink) && (
-                            <button type="button" className={action} onClick={() => (documentId ? copyApprovalLink() : copy(approvalLink, 'Approval link copied.'))}>
-                                <span className="flex items-center gap-2 font-semibold text-foreground"><GlobeIcon className="h-4 w-4 text-primary" /> Copy approval link</span>
-                                <span className="text-xs text-muted-foreground">Client reviews &amp; signs online</span>
+                        {clientFacing && (documentId || approvalLink) && (
+                            <button type="button" className={action} onClick={() => (documentId ? copyApprovalLink() : copy(approvalLink, linkCopiedText))}>
+                                <span className="flex items-center gap-2 font-semibold text-foreground"><GlobeIcon className="h-4 w-4 text-primary" /> {canApprove ? 'Copy approval link' : 'Copy link'}</span>
+                                <span className="text-xs text-muted-foreground">{canApprove ? <>Client reviews &amp; signs online</> : 'Client views it online, no login'}</span>
                             </button>
                         )}
                         {portalLink && (

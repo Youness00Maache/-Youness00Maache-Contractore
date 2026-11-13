@@ -69,7 +69,8 @@ const ReceiptForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave
         validate: d => {
             if (!String(d.receiptNumber || '').trim()) return 'Add a receipt number.';
             if (!isISODate(d.date)) return 'Add a valid date.';
-            if (!(toNumber(d.amount) > 0)) return 'Enter the amount received.';
+            // new receipts only: an already saved one (the original app allowed $0) can still be edited (PARITY_V2 D10)
+            if (!data && !(toNumber(d.amount) > 0)) return 'Enter the amount received.';
             return null;
         },
     });

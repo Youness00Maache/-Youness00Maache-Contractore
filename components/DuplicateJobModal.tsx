@@ -13,6 +13,8 @@ interface DuplicateJobModalProps {
     clients: Client[];
     /** True while the job's documents are still being loaded. */
     loadingDocuments?: boolean;
+    /** Free plan: new documents a job may get this month (the first ones selected are copied). null = no limit. */
+    copyLimit?: number | null;
 }
 
 export const DuplicateJobModal: React.FC<DuplicateJobModalProps> = ({
@@ -23,6 +25,7 @@ export const DuplicateJobModal: React.FC<DuplicateJobModalProps> = ({
     forms,
     clients,
     loadingDocuments = false,
+    copyLimit = null,
 }) => {
     const [jobName, setJobName] = useState('');
     const [selectedClientId, setSelectedClientId] = useState<string>('');
@@ -149,6 +152,11 @@ export const DuplicateJobModal: React.FC<DuplicateJobModalProps> = ({
                                     </label>
                                 ))}
                             </div>
+                        )}
+                        {copyLimit !== null && selectedDocIds.size > copyLimit && (
+                            <p role="status" className="mt-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                                Free plan: a job can get {copyLimit} new documents a month, so the first {copyLimit} selected (from the top of the list) will be copied and the other {selectedDocIds.size - copyLimit} left out. Untick some to choose, or upgrade to copy them all.
+                            </p>
                         )}
                         <p className="mt-2 text-xs text-muted-foreground">Copies start as drafts, without client signatures or approvals.</p>
                     </div>

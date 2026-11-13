@@ -455,6 +455,21 @@ export const toNumberOrNull = (v: unknown): number | null => {
 
 export const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
+/**
+ * Text shown in a number box. `decimals` = fixed decimals for display (2 for money). `maxDecimals` (unit prices) lets
+ * a value that has more precision show it (2.375 → "2.375", 2.5 → "2.50") instead of hiding it behind "2.38", so the
+ * box always shows the number used in the totals.
+ */
+export const formatNumberForInput = (n: number, decimals?: number, maxDecimals?: number): string => {
+    if (!Number.isFinite(n)) return '';
+    if (decimals === undefined) return String(n);
+    if (Number.isInteger(n)) return String(n);
+    const fixed = n.toFixed(decimals);
+    if (maxDecimals === undefined || maxDecimals <= decimals || Number(fixed) === n) return fixed;
+    const precise = Number(n.toFixed(maxDecimals));
+    return precise === Number(fixed) ? fixed : String(precise);
+};
+
 export const toBool = (v: unknown): boolean | null => {
     if (typeof v === 'boolean') return v;
     if (typeof v === 'number') return v !== 0;
@@ -485,17 +500,39 @@ const firstDefined = (obj: Record<string, unknown>, keys: string[]): unknown => 
 
 export const blankLineItem = (): LineItem => ({ id: newId(), description: '', quantity: 1, rate: 0 });
 
+/**
+ * Quantity of a line: AI/typed input is cleaned (no negatives, 3 decimals); a SAVED value is kept exactly as stored
+ * (the original app allowed credit lines like −1 × $500 and any precision), so opening and re-saving an old document
+ * never changes its totals (PARITY_V2 D1).
+ */
+export const lineQuantity = (raw: unknown, keepAsStored: boolean): number =>
+    keepAsStored ? toNumber(raw) : Math.round(Math.max(0, toNumber(raw)) * 1000) / 1000;
+
+/**
+ * Unit price / unit cost: saved values keep their exact precision ($2.375 per sq ft stays 2.375; only computed totals
+ * are rounded, in utils/money.ts). AI/typed input is rounded to cents; `nonNegative` also clamps it at 0.
+ */
+export const linePrice = (raw: unknown, keepAsStored: boolean, nonNegative = false): number => {
+    const n = toNumber(raw);
+    if (keepAsStored) return n;
+    return roundMoney(nonNegative ? Math.max(0, n) : n);
+};
+
 /** Normalizes any line-item-like object (AI, legacy, saved) into a LineItem with numeric fields and an id. */
-/** `cleanText: false` keeps saved descriptions exactly as typed (used when loading saved documents). */
+/**
+ * `cleanText: false` = a SAVED document is being loaded: descriptions stay exactly as typed and numbers exactly as
+ * stored (no rounding, negative credit quantities kept). `true` (AI / pasted input) cleans and rounds.
+ */
 export const normalizeLineItem = (raw: unknown, usedIds?: Set<string>, cleanText = true): LineItem | null => {
     const text = (v: unknown) => (cleanText ? toSingleLine(v ?? '') : v === null || v === undefined ? '' : String(v));
+    const asStored = !cleanText;
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
     const description = text(firstDefined(r, ['description', 'name', 'item', 'title', 'label']));
     const qtyRaw = firstDefined(r, ['quantity', 'qty', 'units', 'count']);
     const rateRaw = firstDefined(r, ['rate', 'unitPrice', 'unit_price', 'price', 'amount', 'cost_each']);
-    const quantity = qtyRaw === undefined ? 1 : Math.round(Math.max(0, toNumber(qtyRaw)) * 1000) / 1000;
-    const rate = rateRaw === undefined ? 0 : roundMoney(toNumber(rateRaw));
+    const quantity = qtyRaw === undefined ? 1 : lineQuantity(qtyRaw, asStored);
+    const rate = rateRaw === undefined ? 0 : linePrice(rateRaw, asStored);
     if (!description && !rate && qtyRaw === undefined) return null;
 
     let id = typeof r.id === 'string' && r.id.trim() ? r.id.trim() : '';
@@ -504,10 +541,10 @@ export const normalizeLineItem = (raw: unknown, usedIds?: Set<string>, cleanText
 
     const item: LineItem = { id, description, quantity, rate };
     const unitCost = firstDefined(r, ['unitCost', 'unit_cost', 'cost']);
-    if (unitCost !== undefined) item.unitCost = roundMoney(Math.max(0, toNumber(unitCost)));
+    if (unitCost !== undefined) item.unitCost = linePrice(unitCost, asStored, true);
     const pct = firstDefined(r, ['percentComplete', 'percent_complete', 'progressPercentage', 'percent', 'progress']);
     if (pct !== undefined) item.percentComplete = clamp(toNumber(pct), 0, 100);
-    if (r.previouslyBilled !== undefined && r.previouslyBilled !== null) item.previouslyBilled = roundMoney(Math.max(0, toNumber(r.previouslyBilled)));
+    if (r.previouslyBilled !== undefined && r.previouslyBilled !== null) item.previouslyBilled = linePrice(r.previouslyBilled, asStored, true);
     const invId = firstDefined(r, ['inventoryItemId', 'item_id']);
     if (typeof invId === 'string') {
         item.inventoryItemId = typeof r.inventoryItemId === 'string' && r.inventoryItemId ? r.inventoryItemId : undefined;
@@ -526,7 +563,7 @@ export const normalizeLineItem = (raw: unknown, usedIds?: Set<string>, cleanText
                 item_id: String(c.item_id ?? ''),
                 name: toSingleLine(c.name ?? ''),
                 quantity: toNumber(c.quantity),
-                rate: roundMoney(toNumber(c.rate)),
+                rate: linePrice(c.rate, asStored),
             }));
     }
     return item;
@@ -548,8 +585,9 @@ export const normalizeMaterialItem = (raw: unknown, usedIds?: Set<string>, clean
     const supplier = text(firstDefined(r, ['supplier', 'vendor', 'store']));
     const qtyRaw = firstDefined(r, ['quantity', 'qty', 'units']);
     const costRaw = firstDefined(r, ['unitCost', 'unit_cost', 'cost', 'rate', 'price']);
-    const quantity = qtyRaw === undefined ? 1 : Math.max(0, toNumber(qtyRaw));
-    const unitCost = costRaw === undefined ? 0 : roundMoney(Math.max(0, toNumber(costRaw)));
+    // saved logs (cleanText false) keep their numbers exactly as stored, like line items (PARITY_V2 D1)
+    const quantity = qtyRaw === undefined ? 1 : cleanText ? Math.max(0, toNumber(qtyRaw)) : toNumber(qtyRaw);
+    const unitCost = costRaw === undefined ? 0 : linePrice(costRaw, !cleanText, true);
     if (!name && !unitCost && qtyRaw === undefined) return null;
     let id = typeof r.id === 'string' && r.id.trim() ? r.id.trim() : '';
     if (!id || (usedIds && usedIds.has(id))) id = newId();

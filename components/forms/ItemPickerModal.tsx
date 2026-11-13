@@ -4,6 +4,9 @@ import { cn } from '../../lib/utils.ts';
 import { formatMoney, toNumber } from '../../utils/money.ts';
 import { BoxIcon, ExternalLinkIcon, SearchIcon, TagIcon, XCircleIcon } from '../Icons.tsx';
 
+/** Rows drawn at once (a long price book stays fast); the count line says how many more match. */
+const RENDER_LIMIT = 200;
+
 interface ItemPickerModalProps {
     open: boolean;
     onClose: () => void;
@@ -84,7 +87,7 @@ const ItemPickerModal: React.FC<ItemPickerModalProps> = ({
                                         action={{ href: '/pricebook', label: 'Open Price Book' }}
                                     />
                                 )
-                        ) : saved.map(item => (
+                        ) : saved.slice(0, RENDER_LIMIT).map(item => (
                             <button key={item.id} type="button" onClick={() => onPickSaved(item)} className="w-full rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent">
                                 <div className="flex items-start justify-between gap-3">
                                     <span className="font-medium text-foreground">{item.name}</span>
@@ -99,7 +102,7 @@ const ItemPickerModal: React.FC<ItemPickerModalProps> = ({
                         inventoryItems.length
                             ? <EmptyState icon={BoxIcon} text="No items match your search." />
                             : <EmptyState icon={BoxIcon} text="No inventory items yet. Add your stock in Inventory to pick it here and track quantities." action={{ href: '/inventory', label: 'Open Inventory' }} />
-                    ) : inventory.map(item => {
+                    ) : inventory.slice(0, RENDER_LIMIT).map(item => {
                         const stock = toNumber(item.quantity);
                         const out = stock <= 0;
                         return (
@@ -120,6 +123,11 @@ const ItemPickerModal: React.FC<ItemPickerModalProps> = ({
                             </button>
                         );
                     })}
+                    {(tab === 'pricebook' ? saved.length : inventory.length) > RENDER_LIMIT && (
+                        <p role="status" className="py-3 text-center text-xs text-muted-foreground">
+                            Showing {RENDER_LIMIT} of {tab === 'pricebook' ? saved.length : inventory.length} items. Type in the search box to find the others.
+                        </p>
+                    )}
                 </div>
             </div>
         </div>

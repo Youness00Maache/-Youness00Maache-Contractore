@@ -45,9 +45,35 @@ export const stockStatus = (item: Pick<StockLike, 'quantity' | 'low_stock_thresh
 
 export const isAttention = (s: StockStatus) => s !== 'ok';
 
-/** Stock value of a plain item (negative stock counts as 0 value). */
-export const stockValue = (item: StockLike): number =>
-  item.is_assembly ? 0 : roundMoney(Math.max(0, toNumber(item.quantity)) * toNumber(item.cost_price));
+/**
+ * A kit's OWN stock: in the original app kits were normal stock items (own quantity and cost), and those rows still
+ * carry them. New kits have none (they are built from components at check-out). null = no own stock (PARITY_V2 D3).
+ */
+export const kitOwnStock = (item: Pick<StockLike, 'is_assembly' | 'quantity'>): number | null => {
+  if (!item.is_assembly) return null;
+  const q = toNumber(item.quantity);
+  return q !== 0 ? q : null;
+};
+
+/** Stock value (negative stock counts as 0 value). Kits count only their own pre-built stock, at the kit's cost. */
+export const stockValue = (item: StockLike): number => {
+  if (item.is_assembly) {
+    const own = kitOwnStock(item);
+    return own === null ? 0 : roundMoney(Math.max(0, own) * toNumber(item.cost_price));
+  }
+  return roundMoney(Math.max(0, toNumber(item.quantity)) * toNumber(item.cost_price));
+};
+
+/**
+ * Update for "Edit item" on a kit. The editor hides category, supplier and unit cost for kits, so they are not sent
+ * (sending the hidden empty values wiped an old kit's cost, category and supplier). A kit with its own stock shows
+ * its unit cost, so that one is sent.
+ */
+export const kitEditPatch = <T extends Record<string, unknown>>(patch: T, kit: Pick<StockLike, 'is_assembly' | 'quantity'>): Partial<T> => {
+  if (!kit.is_assembly) return patch;
+  const { category: _category, supplier: _supplier, cost_price: cost, ...rest } = patch as Record<string, unknown>;
+  return (kitOwnStock(kit) !== null && cost !== undefined ? { ...rest, cost_price: cost } : rest) as Partial<T>;
+};
 
 /** Components of a kit that are tracked in stock (custom rows are free-text notes). */
 export const trackedComponents = (kit: Pick<StockLike, 'assembly_items'>): KitComponent[] =>
@@ -128,6 +154,21 @@ export const priceBookKitTotals = (components: KitComponent[] | null | undefined
     retail += (hasOverride ? toNumber(c.override_price) : toNumber(def.rate)) * qty;
   }
   return { cost: roundMoney(cost), retail: roundMoney(retail) };
+};
+
+/** Markup a new price-book item starts with, as in the original app (a $100 cost suggests a $150 price). */
+export const PRICE_BOOK_DEFAULT_MARKUP = 50;
+
+/**
+ * A price-book kit's price follows the sum of its parts' prices (original app) until the user sets it by hand. A
+ * saved kit whose price differs from its parts total was priced by hand, so opening it keeps that price.
+ */
+export const kitPriceIsManual = (
+  kit: { rate?: number | string | null; assembly_items?: KitComponent[] | null } | null | undefined,
+  byId: Map<string, PriceBookLike>,
+): boolean => {
+  if (!kit) return false;
+  return Math.abs(toNumber(kit.rate) - priceBookKitTotals(kit.assembly_items, byId).retail) >= 0.005;
 };
 
 // ---------------------------------------------------------------------------------------------

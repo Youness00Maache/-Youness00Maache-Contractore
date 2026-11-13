@@ -245,17 +245,18 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                             <div className={L.nums}>
                                 <div className="min-w-0">
                                     <span className={cn(smallLabel, L.label)}>Qty</span>
-                                    <NumberInput value={li.quantity} onValueChange={v => patchItem(li.id, { quantity: v })} aria-label={`Item ${index + 1} quantity`} className="px-2.5 text-center" />
+                                    {/* negative quantities are credit lines (−1 × $500), as in the original app */}
+                                    <NumberInput value={li.quantity} onValueChange={v => patchItem(li.id, { quantity: v })} allowNegative aria-label={`Item ${index + 1} quantity`} className="px-2.5 text-center" />
                                 </div>
                                 {showCost && !progress && (
                                     <div className="min-w-0">
                                         <span className={cn(smallLabel, L.label)}>Your cost</span>
-                                        <NumberInput value={li.unitCost ?? 0} onValueChange={v => patchItem(li.id, { unitCost: v })} decimals={2} prefix="$" aria-label={`Item ${index + 1} your cost`} />
+                                        <NumberInput value={li.unitCost ?? 0} onValueChange={v => patchItem(li.id, { unitCost: v })} decimals={2} maxDecimals={4} prefix="$" aria-label={`Item ${index + 1} your cost`} />
                                     </div>
                                 )}
                                 <div className="min-w-0">
                                     <span className={cn(smallLabel, L.label)}>{rateLabel}</span>
-                                    <NumberInput value={li.rate} onValueChange={v => patchItem(li.id, { rate: v })} decimals={2} prefix="$" allowNegative aria-label={`Item ${index + 1} ${rateLabel.toLowerCase()}`} />
+                                    <NumberInput value={li.rate} onValueChange={v => patchItem(li.id, { rate: v })} decimals={2} maxDecimals={4} prefix="$" allowNegative aria-label={`Item ${index + 1} ${rateLabel.toLowerCase()}`} />
                                 </div>
                                 {progress && (
                                     <div className="min-w-0">

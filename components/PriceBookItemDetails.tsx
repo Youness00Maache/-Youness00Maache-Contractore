@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedItem } from '../types.ts';
 import { ImageIcon, PlusIcon, SearchIcon, StarIcon } from './Icons.tsx';
 import { Field, IMAGE_ACCEPT, InlineError, LayersIcon, Modal, NumberInput, XIcon, friendlyError, money } from './viewKit.tsx';
-import { markupFromPrice, marginFromPrice, priceBookKitTotals, priceFromMarkup, type KitComponent } from '../utils/stockMath.ts';
+import { PRICE_BOOK_DEFAULT_MARKUP, kitPriceIsManual as partsPriceIsManual, markupFromPrice, marginFromPrice, priceBookKitTotals, priceFromMarkup, type KitComponent } from '../utils/stockMath.ts';
 import { roundMoney, toNumber } from '../utils/money.ts';
 
 export type PriceBookDraft = Omit<Partial<SavedItem>, 'assembly_items'> & { unit?: string; assembly_items?: KitComponent[] };
@@ -32,15 +32,16 @@ const MAX_IMAGES = 6;
 
 const blankDraft = (template?: PriceBookItemDetailsProps['item']): PriceBookDraft => ({
   name: '', description: '', sku: '', category: 'General', type: template?.is_assembly ? 'bundle' : 'service', unit: 'each',
-  taxable: true, unit_cost: 0, markup: 0, rate: 0, images: [], is_assembly: !!template?.is_assembly, assembly_items: [],
+  taxable: true, unit_cost: 0, markup: PRICE_BOOK_DEFAULT_MARKUP, rate: 0, images: [], is_assembly: !!template?.is_assembly, assembly_items: [],
   ...(template || {}),
 });
 
 const fromItem = (item: NonNullable<PriceBookItemDetailsProps['item']>): PriceBookDraft => {
   const cost = toNumber(item.unit_cost ?? item.cost);
   const rate = toNumber(item.rate);
-  // The saved price is what clients see: keep it, and show the markup that matches it.
-  const markup = markupFromPrice(cost, rate) ?? toNumber(item.markup);
+  // The saved price is what clients see: keep it, and show the markup that matches it (no cost yet: the saved markup,
+  // or the original app's 50% default).
+  const markup = markupFromPrice(cost, rate) ?? toNumber(item.markup ?? PRICE_BOOK_DEFAULT_MARKUP);
   return {
     ...item,
     name: item.name ?? '',
@@ -58,6 +59,10 @@ const fromItem = (item: NonNullable<PriceBookItemDetailsProps['item']>): PriceBo
   };
 };
 
+/** An existing kit whose saved price isn't the sum of its parts' prices was priced by hand (new items: never). */
+const kitPriceIsManual = (item: PriceBookItemDetailsProps['item'] | undefined, byId: Map<string, SavedItem>): boolean =>
+  !!item?.id && !!item.is_assembly && partsPriceIsManual({ rate: item.rate, assembly_items: item.assembly_items as KitComponent[] | undefined }, byId);
+
 const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onClose, onSave, item, categories, allItems, onUploadImage, isPremium }) => {
   // All hooks run on every render (the early return is at the end: VIEW-029).
   const [form, setForm] = useState<PriceBookDraft>(() => (item?.id ? fromItem(item) : blankDraft(item)));
@@ -68,15 +73,21 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const isEdit = !!item?.id;
+  const byId = useMemo(() => new Map(allItems.map((i) => [i.id, i])), [allItems]);
+  /**
+   * Kits: the price follows the sum of the parts' prices (original app) until the user types a price or a markup. An
+   * existing kit whose saved price differs from its parts total was priced by hand: that price is kept.
+   */
+  const [priceTouched, setPriceTouched] = useState(() => kitPriceIsManual(item, byId));
 
   useEffect(() => {
     if (!isOpen) return;
     setForm(item?.id ? fromItem(item) : blankDraft(item));
+    setPriceTouched(kitPriceIsManual(item, byId));
     setError(null);
     setComponentSearch('');
-  }, [isOpen, item]);
+  }, [isOpen, item]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const byId = useMemo(() => new Map(allItems.map((i) => [i.id, i])), [allItems]);
   const kitTotals = useMemo(() => priceBookKitTotals(form.assembly_items, byId), [form.assembly_items, byId]);
   const isKit = !!form.is_assembly;
 
@@ -90,14 +101,15 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
 
   // ---- pricing: price = cost × (1 + markup) ; editing the price back-computes the markup
   const onCost = (cost: number) => setForm((f) => ({ ...f, unit_cost: cost, rate: priceFromMarkup(cost, f.markup) }));
-  const onMarkup = (markup: number) => setForm((f) => ({ ...f, markup, rate: priceFromMarkup(f.unit_cost, markup) }));
-  const onPrice = (rate: number) => setForm((f) => ({ ...f, rate, markup: markupFromPrice(f.unit_cost, rate) ?? f.markup }));
+  const onMarkup = (markup: number) => { setPriceTouched(true); setForm((f) => ({ ...f, markup, rate: priceFromMarkup(f.unit_cost, markup) })); };
+  const onPrice = (rate: number) => { setPriceTouched(true); setForm((f) => ({ ...f, rate, markup: markupFromPrice(f.unit_cost, rate) ?? f.markup })); };
 
-  // ---- kits: cost follows the components; the price follows cost × markup only when the user edits components
+  // ---- kits: cost follows the components; the price follows the parts' prices until the user sets it by hand
   const updateComponents = (next: KitComponent[]) => {
     setForm((f) => {
       const totals = priceBookKitTotals(next, byId);
-      return { ...f, assembly_items: next, unit_cost: totals.cost, rate: priceFromMarkup(totals.cost, f.markup) };
+      const rate = priceTouched ? toNumber(f.rate) : totals.retail;
+      return { ...f, assembly_items: next, unit_cost: totals.cost, rate, markup: markupFromPrice(totals.cost, rate) ?? f.markup };
     });
   };
   useEffect(() => {
@@ -156,7 +168,8 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
   const save = async () => {
     if (!(form.name || '').trim()) { setError('Give the item a name.'); return; }
     if (toNumber(form.rate) < 0 || toNumber(form.unit_cost) < 0) { setError('Prices cannot be negative.'); return; }
-    if (isKit && !components.length) { setError('Add at least one component to the kit.'); return; }
+    // new kits only: an old kit without components (original app) can still be edited and saved
+    if (isKit && !components.length && !isEdit) { setError('Add at least one component to the kit.'); return; }
     setSaving(true);
     setError(null);
     try {
@@ -166,8 +179,9 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
         sku: (form.sku || '').trim().toUpperCase(),
         category: (form.category || '').trim() || 'General',
         description: (form.description || '').trim(),
-        rate: roundMoney(toNumber(form.rate)),
-        unit_cost: roundMoney(toNumber(form.unit_cost)),
+        // exactly as entered ($2.375 per sq ft stays 2.375); prices computed from a markup are already rounded
+        rate: toNumber(form.rate),
+        unit_cost: toNumber(form.unit_cost),
         markup: Math.round(toNumber(form.markup) * 10) / 10,
         type: isKit ? 'bundle' : form.type,
         assembly_items: isKit ? components.filter((c) => toNumber(c.quantity) > 0) : [],
@@ -301,7 +315,9 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
             </button>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm">
               <span className="text-muted-foreground">Components cost <strong className="text-foreground">{money(kitTotals.cost)}</strong> · priced separately <strong className="text-foreground">{money(kitTotals.retail)}</strong></span>
-              <button type="button" className="btn btn-ghost btn-sm h-9" onClick={() => onPrice(kitTotals.retail)} disabled={!kitTotals.retail}>Use {money(kitTotals.retail)} as kit price</button>
+              {priceTouched
+                ? <button type="button" className="btn btn-ghost btn-sm h-9" onClick={() => { setPriceTouched(false); setForm((f) => ({ ...f, rate: kitTotals.retail, markup: markupFromPrice(f.unit_cost, kitTotals.retail) ?? f.markup })); }} disabled={!kitTotals.retail}>Use {money(kitTotals.retail)} as kit price</button>
+                : <span className="text-xs text-muted-foreground">Kit price follows the parts until you type your own.</span>}
             </div>
           </section>
         )}

@@ -7,6 +7,7 @@
  */
 import { supabase } from '../lib/supabase.ts';
 import type { Client } from '../types.ts';
+import { needsNewApprovalToken, type ApprovalTokenRow } from './clientPortalRules.ts';
 
 /* ------------------------------------------------------------------ URLs */
 
@@ -82,22 +83,22 @@ export async function regeneratePortalKey(clientId: string): Promise<string> {
 }
 
 /**
- * Returns a working approval token for the document: the current one, or a new one when it is missing
- * or its link expired unused (approval links expire 60 days after they are issued).
+ * Returns a working link token for the document: the current one, or a new one when it is missing, when its link
+ * expired unused (only links with an expiry date: new links have none, like the original app), or when the client
+ * already used it and the document is open again (a used link is never handed out as if it were fresh).
  */
 export async function ensureApprovalToken(documentId: string): Promise<string> {
     let res = await supabase
         .from('documents')
-        .select('public_token, approval_expires_at, approval_used_at')
+        .select('public_token, approval_expires_at, approval_used_at, type, has_client_signature, status:data->>status, clientSignedAt:data->>clientSignedAt, clientDeclinedAt:data->>clientDeclinedAt')
         .eq('id', documentId)
         .single();
-    if (res.error && isMissingColumnError(res.error, 'approval_')) {
+    if (res.error && isMissingColumnError(res.error, '(approval_|has_client_signature)')) {
         res = await supabase.from('documents').select('public_token').eq('id', documentId).single() as typeof res;
     }
     if (res.error) throw new Error(`Could not load the document: ${res.error.message}`);
-    const row = (res.data || {}) as { public_token?: string | null; approval_expires_at?: string | null; approval_used_at?: string | null };
-    const expired = !!row.approval_expires_at && !row.approval_used_at && Date.parse(row.approval_expires_at) < Date.now() + 60_000;
-    if (row.public_token && !expired) return row.public_token;
+    const row = (res.data || {}) as ApprovalTokenRow;
+    if (row.public_token && !needsNewApprovalToken(row)) return row.public_token;
     return regenerateApprovalToken(documentId);
 }
 
@@ -205,25 +206,37 @@ const mapDoc = (row: any): ClientDocSummary => ({
     },
 });
 
+/**
+ * Legacy rows (no client_id) match the client's name in any letter case, like the portal
+ * (public._client_document_ids). `ilike` without wildcards = case-insensitive equality; PostgREST also reads `*` as a
+ * wildcard, so results are re-checked with sameClientName().
+ */
+const nameEqualsPattern = (name: string) => pgrstQuote(name.trim().replace(/[\\%_]/g, (c) => `\\${c}`));
+export const sameClientName = (a: unknown, b: unknown) => {
+    const x = String(a ?? '').trim().toLowerCase();
+    return !!x && x === String(b ?? '').trim().toLowerCase();
+};
+
 /** All jobs of a client (by client_id, legacy rows by name). Newest first. */
 export async function fetchClientJobs(client: Pick<Client, 'id' | 'name'>): Promise<ClientJobSummary[]> {
+    const mine = (j: ClientJobSummary) => j.clientId === client.id || sameClientName(j.clientName, client.name);
     const withId = await supabase
         .from('jobs')
         .select(`${JOB_COLUMNS}, client_id`)
-        .or(`client_id.eq.${client.id},and(client_id.is.null,client_name.eq.${pgrstQuote(client.name)})`)
+        .or(`client_id.eq.${client.id},and(client_id.is.null,client_name.ilike.${nameEqualsPattern(client.name)})`)
         .order('created_at', { ascending: false })
         .limit(500);
-    if (!withId.error) return (withId.data || []).map(mapJob);
+    if (!withId.error) return (withId.data || []).map(mapJob).filter(mine);
     if (!isMissingColumnError(withId.error)) throw new Error(withId.error.message);
 
     const byName = await supabase
         .from('jobs')
         .select(JOB_COLUMNS)
-        .eq('client_name', client.name)
+        .ilike('client_name', client.name.trim().replace(/[\\%_]/g, (c) => `\\${c}`))
         .order('created_at', { ascending: false })
         .limit(500);
     if (byName.error) throw new Error(byName.error.message);
-    return (byName.data || []).map(mapJob);
+    return (byName.data || []).map(mapJob).filter(mine);
 }
 
 /**
@@ -235,8 +248,10 @@ export async function fetchClientDocuments(
     opts: { jobIds?: string[]; types?: string[]; limit?: number } = {},
 ): Promise<ClientDocSummary[]> {
     const jobIds = (opts.jobIds || []).filter(Boolean).slice(0, 150);
-    const nameClause = `data->>clientName.eq.${pgrstQuote(client.name)}`;
+    const jobIdSet = new Set(jobIds);
+    const nameClause = `data->>clientName.ilike.${nameEqualsPattern(client.name)}`;
     const jobClause = jobIds.length ? `job_id.in.(${jobIds.join(',')})` : '';
+    const mine = (d: ClientDocSummary) => d.clientId === client.id || jobIdSet.has(d.jobId) || sameClientName(d.data.clientName, client.name);
 
     const build = (withClientId: boolean) => {
         let q = supabase
@@ -256,11 +271,11 @@ export async function fetchClientDocuments(
     };
 
     const first = await build(true);
-    if (!first.error) return (first.data || []).map(mapDoc);
+    if (!first.error) return (first.data || []).map(mapDoc).filter(mine);
     if (!isMissingColumnError(first.error)) throw new Error(first.error.message);
     const second = await build(false);
     if (second.error) throw new Error(second.error.message);
-    return (second.data || []).map(mapDoc);
+    return (second.data || []).map(mapDoc).filter(mine);
 }
 
 /** Lightweight summaries of specific documents (owner RLS applies). Keeps the order of `ids`. */

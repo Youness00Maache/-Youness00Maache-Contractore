@@ -23,9 +23,10 @@ export const STATIC_MARKETING_ROUTES = [
   '/privacy',
   '/terms',
   '/security',
+  '/help',
 ] as const;
 
-const MARKETING_RE = /^\/(features|pricing|templates|blog|invoice-generator|estimate-generator|about|contact|privacy|terms|security)(\/|$)/;
+const MARKETING_RE = /^\/(features|pricing|templates|blog|invoice-generator|estimate-generator|about|contact|privacy|terms|security|help)(\/|$)/;
 
 export const normalizePath = (pathname: string): string => {
   let p = pathname || '/';

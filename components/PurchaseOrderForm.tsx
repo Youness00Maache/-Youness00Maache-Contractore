@@ -87,7 +87,8 @@ const PurchaseOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], 
         }, profile),
         validate: d => {
             if (!String(d.poNumber || '').trim()) return 'Add a PO number.';
-            if (!String(d.vendorName || '').trim()) return 'Add the vendor (supplier) name.';
+            // new POs only: an already saved one without a vendor (original app) can still be edited (PARITY_V2 D10)
+            if (!data && !String(d.vendorName || '').trim()) return 'Add the vendor (supplier) name.';
             if (!isISODate(d.date)) return 'Add a valid order date.';
             if (d.deliveryDate && isISODate(d.deliveryDate) && d.deliveryDate < d.date) return 'The required-by date is before the order date.';
             if (vendorEmailProblem(d.vendorEmail)) return 'The vendor email doesn’t look right.';

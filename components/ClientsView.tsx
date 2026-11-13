@@ -34,6 +34,7 @@ import ClientDetails, {
     insertClient,
     isTemporaryClient,
     parseDate,
+    setClientTemporary,
     stripTempTag,
     useCommunicationNavigator,
     useUserId,
@@ -54,6 +55,7 @@ import {
     getErrorMessage,
     isPlanLimitError,
 } from './commsKit.tsx';
+import HelpButton from './help/HelpButton.tsx';
 import {
     CheckIcon,
     ClockIcon,
@@ -282,7 +284,10 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     const [monthCount, setMonthCount] = useState<number | null>(null);
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [filter, setFilter] = useState<Filter>('all');
+    // Regular clients by default: temporary ones (walk-ins) have their own "Temporary (N)" list, as in the original app
+    const [filter, setFilter] = useState<Filter>('regular');
+    const [tempCount, setTempCount] = useState<number | null>(null);
+    const [showTemporary, setShowTemporary] = useState(false);
     const requestRef = useRef(0);
 
     /* ---------- UI state ---------- */
@@ -346,12 +351,14 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         if (!userId) return;
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        const [all, month] = await Promise.all([
+        const [all, month, temp] = await Promise.all([
             supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId),
             supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId).gte('created_at', monthStart),
+            supabase.from('clients').select('id', { count: 'exact', head: true }).eq('user_id', userId).ilike('notes', `%${TEMP_TAG}%`),
         ]);
         if (!all.error && typeof all.count === 'number') setTotalCount(all.count);
         if (!month.error && typeof month.count === 'number') setMonthCount(month.count);
+        if (!temp.error && typeof temp.count === 'number') setTempCount(temp.count);
     }, [userId]);
 
     useEffect(() => { loadFirstPage(); }, [loadFirstPage]);
@@ -380,11 +387,16 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         [items, serverLoaded, debouncedSearch, filter],
     );
 
-    const changed = () => { loadCount(); onClientsChanged?.(); };
+    const [tempReload, setTempReload] = useState(0);
+    const changed = () => { loadCount(); onClientsChanged?.(); setTempReload((n) => n + 1); };
 
     const upsertLocal = (client: Client) => {
+        // a client that no longer fits the list (e.g. made temporary while showing regular clients) leaves it
+        const fits = localMatch(client, '', filter);
         setItems((prev) => {
-            const exists = prev.some((c) => c.id === client.id);
+            const rest = prev.filter((c) => c.id !== client.id);
+            const exists = rest.length !== prev.length;
+            if (!fits) return rest;
             const next = exists ? prev.map((c) => (c.id === client.id ? client : c)) : [...prev, client];
             return next.sort(byName);
         });
@@ -520,17 +532,17 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         }
     };
 
-    const convertToRegular = async (client: Client) => {
+    /** Old "Convert to Regular": removes the [TEMPORARY] marker; the client moves to the main list. */
+    const convertToRegular = async (client: Client): Promise<Client | null> => {
         try {
-            const { data, error } = await supabase.from('clients').update({ notes: stripTempTag(client.notes) }).eq('id', client.id).select(CLIENT_COLUMNS).single();
-            if (error) throw new Error(error.message);
-            const saved = data as Client;
-            if (filter === 'temporary') setItems((prev) => prev.filter((c) => c.id !== saved.id));
-            else upsertLocal(saved);
+            const saved = await setClientTemporary(client, false);
+            upsertLocal(saved);
             setNotice({ tone: 'success', text: `${saved.name} is now a regular client.` });
-            onClientsChanged?.();
+            changed();
+            return saved;
         } catch (err) {
             setNotice({ tone: 'danger', text: getErrorMessage(err) });
+            return null;
         }
     };
 
@@ -576,7 +588,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 userProfile={userProfile}
                 userId={userId}
                 onBack={() => setDetailsClient(null)}
-                onClientUpdated={(c) => { upsertLocal(c); onClientsChanged?.(); }}
+                onClientUpdated={(c) => { upsertLocal(c); changed(); }}
                 onClientDeleted={(id) => {
                     setItems((prev) => prev.filter((c) => c.id !== id));
                     setDetailsClient(null);
@@ -593,7 +605,8 @@ const ClientsView: React.FC<ClientsViewProps> = ({
     }
 
     const atLimit = isFree && monthCount !== null && monthCount >= freeLimit;
-    const searching = !!debouncedSearch || filter !== 'all';
+    const searching = !!debouncedSearch || filter === 'temporary';
+    const tempLabel = `Temporary${tempCount !== null ? ` (${tempCount})` : ''}`;
 
     return (
         <div className="page animate-fade-in">
@@ -608,8 +621,18 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 subtitle={totalCount === null ? 'Your customers, their documents and portal links' : `${totalCount} client${totalCount === 1 ? '' : 's'} · portal links, approvals and history`}
                 actions={
                     <>
+                        <HelpButton topic="clients" />
                         <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowHistory(true)}>
                             <ClockIcon className="h-4 w-4" /> <span>Activity</span>
+                        </button>
+                        {/* old "Temporary (N)": walk-ins and quick check-out clients, kept out of the main list */}
+                        <button
+                            type="button"
+                            className="btn btn-outline min-h-[40px] border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
+                            onClick={() => setShowTemporary(true)}
+                            title="Temporary clients (walk-ins)"
+                        >
+                            <UsersIcon className="h-4 w-4" /> <span>{tempLabel}</span>
                         </button>
                         <ActionMenu
                             label="Import or export clients"
@@ -669,18 +692,18 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <div className="flex rounded-xl bg-muted p-1" role="group" aria-label="Filter clients">
-                        {(['all', 'regular', 'temporary'] as Filter[]).map((f) => (
+                        {(['regular', 'temporary', 'all'] as Filter[]).map((f) => (
                             <button
                                 key={f}
                                 type="button"
                                 aria-pressed={filter === f}
                                 onClick={() => setFilter(f)}
                                 className={cx(
-                                    'min-h-[36px] rounded-lg px-3 text-sm font-semibold capitalize transition-colors',
+                                    'min-h-[36px] rounded-lg px-3 text-sm font-semibold transition-colors',
                                     filter === f ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
                                 )}
                             >
-                                {f}
+                                {f === 'regular' ? 'Clients' : f === 'temporary' ? tempLabel : 'All'}
                             </button>
                         ))}
                     </div>
@@ -724,23 +747,35 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                     searching ? (
                         <EmptyState
                             icon={<SearchIcon className="h-6 w-6" />}
-                            title={debouncedSearch ? `No clients match “${debouncedSearch}”` : `No ${filter} clients`}
-                            description="Try another search or filter."
-                            action={<button type="button" className="btn btn-outline min-h-[40px]" onClick={() => { setSearch(''); setFilter('all'); }}>Clear search</button>}
+                            title={debouncedSearch
+                                ? `No ${filter === 'temporary' ? 'temporary ' : filter === 'regular' ? 'regular ' : ''}clients match “${debouncedSearch}”`
+                                : 'No temporary clients'}
+                            description={debouncedSearch
+                                ? (filter === 'all' ? 'Try another search.' : 'Try another search, or look in All.')
+                                : 'Walk-ins you mark as temporary (on the client form, a new job or an inventory check-out) appear here.'}
+                            action={<button type="button" className="btn btn-outline min-h-[40px]" onClick={() => { setSearch(''); setFilter(debouncedSearch ? 'all' : 'regular'); }}>{debouncedSearch ? 'Clear search' : 'Back to clients'}</button>}
                         />
                     ) : (
                         <EmptyState
                             icon={<UsersIcon className="h-6 w-6" />}
-                            title="No clients yet"
-                            description="Add your first client, or import a list from a spreadsheet."
+                            title={filter === 'regular' && tempCount ? 'No regular clients yet' : 'No clients yet'}
+                            description={filter === 'regular' && tempCount
+                                ? `You have ${tempCount} temporary client${tempCount === 1 ? '' : 's'}. Convert one to regular, or add a client.`
+                                : 'Add your first client, or import a list from a spreadsheet.'}
                             action={
                                 <div className="flex flex-col gap-2 sm:flex-row">
                                     <button type="button" className="btn btn-primary min-h-[40px]" onClick={() => setForm({ mode: 'add', initial: EMPTY_DRAFT })}>
                                         <PlusIcon className="h-4 w-4" /> Add client
                                     </button>
-                                    <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowImport(true)}>
-                                        <UploadImageIcon className="h-4 w-4" /> Import CSV
-                                    </button>
+                                    {filter === 'regular' && tempCount ? (
+                                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowTemporary(true)}>
+                                            <UsersIcon className="h-4 w-4" /> {tempLabel}
+                                        </button>
+                                    ) : (
+                                        <button type="button" className="btn btn-outline min-h-[40px]" onClick={() => setShowImport(true)}>
+                                            <UploadImageIcon className="h-4 w-4" /> Import CSV
+                                        </button>
+                                    )}
                                 </div>
                             }
                         />
@@ -830,6 +865,15 @@ const ClientsView: React.FC<ClientsViewProps> = ({
 
                                     {!selectionMode && (
                                         <div className="mt-auto grid grid-cols-2 gap-2 border-t border-border pt-3">
+                                            {temp && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm col-span-2 min-h-[40px] border border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
+                                                    onClick={() => convertToRegular(client)}
+                                                >
+                                                    <UsersIcon className="h-4 w-4" /> Convert to regular
+                                                </button>
+                                            )}
                                             <button
                                                 type="button"
                                                 className={cx('btn btn-sm min-h-[40px]', copiedId === client.id ? 'btn-secondary text-success' : 'btn-outline')}
@@ -838,10 +882,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                                 title="Copy the client's portal link"
                                             >
                                                 {portalBusyId === client.id ? <Spinner /> : copiedId === client.id ? <CheckIcon className="h-4 w-4" /> : <GlobeIcon className="h-4 w-4" />}
-                                                {copiedId === client.id ? 'Copied' : 'Portal link'}
+                                                {copiedId === client.id ? 'Copied' : 'Portal'}
                                             </button>
-                                            <button type="button" className="btn btn-sm btn-primary min-h-[40px]" onClick={() => setApprovalClient(client)}>
-                                                <PenIcon className="h-4 w-4" /> Request approval
+                                            {/* old "Get Approval": the client's estimates & change orders, a link to copy for each */}
+                                            <button type="button" className="btn btn-sm btn-primary min-h-[40px]" onClick={() => setApprovalClient(client)} title="Get an approval link for one of this client's estimates or change orders">
+                                                <PenIcon className="h-4 w-4" /> Get approval
                                             </button>
                                         </div>
                                     )}
@@ -871,9 +916,16 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 onClose={() => setForm(null)}
                 onSaved={(saved, mode) => {
                     setForm(null);
-                    if (mode === 'add' && filter === 'temporary' && !isTemporaryClient(saved)) setFilter('all');
+                    const temp = isTemporaryClient(saved);
+                    if (mode === 'add' && filter === 'temporary' && !temp) setFilter('regular');
                     upsertLocal(saved);
-                    setNotice({ tone: 'success', text: mode === 'add' ? `${saved.name} was added.` : 'Client updated.' });
+                    const hidden = filter === 'regular' && temp;
+                    setNotice({
+                        tone: 'success',
+                        text: mode === 'add'
+                            ? `${saved.name} was added${hidden ? ' as a temporary client (see “Temporary”)' : ''}.`
+                            : `Client updated${hidden ? `: ${saved.name} is now under “Temporary”` : ''}.`,
+                    });
                     changed();
                 }}
                 onUpgrade={onUpgradeClick}
@@ -885,6 +937,16 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 onClose={() => setApprovalClient(null)}
                 onEmail={(prefill) => { setApprovalClient(null); goToCommunication(prefill); }}
                 onNavigateToNewDoc={onNavigateToNewDoc}
+            />
+
+            <TemporaryClientsModal
+                open={showTemporary}
+                userId={userId}
+                reloadKey={tempReload}
+                onClose={() => setShowTemporary(false)}
+                onConvert={async (c) => !!(await convertToRegular(c))}
+                onView={(c) => { setShowTemporary(false); setDetailsClient(c); }}
+                onDelete={(c) => { setDeleteError(null); setDeleteIds([c.id]); }}
             />
 
             <ConfirmDialog
@@ -931,6 +993,139 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                 }}
             />
         </div>
+    );
+};
+
+/* ================================================================== temporary clients (old "Temporary (N)" window) */
+
+const TemporaryClientsModal: React.FC<{
+    open: boolean;
+    userId: string | null;
+    /** changes whenever clients were added / converted / deleted elsewhere on the page */
+    reloadKey: number;
+    onClose: () => void;
+    onConvert: (client: Client) => Promise<boolean>;
+    onView: (client: Client) => void;
+    onDelete: (client: Client) => void;
+}> = ({ open, userId, reloadKey, onClose, onConvert, onView, onDelete }) => {
+    const LIMIT = 200;
+    const [list, setList] = useState<Client[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [search, setSearch] = useState('');
+    const [term, setTerm] = useState('');
+    const [busyId, setBusyId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const t = window.setTimeout(() => setTerm(search.trim()), 250);
+        return () => window.clearTimeout(t);
+    }, [search]);
+    useEffect(() => { if (!open) { setSearch(''); setTerm(''); } }, [open]);
+
+    useEffect(() => {
+        if (!open) return;
+        let alive = true;
+        setError(null);
+        (async () => {
+            let q = supabase.from('clients').select(CLIENT_COLUMNS).ilike('notes', `%${TEMP_TAG}%`).order('name', { ascending: true }).limit(LIMIT);
+            if (userId) q = q.eq('user_id', userId);
+            if (term) {
+                const pat = ilikePattern(term);
+                q = q.or(`name.ilike.${pat},email.ilike.${pat},phone.ilike.${pat}`);
+            }
+            const { data, error: err } = await q;
+            if (!alive) return;
+            if (err) { setError(getErrorMessage(err, 'Could not load temporary clients.')); setList((prev) => prev ?? []); return; }
+            setList(((data || []) as Client[]).filter(isTemporaryClient));
+        })();
+        return () => { alive = false; };
+    }, [open, userId, term, reloadKey]);
+
+    const convert = async (client: Client) => {
+        setBusyId(client.id);
+        if (await onConvert(client)) setList((prev) => prev?.filter((c) => c.id !== client.id) ?? prev);
+        setBusyId(null);
+    };
+
+    const count = list?.length ?? 0;
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            size="xl"
+            title={<span className="flex items-center gap-2 text-warning"><UsersIcon className="h-5 w-5" /> Temporary clients</span>}
+            description="Walk-ins, quick check-out clients and one-off jobs. They stay out of your main client list until you convert them to regular."
+            footer={
+                <>
+                    <span className="mr-auto self-center text-xs text-muted-foreground">
+                        {list === null ? '' : `${count}${count >= LIMIT ? '+' : ''} temporary client${count === 1 ? '' : 's'}${term ? ' found' : ''}`}
+                    </span>
+                    <button type="button" className="btn btn-outline min-h-[40px]" onClick={onClose}>Close</button>
+                </>
+            }
+        >
+            <div className="relative mb-4">
+                <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                    type="search"
+                    className="input min-h-[44px] pl-10"
+                    placeholder="Search temporary clients"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    aria-label="Search temporary clients"
+                />
+            </div>
+            {error && <Notice tone="danger" className="mb-3">{error}</Notice>}
+            {list === null ? (
+                <SkeletonRows rows={3} />
+            ) : list.length === 0 ? (
+                <EmptyState
+                    icon={<UsersIcon className="h-6 w-6" />}
+                    title={term ? `No temporary clients match “${term}”` : 'No temporary clients'}
+                    description="Tick “Mark as temporary client” when you add a client, create a job for a new client, check out inventory or create a client from a quote request."
+                />
+            ) : (
+                <ul className="grid gap-3 md:grid-cols-2">
+                    {list.map((client) => (
+                        <li key={client.id} className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-card p-4">
+                            <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate font-semibold text-foreground">{client.name}</p>
+                                    <p className="text-xs text-muted-foreground">{client.created_at ? `Added ${fmtDate(client.created_at)}` : 'Temporary client'}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost h-9 w-9 shrink-0 rounded-full p-0 text-destructive hover:bg-destructive/10"
+                                    onClick={() => onDelete(client)}
+                                    aria-label={`Delete ${client.name}`}
+                                    title="Delete"
+                                >
+                                    <TrashIcon className="h-4 w-4" />
+                                </button>
+                            </div>
+                            {(client.email || client.phone) && (
+                                <div className="space-y-0.5 text-sm text-muted-foreground">
+                                    {client.email && <p className="flex items-center gap-2 truncate"><MailIcon className="h-4 w-4 shrink-0" /> <span className="truncate">{client.email}</span></p>}
+                                    {client.phone && <p className="flex items-center gap-2"><SmartphoneIcon className="h-4 w-4 shrink-0" /> {client.phone}</p>}
+                                </div>
+                            )}
+                            <div className="mt-1 grid grid-cols-2 gap-2 border-t border-border pt-3">
+                                <button
+                                    type="button"
+                                    className="btn btn-sm min-h-[40px] border border-warning/50 bg-warning/10 text-warning hover:bg-warning/15"
+                                    onClick={() => convert(client)}
+                                    disabled={busyId === client.id}
+                                >
+                                    {busyId === client.id ? <Spinner /> : <CheckIcon className="h-4 w-4" />} Convert to regular
+                                </button>
+                                <button type="button" className="btn btn-sm btn-primary min-h-[40px]" onClick={() => onView(client)}>
+                                    View details
+                                </button>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </Modal>
     );
 };
 

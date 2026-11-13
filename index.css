@@ -253,3 +253,27 @@
 @media print {
   .no-print { display: none !important; }
 }
+
+/* AI rainbow frame (same gradient as the AI Command button), used by the form "Fill with AI" dialog and
+   the AI assistant panel. Phones: a rainbow top edge on the bottom sheet / full-screen panel; larger
+   screens: a 2px rainbow border all around. */
+.ai-fill-frame {
+  position: relative; padding: 2px 0 0; border-radius: 24px 24px 0 0;
+  background: linear-gradient(90deg, #3766f8, #06b6d4, #10b981, #3766f8); background-size: 200% 200%;
+  animation: rainbow-rotate 6s linear infinite; box-shadow: 0 -12px 40px rgba(0,0,0,.18);
+}
+.ai-fill-frame-inner { background: hsl(var(--card)); color: hsl(var(--card-foreground)); border-radius: 22px 22px 0 0; overflow: hidden; }
+@media (min-width: 640px) {
+  .ai-fill-frame { padding: 2px; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
+  .ai-fill-frame-inner { border-radius: 22px; }
+}
+.ai-panel-frame {
+  position: relative; display: flex; flex-direction: column; min-width: 0; padding: 3px 0 0;
+  background: linear-gradient(90deg, #3766f8, #06b6d4, #10b981, #3766f8); background-size: 200% 200%;
+  animation: rainbow-rotate 6s linear infinite;
+}
+.ai-panel-frame-inner { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; background: hsl(var(--background)); color: hsl(var(--foreground)); overflow: hidden; }
+@media (min-width: 768px) {
+  .ai-panel-frame { padding: 2px; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
+  .ai-panel-frame-inner { border-radius: 22px; }
+}

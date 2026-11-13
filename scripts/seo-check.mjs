@@ -14,7 +14,7 @@ const warnings = [];
 const fail = (m) => errors.push(m);
 const read = (p) => fs.readFileSync(p, 'utf8');
 
-const STATIC_ROUTES = ['/', '/features', '/pricing', '/templates', '/invoice-generator', '/estimate-generator', '/blog', '/about', '/contact', '/privacy', '/terms', '/security'];
+const STATIC_ROUTES = ['/', '/features', '/pricing', '/templates', '/invoice-generator', '/estimate-generator', '/blog', '/about', '/contact', '/privacy', '/terms', '/security', '/help'];
 const registry = read(path.join(ROOT, 'content/blog/registry.ts'));
 const slugs = [...registry.slice(registry.indexOf('export const BLOG_POSTS')).matchAll(/slug: '([a-z0-9-]+)'/g)].map((m) => m[1]);
 const ROUTES = [...STATIC_ROUTES, ...slugs.map((s) => `/blog/${s}`)];

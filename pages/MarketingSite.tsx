@@ -9,6 +9,7 @@ import GeneratorPage from './GeneratorPage.tsx';
 import { AboutPage, ContactPage } from './CompanyPages.tsx';
 import { BlogIndexPage, BlogPostPage } from './BlogPages.tsx';
 import NotFoundPage from './NotFoundPage.tsx';
+import HelpPage from './HelpPage.tsx';
 import PrivacyPolicy from '../components/PrivacyPolicy.tsx';
 import TermsOfService from '../components/TermsOfService.tsx';
 import Security from '../components/Security.tsx';
@@ -67,6 +68,7 @@ const MarketingSite: React.FC = () => {
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsOfService />} />
         <Route path="/security" element={<Security />} />
+        <Route path="/help" element={<HelpPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </SiteLayout>

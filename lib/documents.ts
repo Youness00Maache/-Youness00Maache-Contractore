@@ -31,6 +31,8 @@ export const DOCUMENT_METADATA_COLUMNS = [
     'clientName:data->>clientName',
     'clientSignatureUrl:data->>clientSignatureUrl',
     'clientSignedAt:data->>clientSignedAt',
+    // a client's decline (portal / approval link): badges like a signature (PARITY_V2 A6)
+    'clientDeclinedAt:data->>clientDeclinedAt',
     'viewedByProvider:data->>viewedByProvider',
     'isAiGenerated:data->>isAiGenerated',
     // the client's "I've paid" (mirrored into data by migration 20261113000200; null before it)
@@ -59,6 +61,7 @@ const createLightweightDocumentData = (row: any, type: FormType) => ({
     clientName: row.clientName || undefined,
     clientSignatureUrl: row.clientSignatureUrl || undefined,
     clientSignedAt: row.clientSignedAt || undefined,
+    clientDeclinedAt: row.clientDeclinedAt || undefined,
     viewedByProvider: String(row.viewedByProvider).toLowerCase() === 'true',
     isAiGenerated: String(row.isAiGenerated).toLowerCase() === 'true',
     paymentReportedAt: row.paymentReportedAt || undefined,
@@ -113,6 +116,9 @@ export const mergeDocuments = (prev: FormDataType[], incoming: FormDataType[]): 
                     status: d.status ?? (existing.data as any).status,
                     viewedByProvider: d.viewedByProvider || (existing.data as any).viewedByProvider,
                     clientSignatureUrl: d.clientSignatureUrl || (existing.data as any).clientSignatureUrl,
+                    // a signature / decline that arrived while the full copy was open
+                    ...(d.clientSignedAt ? { clientSignedAt: d.clientSignedAt } : {}),
+                    ...(d.clientDeclinedAt ? { clientDeclinedAt: d.clientDeclinedAt } : {}),
                     // a new "I've paid" from the client shows up without reopening the invoice
                     ...(d.paymentReportedAt ? { paymentReportedAt: d.paymentReportedAt } : {}),
                 },
@@ -213,8 +219,9 @@ export async function fetchFullDocuments(ids: string[]): Promise<FormDataType[]>
         const cached = getCachedFullDocument(id);
         if (cached) found.push(cached); else missing.push(id);
     }
-    if (missing.length) {
-        const { data, error } = await supabase.from('documents').select(DOCUMENT_DETAIL_COLUMNS).in('id', missing);
+    // in chunks: hundreds of ids in one `.in()` make a URL the server refuses (Duplicate job, PARITY_V2 D4)
+    for (const ids of chunk(missing, ID_CHUNK)) {
+        const { data, error } = await supabase.from('documents').select(DOCUMENT_DETAIL_COLUMNS).in('id', ids);
         if (error) throw new Error(error.message || 'Could not load documents.');
         for (const row of data || []) {
             const mapped = mapDocumentRow(row, true);
@@ -222,8 +229,52 @@ export async function fetchFullDocuments(ids: string[]): Promise<FormDataType[]>
             found.push(mapped);
         }
     }
-    return found;
+    // same order as asked (callers copy / list them in the order the user saw)
+    const order = new Map(unique.map((id, i) => [id, i]));
+    return found.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
+
+/** Splits a list into pieces of `size` (last one shorter). */
+export const chunk = <T,>(list: readonly T[], size: number): T[][] => {
+    const out: T[][] = [];
+    const n = Math.max(1, Math.floor(size));
+    for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+    return out;
+};
+
+/** Ids per `.in()` request / rows per insert. */
+export const ID_CHUNK = 100;
+
+/**
+ * Every document of a job as list summaries (all pages, not just the first 20): Duplicate job lists and copies all of
+ * them, like the original app (PARITY_V2 D4). Newest first.
+ */
+export async function fetchAllJobDocumentSummaries(jobId: string, pageSize = 1000, maxRows = 20000): Promise<FormDataType[]> {
+    const rows: FormDataType[] = [];
+    for (let from = 0; from < maxRows; from += pageSize) {
+        const { data, error } = await supabase
+            .from('documents')
+            .select(DOCUMENT_METADATA_COLUMNS)
+            .eq('job_id', jobId)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
+        if (error) throw new Error(error.message || 'Could not load the documents of this job.');
+        rows.push(...(data || []).map((row: any) => mapDocumentRow(row)));
+        if (!data || data.length < pageSize) break;
+    }
+    return rows;
+}
+
+/**
+ * Free plan: how many of the selected documents fit in the new job (the database refuses the whole insert past the
+ * per-job limit). `allowed` null = no limit. The first ones in the user's order are copied.
+ */
+export const planDuplicateCopies = <T,>(selected: readonly T[], allowed: number | null): { copy: T[]; left: T[] } => {
+    if (allowed === null || allowed >= selected.length) return { copy: [...selected], left: [] };
+    const n = Math.max(0, Math.floor(allowed));
+    return { copy: selected.slice(0, n), left: selected.slice(n) };
+};
 
 /** Server-side flag update (RPC `mark_documents_viewed`): never rewrites `data` from the browser. */
 export async function markDocumentsViewed(ids: string[]): Promise<void> {
@@ -237,12 +288,42 @@ export async function markDocumentsViewed(ids: string[]): Promise<void> {
     }
 }
 
+const isViewed = (d: any) => d.viewedByProvider === true || String(d.viewedByProvider).toLowerCase() === 'true';
+
 /** True for documents a client has signed/accepted that the contractor hasn't seen yet. */
 export const isUnseenClientSignedDocument = (form: FormDataType): boolean => {
     const d = form.data as any;
     if (!d) return false;
-    return (String(d.status || '').toLowerCase() === 'accepted' || Boolean(d.clientSignatureUrl) || Boolean(d.clientSignedAt)) && !d.viewedByProvider;
+    return (String(d.status || '').toLowerCase() === 'accepted' || Boolean(d.clientSignatureUrl) || Boolean(d.clientSignedAt)) && !isViewed(d);
 };
+
+/** True for documents a client has declined (portal / approval link) that the contractor hasn't seen yet. */
+export const isUnseenClientDeclinedDocument = (form: FormDataType): boolean => {
+    const d = form.data as any;
+    if (!d) return false;
+    return Boolean(d.clientDeclinedAt) && !isUnseenClientSignedDocument(form) && !isViewed(d);
+};
+
+/** Any client decision (signed or declined) not seen yet: the Clients badge (PARITY_V2 A6). */
+export const isUnseenClientDecision = (form: FormDataType): boolean =>
+    isUnseenClientSignedDocument(form) || isUnseenClientDeclinedDocument(form);
+
+/**
+ * Every document with a client decision the contractor hasn't seen, however old (the App's list only holds the 50
+ * newest documents, so badges used to miss older ones). Summaries only; merge them into the App's list.
+ */
+export async function fetchUnseenClientDecisions(userId: string, limit = 500): Promise<FormDataType[]> {
+    const { data, error } = await supabase
+        .from('documents')
+        .select(DOCUMENT_METADATA_COLUMNS)
+        .eq('user_id', userId)
+        .or('data->>clientSignedAt.not.is.null,data->>clientDeclinedAt.not.is.null,data->>clientSignatureUrl.not.is.null,data->>status.eq.Accepted')
+        .or('data->>viewedByProvider.is.null,data->>viewedByProvider.neq.true')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    if (error) throw new Error(error.message || 'Could not load client activity.');
+    return (data || []).map((row: any) => mapDocumentRow(row)).filter(isUnseenClientDecision);
+}
 
 /** Human label for a document card / list row. */
 export const getDocumentTitle = (form: FormDataType): string => {
@@ -250,6 +331,8 @@ export const getDocumentTitle = (form: FormDataType): string => {
     return d.title || d.invoiceNumber || d.estimateNumber || d.reportNumber || d.workOrderNumber || d.warrantyNumber
         || d.changeOrderNumber || d.poNumber || d.receiptNumber || form.type;
 };
+
+const WORK_ORDER_STATUSES = ['Scheduled', 'In Progress', 'On Hold', 'Completed'];
 
 /** Reference-number fields that should get a "-COPY" suffix when duplicating. */
 export const DOCUMENT_NUMBER_FIELDS = [
@@ -261,7 +344,11 @@ export const DOCUMENT_NUMBER_FIELDS = [
 export const buildDuplicateDocumentData = (data: Record<string, any>, overrides: Record<string, any> = {}): Record<string, any> => {
     const {
         clientSignatureUrl: _sig, clientSignedAt: _signedAt, clientSignedBy: _signedBy, clientSignerName: _signer,
+        clientDeclinedAt: _declinedAt, clientDeclineReason: _declineReason,
         viewedByProvider: _viewed, approvedAt: _approvedAt, inventoryDeductedAt: _deducted,
+        // a copy never belongs to a recurring series: it would start a second series, and a copy of a generated
+        // invoice would clash with the original on the (source, period) unique index (PARITY_V2 D2)
+        recurrenceSourceId: _recurrenceSource, recurrencePeriod: _recurrencePeriod,
         // a copy starts unpaid: no client payment report, no recorded payments, no review request
         paymentReportedAt: _reported, paymentReportNote: _reportNote, paymentReportAmount: _reportAmount,
         payments: _payments, paidAt: _paidAt, reviewRequestedAt: _review,
@@ -269,7 +356,12 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
         ...rest
     } = (data || {}) as any;
     const next: Record<string, any> = { ...rest };
-    if (next.status) next.status = 'Draft';
+    // work orders have no "Draft": a copy starts as Scheduled (their first status)
+    if (next.status) next.status = WORK_ORDER_STATUSES.includes(next.status) ? 'Scheduled' : 'Draft';
+    if (next.recurrence && typeof next.recurrence === 'object') {
+        const { nextRunDate: _n, lastRunDate: _l, anchorDay: _a, catchUp: _c, ...keep } = next.recurrence;
+        next.recurrence = { ...keep, enabled: false };
+    }
     if (next.title) next.title = `${next.title} (Copy)`;
     for (const key of DOCUMENT_NUMBER_FIELDS) {
         if (next[key]) next[key] = `${next[key]}-COPY`;

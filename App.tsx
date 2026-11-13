@@ -28,8 +28,10 @@ import { supabase, invokeFunction } from './lib/supabase.ts';
 import {
     DOCUMENT_METADATA_COLUMNS, DOCUMENT_PAGE_SIZE, RECENT_DOCUMENTS_LIMIT, mapDocumentRow, isLightweightDocument,
     mergeDocuments, fetchFullDocument, fetchFullDocuments, primeDocumentCache, invalidateDocument, clearDocumentCache,
-    isUnseenClientSignedDocument, buildDuplicateDocumentData, assertFullDocument, stripLightweightFlag,
+    isUnseenClientDecision, buildDuplicateDocumentData, assertFullDocument, stripLightweightFlag,
+    fetchUnseenClientDecisions, fetchAllJobDocumentSummaries, planDuplicateCopies, chunk, ID_CHUNK,
 } from './lib/documents.ts';
+import { fetchAllRows } from './lib/listLoading.ts';
 import {
     type AppProfile, type UsageSnapshot, type ThemeName, THEME_STORAGE_KEY, loadProfileRow, mapProfileRow, fetchUsage,
     limitsForTier, isPlanLimitError, planLimitMessage, describeError, clearUserBrowserStorage, rememberPostLoginRedirect,
@@ -40,7 +42,7 @@ import { getBillingPortalUrl } from './lib/billing.ts';
 import { getTranslations } from './utils/translations.ts';
 import { parseView, type AppView } from './lib/routes.ts';
 import { dbApi } from './utils/db.ts';
-import { saveDefaultSignatureToAccount, syncUserDataAfterLogin } from './lib/userData.ts';
+import { saveDefaultSignatureToAccount, saveUiPreferencesToAccount, syncUiPreferencesAfterLogin, syncUserDataAfterLogin } from './lib/userData.ts';
 import { compressImage } from './utils/imageCompression.ts';
 import type { EstimateHandoff } from './components/requests/RequestDetailModal.tsx';
 import type { ConvertResult } from './components/requests/requestsApi.ts';
@@ -75,6 +77,8 @@ const GmailCallback = lazy(() => import('./components/GmailCallback.tsx'));
 const InventoryView = lazy(() => import('./components/InventoryView.tsx'));
 const PriceBookView = lazy(() => import('./components/PriceBookView.tsx'));
 const ProfitCalculatorView = lazy(() => import('./components/ProfitCalculatorView.tsx'));
+const HelpCenter = lazy(() => import('./components/help/HelpCenter.tsx'));
+const TourHost = lazy(() => import('./components/help/TourHost.tsx'));
 const PortalView = lazy(() => import('./components/PortalView.tsx'));
 const DocumentApprovalView = lazy(() => import('./components/DocumentApprovalView.tsx'));
 // "get paid" (NEXT_STEPS 0c): Mark as paid dialog + "payments reported by clients" dashboard card
@@ -93,19 +97,15 @@ const JOB_COLUMN_SETS = [
     'id, user_id, name, client_name, client_address, start_date, end_date, status, worker_name, created_at',
     'id, user_id, name, client_name, client_address, start_date, end_date, status, created_at',
 ];
-const JOBS_LIMIT = 1000;
 const CLIENT_COLUMNS = 'id, user_id, name, email, phone, address, notes, portal_key, created_at';
-const CLIENTS_LIMIT = 500;
 const INVENTORY_COLUMN_SETS = [
     'id, user_id, name, quantity, category, unit, cost_price, supplier, location, low_stock_threshold, created_at, is_assembly, assembly_items',
     'id, user_id, name, quantity, category, unit, cost_price, supplier, location, low_stock_threshold, created_at',
 ];
-const INVENTORY_LIMIT = 500;
 const SAVED_ITEM_COLUMN_SETS = [
     'id, user_id, name, description, rate, unit_cost, category, category_id, type, images, taxable, sku, markup, is_assembly, assembly_items, is_favorite, last_used_at, use_count, created_at',
     'id, user_id, name, description, rate, unit_cost, category, created_at',
 ];
-const SAVED_ITEMS_LIMIT = 300;
 const JOB_STATUSES: Job['status'][] = ['active', 'paused', 'completed', 'inactive'];
 
 type AppJob = Job & { clientId?: string | null };
@@ -135,14 +135,19 @@ const isThisMonth = (iso?: string | null) => {
     return !Number.isNaN(d.getTime()) && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 };
 
-/** Runs a select, retrying with fewer columns while the database is missing optional ones. */
-async function selectWithFallback<T = any>(table: string, columnSets: string[], build: (query: any) => PromiseLike<{ data: any; error: any }>): Promise<{ data: T[] | null; error: any }> {
+/**
+ * Runs a select, retrying with fewer columns while the database is missing optional ones, and loads EVERY row page by
+ * page (PARITY_V2 C2: the old 300/500/1000 caps hid saved items from the pickers). `build` adds filters and a stable
+ * order; the paging range is added here.
+ */
+async function selectAllWithFallback<T = any>(table: string, columnSets: string[], build: (query: any) => any): Promise<{ data: T[] | null; error: any }> {
     let lastError: any = null;
     for (const columns of columnSets) {
-        const { data, error } = await build(supabase.from(table).select(columns));
-        if (!error) return { data: (data || []) as T[], error: null };
-        lastError = error;
-        if (!isMissingColumnError(error)) break;
+        const res = await fetchAllRows<T>((from, to) => build(supabase.from(table).select(columns)).range(from, to));
+        if (!res.error) return { data: res.rows, error: null };
+        lastError = res.error;
+        if (res.rows.length) return { data: res.rows, error: null }; // a later page failed: keep what loaded
+        if (!isMissingColumnError(res.error as any)) break;
     }
     return { data: null, error: lastError };
 }
@@ -177,7 +182,7 @@ const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
 
 const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
 const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
-const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help'];
 
 const navSectionFor = (screen: AppView['screen']): NavSection => {
     switch (screen) {
@@ -221,6 +226,7 @@ const App: React.FC = () => {
             case 'inventory': navigate('/inventory'); break;
             case 'pricebook': navigate('/pricebook'); break;
             case 'profitCalculator': navigate('/calculator'); break;
+            case 'help': navigate('/tutorials'); break;
             case 'forum': navigate(newView.postId ? `/forum/${encodeURIComponent(newView.postId)}` : '/forum'); break;
             case 'gmailCallback': navigate('/gmail-callback'); break;
             case 'billingSuccess': navigate('/billing/success'); break;
@@ -270,7 +276,9 @@ const App: React.FC = () => {
     const [theme, setThemeState] = useState<ThemeName>(() => {
         try { return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY)) || 'light'; } catch { return 'light'; }
     });
-    const deviceThemeChosenRef = useRef<boolean>((() => { try { return !!normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY)); } catch { return false; } })());
+    // The device copy only paints the first screen: the account's theme is applied at every login, unless the user picks
+    // one in this session (PARITY_V2 C1, like the original app).
+    const deviceThemeChosenRef = useRef<boolean>(false);
 
     // Upgrade / subscription
     const [showGlobalUpgrade, setShowGlobalUpgrade] = useState(false);
@@ -312,7 +320,8 @@ const App: React.FC = () => {
         return true;
     };
 
-    const clientNotificationCount = useMemo(() => forms.filter(isUnseenClientSignedDocument).length, [forms]);
+    // signed AND declined documents the contractor hasn't seen (PARITY_V2 A6)
+    const clientNotificationCount = useMemo(() => forms.filter(isUnseenClientDecision).length, [forms]);
     const lowStockCount = useMemo(
         () => inventory.filter(item => !(item as any).is_assembly && Number(item.quantity || 0) <= Number(item.low_stock_threshold ?? 5)).length,
         [inventory],
@@ -421,10 +430,8 @@ const App: React.FC = () => {
         deviceThemeChosenRef.current = true;
         setThemeState(next);
         setProfile(prev => (prev ? { ...prev, theme: next } : prev));
-        const uid = sessionUserIdRef.current;
-        if (uid && navigator.onLine) {
-            supabase.from('profiles').update({ theme: next }).eq('id', uid).then(() => undefined, () => undefined);
-        }
+        // account (user_settings + profiles.theme); offline it is queued and uploaded at the next login
+        if (sessionUserIdRef.current) void saveUiPreferencesToAccount({ theme: next, language: profile?.language });
     };
 
     // ── Online / offline (read-only cache; nothing is queued, CORE-016) ───────
@@ -451,6 +458,7 @@ const App: React.FC = () => {
     const resetUserState = useCallback(() => {
         loadSeqRef.current++;
         loadedUserIdRef.current = null;
+        deviceThemeChosenRef.current = false; // the next account's own theme applies
         setProfile(null);
         setProfileStatus('idle');
         setLoadError(null);
@@ -526,26 +534,26 @@ const App: React.FC = () => {
 
     // ── Data loading ─────────────────────────────────────────────────────────
     const loadJobs = async (userId: string) => {
-        const { data, error } = await selectWithFallback('jobs', JOB_COLUMN_SETS, q => q.eq('user_id', userId).order('created_at', { ascending: false }).limit(JOBS_LIMIT));
+        const { data, error } = await selectAllWithFallback('jobs', JOB_COLUMN_SETS, q => q.eq('user_id', userId).order('created_at', { ascending: false }).order('id'));
         if (error) throw error;
         return (data || []).map(mapJobRow);
     };
 
     const loadClients = useCallback(async (userId: string) => {
-        const { data, error } = await supabase.from('clients').select(CLIENT_COLUMNS).eq('user_id', userId).order('name').range(0, CLIENTS_LIMIT - 1);
+        const { data, error } = await selectAllWithFallback<Client>('clients', [CLIENT_COLUMNS], q => q.eq('user_id', userId).order('name').order('id'));
         if (error) throw error;
         if (sessionUserIdRef.current === userId) setClients((data || []) as Client[]);
         return (data || []) as Client[];
     }, []);
 
     const loadInventory = useCallback(async (userId: string) => {
-        const { data, error } = await selectWithFallback<InventoryItem>('inventory', INVENTORY_COLUMN_SETS, q => q.eq('user_id', userId).order('name').limit(INVENTORY_LIMIT));
+        const { data, error } = await selectAllWithFallback<InventoryItem>('inventory', INVENTORY_COLUMN_SETS, q => q.eq('user_id', userId).order('name').order('id'));
         if (!error && data && sessionUserIdRef.current === userId) setInventory(data);
         return data || [];
     }, []);
 
     const loadSavedItems = useCallback(async (userId: string) => {
-        const { data, error } = await selectWithFallback<SavedItem>('saved_items', SAVED_ITEM_COLUMN_SETS, q => q.eq('user_id', userId).order('name').limit(SAVED_ITEMS_LIMIT));
+        const { data, error } = await selectAllWithFallback<SavedItem>('saved_items', SAVED_ITEM_COLUMN_SETS, q => q.eq('user_id', userId).order('name').order('id'));
         if (!error && data && sessionUserIdRef.current === userId) setSavedItems(data);
         return data || [];
     }, []);
@@ -562,6 +570,15 @@ const App: React.FC = () => {
         // Merge, never replace: keeps per-job pages and full documents that are open (CORE-007).
         if (sessionUserIdRef.current === userId) setForms(prev => mergeDocuments(prev, mapped));
         return mapped;
+    }, []);
+
+    /** Unseen signed/declined documents of ANY age (the list above only has the 50 newest): Clients badge (PARITY_V2 A6). */
+    const decisionsCheckedAtRef = useRef(0);
+    const loadUnseenDecisions = useCallback(async (userId: string) => {
+        decisionsCheckedAtRef.current = Date.now();
+        const docs = await fetchUnseenClientDecisions(userId);
+        if (sessionUserIdRef.current === userId && docs.length) setForms(prev => mergeDocuments(prev, docs));
+        return docs;
     }, []);
 
     const refreshUsage = useCallback(async () => {
@@ -647,7 +664,15 @@ const App: React.FC = () => {
         setProfile(prev => ({ ...loadedProfile, emailUsage: prev?.emailUsage ?? loadedProfile.emailUsage }));
         setProfileStatus('ready');
         setUsingCachedData(false);
-        if (!deviceThemeChosenRef.current && loadedProfile.theme) setThemeState(loadedProfile.theme);
+        // theme + language from the account (user_settings, else the profile columns; a change made offline wins)
+        void syncUiPreferencesAfterLogin(user.id, { theme: loadedProfile.theme, language: loadedProfile.language }).then(prefs => {
+            if (!isCurrent()) return;
+            const accountTheme = normalizeTheme(prefs.theme) || loadedProfile.theme;
+            if (!deviceThemeChosenRef.current && accountTheme) setThemeState(accountTheme);
+            if (prefs.language && prefs.language !== loadedProfile.language) {
+                setProfile(prev => (prev ? { ...prev, language: prefs.language } : prev));
+            }
+        });
 
         const [jobsRes, docsRes, clientsRes] = await Promise.allSettled([
             loadJobs(user.id),
@@ -656,6 +681,7 @@ const App: React.FC = () => {
             loadInventory(user.id),
             loadSavedItems(user.id),
             refreshUsage(),
+            loadUnseenDecisions(user.id),
         ]);
         if (!isCurrent()) return;
 
@@ -694,12 +720,14 @@ const App: React.FC = () => {
         const timer = setTimeout(async () => {
             try {
                 const mod: any = await import('./services/recurringService.ts');
-                const run = mod.runDueRecurringInvoices || mod.generateDueRecurringInvoices;
+                const run = mod.generateDueRecurringInvoices || mod.runDueRecurringInvoices;
                 const result = typeof run === 'function' ? await run() : 0;
                 const created = typeof result === 'number' ? result : Number(result?.created ?? result?.count ?? 0);
-                if (!cancelled && created > 0 && sessionUserIdRef.current === uid) {
-                    toast.info(`${created} recurring ${created === 1 ? 'invoice was' : 'invoices were'} created.`);
-                    loadRecentDocuments(uid).catch(() => undefined);
+                // at most one draft per series is created; skipped older periods are reported (PARITY_V2 D2)
+                const message = typeof mod.describeRecurringResult === 'function' && typeof result === 'object' ? mod.describeRecurringResult(result) : null;
+                if (!cancelled && (created > 0 || message) && sessionUserIdRef.current === uid) {
+                    toast.info(message || `${created} recurring ${created === 1 ? 'invoice was' : 'invoices were'} created.`, { duration: message ? 12000 : undefined });
+                    if (created > 0) loadRecentDocuments(uid).catch(() => undefined);
                 }
             } catch { /* optional feature */ }
         }, 1500);
@@ -722,6 +750,17 @@ const App: React.FC = () => {
         const timer = setTimeout(refreshForumBadge, 2500);
         return () => clearTimeout(timer);
     }, [profileStatus, view.screen, refreshForumBadge]);
+
+    // A signature or decline that arrives while the app is open shows up on the next screen change (at most once a minute).
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (profileStatus !== 'ready' || !uid) return;
+        const timer = setTimeout(() => {
+            if (!navigator.onLine || Date.now() - decisionsCheckedAtRef.current < 60_000) return;
+            loadUnseenDecisions(uid).catch(() => undefined);
+        }, 3000);
+        return () => clearTimeout(timer);
+    }, [profileStatus, view.screen, session?.user?.id, loadUnseenDecisions]);
 
     // ── Documents per job / full document loading ─────────────────────────────
     const loadDocumentsForJob = useCallback(async (jobId: string, reset = false) => {
@@ -808,16 +847,29 @@ const App: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view.screen, viewJobId, location.key, profileStatus, paid, docUsage, documentPagination[viewJobId || '']?.loaded]);
 
-    // Duplicate-job modal: make sure the job's documents are loaded (CORE-026).
+    // Duplicate-job modal: loads EVERY document of the job (not only the first page of 20), like the original app
+    // (CORE-026, PARITY_V2 D4).
     const duplicateCandidateForms = useMemo(
         () => (jobToDuplicate ? forms.filter(f => f.jobId === jobToDuplicate.id) : []),
         [forms, jobToDuplicate?.id],
     );
+    /** job whose complete document list is loaded for the modal (the modal pre-selects them all once it is) */
+    const [duplicateDocsReadyFor, setDuplicateDocsReadyFor] = useState<string | null>(null);
     useEffect(() => {
-        if (showDuplicateJobModal && jobToDuplicate && !docPagRef.current[jobToDuplicate.id]?.loaded) {
-            loadDocumentsForJob(jobToDuplicate.id, true);
+        if (!showDuplicateJobModal || !jobToDuplicate) return;
+        const jobId = jobToDuplicate.id;
+        if (!navigator.onLine) {
+            // offline: show what this device has (duplicating needs a connection anyway)
+            setDuplicateDocsReadyFor(jobId);
+            return;
         }
-    }, [showDuplicateJobModal, jobToDuplicate?.id, loadDocumentsForJob]);
+        let cancelled = false;
+        fetchAllJobDocumentSummaries(jobId)
+            .then(docs => { if (!cancelled && sessionUserIdRef.current) setForms(prev => mergeDocuments(prev, docs)); })
+            .catch(err => { if (!cancelled) toast.error(`Could not load all documents of this job. ${describeError(err)}`); })
+            .finally(() => { if (!cancelled) setDuplicateDocsReadyFor(jobId); });
+        return () => { cancelled = true; setDuplicateDocsReadyFor(null); };
+    }, [showDuplicateJobModal, jobToDuplicate?.id]);
 
     // ── Auth handlers ────────────────────────────────────────────────────────
     const handleLogin = async (email: string, pass: string) => {
@@ -919,6 +971,7 @@ const App: React.FC = () => {
             case 'settings': navigate('/settings'); break;
             case 'profile': navigate('/profile'); break;
             case 'billing': navigate('/settings#billing'); break;
+            case 'help': navigate('/tutorials'); break;
         }
     };
 
@@ -966,6 +1019,8 @@ const App: React.FC = () => {
         const { error } = await supabase.from('profiles').update(row).eq('id', uid);
         if (error) throw new Error(describeError(error, 'Your changes could not be saved.'));
         setProfile(prev => (prev ? { ...prev, ...updated, logoUrl, profilePictureUrl: pictureUrl, theme } : prev));
+        // keep the account preferences (user_settings) in step with the language just saved (profile columns are done)
+        void saveUiPreferencesToAccount({ theme, language: row.language }, { skipProfile: true });
         toast.success('Settings saved.');
     };
 
@@ -1053,13 +1108,13 @@ const App: React.FC = () => {
      * limit; the job itself is never blocked by this: on a limit or an error the user is told and the job keeps
      * the typed name.
      */
-    const createClientForJob = async (jobId: string, name: string, address: string): Promise<string | null> => {
+    const createClientForJob = async (jobId: string, name: string, address: string, temporary = false): Promise<string | null> => {
         const uid = sessionUserIdRef.current;
         if (!uid || !name.trim()) return null;
         let client: Client;
         try {
-            const { insertClient } = await import('./components/ClientDetails.tsx');
-            client = await insertClient({ name, email: '', phone: '', address, notes: '' }, uid);
+            const { insertClient, TEMP_TAG } = await import('./components/ClientDetails.tsx');
+            client = await insertClient({ name, email: '', phone: '', address, notes: temporary ? TEMP_TAG : '' }, uid);
         } catch (error) {
             if (isPlanLimitError(error)) {
                 const reason = planLimitMessage(error);
@@ -1077,7 +1132,7 @@ const App: React.FC = () => {
         const { error } = await supabase.from('jobs').update({ client_id: client.id }).eq('id', jobId);
         if (!error) setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, clientId: client.id } : j)));
         refreshUsage();
-        toast.success(`"${client.name}" was added to your clients.`);
+        toast.success(`"${client.name}" was added to your ${temporary ? 'temporary ' : ''}clients.`);
         return client.id;
     };
 
@@ -1152,7 +1207,7 @@ const App: React.FC = () => {
         refreshUsage();
         toast.success(`Job "${created.name}" created.`);
         // A new client name becomes a saved client (in the background: the job is already created).
-        if (!clientId && clientName) void createClientForJob(created.id, clientName, clientAddress);
+        if (!clientId && clientName) void createClientForJob(created.id, clientName, clientAddress, jobData?.clientTemporary === true);
 
         if (!skipNavigation) {
             if (view.screen === 'createJob' && view.returnTo === 'calendar') navigate('/calendar', { replace: true });
@@ -1217,9 +1272,14 @@ const App: React.FC = () => {
         if (!linkedClientId && newClientName) void createClientForJob(created.id, newClientName, String(row.client_address || ''));
 
         let copied = 0;
-        if (selectedDocIds.length) {
+        // Free plan: a job can get `limits.docs` new documents a month and the database refuses a whole insert past it,
+        // so copy what fits (in the order the user saw) and say what was left out (PARITY_V2 D4).
+        const docLimit = paid ? null : effectiveUsage.limits.docs;
+        const { copy: idsToCopy, left: idsLeft } = planDuplicateCopies(selectedDocIds, docLimit === null ? null : Math.max(0, docLimit - docsUsedThisMonth(created.id)));
+        let limitHit = idsLeft.length > 0;
+        if (idsToCopy.length) {
             try {
-                const fullDocs = await fetchFullDocuments(selectedDocIds);
+                const fullDocs = await fetchFullDocuments(idsToCopy);
                 const records = fullDocs.map(doc => ({
                     id: crypto.randomUUID(),
                     user_id: uid,
@@ -1231,24 +1291,39 @@ const App: React.FC = () => {
                         ...('projectName' in (doc.data as any) ? { projectName: created.name } : {}),
                     }),
                 }));
-                if (records.length) {
-                    const { error } = await supabase.from('documents').insert(records);
-                    if (error) throw error;
-                    copied = records.length;
-                    const now = new Date().toISOString();
-                    const mapped = records.map(r => mapDocumentRow({ ...r, created_at: now }, true));
+                const now = new Date().toISOString();
+                // in batches, so a long job never makes one huge request; a plan limit stops after what was saved
+                for (const batch of chunk(records, ID_CHUNK)) {
+                    const { error } = await supabase.from('documents').insert(batch);
+                    if (error) {
+                        if (isPlanLimitError(error)) { limitHit = true; break; }
+                        throw error;
+                    }
+                    copied += batch.length;
+                    const mapped = batch.map(r => mapDocumentRow({ ...r, created_at: now }, true));
                     mapped.forEach(primeDocumentCache);
                     setForms(prev => mergeDocuments(prev, mapped));
-                    bumpDocUsage(created.id, records.length);
+                    bumpDocUsage(created.id, batch.length);
                 }
             } catch (error) {
-                if (!handlePlanLimit(error)) toast.error(`The job was copied, but its documents were not. ${describeError(error)}`);
+                if (!handlePlanLimit(error)) {
+                    toast.error(copied
+                        ? `The job was copied with ${copied} of ${selectedDocIds.length} documents; the others could not be copied. ${describeError(error)}`
+                        : `The job was copied, but its documents were not. ${describeError(error)}`);
+                }
             }
         }
         refreshUsage();
         setShowDuplicateJobModal(false);
         setJobToDuplicate(null);
-        toast.success(copied ? `Job duplicated with ${copied} ${copied === 1 ? 'document' : 'documents'}.` : 'Job duplicated.');
+        if (limitHit && copied < selectedDocIds.length) {
+            toast.info(
+                `Job duplicated with ${copied} of ${selectedDocIds.length} documents: the Free plan allows ${docLimit ?? copied} new documents per job each month. Upgrade to copy the rest.`,
+                { duration: 12000, action: { label: 'Upgrade', onClick: () => openUpgrade('Copy every document when you duplicate a job') } },
+            );
+        } else {
+            toast.success(copied ? `Job duplicated with ${copied} ${copied === 1 ? 'document' : 'documents'}.` : 'Job duplicated.');
+        }
         navigate(`/jobs/${created.id}`);
     };
 
@@ -1892,6 +1967,8 @@ const App: React.FC = () => {
                 />;
             case 'profitCalculator':
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
+            case 'help':
+                return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;
             case 'analytics':
                 return <AnalyticsView jobs={jobs} defaultLaborRate={profile?.defaultLaborRate} onBack={navigateToDashboard} />;
             case 'calendar':
@@ -2013,7 +2090,8 @@ const App: React.FC = () => {
                 job={jobToDuplicate}
                 forms={duplicateCandidateForms}
                 clients={clients}
-                loadingDocuments={Boolean(jobToDuplicate && !documentPagination[jobToDuplicate.id]?.loaded)}
+                loadingDocuments={Boolean(jobToDuplicate && duplicateDocsReadyFor !== jobToDuplicate.id)}
+                copyLimit={paid ? null : effectiveUsage.limits.docs}
             />
 
             {showJobFinancials && viewJob && (
@@ -2038,6 +2116,13 @@ const App: React.FC = () => {
                         onOpenReceipt={(r) => openDocument(r, true)}
                         onOpenSettings={() => navigate('/settings#payments')}
                     />
+                </Suspense>
+            )}
+
+            {/* First-run app tour (once per account; replay from Help & tutorials) */}
+            {showNav && session && (
+                <Suspense fallback={null}>
+                    <TourHost userId={session.user.id} onDashboard={view.screen === 'dashboard'} />
                 </Suspense>
             )}
 

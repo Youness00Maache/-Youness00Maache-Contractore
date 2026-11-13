@@ -185,6 +185,12 @@ const STATIC: Record<string, StaticDef> = {
     description: 'The terms for using ContractorDocs: accounts, Free and paid plans, billing through Kelviq, cancellation, acceptable use, your content and the AI assistant.',
     crumb: 'Terms of Service',
   },
+  '/help': {
+    title: 'Help Center: Step-by-Step Guides | ContractorDocs',
+    description: 'Step-by-step guides for every ContractorDocs feature: jobs, invoices and estimates, e-signatures, client portal, Gmail, reminders, inventory and AI.',
+    type: 'CollectionPage',
+    crumb: 'Help center',
+  },
   '/security': {
     title: 'Security at ContractorDocs: How We Protect Your Data',
     description: 'Encryption in transit and at rest, per-account data isolation, encrypted Gmail tokens, strict security headers and how to report a vulnerability.',

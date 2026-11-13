@@ -19,6 +19,7 @@ import {
     FeatureUnavailableError, getMyRequestPage, regenerateRequestSlug, updateMyRequestPage, type MyRequestPage,
 } from './requestsApi.ts';
 import { downloadQrPng, printHtml, qrSignHtml, svgMarkup } from './qrSign.ts';
+import HelpButton from '../help/HelpButton.tsx';
 
 export interface RequestLinkSettingsProps {
     plan: string;
@@ -174,7 +175,10 @@ const RequestLinkSettings: React.FC<RequestLinkSettingsProps> = ({ plan, company
     // Inside a modal the modal's title is the heading.
     const heading = embedded ? intro_ : (
         <div className="min-w-0">
-            <h2 className="text-lg font-bold text-foreground">Request-a-quote link</h2>
+            <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-foreground">Request-a-quote link</h2>
+                <HelpButton topic="quote-link" iconOnly />
+            </div>
             {intro_}
         </div>
     );

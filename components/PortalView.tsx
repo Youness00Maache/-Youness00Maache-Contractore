@@ -1,7 +1,9 @@
 /**
- * Public client portal (`/?portal=<key>`), no login. Lists the documents a contractor shared with
- * one client, shows correct totals, lets the client view/download documents and approve, sign or
- * decline estimates and change orders. Building blocks live in DocumentApprovalView.tsx.
+ * Public client portal (`/?portal=<key>`), no login. Like the original portal: Invoices / Estimates (+ change
+ * orders) / Reports (+ work orders, warranties, receipts) tabs, the outstanding balance of every unpaid invoice,
+ * "Review & sign" on estimates and change orders the client hasn't answered, and Download on every document; plus
+ * pay now, "I've paid", decline with a reason and shared job photos. Drafts are not shown (the database leaves
+ * them out). Building blocks live in DocumentApprovalView.tsx, the rules in utils/clientPortalRules.ts.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
@@ -9,6 +11,7 @@ import { EmptyState, Modal, Notice, StatusBadge, cx, getErrorMessage } from './c
 import { documentLabel } from '../utils/clientLinks.ts';
 import { formatMoney } from '../utils/money.ts';
 import { payLinkFor, paymentReportOf } from '../lib/payments.ts';
+import { groupPortalDocuments } from '../utils/clientPortalRules.ts';
 import PortalPhotos from './photos/PortalPhotos.tsx';
 import {
     BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
@@ -19,7 +22,7 @@ import {
 } from './DocumentApprovalView.tsx';
 import {
     ChangeOrderIcon, ClockIcon, CreditCardIcon, DailyReportIcon, EstimateIcon, EyeIcon, FileTextIcon, InvoiceIcon, PenIcon,
-    WarrantyIcon, WorkOrderIcon,
+    ReceiptIcon, WarrantyIcon, WorkOrderIcon,
 } from './Icons.tsx';
 
 interface PortalViewProps {
@@ -30,14 +33,14 @@ interface PortalViewProps {
 
 type TabId = 'invoices' | 'approvals' | 'other';
 
-const TABS: Array<{ id: TabId; label: string; short: string }> = [
-    { id: 'invoices', label: 'Invoices', short: 'Invoices' },
-    { id: 'approvals', label: 'Estimates & change orders', short: 'Estimates' },
-    { id: 'other', label: 'Reports & other', short: 'Other' },
+const TABS: Array<{ id: TabId; label: string; short: string; empty: string }> = [
+    { id: 'invoices', label: 'Invoices', short: 'Invoices', empty: 'No invoices yet' },
+    { id: 'approvals', label: 'Estimates & change orders', short: 'Estimates', empty: 'No estimates or change orders yet' },
+    { id: 'other', label: 'Reports & other', short: 'Reports', empty: 'No reports yet' },
 ];
 
 /** Internal documents are never meant for clients (defence in depth; the RPC filters them too). */
-const INTERNAL_TYPES = new Set(['Expense Log', 'Purchase Order', 'Material Log', 'Time Sheet', 'Note', 'Receipt', 'Profit Report']);
+const INTERNAL_TYPES = new Set(['Expense Log', 'Purchase Order', 'Material Log', 'Time Sheet', 'Note', 'Profit Report']);
 const PORTAL_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
 const typeIcon = (type: string, className = 'h-5 w-5') => {
@@ -48,6 +51,7 @@ const typeIcon = (type: string, className = 'h-5 w-5') => {
         case 'Daily Job Report': return <DailyReportIcon className={className} />;
         case 'Warranty': return <WarrantyIcon className={className} />;
         case 'Work Order': return <WorkOrderIcon className={className} />;
+        case 'Receipt': return <ReceiptIcon className={className} />;
         default: return <FileTextIcon className={className} />;
     }
 };
@@ -127,7 +131,7 @@ const DocumentRow: React.FC<{
                         </p>
                     </div>
                 )}
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:justify-end">
                     {pay && !reported && (
                         <a href={pay.href} target="_blank" rel="noopener noreferrer" className="btn btn-primary min-h-[40px] flex-1 sm:flex-none" title={pay.buttonLabel}>
                             <CreditCardIcon className="h-4 w-4" /> Pay {formatMoney(pay.amount, currencyOf(d))}
@@ -141,7 +145,7 @@ const DocumentRow: React.FC<{
                     <button type="button" className="btn btn-outline min-h-[40px] flex-1 sm:flex-none" onClick={onView}>
                         <EyeIcon className="h-4 w-4" /> View
                     </button>
-                    <DownloadPdfButton doc={doc} contractor={contractor} clientName={clientName} iconOnly onError={onDownloadError} />
+                    <DownloadPdfButton doc={doc} contractor={contractor} clientName={clientName} label="Download" className="flex-1 sm:flex-none" onError={onDownloadError} />
                 </div>
                 {state === 'expired' && (
                     <p className="text-xs text-muted-foreground sm:text-right">Expired. Contact {contractorName(contractor)} for an updated version.</p>
@@ -190,6 +194,7 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
             const docs = (Array.isArray(payload.documents) ? payload.documents : [])
                 .map(normalizeDocument)
                 .filter((d): d is PublicDocument => !!d)
+                // drafts are not shown (the database leaves them out too); no status and every other status are
                 .filter((d) => !INTERNAL_TYPES.has(d.type) && str(d.data.status) !== 'Draft')
                 .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
             setDocuments(docs);
@@ -208,16 +213,8 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
 
     useEffect(() => { load(); }, [load]);
 
-    const groups = useMemo(() => {
-        const invoices = documents.filter((d) => d.type === 'Invoice');
-        const approvals = documents.filter((d) => SIGNABLE_TYPES.includes(d.type));
-        const other = documents.filter((d) => d.type !== 'Invoice' && !SIGNABLE_TYPES.includes(d.type));
-        const awaiting = approvals.filter((d) => getDocState(d) === 'open');
-        const unpaid = invoices.filter((d) => ['Sent', 'Overdue'].includes(str(d.data.status)));
-        const outstanding = unpaid.reduce((sum, d) => sum + documentTotals(d.data).balanceDue, 0);
-        const currency = invoices[0] ? currencyOf(invoices[0].data) : 'USD';
-        return { invoices, approvals, other, awaiting, unpaid, outstanding, currency };
-    }, [documents]);
+    // Outstanding = every unpaid invoice (old portal: all invoices not Paid; Cancelled never counts)
+    const groups = useMemo(() => groupPortalDocuments(documents), [documents]);
 
     // Pick the most useful tab on first load (documents waiting for a signature first).
     useEffect(() => {
@@ -352,7 +349,7 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                             {activeDocs.length === 0 ? (
                                 <EmptyState
                                     icon={tab === 'invoices' ? <InvoiceIcon className="h-6 w-6" /> : tab === 'approvals' ? <EstimateIcon className="h-6 w-6" /> : <DailyReportIcon className="h-6 w-6" />}
-                                    title={tab === 'invoices' ? 'No invoices yet' : tab === 'approvals' ? 'No estimates or change orders' : 'No reports yet'}
+                                    title={TABS.find((t) => t.id === tab)?.empty || 'Nothing here yet'}
                                     description={`Documents ${company} shares with you will appear here.`}
                                 />
                             ) : (

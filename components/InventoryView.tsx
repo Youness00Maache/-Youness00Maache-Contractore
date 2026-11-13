@@ -11,7 +11,8 @@ import {
   QrIcon, Segmented, SkeletonList, SlidersIcon, StatCard, XIcon, fetchAllPages, friendlyError, getCurrentUserId, money, timeAgo,
   useNotice, withSchemaFallback,
 } from './viewKit.tsx';
-import { checkoutMoves, kitBuildable, kitCost, lowStockThreshold, parseInventoryCode, stockStatus, stockValue, trackedComponents, type StockStatus } from '../utils/stockMath.ts';
+import HelpButton from './help/HelpButton.tsx';
+import { checkoutMoves, kitBuildable, kitCost, kitEditPatch, kitOwnStock, lowStockThreshold, parseInventoryCode, stockStatus, stockValue, trackedComponents, type StockStatus } from '../utils/stockMath.ts';
 import { todayYMD } from '../utils/localDates.ts';
 import { toNumber } from '../utils/money.ts';
 
@@ -277,7 +278,12 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
 
   // ------------------------------------------------------------------ derived lists
   const effectiveStatus = useCallback((item: InventoryItem): StockStatus => {
-    if (item.is_assembly) return kitBuildable(item, byId) === 0 ? 'out' : 'ok';
+    if (item.is_assembly) {
+      // an old kit with its own pre-built stock is "in stock" while it has some (PARITY_V2 D3)
+      const own = kitOwnStock(item);
+      if (own !== null && own > 0) return stockStatus({ quantity: own, low_stock_threshold: item.low_stock_threshold });
+      return kitBuildable(item, byId) === 0 ? 'out' : 'ok';
+    }
     return stockStatus({ quantity: displayQty(item), low_stock_threshold: item.low_stock_threshold });
   }, [byId, pending]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -289,7 +295,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
   const stats = useMemo(() => {
     let value = 0, attention = 0, kits = 0;
     for (const i of items) {
-      if (i.is_assembly) { kits++; continue; }
+      if (i.is_assembly) { kits++; value += stockValue(i); continue; } // only an old kit's own stock has a value
       value += stockValue(i);
       if (stockStatus(i) !== 'ok') attention++;
     }
@@ -353,7 +359,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     if (!editor) return;
     const d = editor.draft;
     if (!d.name.trim()) { setEditorError('Give the item a name.'); return; }
-    if (d.is_assembly && !trackedComponents(d).length) { setEditorError('Add at least one stocked component to the kit.'); return; }
+    // new kits only: an old kit (often a pre-built item with its own stock and no components) must stay editable
+    if (editor.mode === 'add' && d.is_assembly && !trackedComponents(d).length) { setEditorError('Add at least one stocked component to the kit.'); return; }
     setSavingEditor(true);
     setEditorError(null);
     try {
@@ -361,17 +368,19 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
         const created = await createItem(d);
         notify('success', `"${created.name}" added to inventory.`);
       } else if (editor.id) {
-        const patch = {
+        const original = byId.get(editor.id) ?? { is_assembly: d.is_assembly, quantity: 0 };
+        // kits: hidden fields (cost, category, supplier) are left as they are, never wiped (PARITY_V2 D3)
+        const patch = kitEditPatch({
           name: d.name.trim(),
-          category: d.is_assembly ? null : d.category.trim() || null,
+          category: d.category.trim() || null,
           unit: d.unit.trim() || null,
-          cost_price: d.is_assembly ? 0 : Math.max(0, toNumber(d.cost_price)),
-          supplier: d.is_assembly ? null : d.supplier.trim() || null,
+          cost_price: Math.max(0, toNumber(d.cost_price)),
+          supplier: d.supplier.trim() || null,
           sku: d.sku.trim().toUpperCase() || null,
           location: d.location.trim() || null,
           low_stock_threshold: Math.max(0, q3(d.low_stock_threshold)),
           assembly_items: d.is_assembly ? d.assembly_items : [],
-        };
+        }, { is_assembly: d.is_assembly, quantity: original.quantity });
         const { data, error } = await withSchemaFallback(patch, (p) => supabase.from('inventory').update(p).eq('id', editor.id!).select(COLUMNS).single());
         if (error) throw error;
         mergeRow(data || { ...byId.get(editor.id), ...patch });
@@ -488,7 +497,8 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     setScanOpen(false);
     const id = parseInventoryCode(text);
     const item = id ? await findItem(id) : null;
-    if (item) setSheetId(item.id);
+    // scanning a label in the app goes straight to check-out, like the original app's "Scan out" (PARITY_V2 D10)
+    if (item) setCheckoutFor(item);
     else notify('error', 'No inventory item matches that code.');
   };
 
@@ -536,10 +546,17 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     />
   );
 
+  /** Unit cost shown for a kit: an old pre-built kit keeps its own cost; otherwise the components' cost. */
+  const kitUnitCost = (item: InventoryItem) =>
+    kitOwnStock(item) !== null && toNumber(item.cost_price) > 0 ? toNumber(item.cost_price) : kitCost(item, byId);
+
   const stockCell = (item: InventoryItem) =>
     item.is_assembly ? (
       <div className="text-sm">
-        <div className="font-semibold text-foreground">{kitBuildable(item, byId) ?? 0} buildable</div>
+        {kitOwnStock(item) !== null && (
+          <div className="font-semibold text-foreground">{kitOwnStock(item)} {item.unit || 'in stock'} <span className="text-xs font-normal text-muted-foreground">pre-built</span></div>
+        )}
+        <div className={kitOwnStock(item) !== null ? 'text-xs text-muted-foreground' : 'font-semibold text-foreground'}>{kitBuildable(item, byId) ?? 0} buildable</div>
         <div className="text-xs text-muted-foreground">{trackedComponents(item).length} components</div>
       </div>
     ) : (
@@ -555,6 +572,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
         subtitle={loading ? 'Loading your stock…' : `${stats.count} item${stats.count === 1 ? '' : 's'} · stock value ${money(stats.value)}`}
         actions={
           <>
+            <HelpButton topic="inventory" />
             <button type="button" className="btn btn-outline" onClick={() => setScanOpen(true)}><CameraIcon className="h-4 w-4" /> Scan</button>
             <button type="button" className="btn btn-outline" onClick={() => setHistoryFor({ itemId: null })}><ClockIcon className="h-4 w-4" /> History</button>
             <button type="button" className="btn btn-outline hidden sm:inline-flex" onClick={() => filtered.length ? setPrintItems(filtered.slice(0, 300)) : notify('info', 'No items to print.')} disabled={loading}><QrIcon className="h-4 w-4" /> Labels</button>
@@ -635,7 +653,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
               <tbody>
                 {visible.map((item) => {
                   const status = effectiveStatus(item);
-                  const cost = item.is_assembly ? kitCost(item, byId) : toNumber(item.cost_price);
+                  const cost = item.is_assembly ? kitUnitCost(item) : toNumber(item.cost_price);
                   return (
                     <tr key={item.id} className="hover:bg-muted/40">
                       <td className="max-w-[18rem]">
@@ -649,7 +667,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
                       </td>
                       <td>{stockCell(item)}</td>
                       <td className="text-right tabular-nums">{money(cost)}{item.unit && !item.is_assembly ? <span className="text-xs text-muted-foreground"> /{item.unit}</span> : null}</td>
-                      <td className="text-right font-semibold tabular-nums">{item.is_assembly ? '—' : money(stockValue({ ...item, quantity: displayQty(item) }))}</td>
+                      <td className="text-right font-semibold tabular-nums">{item.is_assembly ? (kitOwnStock(item) !== null ? money(stockValue(item)) : '—') : money(stockValue({ ...item, quantity: displayQty(item) }))}</td>
                       <td><StatusBadge status={status} kit={item.is_assembly} /></td>
                       <td className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -675,7 +693,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
                       <div className="mb-1 flex flex-wrap items-center gap-1.5"><StatusBadge status={status} kit={item.is_assembly} />{item.category && <span className="badge badge-muted">{item.category}</span>}</div>
                       <div className="truncate font-semibold text-foreground">{item.name}</div>
                       <div className="truncate text-xs text-muted-foreground">
-                        {item.is_assembly ? `${trackedComponents(item).length} components · cost ${money(kitCost(item, byId))}` : `${money(item.cost_price)}${item.unit ? ` / ${item.unit}` : ''} · value ${money(stockValue({ ...item, quantity: displayQty(item) }))}`}
+                        {item.is_assembly ? `${trackedComponents(item).length} components · cost ${money(kitUnitCost(item))}${kitOwnStock(item) !== null ? ` · value ${money(stockValue(item))}` : ''}` : `${money(item.cost_price)}${item.unit ? ` / ${item.unit}` : ''} · value ${money(stockValue({ ...item, quantity: displayQty(item) }))}`}
                       </div>
                       {item.location && <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPinIcon className="h-3 w-3 shrink-0" />{item.location}</div>}
                     </button>
@@ -714,11 +732,22 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
             <div className="flex flex-wrap items-center gap-2"><StatusBadge status={effectiveStatus(sheetItem)} kit={sheetItem.is_assembly} />{sheetItem.category && <span className="badge badge-muted">{sheetItem.category}</span>}</div>
             {sheetItem.is_assembly ? (
               <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                {kitOwnStock(sheetItem) !== null && (
+                  <>
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-sm text-muted-foreground">Pre-built kits in stock</span>
+                      <span className="text-2xl font-bold tabular-nums">{kitOwnStock(sheetItem)}</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-between text-sm"><span className="text-muted-foreground">Value at {money(sheetItem.cost_price)} each</span><span className="font-semibold">{money(stockValue(sheetItem))}</span></div>
+                    <p className="mt-1 text-xs text-muted-foreground">Kept from your earlier records. Checking a kit out takes its components from stock.</p>
+                    <div className="my-3 border-t border-border" />
+                  </>
+                )}
                 <div className="flex items-baseline justify-between">
                   <span className="text-sm text-muted-foreground">Kits you can build now</span>
                   <span className="text-2xl font-bold tabular-nums">{kitBuildable(sheetItem, byId) ?? 0}</span>
                 </div>
-                <div className="mt-1 flex items-baseline justify-between text-sm"><span className="text-muted-foreground">Cost per kit</span><span className="font-semibold">{money(kitCost(sheetItem, byId))}</span></div>
+                <div className="mt-1 flex items-baseline justify-between text-sm"><span className="text-muted-foreground">Cost per kit (components)</span><span className="font-semibold">{money(kitCost(sheetItem, byId))}</span></div>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-muted/40 p-4 sm:flex-row sm:justify-between">
@@ -896,6 +925,9 @@ const ItemEditor: React.FC<{
     return n ? items.find((i) => i.id !== editingId && i.name.trim().toLowerCase() === n) : undefined;
   }, [draft.name, items, editingId]);
   const kitPreview = { id: 'preview', is_assembly: true, assembly_items: draft.assembly_items };
+  // an old kit that still has its own pre-built stock (original app): its unit cost stays visible and editable
+  const editingItem = editingId ? byId.get(editingId) : undefined;
+  const ownStock = draft.is_assembly && editingItem ? kitOwnStock(editingItem) : null;
 
   const addComponent = (id: string) => {
     if (!id) return;
@@ -961,8 +993,17 @@ const ItemEditor: React.FC<{
         <div className="space-y-3 rounded-2xl border border-border bg-muted/30 p-4">
           <div>
             <h3 className="text-sm font-semibold text-foreground">Components per kit</h3>
-            <p className="text-xs text-muted-foreground">A kit has no stock of its own. Checking one out removes its components from stock.</p>
+            <p className="text-xs text-muted-foreground">
+              {ownStock !== null
+                ? `This kit also has ${ownStock} pre-built in stock from your earlier records; that number and its cost are kept. Checking a kit out removes its components from stock.`
+                : 'A kit has no stock of its own. Checking one out removes its components from stock.'}
+            </p>
           </div>
+          {ownStock !== null && (
+            <Field label="Unit cost of a pre-built kit ($)" htmlFor="inv-kit-cost" hint={`Value of the ${ownStock} in stock: ${money(Math.max(0, ownStock) * toNumber(draft.cost_price))}`}>
+              <NumberInput id="inv-kit-cost" value={draft.cost_price} onValue={(n) => set('cost_price', n)} placeholder="0.00" />
+            </Field>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <select className="input flex-1" value={pick} onChange={(e) => addComponent(e.target.value)} aria-label="Add a component">
               <option value="">Add a stock item…</option>

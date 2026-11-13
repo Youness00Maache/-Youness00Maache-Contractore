@@ -4,8 +4,10 @@
  *
  *   saved profit calculations  → public.profit_calculations   (migration 20261113000500)
  *   label sheet (Print labels) → public.user_settings 'labels.sheet' (migration 20261113000500)
+ *   first-run tour seen        → public.user_settings 'help.tour'    (components/help/AppTour.tsx)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
+ *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
  *
  * Before the migration is applied everything keeps working on the device, and the device items are uploaded
  * automatically the first time the tables are reachable. App.tsx calls `syncUserDataAfterLogin(uid)` once per
@@ -15,11 +17,12 @@ import { supabase } from './supabase.ts';
 import {
     LABEL_SHEET_SETTING, countPendingProfitCalcs, deleteProfitCalc, loadProfitCalcs, parseRate, pendingFieldKey, readProfitCalcsLocal,
     saveDefaultSignature, saveLaborRate,
-    saveProfitCalc, saveSetting, syncLabelSheet, syncProfileValues, claimLegacyProfitCalcs,
+    saveProfitCalc, saveSetting, syncLabelSheet, syncProfileValues, claimLegacyProfitCalcs, loadTourSeen, saveTourSeen,
+    saveUiPrefs, syncUiPrefs, type ProfilePrefsRemote, type UiPrefs,
     type DbError, type KeyValueStore, type ProfileValuesRemote, type ProfitCalcRemote, type SavedProfitCalc, type SettingsRemote, type SyncMode,
 } from './userDataSync.ts';
 
-export type { SavedProfitCalc, SyncMode } from './userDataSync.ts';
+export type { SavedProfitCalc, SyncMode, UiPrefs } from './userDataSync.ts';
 
 export const browserStore: KeyValueStore = {
     getItem: (k) => { try { return window.localStorage.getItem(k); } catch { return null; } },
@@ -89,6 +92,14 @@ const settingsRemote: SettingsRemote = {
     },
 };
 
+const profilePrefsRemote: ProfilePrefsRemote = {
+    async update(uid, patch) {
+        if (offline()) return { error: OFFLINE };
+        const { error } = await supabase.from('profiles').update(patch).eq('id', uid);
+        return { error };
+    },
+};
+
 // ------------------------------------------------------------------- profit calculations
 /** Instant list (account copy + items not uploaded yet) shown while the account list loads. */
 export const readLocalProfitCalculations = (uid: string): SavedProfitCalc[] => readProfitCalcsLocal(browserStore, uid);
@@ -132,6 +143,33 @@ export async function saveLabelSheetToAccount(sheetId: string): Promise<SyncMode
     if (!uid) return 'failed';
     return saveSetting(browserStore, settingsRemote, uid, LABEL_SHEET_SETTING, sheetId);
 }
+
+// ---------------------------------------------------------------------- theme + language
+/**
+ * Theme / language chosen by the user → account (every device) + this device. Offline: kept as pending and uploaded at
+ * the next login. `skipProfile`: the profile columns were already saved by the caller (Settings → Save).
+ */
+export async function saveUiPreferencesToAccount(prefs: UiPrefs, opts: { skipProfile?: boolean } = {}): Promise<SyncMode> {
+    const uid = activeUserId || await signedInUserId();
+    if (!uid) return 'failed';
+    return saveUiPrefs(browserStore, settingsRemote, profilePrefsRemote, uid, prefs, opts);
+}
+
+/** At login: the theme / language to apply (account values, or a device change that never reached the account). */
+export async function syncUiPreferencesAfterLogin(uid: string, profile: UiPrefs): Promise<UiPrefs> {
+    if (!uid) return {};
+    try {
+        return (await syncUiPrefs(browserStore, settingsRemote, profilePrefsRemote, uid, profile)).prefs;
+    } catch {
+        return profile;
+    }
+}
+
+// ---------------------------------------------------------------------------- help tour
+/** Has this user already finished/skipped the first-run tour (account 'help.tour')? null = can't tell (offline). */
+export const loadAppTourSeen = (uid: string): Promise<boolean | null> => loadTourSeen(browserStore, settingsRemote, uid);
+/** Remembers that the tour was finished or skipped, in the account and on this device. */
+export const saveAppTourSeen = (uid: string): Promise<SyncMode> => saveTourSeen(browserStore, settingsRemote, uid);
 
 // -------------------------------------------------------------------------------- login
 const syncedUsers = new Set<string>();

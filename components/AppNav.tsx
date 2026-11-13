@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import Dock, { type DockItem } from './Dock.tsx';
 import { DropdownMenu, DropdownItem, DropdownSeparator, DropdownLabel } from './ui/DropdownMenu.tsx';
 import {
@@ -8,10 +9,11 @@ import {
 } from './Icons.tsx';
 import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
+import { HelpCircleIcon } from './help/HelpText.tsx';
 
 export type NavDestination =
     | 'dashboard' | 'clients' | 'communication' | 'inventory' | 'pricebook' | 'calendar'
-    | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing';
+    | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing' | 'help';
 
 export type NavSection = 'dashboard' | 'clients' | 'communication' | 'tools' | 'forum' | 'settings' | 'none';
 
@@ -43,6 +45,39 @@ const TOOLS: { dest: NavDestination; label: string; icon: React.ComponentType<Re
     { dest: 'calculator', label: 'Profit calculator', icon: CalculatorIcon, description: 'Price a job with your margin' },
 ];
 
+// ---------------------------------------------------------------------------
+// Mobile top-bar slots: on phones a page can show its title and quick actions in the app bar instead of an
+// almost empty bar above its own header (e.g. the dashboard greeting and the AI button). Hidden from md up.
+// ---------------------------------------------------------------------------
+export type HeaderSlotName = 'title' | 'actions';
+const slotEls: Record<HeaderSlotName, HTMLElement | null> = { title: null, actions: null };
+const slotUsers: Record<HeaderSlotName, number> = { title: 0, actions: 0 };
+const slotListeners = new Set<() => void>();
+const notifySlots = () => slotListeners.forEach(l => l());
+const subscribeSlots = (fn: () => void) => { slotListeners.add(fn); return () => { slotListeners.delete(fn); }; };
+const slotRef = (name: HeaderSlotName) => (el: HTMLElement | null) => {
+    if (slotEls[name] === el) return;
+    slotEls[name] = el;
+    notifySlots();
+};
+const titleSlotRef = slotRef('title');
+const actionsSlotRef = slotRef('actions');
+
+/** The element of a mobile app-bar slot, or null when the app bar isn't on screen. */
+export const useHeaderSlot = (name: HeaderSlotName): HTMLElement | null =>
+    useSyncExternalStore(subscribeSlots, () => slotEls[name], () => null);
+
+/** Renders its children in the app bar on phones (nothing when the app bar isn't shown). */
+export const MobileHeaderSlot: React.FC<{ name: HeaderSlotName; children: React.ReactNode }> = ({ name, children }) => {
+    const el = useHeaderSlot(name);
+    useEffect(() => {
+        slotUsers[name] += 1;
+        notifySlots();
+        return () => { slotUsers[name] -= 1; notifySlots(); };
+    }, [name]);
+    return el ? createPortal(children, el) : null;
+};
+
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join('') || 'U';
 
 const Avatar: React.FC<{ name: string; url?: string; size?: 'sm' | 'md' }> = ({ name, url, size = 'sm' }) => {
@@ -64,6 +99,7 @@ const AppNav: React.FC<AppNavProps> = ({
 }) => {
     const [moreOpen, setMoreOpen] = useState(false);
     const paid = isPaidTier(plan);
+    const hasPageTitle = useSyncExternalStore(subscribeSlots, () => slotUsers.title > 0, () => false);
 
     useEffect(() => {
         if (!moreOpen) return;
@@ -101,6 +137,7 @@ const AppNav: React.FC<AppNavProps> = ({
             <DropdownItem onClick={() => onNavigate('settings')}><SettingsIcon className="h-4 w-4" /> Settings</DropdownItem>
             <DropdownItem onClick={() => onNavigate('billing')}><CreditCardIcon className="h-4 w-4" /> Plan &amp; billing</DropdownItem>
             {!paid && <DropdownItem onClick={onUpgrade} className="text-primary"><StarIcon className="h-4 w-4" /> Upgrade</DropdownItem>}
+            <DropdownItem onClick={() => onNavigate('help')}><HelpCircleIcon className="h-4 w-4" /> Help &amp; tutorials</DropdownItem>
             <DropdownItem onClick={() => { window.location.href = `mailto:${SUPPORT_EMAIL}`; }}><HelpMailIcon className="h-4 w-4" /> Contact support</DropdownItem>
             <DropdownSeparator />
             <DropdownItem onClick={onLogout} destructive><LogoutIcon className="h-4 w-4" /> Log out</DropdownItem>
@@ -119,10 +156,12 @@ const AppNav: React.FC<AppNavProps> = ({
         <>
             <header className="no-print sticky top-0 z-40 border-b border-border bg-card/85 backdrop-blur-lg">
                 <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 sm:px-6 md:h-16 lg:px-8">
-                    <button type="button" onClick={() => onNavigate('dashboard')} className="flex shrink-0 items-center gap-2 rounded-xl pr-2" aria-label="ContractorDocs home">
+                    <button type="button" onClick={() => onNavigate('dashboard')} className={`shrink-0 items-center gap-2 rounded-xl pr-2 ${hasPageTitle ? 'hidden md:flex' : 'flex'}`} aria-label="ContractorDocs home">
                         <AppLogo className="h-8 w-8" />
-                        <span className="hidden text-base font-bold tracking-tight text-foreground sm:inline">ContractorDocs</span>
+                        <span className={`text-base font-bold tracking-tight text-foreground ${hasPageTitle ? 'hidden md:inline' : 'inline'}`}>ContractorDocs</span>
                     </button>
+                    {/* phones: the page's title (e.g. the dashboard greeting) */}
+                    <div ref={titleSlotRef} className="min-w-0 flex-1 md:hidden" />
 
                     <nav className="ml-4 hidden items-center gap-1 md:flex" aria-label="Main">
                         <button type="button" className={linkCls('dashboard')} onClick={() => onNavigate('dashboard')}>
@@ -166,7 +205,9 @@ const AppNav: React.FC<AppNavProps> = ({
                         </button>
                     </nav>
 
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                        {/* phones: the page's quick actions (e.g. the AI assistant on the dashboard) */}
+                        <div ref={actionsSlotRef} className="flex items-center gap-2 empty:hidden md:hidden" />
                         {!isOnline && (
                             <span className="badge badge-warning" title="You're offline. Saved data is read-only until you reconnect.">
                                 <WifiOffIcon className="h-3.5 w-3.5" /> Offline

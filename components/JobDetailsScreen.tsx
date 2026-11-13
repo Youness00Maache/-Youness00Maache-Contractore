@@ -10,6 +10,7 @@ import {
     MoreVerticalIcon, CopyIcon, TrashIcon, FileTextIcon, SparklesIcon, CheckCircleIcon, StarIcon, WifiOffIcon,
 } from './Icons.tsx';
 import { getDocumentTitle } from '../lib/documents.ts';
+import HelpButton from './help/HelpButton.tsx';
 import type { Translation } from '../utils/translations.ts';
 
 interface JobDetailsScreenProps {
@@ -182,6 +183,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                             <CalculatorIcon className="h-4 w-4" /> <span className="hidden sm:inline">Financials</span>
                         </button>
                         {aiButton}
+                        <HelpButton topic="jobs" />
                         <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 sm:inline-flex" disabled={!isOnline}>
                             <PlusIcon className="h-4 w-4" /> {t.newDocument || 'New document'}
                         </button>

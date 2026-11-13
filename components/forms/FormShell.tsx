@@ -7,6 +7,7 @@ import type { FormFeedback } from './useDocumentForm.ts';
 import { Spinner } from './Spinner.tsx';
 import { DocumentPreviewModal, PreviewButton } from './DocumentPreview.tsx';
 import { DocumentDesignContext } from './Sections.tsx';
+import HelpButton from '../help/HelpButton.tsx';
 
 export { Spinner };
 
@@ -168,6 +169,7 @@ export const FormShell: React.FC<FormShellProps> = ({
         <>
             {actions}
             {preview && <PreviewButton compact onClick={() => setPreviewOpen(true)} />}
+            <HelpButton topic={['Estimate', 'Change Order'].includes(String(preview?.formType)) ? 'estimates' : 'documents'} iconOnly />
         </>
     );
     const hasSecondary = Boolean(actions || preview);

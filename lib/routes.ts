@@ -35,6 +35,7 @@ export type AppView =
     | { screen: 'inventory'; openAddModal?: boolean; prefillData?: any }
     | { screen: 'pricebook'; openAddModal?: boolean; prefillData?: any }
     | { screen: 'profitCalculator' }
+    | { screen: 'help' }
     | { screen: 'forum'; postId?: string }
     | { screen: 'gmailCallback' }
     | { screen: 'billingSuccess' }
@@ -61,6 +62,7 @@ export const parseView = (pathname: string, search: string, state: any): AppView
         case '/inventory': return { screen: 'inventory', openAddModal: state?.openAddModal, prefillData: state?.prefillData };
         case '/pricebook': return { screen: 'pricebook', openAddModal: state?.openAddModal, prefillData: state?.prefillData };
         case '/calculator': return { screen: 'profitCalculator' };
+        case '/tutorials': return { screen: 'help' };
         case '/forum': return { screen: 'forum', postId: state?.postId || undefined };
         case '/gmail-callback': return { screen: 'gmailCallback' };
         case '/billing/success': return { screen: 'billingSuccess' };

@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../../lib/utils.ts';
 import { toNumber } from '../../utils/money.ts';
+import { formatNumberForInput } from './formUtils.ts';
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -148,12 +149,9 @@ export const DateField: React.FC<BaseInputProps & {
 // ---------------------------------------------------------------------------
 // Numbers: free typing (empty allowed while typing), parsed on every change, normalized on blur.
 // The value passed to onValueChange is always a finite number (never NaN).
+// A box that is only focused and left (never typed in) never changes the value: opening a saved document and
+// tabbing through it must not round or clamp what was saved (PARITY_V2 D1).
 // ---------------------------------------------------------------------------
-const formatNumber = (n: number, decimals?: number) => {
-    if (!Number.isFinite(n)) return '';
-    if (decimals === undefined) return String(n);
-    return Number.isInteger(n) ? String(n) : n.toFixed(decimals);
-};
 
 export interface NumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'min' | 'max'> {
     value: number | string | null | undefined;
@@ -162,6 +160,8 @@ export interface NumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInp
     max?: number;
     /** decimals shown after blur (2 for money) */
     decimals?: number;
+    /** unit prices: show up to this many decimals when the value has them ($2.375), instead of hiding them */
+    maxDecimals?: number;
     allowNegative?: boolean;
     prefix?: string;
     suffix?: string;
@@ -172,12 +172,15 @@ export interface NumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInp
  * says so, so the screen never shows a number that is not the one used in the totals.
  */
 export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(({
-    value, onValueChange, min = 0, max, decimals, allowNegative = false, prefix, suffix, className, onBlur, onFocus, ...rest
+    value, onValueChange, min = 0, max, decimals, maxDecimals, allowNegative = false, prefix, suffix, className, onBlur, onFocus, ...rest
 }, ref) => {
+    const formatNumber = (n: number, d?: number) => formatNumberForInput(n, d, maxDecimals);
     const numeric = toNumber(value);
     const [text, setText] = useState(() => (value === null || value === undefined || value === '' ? '' : formatNumber(numeric, decimals)));
     const [limitNote, setLimitNote] = useState('');
     const focused = useRef(false);
+    /** typed in since it got the focus */
+    const edited = useRef(false);
     useEffect(() => {
         if (!limitNote) return;
         const t = setTimeout(() => setLimitNote(''), 4000);
@@ -211,6 +214,7 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         if (allowNegative) raw = raw.replace(/(?!^)-/g, '');
         const parsed = raw === '' || raw === '-' || raw === '.' ? 0 : toNumber(raw);
         const clamped = clampValue(parsed);
+        edited.current = true;
         if (max !== undefined && parsed > max) {
             // e.g. 150 typed in a 0–100 % box: show (and use) 100, and say why
             setText(formatNumber(clamped, decimals));
@@ -224,6 +228,13 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
         focused.current = false;
+        if (!edited.current) {
+            // only looked at: show the stored value again, never rewrite it
+            if (value !== null && value !== undefined && value !== '') setText(formatNumber(numeric, decimals));
+            onBlur?.(e);
+            return;
+        }
+        edited.current = false;
         const parsed = text.trim() === '' || text === '-' || text === '.' ? 0 : toNumber(text);
         const clamped = clampValue(parsed);
         setText(formatNumber(clamped, decimals));
@@ -240,7 +251,7 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
             className={cn('input tabular-nums', prefix && 'pl-7', suffix && 'pr-8', className)}
             value={text}
             onChange={handleChange}
-            onFocus={e => { focused.current = true; e.currentTarget.select(); onFocus?.(e); }}
+            onFocus={e => { focused.current = true; edited.current = false; e.currentTarget.select(); onFocus?.(e); }}
             onBlur={handleBlur}
             {...rest}
         />

@@ -550,7 +550,7 @@ const Settings: React.FC<SettingsProps> = ({
                                         </button>
                                     ))}
                                 </div>
-                                <p className="mt-2 text-xs text-muted-foreground">Applied right away and remembered on this device.</p>
+                                <p className="mt-2 text-xs text-muted-foreground">Applied right away and saved to your account, so it follows you to every device you sign in on.</p>
                             </div>
                             <div className="sm:max-w-xs">
                                 <label htmlFor="language" className="label flex items-center gap-1.5"><LanguageIcon className="h-3.5 w-3.5" /> Language</label>
