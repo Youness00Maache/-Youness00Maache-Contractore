@@ -3,7 +3,8 @@
  *
  *   data ──renderDocument()──▶ print HTML (same HTML as the template gallery / previews)
  *        ──sandboxed iframe──▶ fonts + images loaded ──paginateDocument()──▶ fixed-size pages
- *        ──html2canvas (per page)──▶ jsPDF (one image per page + clickable link annotations)
+ *        ──html2canvas (per page)──▶ jsPDF (one image per page + clickable link annotations
+ *                                    + an invisible text layer, so the PDF text can be searched, selected and copied)
  *
  * jsPDF and html2canvas are loaded lazily (dynamic import) so they are not part of the initial bundle.
  * Every generator keeps its historical signature; the extra trailing `options` argument is optional.
@@ -28,6 +29,8 @@ export interface PdfOptions {
   loadFull?: () => Promise<any>;
   /** Render scale (default 2 = sharp print quality). */
   scale?: number;
+  /** Invisible text layer over each page image (default true): makes the text searchable/selectable. */
+  textLayer?: boolean;
 }
 
 type AnyProfile = Partial<UserProfile> | null | undefined;
@@ -106,6 +109,145 @@ const waitForDocument = async (doc: Document, timeoutMs = 6000) => {
 
 const isLightweight = (data: any) => !data || typeof data !== 'object' || data.__lightweight === true;
 
+// ---------------------------------------------------------------------------
+// invisible text layer
+// ---------------------------------------------------------------------------
+/**
+ * The page is a picture (html2canvas), so the exact look of every design is kept. On top of it the text is
+ * written again with PDF text rendering mode 3 ("invisible"): viewers draw nothing, but search, selection,
+ * copy/paste and screen readers use it. Each run (a line of one text node) is placed at the position the
+ * browser laid it out and horizontally scaled to the same width, so selections line up with the picture.
+ * The standard Helvetica font is used (no font embedding); characters outside its Windows-1252 set are
+ * transliterated where possible (− → -, → → ->) and otherwise replaced by '?', and runs that are mostly such
+ * characters (e.g. CJK) are left out instead of producing noise. Rotated/skewed text and SVG text are skipped.
+ */
+const WINANSI_HIGH = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ'.split(''));
+const TRANSLIT: Record<string, string> = {
+  '\u2212': '-', '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2043': '-', '\u00a0': ' ', '\u2009': ' ', '\u202f': ' ', '\u2007': ' ',
+  '\u2192': '->', '\u2190': '<-', '\u2713': 'v', '\u2714': 'v', '\u2715': 'x', '\u2716': 'x', '\u2605': '*', '\u2606': '*', '\u25cf': '•',
+  '\u2026': '…', '\u2264': '<=', '\u2265': '>=', '\u00d7': '×', '\u2116': 'No.', '\u2022': '•', '\u25aa': '•', '\u25a0': '•',
+};
+const toWinAnsi = (text: string): { out: string; unknown: number } => {
+  let out = '';
+  let unknown = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) || 0;
+    if (TRANSLIT[ch] !== undefined) { out += TRANSLIT[ch]; continue; }
+    if ((code >= 0x20 && code < 0x7f) || (code >= 0xa0 && code <= 0xff) || WINANSI_HIGH.has(ch)) { out += ch; continue; }
+    const base = ch.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+    if (base && base !== ch && [...base].every((c) => (c.codePointAt(0) || 0) < 0x100)) { out += base; continue; }
+    if (/[\u200b-\u200d\ufe0f\ufeff]/.test(ch)) continue; // zero-width characters, emoji variation selectors
+    out += '?';
+    unknown++;
+  }
+  return { out, unknown };
+};
+
+interface TextRun { text: string; left: number; top: number; right: number; bottom: number; fontPx: number }
+
+/** Text runs of one laid-out page, in page CSS pixels (relative to the page's top-left corner). */
+const collectTextRuns = (pageEl: HTMLElement, win: Window): TextRun[] => {
+  const doc = pageEl.ownerDocument;
+  const pageRect = pageEl.getBoundingClientRect();
+  const skipCache = new Map<Element, boolean>();
+  const styleCache = new Map<Element, CSSStyleDeclaration>();
+  const style = (el: Element) => {
+    let cs = styleCache.get(el);
+    if (!cs) { cs = win.getComputedStyle(el); styleCache.set(el, cs); }
+    return cs;
+  };
+  /** true when text in `el` is not drawn as plain horizontal text (hidden, transparent, rotated, SVG). */
+  const skipped = (el: Element | null): boolean => {
+    if (!el || el === pageEl) return false;
+    const hit = skipCache.get(el);
+    if (hit !== undefined) return hit;
+    const cs = style(el);
+    const tag = el.tagName.toLowerCase();
+    const result = tag === 'svg' || tag === 'style' || tag === 'script' || el instanceof (win as any).SVGElement
+      || cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0
+      || (cs.transform !== 'none' && !/^matrix\(1, 0, 0, 1,/.test(cs.transform))
+      || skipped(el.parentElement);
+    skipCache.set(el, result);
+    return result;
+  };
+  const runs: TextRun[] = [];
+  const range = doc.createRange();
+  const walker = doc.createTreeWalker(pageEl, 4 /* NodeFilter.SHOW_TEXT */);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const text = node.nodeValue || '';
+    if (!text.trim()) continue;
+    const parent = (node as Text).parentElement;
+    if (!parent || skipped(parent)) continue;
+    const cs = style(parent);
+    const color = cs.color || '';
+    if (/rgba\([^)]*,\s*0\)$/.test(color) || color === 'transparent') continue;
+    const transform = cs.textTransform;
+    const fontPx = parseFloat(cs.fontSize) || 12;
+    let run: TextRun | null = null;
+    const flush = () => { if (run && run.text.trim()) runs.push(run); run = null; };
+    const re = /\S+/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      range.setStart(node, m.index);
+      range.setEnd(node, m.index + m[0].length);
+      const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+      if (!rects.length) continue;
+      // a word broken over two lines (hyphenation, overflow-wrap) yields several rects: one run per rect
+      const pieces = rects.length === 1 ? [{ r: rects[0], w: m[0] }] : rects.map((r, i) => ({ r, w: i === 0 ? m![0] : '' }));
+      for (const { r, w } of pieces) {
+        const box = { left: r.left - pageRect.left, top: r.top - pageRect.top, right: r.right - pageRect.left, bottom: r.bottom - pageRect.top };
+        if (box.right < 0 || box.bottom < 0 || box.left > pageRect.width || box.top > pageRect.height) continue;
+        let word = w;
+        if (transform === 'uppercase') word = word.toUpperCase();
+        else if (transform === 'lowercase') word = word.toLowerCase();
+        else if (transform === 'capitalize') word = word.charAt(0).toUpperCase() + word.slice(1);
+        const cur = run as TextRun | null;
+        const sameLine = cur && Math.abs(box.top - cur.top) < Math.max(2, fontPx * 0.3) && box.left >= cur.right - 1 && box.left - cur.right < fontPx * 1.2;
+        if (cur && sameLine) {
+          cur.text += ` ${word}`;
+          cur.right = box.right;
+          cur.bottom = Math.max(cur.bottom, box.bottom);
+        } else {
+          flush();
+          run = { text: word, ...box, fontPx };
+        }
+      }
+    }
+    flush();
+  }
+  range.detach?.();
+  return runs;
+};
+
+/** Exposed for QA (scripts/templates-qa.ts overlays the runs on the page to check they line up). */
+export const __collectTextRuns = (pageEl: HTMLElement) => collectTextRuns(pageEl, pageEl.ownerDocument.defaultView || window);
+
+/** Writes the page's text runs as invisible PDF text (Tr 3) at their laid-out positions. */
+const addTextLayer = (pdf: any, pageEl: HTMLElement, win: Window, sx: number, sy: number) => {
+  const runs = collectTextRuns(pageEl, win);
+  if (!runs.length) return;
+  pdf.setFont('helvetica', 'normal');
+  for (const r of runs) {
+    const { out, unknown } = toWinAnsi(r.text);
+    if (!out.trim() || unknown > out.length / 2) continue;
+    const size = Math.max(1, r.fontPx * sy);
+    pdf.setFontSize(size);
+    const natural = pdf.getTextWidth(out);
+    const target = (r.right - r.left) * sx;
+    if (!(natural > 0) || !(target > 0)) continue;
+    const scale = Math.min(4, Math.max(0.25, target / natural));
+    // baseline: line boxes are ~1.2em tall with the alphabetic baseline ~22% above the box bottom
+    const h = r.bottom - r.top;
+    const baseline = (r.bottom - Math.max(0, (h - r.fontPx * 1.2) / 2) - r.fontPx * 0.26) * sy;
+    try {
+      pdf.text(out, r.left * sx, baseline, { renderingMode: 'invisible', horizontalScale: scale, baseline: 'alphabetic' });
+    } catch {
+      /* one bad run must never break the PDF */
+    }
+  }
+};
+
 /** Renders the print HTML in a hidden, script-less iframe, paginates it and returns a jsPDF document. */
 const htmlToPdf = async (render: RenderResult, opts: PdfOptions = {}) => {
   if (typeof document === 'undefined') throw new Error('PDF generation needs a browser.');
@@ -167,6 +309,10 @@ const htmlToPdf = async (render: RenderResult, opts: PdfOptions = {}) => {
       });
       if (i > 0) pdf.addPage(format, 'portrait');
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.86), 'JPEG', 0, 0, pw, ph, undefined, 'FAST');
+
+      if (opts.textLayer !== false) {
+        try { addTextLayer(pdf, pageEl, doc.defaultView || window, pw / width, ph / height); } catch { /* the image page is still complete */ }
+      }
 
       // clickable links (payment link, emails, websites in rich text)
       const sx = pw / width;

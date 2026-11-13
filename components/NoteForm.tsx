@@ -20,9 +20,11 @@ interface NoteFormProps {
     prefillData?: unknown;
     documentId?: string;
     existingNumbers?: string[];
+    /** When the note was created (printed as its date). */
+    createdAt?: string;
 }
 
-const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, data, onSave, onBack, onUploadImage, prefillData }) => {
+const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, data, onSave, onBack, onUploadImage, prefillData, createdAt }) => {
     const editorRef = useRef<RichTextEditorHandle>(null);
     const saved = note ?? data ?? null;
 
@@ -31,7 +33,7 @@ const NoteForm: React.FC<NoteFormProps> = ({ profile, job, note, data, onSave, o
         initial: saved,
         prefillData,
         onSave,
-        download: d => generateNotePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID),
+        download: d => generateNotePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, false, { createdAt }),
         makeDefaults: () => ({ title: '', content: '', tags: [], templateId: DEFAULT_TEMPLATE_ID, themeColors: { ...DEFAULT_THEME } }),
         hydrate: d => ({ ...d, title: d.title ?? '', content: d.content ?? '', tags: Array.isArray(d.tags) ? d.tags : [] }),
         prepare: d => ({ ...d, content: editorRef.current ? editorRef.current.getHtml() : sanitizeEditorHtml(d.content) }),

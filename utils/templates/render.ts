@@ -100,7 +100,7 @@ export const renderDocument = (
 ): RenderResult => {
   const d: any = data && typeof data === 'object' ? data : {};
   const templateId = resolveTemplateId(opts.templateId ?? d.templateId);
-  const theme = THEMES[templateId];
+  const theme = THEMES[templateId] || THEMES.classic;
   const meta = getTemplateMeta(templateId);
   const paper = opts.paper || pickPaperSize(d);
   const page = { width: PAPER[paper].width, height: PAPER[paper].height };
@@ -108,7 +108,7 @@ export const renderDocument = (
   const palette = buildPalette(templateId, pickUserColors(d, opts.colors), theme.ink);
   const userFont = opts.font !== undefined && opts.font !== null ? pickUserFont({ fontFamily: opts.font }) : pickUserFont(d);
   const keys = fontKeys(templateId, userFont);
-  const fonts = Array.from(new Set([keys.head, keys.body]));
+  const fonts = Array.from(new Set([keys.head, keys.body, ...(meta.extraFonts || [])]));
   const fontHref = googleFontsHref(fonts);
   const ctx: RenderCtx = { m: model, meta, c: palette, paper, page };
 

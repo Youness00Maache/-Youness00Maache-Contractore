@@ -7,12 +7,16 @@
  *   npx tsx scripts/templates-qa.ts --no-browser          # static checks only (fast, no Chrome needed)
  *   npx tsx scripts/templates-qa.ts --templates=classic,bold --kinds=invoice,dailyReport
  *   npx tsx scripts/templates-qa.ts --pdf                 # also generate real PDFs through services/pdfGenerator.ts
+ *                                                         # (and check their invisible text layer is searchable)
+ *   npx tsx scripts/templates-qa.ts --textlayer           # also write png/<id>/<kind>-textlayer.png: the PDF text layer
+ *                                                         # drawn in red over the page, to eyeball that it lines up
  *   npx tsx scripts/templates-qa.ts --previews            # also write public/templates/previews/<id>.png
  *   npx tsx scripts/templates-qa.ts --out=C:/tmp/cd-qa    # output folder (default: <os tmp>/contractordocs-templates-qa)
  *
  * Exit code 1 when any check fails.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { inflateSync } from 'node:zlib';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -28,6 +32,11 @@ import {
 import * as LegacyA from '../utils/templates/documentHtmlTemplates.ts';
 import * as LegacyB from '../utils/templates/allNewTemplates.ts';
 import { adaptTemplateForContentDocument } from '../utils/templates/templateAdapters.ts';
+import {
+  ALL_TEMPLATE_IDS, CORE_TEMPLATE_IDS, NEW_TEMPLATE_IDS, PREMIUM_TEMPLATE_IDS, STANDARD_TEMPLATE_IDS, getTemplateMeta,
+} from '../utils/templates/registry.ts';
+import { THEMES } from '../utils/templates/themes.ts';
+import { modelFieldChecks, renderFieldChecks } from './templates-fields.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Map(process.argv.slice(2).map((a) => {
@@ -166,25 +175,57 @@ const unitChecks = () => {
   const paid = renderDocument(FormType.Invoice, { ...ref, status: 'Paid' }, SAMPLE_PROFILE, SAMPLE_JOB);
   check(paid.model.totals.some((t) => t.kind === 'balance' && t.value === '$0.00'), 'paid invoice must show a $0.00 balance');
 
-  // backward compatibility
+  // every design is registered, has a theme and renders as itself; the original Standard/Premium ids are designs again
+  const registered = new Set<string>(TEMPLATES.map((t) => t.id));
+  check(TEMPLATES.length === ALL_TEMPLATE_IDS.length, `expected ${ALL_TEMPLATE_IDS.length} registered designs, found ${TEMPLATES.length}`);
+  check(new Set(TEMPLATES.map((t) => t.name.toLowerCase())).size === TEMPLATES.length, 'design names must be unique');
+  check(NEW_TEMPLATE_IDS.length + CORE_TEMPLATE_IDS.length >= 2 * 13, 'at least 26 designs besides the restored originals');
+  for (const id of ALL_TEMPLATE_IDS) {
+    check(registered.has(id), `design ${id} is not registered`);
+    check(THEMES[id]?.id === id, `design ${id} has no theme`);
+    check(resolveTemplateId(id) === id, `id ${id} must resolve to itself`);
+    const meta = getTemplateMeta(id);
+    const want = (STANDARD_TEMPLATE_IDS as readonly string[]).includes(id) ? 'standard'
+      : (PREMIUM_TEMPLATE_IDS as readonly string[]).includes(id) ? 'premium'
+        : (NEW_TEMPLATE_IDS as readonly string[]).includes(id) ? 'new' : 'featured';
+    check(meta.collection === want, `design ${id} must be in collection ${want} (is ${meta.collection})`);
+    const r = renderDocument(FormType.Invoice, { ...SAMPLE_DOCUMENTS.invoice, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+    check(r.templateId === id && r.html.includes(`cd-t-${id} `), `documents saved with ${id} must render the ${id} design (got ${r.templateId})`);
+  }
+  // backward compatibility: aliases (display names, spellings) still resolve
   for (const [legacy, mapped] of Object.entries(LEGACY_TEMPLATE_MAP)) {
     check(resolveTemplateId(legacy) === mapped, `legacy id ${legacy} must map to ${mapped}`);
     const r = renderDocument(FormType.Invoice, { ...SAMPLE_DOCUMENTS.invoice, templateId: legacy }, SAMPLE_PROFILE, SAMPLE_JOB);
     check(r.templateId === mapped, `legacy id ${legacy} renders with ${mapped}`);
   }
   check(resolveTemplateId(undefined) === 'classic' && resolveTemplateId('no-such-template') === 'classic', 'unknown ids fall back to classic');
+  check(resolveTemplateId('Template_Neon') === 'template_neon' && resolveTemplateId('modern-blue') === 'modern_blue' && resolveTemplateId('Neon Cyberpunk') === 'template_neon', 'ids match case- and spacing-insensitively');
 
   // legacy template functions (still imported by older code paths)
   const labels = { date: 'Date', dateValue: '2026-01-05', id: 'Invoice #', idValue: 'INV-1' };
   const legacyFns = [...Object.entries(LegacyA), ...Object.entries(LegacyB)].filter(([n, f]) => typeof f === 'function' && /^get.*HtmlTemplate$/.test(n) && n !== 'getProfitReportHtmlTemplate');
   check(legacyFns.length === 20, `expected 20 legacy template functions, found ${legacyFns.length}`);
+  const LEGACY_FN_IDS: Record<string, string> = {
+    getAdvancedHtmlTemplate: 'template_html', getHighEndHtmlTemplate: 'template_html_2', getGlassmorphismModernHtmlTemplate: 'template_html_2_new',
+    getPremiumMinimalistHtmlTemplate: 'template_html_3', getGradientBorderPremiumHtmlTemplate: 'template_html_4', getNeonCyberpunkHtmlTemplate: 'template_neon',
+    getLuxuryGoldNavyHtmlTemplate: 'template_luxury', getOrganicNatureHtmlTemplate: 'template_nature', getGeometricBoldHtmlTemplate: 'template_geometric',
+    getPastelSoftHtmlTemplate: 'template_pastel', getVintageCraftHtmlTemplate: 'template_vintage', getBlueprintTechHtmlTemplate: 'template_blueprint',
+    getAbstractMemphisHtmlTemplate: 'template_memphis', getCrimsonNoirHtmlTemplate: 'template_crimson', getWatercolorArtisticHtmlTemplate: 'template_watercolor',
+    getSwissGridHtmlTemplate: 'template_swiss', getSpaceOdysseyHtmlTemplate: 'template_space', getRetroTerminalHtmlTemplate: 'template_retro',
+    getPlayfulPopHtmlTemplate: 'template_pop', getElegantSerifHtmlTemplate: 'template_serif',
+  };
   for (const [name, fn] of legacyFns) {
     const html = (fn as any)({ ...ref, invoiceNumber: 'INV-1', clientName: 'Bob', signatureUrl: SAMPLE_DOCUMENTS.invoice.signatureUrl }, SAMPLE_PROFILE, 'INVOICE', labels);
     check(typeof html === 'string' && html.includes('$203.00') && html.includes(SAMPLE_DOCUMENTS.invoice.signatureUrl), `legacy ${name} must render correct totals and the signature`);
+    check(LEGACY_FN_IDS[name] && html.includes(`cd-t-${LEGACY_FN_IDS[name]} `), `legacy ${name} must render its original design ${LEGACY_FN_IDS[name]}`);
     const report = adaptTemplateForContentDocument(fn as any, { reportNumber: 'DR-1', date: '2026-01-05', content: '<p>CONTENT_MARKER</p>', projectName: 'P' }, SAMPLE_PROFILE, 'DAILY REPORT', labels);
     check((report.match(/CONTENT_MARKER/g) || []).length === 1, `legacy adapter ${name} must render daily report content exactly once`);
   }
   check(typeof LegacyA.getAIVisualHtml({ metrics: [{ label: 'Done', value: '80%' }], progress_percentage: 80 }, '#123456') === 'string', 'getAIVisualHtml still exported');
+
+  // field placement: every value a form collects lands in the right box, in every design (scripts/templates-fields.ts)
+  modelFieldChecks(check);
+  renderFieldChecks(templates, check);
 };
 
 // ---------------------------------------------------------------------------
@@ -340,6 +381,25 @@ const bundle = async (code: string, name: string) => {
   return readFileSync(outfile, 'utf8');
 };
 
+/** Text drawn with Tj/TJ in a jsPDF file (content streams inflated), PDF string escapes resolved. */
+const pdfText = (bytes: Buffer): { text: string; invisibleRuns: number } => {
+  const raw = bytes.toString('latin1');
+  let content = '';
+  const re = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) {
+    const start = m.index + m[0].length;
+    const end = raw.indexOf('endstream', start);
+    if (end < 0) break;
+    const chunk = bytes.subarray(start, end);
+    try { content += `${inflateSync(chunk).toString('latin1')}
+`; } catch { /* image or other binary stream */ }
+    re.lastIndex = end + 'endstream'.length;
+  }
+  const strings = Array.from(content.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)).map((x) => x[1].replace(/\\([()\\])/g, '$1'));
+  return { text: strings.join(' '), invisibleRuns: (content.match(/\b3 Tr\b/g) || []).length };
+};
+
 const navigate = async (cdp: Cdp, url: string) => {
   const loaded = cdp.once('Page.loadEventFired', 30000);
   await cdp.send('Page.navigate', { url });
@@ -385,6 +445,7 @@ const browserStage = async () => {
       || (shotsMode === 'sample' && (r.variant === 'sample' || (r.variant === 'long' && (r.kind === 'invoice' || r.kind === 'dailyReport'))));
     const targets = rendered.filter((r) => r.variant !== 'xss' && (wantShot(r) || r.variant === 'long' || r.variant === 'unicode'));
     let shots = 0;
+    let textLayerJs = '';
     for (const r of targets) {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 1200, deviceScaleFactor: 1, mobile: false });
       await navigate(cdp, pathToFileURL(r.file).href);
@@ -409,6 +470,27 @@ const browserStage = async () => {
         mkdirSync(dir, { recursive: true });
         writeFileSync(join(dir, `${r.kind}-${r.variant}.png`), Buffer.from(shot.data, 'base64'));
         shots++;
+      }
+      if (args.has('textlayer') && r.variant === 'sample') {
+        if (!textLayerJs) textLayerJs = await bundle(`import { __collectTextRuns } from './services/pdfGenerator.ts'; (window as any).__cdRuns = __collectTextRuns;`, 'qa-textlayer');
+        await cdp.eval(textLayerJs + ';0');
+        const n = await cdp.eval<number>(`(() => {
+          const page = document.querySelector('.cd-page'); const pr = page.getBoundingClientRect();
+          const runs = window.__cdRuns(page); const c = document.createElement('canvas').getContext('2d');
+          for (const r of runs) {
+            const h = r.bottom - r.top; const base = r.bottom - Math.max(0, (h - r.fontPx * 1.2) / 2) - r.fontPx * 0.26;
+            c.font = r.fontPx + 'px Helvetica, Arial, sans-serif'; const nat = c.measureText(r.text).width || 1;
+            const s = document.createElement('span'); s.textContent = r.text;
+            s.style.cssText = 'position:absolute;white-space:pre;z-index:99;color:rgba(230,0,0,.6);font:' + r.fontPx + 'px Helvetica, Arial, sans-serif;line-height:1;transform-origin:0 0;transform:scaleX(' + ((r.right - r.left) / nat) + ');left:' + (pr.left + scrollX + r.left) + 'px;top:' + (pr.top + scrollY + base - r.fontPx * 0.85) + 'px';
+            document.body.appendChild(s);
+          }
+          return runs.length; })()`);
+        check(n > 10, `[${r.template}/${r.kind}] text layer found only ${n} runs`);
+        const f = info.first;
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: f.x, y: f.y, width: f.w, height: f.h, scale: 1 } });
+        const dir = join(shotDir, r.template);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, `${r.kind}-textlayer.png`), Buffer.from(shot.data, 'base64'));
       }
       if (args.has('previews') && r.kind === 'invoice' && r.variant === 'sample') {
         const previewDir = join(ROOT, 'public', 'templates', 'previews');
@@ -443,6 +525,11 @@ const browserStage = async () => {
           const pages = (bytes.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
           check(bytes.length > 10000 && bytes.toString('latin1', 0, 5) === '%PDF-', `${tag} produced an invalid PDF`);
           check(pages > 1, `${tag} long document should have several PDF pages (got ${pages})`);
+          // searchable text: the invisible text layer holds the document's own words
+          const layer = pdfText(bytes);
+          check(layer.invisibleRuns > 0, `${tag} PDF has no invisible text layer`);
+          const probes = [data.invoiceNumber || data.reportNumber, data.clientName || data.projectName, 'Page 2 of'].filter(Boolean).map(String);
+          for (const probe of probes) check(layer.text.includes(probe), `${tag} PDF text layer is missing "${probe}"`);
           const file = join(pdfDir, `${template}-${kind}-${variant}.pdf`);
           writeFileSync(file, bytes);
           console.log(`pdf: ${file} (${pages} pages, ${(bytes.length / 1024).toFixed(0)} KB)`);

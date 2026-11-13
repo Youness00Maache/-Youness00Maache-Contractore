@@ -146,8 +146,12 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
     out.forEach((n) => flow.appendChild(n));
   };
 
-  /** Split an inline-only element between words; leaves the head in place and returns the tail. */
-  const splitWords = (el: HTMLElement): HTMLElement | null => {
+  /**
+   * Split an inline-only element between words; leaves the head in place and returns the tail.
+   * `container` is the block being filled: whatever it draws below the text (a boxed note's bottom padding and
+   * border, nested wrappers) is reserved too, so the head never overflows the page.
+   */
+  const splitWords = (el: HTMLElement, container?: HTMLElement): HTMLElement | null => {
     const walker = doc.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
     const positions: Array<{ node: Text; offset: number }> = [];
     let t: Node | null;
@@ -156,8 +160,10 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
       for (let k = 1; k < text.length; k++) if (/\s/.test(text[k]) && !/\s/.test(text[k - 1])) positions.push({ node: t as Text, offset: k });
     }
     if (!positions.length) return null;
-    // safety margin: line boxes, list markers and collapsing margins are a few px taller than the text rects
-    const lim = limit() - 12;
+    // safety margin: line boxes, list markers and collapsing margins are a few px taller than the text rects;
+    // plus everything the container draws below this element (padding, borders of boxed sections)
+    const below = container ? Math.max(0, bottomOf(container) - el.getBoundingClientRect().bottom) : 0;
+    const lim = limit() - Math.max(12, below + 6);
     const range = doc.createRange();
     range.setStart(el, 0);
     const bottomAt = (idx: number) => {
@@ -222,7 +228,7 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
       head.removeChild(k);
       if (isInlineOnly(k)) {
         head.appendChild(k);
-        const rest = splitWords(k);
+        const rest = splitWords(k, chunk);
         if (rest) { n++; tailFirst = rest; } else head.removeChild(k);
       }
       break;
@@ -267,7 +273,7 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
       let tail: HTMLElement | null = null;
       if (isInlineOnly(u) && u.tagName !== 'IMG') {
         flow.appendChild(u);
-        tail = splitWords(u);
+        tail = splitWords(u, chunk);
         if (!tail) flow.removeChild(u);
       } else if (['UL', 'OL', 'TABLE', 'BLOCKQUOTE', 'DIV', 'SECTION', 'FIGURE'].includes(u.tagName)) {
         tail = splitContainer(u, flow, chunk);

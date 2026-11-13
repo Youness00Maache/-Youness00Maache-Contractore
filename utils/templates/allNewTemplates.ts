@@ -1,6 +1,6 @@
 /**
- * LEGACY ENTRY POINT (kept so older imports keep working). The 15 old "premium" designs now render through
- * the shared template engine with their closest current design (see LEGACY_TEMPLATE_MAP in ./registry.ts).
+ * LEGACY ENTRY POINT (kept so older imports keep working). The 15 original "premium" designs render through
+ * the shared template engine with their restored design of the same id (designs/premium2-4.ts).
  */
 import { legacyTemplate } from './legacy.ts';
 

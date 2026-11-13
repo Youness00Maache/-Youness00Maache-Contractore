@@ -1,8 +1,8 @@
 /**
  * LEGACY ENTRY POINT (kept so older imports keep working).
  * These functions used to contain five hand-written HTML templates that re-implemented money math and
- * printed unescaped data. They now delegate to the shared template engine (./render.ts); each old design
- * maps to its closest current design via LEGACY_TEMPLATE_MAP. New code: `renderDocument()` from './index.ts'.
+ * printed unescaped data. They now delegate to the shared template engine (./render.ts), which renders each
+ * original design under its own id (designs/premium1.ts). New code: `renderDocument()` from './index.ts'.
  */
 import type { AIVisualData } from '../../types.ts';
 import { FormType } from '../../types.ts';

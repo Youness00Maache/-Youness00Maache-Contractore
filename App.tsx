@@ -1451,7 +1451,7 @@ const App: React.FC = () => {
         switch (formType) {
             case FormType.Invoice: return <InvoiceForm key={componentKey} {...common} userProfile={profile} invoice={form?.data as InvoiceData | null} onClose={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
             case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} {...common} profile={profile} report={form?.data as DailyJobReportData | null} onBack={handleCloseForm} />;
-            case FormType.Note: return <NoteForm key={componentKey} {...common} profile={profile} note={form?.data as NoteData | null} onBack={handleCloseForm} />;
+            case FormType.Note: return <NoteForm key={componentKey} {...common} profile={profile} note={form?.data as NoteData | null} createdAt={form?.createdAt} onBack={handleCloseForm} />;
             case FormType.WorkOrder: return <WorkOrderForm key={componentKey} {...common} profile={profile} data={form?.data as WorkOrderData | null} onBack={handleCloseForm} />;
             case FormType.TimeSheet: return <TimeSheetForm key={componentKey} {...common} profile={profile} data={form?.data as TimeSheetData | null} onBack={handleCloseForm} />;
             case FormType.MaterialLog: return <MaterialLogForm key={componentKey} {...common} profile={profile} inventory={inventory} data={form?.data as MaterialLogData | null} onBack={handleCloseForm} />;

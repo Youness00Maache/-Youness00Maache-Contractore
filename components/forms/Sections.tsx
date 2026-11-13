@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import type { Client, Job, UserProfile, AIVisualData } from '../../types.ts';
+import React, { createContext, useContext, useMemo, useRef, useState } from 'react';
+import type { Client, FormType, Job, UserProfile, AIVisualData } from '../../types.ts';
 import { cn } from '../../lib/utils.ts';
 import { BriefcaseIcon, UserIcon, PaletteIcon, PenIcon, SparklesIcon, GlobeIcon, CopyIcon, CheckIcon, CheckCircleIcon, UploadImageIcon, TrashIcon } from '../Icons.tsx';
 import TemplateSelector from '../TemplateSelector.tsx';
@@ -169,20 +169,49 @@ export const ClientSection: React.FC<{
 // ---------------------------------------------------------------------------
 // Design (template + colors)
 // ---------------------------------------------------------------------------
+/** The document being edited (same shape as FormShell's `preview` prop). */
+export interface DocumentDesignContextValue {
+    formType: FormType | string;
+    data?: unknown;
+    profile?: Partial<UserProfile> | null;
+    job?: Partial<Job> | null;
+}
+
+/**
+ * Lets the design picker know which document it belongs to without every form passing props:
+ * FormShell wraps its children in <DocumentDesignContext.Provider value={preview}>.
+ */
+export const DocumentDesignContext = createContext<DocumentDesignContextValue | null>(null);
+
 export const TemplateSection: React.FC<{
     templateId?: string;
     themeColors?: { primary: string; secondary: string };
     onChange: (patch: { templateId?: string; themeColors?: { primary: string; secondary: string } }) => void;
-}> = ({ templateId, themeColors, onChange }) => (
-    <FormSection title="Design" description="Pick a template and colors for the PDF." icon={PaletteIcon}>
-        <TemplateSelector
-            selectedTemplateId={templateId || DEFAULT_TEMPLATE_ID}
-            onSelectTemplate={id => onChange({ templateId: id })}
-            themeColors={themeColors || DEFAULT_THEME}
-            onColorsChange={colors => onChange({ themeColors: colors })}
-        />
-    </FormSection>
-);
+    /** Document type of the form; falls back to DocumentDesignContext, then Invoice. */
+    documentType?: FormType | string;
+    /** The form's current data (the full-size preview shows it instead of sample data). */
+    data?: unknown;
+    profile?: Partial<UserProfile> | null;
+    job?: Partial<Job> | null;
+}> = ({ templateId, themeColors, onChange, documentType, data, profile, job }) => {
+    const ctx = useContext(DocumentDesignContext);
+    const type = documentType ?? ctx?.formType;
+    const doc = (data ?? ctx?.data) as Record<string, any> | null | undefined;
+    return (
+        <FormSection title="Design" description="Pick a template and colors for the PDF." icon={PaletteIcon}>
+            <TemplateSelector
+                selectedTemplateId={templateId || DEFAULT_TEMPLATE_ID}
+                onSelectTemplate={id => onChange({ templateId: id })}
+                themeColors={themeColors || DEFAULT_THEME}
+                onColorsChange={colors => onChange({ themeColors: colors })}
+                documentType={type}
+                previewData={doc && typeof doc === 'object' ? doc : null}
+                profile={profile ?? ctx?.profile ?? null}
+                job={job ?? ctx?.job ?? null}
+            />
+        </FormSection>
+    );
+};
 
 // ---------------------------------------------------------------------------
 // Signature

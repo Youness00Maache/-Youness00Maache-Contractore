@@ -51,7 +51,7 @@ const DailyJobReportForm: React.FC<DailyJobReportFormProps> = ({ profile, job, c
         prefillData,
         onSave: onSave as SaveHandler<ReportState>,
         existingNumbers,
-        download: d => generateDailyJobReportPDF(profile, d, d.templateId || DEFAULT_TEMPLATE_ID),
+        download: d => generateDailyJobReportPDF(profile, d, d.templateId || DEFAULT_TEMPLATE_ID, false, { job }),
         makeDefaults: () => ({
             title: '',
             reportNumber: '',

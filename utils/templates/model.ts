@@ -136,6 +136,20 @@ const meta = (label: string, value: unknown, fmt?: (v: unknown) => string): Meta
   return out ? { label, value: esc(out) } : null;
 };
 const compact = <T>(list: Array<T | null | undefined | false | ''>): T[] => list.filter(Boolean) as T[];
+/**
+ * Joins short items ("phone · email · website") into lines of at most ~`max` characters, so a narrow header
+ * column never wraps in the middle of the list and leaves a dangling "·" at the end of a line.
+ */
+const joinShort = (items: string[], max: number): string[] => {
+  const plain = (h: string) => h.replace(/<[^>]+>/g, '').replace(/&[a-z#0-9]+;/gi, 'x').length;
+  const out: string[][] = [];
+  for (const it of items) {
+    // first fit: "phone · website" can share a line while a long e-mail address gets its own
+    const line = out.find((l) => l.reduce((a, x) => a + plain(x) + 3, 0) + plain(it) <= max);
+    if (line) line.push(it); else out.push([it]);
+  }
+  return out.map((l) => l.join('<span class="cd-dot">·</span>'));
+};
 const section = (id: string, title: string, value: unknown): Section | null => {
   if (!has(value)) return null;
   const html = textOrRichToHtml(value);
@@ -266,13 +280,18 @@ export const buildDocumentModel = (
     email,
     website,
     lines: [...addressLines, phone, email, website].filter(Boolean),
-    compactLines: [...addressLines, [phone, email, website].filter(Boolean).join('<span class="cd-dot">·</span>')].filter(Boolean),
+    compactLines: [...addressLines, ...joinShort([phone, email, website].filter(Boolean), 40)],
     tagline: t(d.companyTagline || p.jobTitle),
   };
 
   // --- client -----------------------------------------------------------------
-  const clientName = str(d.clientName).trim() || str(j.clientName).trim();
-  const clientAddress = d.clientAddress ?? (kind === 'dailyReport' || kind === 'warranty' ? '' : j.clientAddress);
+  // receipts saved by older versions kept the payer in `from`
+  const clientName = str(d.clientName).trim() || (kind === 'receipt' ? str(d.from).trim() : '') || str(j.clientName).trim();
+  // The job's client address is only a fallback for the job's own client: a different client typed on the form
+  // must never get the job client's address, and forms without a client-address field (daily report, warranty,
+  // expense) never show one.
+  const sameAsJobClient = clientName.toLowerCase() === str(j.clientName).trim().toLowerCase();
+  const clientAddress = d.clientAddress ?? (kind === 'dailyReport' || kind === 'warranty' || kind === 'expenseLog' || !sameAsJobClient ? '' : j.clientAddress);
   const clientParty = (label: string, extraLines: string[] = []): Party | null => {
     const lines = [...splitLines(clientAddress), ...compact([t(d.clientEmail), t(d.clientPhone)]), ...extraLines].filter(Boolean);
     if (!clientName && !lines.length) return null;
@@ -406,9 +425,9 @@ export const buildDocumentModel = (
       model.before = compact([section('description', 'Description of change', d.description || d.description_html)]);
       model.items = lineItemsTable(d.lineItems, fmt);
       model.totals = [
-        { label: 'Original contract sum', value: money(original, fmt) },
-        { label: 'Net change by this order', value: signed(change) },
-        { label: 'New contract sum', value: money(newSum, fmt), kind: 'grand' },
+        { label: 'Current contract value', value: money(original, fmt) },
+        { label: 'This change', value: signed(change) },
+        { label: 'New contract total', value: money(newSum, fmt), kind: 'grand' },
       ];
       model.highlight = { label: 'Net change', value: esc(signed(change)) };
       model.after = compact([section('terms', 'Terms', d.terms)]);
@@ -419,7 +438,7 @@ export const buildDocumentModel = (
       const { lines, tot } = standardTotals(d, fmt, 'Order total');
       model.number = t(d.poNumber);
       model.numberLabel = 'PO No.';
-      model.status = badge(d.status);
+      model.status = badge(d.status, /^(draft|)$/i);
       const vendorLines = [...splitLines(d.vendorAddress), t(d.vendorPhone), t(d.vendorEmail)].filter(Boolean);
       const shipLines = [...splitLines(d.shipToAddress), t(d.shipToPhone)].filter(Boolean);
       model.parties = compact([
@@ -431,15 +450,14 @@ export const buildDocumentModel = (
       model.meta = compact([
         meta('Order date', d.date, fd),
         meta('Required by', d.deliveryDate, fd),
-        meta('Status', /^draft$/i.test(str(d.status)) ? '' : d.status),
         meta('Project', projectName),
       ]);
       model.keyDate = meta('Required by', d.deliveryDate, fd);
       model.items = lineItemsTable(d.lineItems, fmt, { descLabel: 'Item', rateLabel: 'Unit price' });
       model.totals = lines;
       model.highlight = { label: 'Order total', value: esc(money(tot.total, fmt)) };
-      model.after = compact([section('delivery', 'Delivery instructions', d.deliveryInstructions), section('notes', 'Notes', d.notes)]);
-      model.signatures = [contractorSig() || sig('Authorized by', '', companyName, '')];
+      model.after = compact([section('delivery', 'Delivery instructions', d.deliveryInstructions), section('notes', 'Notes to vendor', d.notes)]);
+      model.signatures = [contractorSig() || sig('Authorized signature', '', companyName, '')];
       break;
     }
     case 'workOrder': {
@@ -447,7 +465,7 @@ export const buildDocumentModel = (
       model.numberLabel = 'Work Order No.';
       model.status = badge(d.status, /^$/);
       model.parties = compact([clientParty('Customer / service location')]);
-      model.meta = compact([meta('Date', d.date, fd), meta('Status', d.status), meta('Project', projectName)]);
+      model.meta = compact([meta('Date', d.date, fd), meta('Project', projectName)]);
       model.keyDate = meta('Date', d.date, fd);
       model.facts = compact([
         has(d.hours) ? { label: 'Labor hours', value: esc(`${formatNumber(d.hours, 2)} h`) } : null,
@@ -456,7 +474,7 @@ export const buildDocumentModel = (
       model.highlight = has(d.cost) ? { label: 'Estimated cost', value: esc(money(d.cost, fmt)) } : null;
       model.before = compact([
         section('scope', 'Scope of work', d.description || d.description_html),
-        section('materials', 'Materials', d.materialsUsed),
+        section('materials', 'Materials used', d.materialsUsed),
       ]);
       model.after = compact([section('terms', 'Terms', d.terms)]);
       model.signatures = compact([contractorSig() || sig('Technician', '', '', ''), clientSig('Customer approval', true)]);
@@ -493,10 +511,10 @@ export const buildDocumentModel = (
       model.numberLabel = 'Time Sheet No.';
       model.status = badge(d.status);
       model.parties = compact([
-        has(d.workerName) ? { label: 'Employee', name: t(d.workerName), lines: compact([t(d.workerRole)]) } : null,
+        has(d.workerName) ? { label: 'Worker', name: t(d.workerName), lines: compact([t(d.workerRole)]) } : null,
         clientParty('Job / client'),
       ]);
-      model.meta = compact([meta('Date', d.date, fd), meta('Project', projectName), meta('Status', d.status)]);
+      model.meta = compact([meta('Date', d.date, fd), meta('Project', projectName)]);
       model.keyDate = meta('Date', d.date, fd);
       model.facts = [
         { label: 'Regular hours', value: esc(formatNumber(reg, 2)) },
@@ -506,7 +524,7 @@ export const buildDocumentModel = (
       model.items = {
         columns: [
           { label: 'Date', align: 'left', width: '22%' },
-          { label: 'Employee', align: 'left', cls: 'cd-c-desc' },
+          { label: 'Worker', align: 'left', cls: 'cd-c-desc' },
           { label: 'Regular', align: 'right', width: '14%' },
           { label: 'Overtime', align: 'right', width: '14%' },
           { label: 'Total', align: 'right', width: '14%' },
@@ -516,11 +534,11 @@ export const buildDocumentModel = (
       };
       model.totals = [{ label: 'Total hours', value: esc(`${formatNumber(total, 2)} h`), kind: 'grand' }];
       model.highlight = { label: 'Total hours', value: esc(`${formatNumber(total, 2)} h`) };
-      model.after = compact([section('notes', 'Work performed', d.notes)]);
-      model.signatures = [
-        has(d.signatureUrl) ? sig('Employee signature', d.signatureUrl, d.workerName, d.date, fmt) : sig('Employee signature', '', d.workerName, ''),
-        sig('Supervisor approval', '', '', ''),
-      ];
+      model.after = compact([section('notes', 'Notes', d.notes)]);
+      // the form's single signature is "worker or supervisor", so it is not attributed to the worker by name
+      model.signatures = has(d.signatureUrl)
+        ? [sig('Signature', d.signatureUrl, d.signerName, d.date, fmt)]
+        : [sig('Worker signature', '', '', ''), sig('Supervisor approval', '', '', '')];
       break;
     }
     case 'materialLog': {
@@ -532,10 +550,10 @@ export const buildDocumentModel = (
       model.number = t(d.logNumber || d.materialLogNumber);
       model.numberLabel = 'Log No.';
       model.parties = compact([
-        projectName ? { label: 'Project', name: esc(projectName), lines: splitLines(d.projectAddress || d.clientAddress || j.clientAddress) } : null,
-        clientName ? { label: 'Client', name: esc(clientName), lines: [] } : null,
+        projectName || has(d.projectAddress) ? { label: 'Project', name: esc(projectName), lines: splitLines(d.projectAddress) } : null,
+        clientParty('Client'),
       ]);
-      model.meta = compact([meta('Date', d.date, fd), meta('Project', projectName)]);
+      model.meta = compact([meta('Date', d.date, fd)]);
       model.keyDate = meta('Date', d.date, fd);
       model.items = {
         columns: [
@@ -557,7 +575,7 @@ export const buildDocumentModel = (
       model.totals = [{ label: 'Total material cost', value: money(total, fmt), kind: 'grand' }];
       model.highlight = { label: 'Total cost', value: esc(money(total, fmt)) };
       model.after = compact([section('notes', 'Notes', d.notes)]);
-      model.signatures = compact([has(d.signatureUrl) ? sig('Recorded by', d.signatureUrl, d.signerName || p.name, d.date, fmt) : null]);
+      model.signatures = compact([has(d.signatureUrl) ? sig('Received / verified by', d.signatureUrl, d.signerName, d.date, fmt) : null]);
       break;
     }
     case 'expenseLog': {
@@ -575,14 +593,20 @@ export const buildDocumentModel = (
         rows = [{ desc: d.item || d.category || 'Expense', qty: 1, rate: amt, amount: amt }];
       }
       const subtotal = roundMoney(rows.reduce((a, r) => a + r.amount, 0));
-      const total = roundMoney(subtotal + tax);
+      const computed = roundMoney(subtotal + tax);
+      // "Total paid" (amount) is what the user entered (or what the form computed from items + tax); when it
+      // differs from items + tax the difference is shown as an adjustment so the lines still add up.
+      const paidTotal = toNumber(d.amount) > 0 ? roundMoney(toNumber(d.amount)) : 0;
+      const total = paidTotal || computed;
+      const adjustment = paidTotal ? roundMoney(paidTotal - computed) : 0;
       model.number = t(d.expenseNumber || d.reportNumber);
       model.numberLabel = 'Report No.';
       model.parties = compact([
-        has(d.vendor) ? { label: 'Vendor / paid to', name: t(d.vendor), lines: [] } : null,
+        has(d.vendor) ? { label: 'Vendor / store', name: t(d.vendor), lines: [] } : null,
         clientParty('Job / client'),
       ]);
-      model.meta = compact([meta('Date', d.date, fd), meta('Category', d.category), meta('Project', projectName), meta('Item', lineItems.length ? '' : d.item)]);
+      // (an old single-item expense's `item` is the description of its row, so it is not repeated in the details)
+      model.meta = compact([meta('Date', d.date, fd), meta('Category', d.category), meta('Project', projectName)]);
       model.keyDate = meta('Date', d.date, fd);
       model.items = {
         columns: [
@@ -596,12 +620,13 @@ export const buildDocumentModel = (
       };
       model.totals = compact<TotalLine>([
         { label: 'Subtotal', value: money(subtotal, fmt) },
-        tax > 0 ? { label: 'Tax', value: money(tax, fmt) } : null,
-        { label: 'Total expenses', value: money(total, fmt), kind: 'grand' },
+        tax > 0 ? { label: 'Tax paid', value: money(tax, fmt) } : null,
+        adjustment ? { label: 'Adjustment', value: adjustment < 0 ? negMoney(-adjustment, fmt) : money(adjustment, fmt) } : null,
+        { label: 'Total paid', value: money(total, fmt), kind: 'grand' },
       ]);
-      model.highlight = { label: 'Total expenses', value: esc(money(total, fmt)) };
+      model.highlight = { label: 'Total paid', value: esc(money(total, fmt)) };
       model.after = compact([section('notes', 'Notes', d.notes)]);
-      model.signatures = compact([has(d.signatureUrl) ? sig('Submitted by', d.signatureUrl, d.signerName || p.name, d.date, fmt) : null]);
+      model.signatures = compact([has(d.signatureUrl) ? sig('Approved by', d.signatureUrl, d.signerName, d.date, fmt) : null]);
       break;
     }
     case 'warranty': {
@@ -649,7 +674,7 @@ export const buildDocumentModel = (
       model.numberLabel = 'Receipt No.';
       model.status = { text: esc(status || 'Payment received'), tone: /partial|deposit/i.test(status) ? 'warn' : 'good' };
       model.parties = compact([clientParty('Received from')]);
-      model.meta = compact([meta('Date', d.date, fd), meta('Payment method', d.paymentMethod), meta('Project', projectName), meta('For invoice', d.invoiceNumber)]);
+      model.meta = compact([meta('Date received', d.date, fd), meta('Payment method', d.paymentMethod), meta('Project', projectName), meta('For invoice', d.invoiceNumber)]);
       model.keyDate = meta('Date', d.date, fd);
       model.highlight = { label: 'Amount received', value: esc(money(amount, fmt)) };
       model.intro = `Received from <strong>${clientName ? esc(clientName) : 'the client'}</strong> the sum of <strong>${esc(money(amount, fmt))}</strong>${has(d.paymentMethod) ? ` by ${t(d.paymentMethod)}` : ''}${has(d.date) ? ` on ${esc(fd(d.date))}` : ''}.`;

@@ -6,6 +6,7 @@ import { DropdownItem, DropdownMenu } from '../ui/DropdownMenu.tsx';
 import type { FormFeedback } from './useDocumentForm.ts';
 import { Spinner } from './Spinner.tsx';
 import { DocumentPreviewModal, PreviewButton } from './DocumentPreview.tsx';
+import { DocumentDesignContext } from './Sections.tsx';
 
 export { Spinner };
 
@@ -220,7 +221,8 @@ export const FormShell: React.FC<FormShellProps> = ({
                         <FeedbackBanner feedback={feedback} onDismiss={onDismissFeedback} />
                     </div>
                 )}
-                {children}
+                {/* Lets the design picker show this document's type and data instead of a sample invoice. */}
+                <DocumentDesignContext.Provider value={preview ?? null}>{children}</DocumentDesignContext.Provider>
             </main>
 
             {/* phone action bar */}

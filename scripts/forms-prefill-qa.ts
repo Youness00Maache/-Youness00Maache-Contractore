@@ -200,8 +200,11 @@ const merge = (type: FormType, prefill: Record<string, unknown>, prev: Record<st
     const est = merge(FormType.Estimate, { validUntil: '2026-12-31', projectAddress: '5 Elm St', templateDescription: 'luxury gold' });
     check('Estimate validUntil → expiryDate, projectAddress → clientAddress', est.expiryDate === '2026-12-31' && est.clientAddress === '5 Elm St');
     check('template style description → current design id', typeof est.templateId === 'string' && est.templateId !== 'standard', est.templateId);
+    // the original designs are restored under their own ids: a pre-2026-11 id is kept and renders that design
     const legacyTpl = merge(FormType.Invoice, { templateId: 'template_html_2' });
-    check('legacy template id → current design', legacyTpl.templateId === 'executive', legacyTpl.templateId);
+    check('legacy template id → its restored design', legacyTpl.templateId === 'template_html_2', legacyTpl.templateId);
+    const aliasTpl = merge(FormType.Invoice, { templateId: 'Neon Cyberpunk' });
+    check('template display name → design id', aliasTpl.templateId === 'template_neon', aliasTpl.templateId);
 }
 {
     const prev = { clientName: 'Existing', taxRate: 5, notes: 'keep', lineItems: [{ id: 'a', description: 'x', quantity: 1, rate: 1 }], signatureUrl: PNG };

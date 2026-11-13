@@ -4,14 +4,16 @@ import { CheckIcon, EyeIcon, PaletteIcon, FontIcon, XCircleIcon } from './Icons.
 import { FormType } from '../types.ts';
 import type { Job, UserProfile } from '../types.ts';
 import {
-  DOC_TITLES, FONT_OPTIONS, PAPER, SAMPLE_JOB, SAMPLE_PROFILE, TEMPLATES, docKindFromType, getSampleDocument,
+  COLLECTIONS, DOC_TITLES, FONT_OPTIONS, PAPER, SAMPLE_JOB, SAMPLE_PROFILE, TEMPLATES, docKindFromType, getSampleDocument,
   getTemplateMeta, paginateDocument, pickPaperSize, pickUserFont, renderDocument, resolveTemplateId,
-  type PaperSize, type TemplateId,
+  type PaperSize, type TemplateCollection, type TemplateId,
 } from '../utils/templates/index.ts';
 
 /**
- * Document design picker: a gallery of live thumbnails (the real templates rendered with sample data),
- * plus accent color, font and paper size controls and a full-size preview.
+ * Document design picker: a gallery of live thumbnails (the real templates rendered with a sample document of
+ * the form's own type, branded with the user's company), grouped in collections (Featured, New, and the
+ * original Standard and Premium designs), plus accent color, font and paper size controls and a full-size
+ * preview of the document being edited.
  *
  * Colors, font and paper are stored in `themeColors` ({ primary, secondary, custom, font, paper }) unless
  * the parent passes `onFontChange`. Empty colors (or the old #000000/#666666 defaults) = the template's palette.
@@ -48,6 +50,10 @@ interface TemplateSelectorProps {
 const SWATCHES = ['#1f3a5f', '#0b4aa8', '#1f6b6b', '#2f6b3a', '#263238', '#7a2e3a', '#d9480f', '#6d28d9'];
 
 const isHex = (v?: string) => !!v && /^#[0-9a-f]{6}$/i.test(v);
+
+/** Company identity fields copied from the document being edited onto the sample thumbnails. */
+const BRAND_KEYS = ['companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'logoUrl'] as const;
+type CollectionTab = 'all' | TemplateCollection;
 
 /** Keeps a thumbnail unmounted until it scrolls into view (13 iframes at once is wasteful on phones). */
 const useInView = <T extends Element>(rootMargin = '200px') => {
@@ -203,23 +209,41 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
 
   const sample = useMemo(() => getSampleDocument(kind), [kind]);
   const thumbProfile = profile && (profile.companyName || profile.logoUrl) ? profile : SAMPLE_PROFILE;
+  // thumbnails show a sample document of this form's type, branded with the company on the form (when filled in)
+  const brandKey = BRAND_KEYS.map((k) => String(previewData?.[k] ?? '')).join('\u0001');
+  const brand = useDeferredValue(brandKey);
+  const thumbData = useMemo(() => {
+    const own = brand.split('\u0001');
+    const patch: Record<string, string> = {};
+    BRAND_KEYS.forEach((k, i) => { if (own[i]?.trim()) patch[k] = own[i]; });
+    // a company typed on the form replaces the whole sample company (never mix two companies)
+    const base = { ...sample.data };
+    if (patch.companyName || patch.logoUrl) BRAND_KEYS.forEach((k) => { base[k] = patch[k] || ''; });
+    return base;
+  }, [sample, brand]);
 
-  const thumbs = useMemo(() => TEMPLATES.map((t) => ({
+  const [tab, setTab] = useState<CollectionTab>(() => getTemplateMeta(selected).collection || 'featured');
+  const visible = useMemo(() => TEMPLATES.filter((t) => tab === 'all' || (t.collection || 'featured') === tab), [tab]);
+
+  const thumbs = useMemo(() => visible.map((t) => ({
     id: t.id,
     name: t.name,
     description: t.description,
-    html: renderDocument(sample.type, { ...sample.data, templateId: t.id }, thumbProfile, SAMPLE_JOB, {
+    accent: t.accent,
+    html: renderDocument(sample.type, { ...thumbData, templateId: t.id }, thumbProfile, SAMPLE_JOB, {
       templateId: t.id, bare: true, paper, colors: colorsForRender, font: deferredFont,
     }).html,
-  })), [sample, thumbProfile, paper, colorsForRender, deferredFont]);
+  })), [visible, sample, thumbData, thumbProfile, paper, colorsForRender, deferredFont]);
 
+  // the full-size preview shows the document being edited (falls back to the sample when the form is empty)
+  const ownData = !!previewData && Object.keys(previewData).length > 0;
   const previewHtml = useMemo(() => {
     if (!showPreview) return '';
-    const data = previewData && Object.keys(previewData).length ? previewData : sample.data;
-    return renderDocument(sample.type, { ...data, templateId: selected }, previewData ? (profile || {}) : thumbProfile, previewData ? job : SAMPLE_JOB, {
+    const data = ownData ? previewData! : sample.data;
+    return renderDocument(sample.type, { ...data, templateId: selected }, ownData ? (profile || {}) : thumbProfile, ownData ? job : SAMPLE_JOB, {
       templateId: selected, paper, colors: usesTemplateColors ? null : { primary: tc.primary, secondary: tc.secondary }, font,
     }).html;
-  }, [showPreview, previewData, sample, selected, profile, thumbProfile, job, paper, usesTemplateColors, tc.primary, tc.secondary, font]);
+  }, [showPreview, ownData, previewData, sample, selected, profile, thumbProfile, job, paper, usesTemplateColors, tc.primary, tc.secondary, font]);
 
   const emit = (patch: Partial<TemplateThemeColors>) => {
     if (!onColorsChange) return;
@@ -240,11 +264,31 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-base font-semibold text-foreground">Document design</p>
-          <p className="text-xs text-muted-foreground">{TEMPLATES.length} designs, shown on a sample {DOC_TITLES[kind].toLowerCase()}. Your PDF matches the preview exactly.</p>
+          <p className="text-xs text-muted-foreground">{TEMPLATES.length} designs, shown on a sample {DOC_TITLES[kind].toLowerCase()}. Preview shows your own {DOC_TITLES[kind].toLowerCase()} exactly as the PDF.</p>
         </div>
         <button type="button" className="btn btn-outline btn-sm h-10" onClick={() => setShowPreview(true)}>
           <EyeIcon className="h-4 w-4" /> Preview
         </button>
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted p-1" role="tablist" aria-label="Design collections">
+        {([{ id: 'all' as CollectionTab, label: 'All', description: 'Every design.' }, ...COLLECTIONS] as Array<{ id: CollectionTab; label: string; description: string }>).map((c) => {
+          const count = c.id === 'all' ? TEMPLATES.length : TEMPLATES.filter((t) => (t.collection || 'featured') === c.id).length;
+          if (!count) return null;
+          const on = tab === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setTab(c.id)}
+              className={`h-9 shrink-0 rounded-lg px-3 text-xs font-semibold transition ${on ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {c.label} <span className="ml-0.5 font-normal opacity-70">{count}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="max-h-[560px] overflow-y-auto overscroll-contain rounded-2xl p-1">
@@ -257,6 +301,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                 type="button"
                 role="radio"
                 aria-checked={active}
+                aria-label={t.name}
                 onClick={() => onSelectTemplate(t.id)}
                 title={t.description}
                 className={`group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-all focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 ${active ? 'border-primary ring-2 ring-primary' : 'border-border hover:border-primary/50 hover:shadow-md'}`}
@@ -268,7 +313,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                   </span>
                 )}
                 <span className="flex min-h-[44px] items-center gap-2 border-t border-border px-2.5 py-2">
-                  <span className="h-3 w-3 flex-none rounded-full border border-border" style={{ background: usesTemplateColors ? getTemplateMeta(t.id).accent : accentShown }} />
+                  <span className="h-3 w-3 flex-none rounded-full border border-border" style={{ background: usesTemplateColors ? t.accent : accentShown }} />
                   <span className={`truncate text-xs font-semibold ${active ? 'text-primary' : 'text-foreground'}`}>{t.name}</span>
                 </span>
               </button>
@@ -347,7 +392,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
       )}
 
       {showPreview && previewHtml && (
-        <PreviewModal html={previewHtml} title={`${selectedMeta.name} · ${DOC_TITLES[kind]}`} onClose={() => setShowPreview(false)} />
+        <PreviewModal html={previewHtml} title={`${selectedMeta.name} · ${ownData ? 'your' : 'sample'} ${DOC_TITLES[kind].toLowerCase()}`} onClose={() => setShowPreview(false)} />
       )}
     </div>
   );

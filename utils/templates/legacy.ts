@@ -1,7 +1,7 @@
 /**
  * Backward compatibility for code written against the pre-2026-11 template functions
- * (`getXxxHtmlTemplate(data, profile, title, labels)`). Each old function now renders the
- * closest current design through the shared engine, so totals, escaping, signatures and
+ * (`getXxxHtmlTemplate(data, profile, title, labels)`). Each old function now renders its
+ * restored original design through the shared engine, so totals, escaping, signatures and
  * content are always correct. New code should call `renderDocument()` from './index.ts'.
  */
 import { FormType } from '../../types.ts';

@@ -83,6 +83,12 @@ export interface ThemeDef {
   noSignoff?: boolean;
 }
 
+/** A design module entry (designs/*.ts): registry metadata + the theme that renders it. */
+export interface DesignDef {
+  meta: TemplateMeta;
+  theme: ThemeDef;
+}
+
 // ---------------------------------------------------------------------------
 // small pieces
 // ---------------------------------------------------------------------------

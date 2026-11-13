@@ -4,31 +4,14 @@
  * template defaults); SVG decorations get literal colors because html2canvas renders SVG as an image.
  */
 import type { TemplateId } from './registry.ts';
-import { mix, parseColor } from './colors.ts';
+import { mix } from './colors.ts';
 import {
-  block, closingInline, companyParty, defaultCompose, defaultParties, docNumber, footerHtml, lines, logoImg, metaList, monogram,
+  block, closingInline, defaultCompose, defaultParties, docNumber, footerHtml, lines, logoImg, metaList, monogram,
   partyBlocks, payButton, statusBadge, summaryNotes, titleH1, totalsHtml,
-  type Parts, type RenderCtx, type ThemeDef,
+  type RenderCtx, type ThemeDef,
 } from './blocks.ts';
-
-const rgba = (color: string, a: number) => {
-  const c = parseColor(color) || { r: 0, g: 0, b: 0 };
-  return `rgba(${c.r},${c.g},${c.b},${a})`;
-};
-
-const metaStrip = (ctx: RenderCtx, cls: string) =>
-  ctx.m.meta.length
-    ? block(cls, ctx.m.meta.map((i) => `<div class="cd-strip-item"><div class="cd-label">${i.label}</div><div class="cd-strip-value">${i.value}</div></div>`).join(''))
-    : '';
-
-const metaLines = (ctx: RenderCtx, cls = 'cd-meta-lines') =>
-  ctx.m.meta.length ? `<div class="${cls}">${ctx.m.meta.map((i) => `<div><span class="cd-ml-label">${i.label}:</span> <span class="cd-ml-value">${i.value}</span></div>`).join('')}</div>` : '';
-
-const without = (p: Parts, ...keys: Array<keyof Parts>) => {
-  const copy: Parts = { ...p };
-  for (const k of keys) (copy as any)[k] = Array.isArray(copy[k]) ? [] : '';
-  return copy;
-};
+import { metaLines, metaStrip, rgba, without } from './kit.ts';
+import { DESIGN_LIST } from './designs/index.ts';
 
 // ---------------------------------------------------------------------------
 // 1. Classic Professional
@@ -209,7 +192,7 @@ const spectrum: ThemeDef = {
 const statement: ThemeDef = {
   id: 'statement',
   pad: { top: 50, x: 60, bottom: 66 },
-  header: ({ m }) => block('cd-hdr', `${logoImg(m)}${titleH1(m)}<div class="st-sub">${[m.number ? `No. ${m.number}` : '', m.keyDate ? m.keyDate.value : ''].filter(Boolean).join(' — ')}</div>${statusBadge(m)}`),
+  header: ({ m }) => block('cd-hdr', `${logoImg(m)}${titleH1(m)}<div class="st-sub">${[m.number ? `No. ${m.number}` : '', m.keyDate ? `${m.keyDate.label}: ${m.keyDate.value}` : ''].filter(Boolean).join(' — ')}</div>${statusBadge(m)}`),
   parties: (ctx) => {
     const { m } = ctx;
     const cols = [
@@ -396,10 +379,10 @@ const ledger: ThemeDef = {
 };
 
 // ---------------------------------------------------------------------------
-// 8. Elegant Serif (tinted header band, serif)
+// 8. Serif Band (tinted header band, serif; id 'elegant' until the original Elegant design was restored)
 // ---------------------------------------------------------------------------
-const elegant: ThemeDef = {
-  id: 'elegant',
+const serifBand: ThemeDef = {
+  id: 'serif_band',
   pad: { top: 52, x: 58, bottom: 72, footer: 32 },
   fromParty: true,
   header: ({ m }) => block('cd-hdr', `
@@ -407,36 +390,36 @@ const elegant: ThemeDef = {
     <div class="el-right">${logoImg(m) || (m.company.initials ? `<div class="el-mono">${m.company.initials}</div>` : '')}<div class="el-name">${m.company.name}</div></div>`),
   chrome: () => '<div class="el-bar"></div>',
   css: () => `
-.cd-t-elegant{--title-size:54px;}
-.cd-t-elegant .cd-hdr{display:flex;justify-content:space-between;align-items:center;gap:24px;background:var(--accent-tint);margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 34px calc(-1 * var(--pl));padding:42px var(--px) 30px var(--pl);min-height:160px;}
-.cd-t-elegant .cd-title{text-transform:uppercase;font-weight:700;letter-spacing:.03em;}
-.cd-t-elegant .el-no{font-size:14px;font-weight:700;color:var(--accent-ink);margin-top:14px;letter-spacing:.04em;text-transform:uppercase;}
-.cd-t-elegant .el-date{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-ink);margin-top:4px;}
-.cd-t-elegant .el-right{text-align:center;max-width:40%;}
-.cd-t-elegant .cd-logo{margin:0 auto 6px;}
-.cd-t-elegant .el-mono{width:62px;height:62px;border-radius:50%;border:1.5px solid var(--accent-ink);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:22px;font-family:var(--font-head);margin:0 auto 6px;}
-.cd-t-elegant .el-name{font-family:var(--font-head);font-style:italic;font-size:22px;color:var(--accent-ink);line-height:1.2;}
-.cd-t-elegant .cd-label{color:var(--ink);font-size:10px;letter-spacing:.06em;}
-.cd-t-elegant .cd-party-name{font-size:12.5px;}
-.cd-t-elegant .cd-lines{color:var(--ink);font-weight:600;font-size:10.5px;}
-.cd-t-elegant .cd-parties{margin-bottom:28px;}
-.cd-t-elegant .cd-meta-row{border-bottom:0;padding:2px 0;}
-.cd-t-elegant .cd-table th{background:var(--accent);color:var(--on-accent);text-transform:none;letter-spacing:.02em;font-size:11px;font-weight:600;padding:11px 12px;}
-.cd-t-elegant .cd-table td{border-bottom:1px solid var(--ink);padding:12px;font-size:12px;}
-.cd-t-elegant .cd-table td:nth-child(even){background:var(--accent-soft);}
-.cd-t-elegant .cd-tot-label{color:var(--ink);font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:11px;text-align:right;flex:1;}
-.cd-t-elegant .cd-tot-value{font-weight:700;min-width:110px;text-align:right;}
-.cd-t-elegant .cd-tot-grand{background:var(--accent-tint);color:var(--accent-ink);border-radius:0;}
-.cd-t-elegant .cd-h{font-size:13px;text-transform:uppercase;letter-spacing:.08em;}
-.cd-t-elegant .el-bar{position:absolute;left:0;right:0;bottom:0;height:20px;background:var(--accent);}
+.cd-t-serif_band{--title-size:54px;}
+.cd-t-serif_band .cd-hdr{display:flex;justify-content:space-between;align-items:center;gap:24px;background:var(--accent-tint);margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 34px calc(-1 * var(--pl));padding:42px var(--px) 30px var(--pl);min-height:160px;}
+.cd-t-serif_band .cd-title{text-transform:uppercase;font-weight:700;letter-spacing:.03em;}
+.cd-t-serif_band .el-no{font-size:14px;font-weight:700;color:var(--accent-ink);margin-top:14px;letter-spacing:.04em;text-transform:uppercase;}
+.cd-t-serif_band .el-date{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-ink);margin-top:4px;}
+.cd-t-serif_band .el-right{text-align:center;max-width:40%;}
+.cd-t-serif_band .cd-logo{margin:0 auto 6px;}
+.cd-t-serif_band .el-mono{width:62px;height:62px;border-radius:50%;border:1.5px solid var(--accent-ink);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-size:22px;font-family:var(--font-head);margin:0 auto 6px;}
+.cd-t-serif_band .el-name{font-family:var(--font-head);font-style:italic;font-size:22px;color:var(--accent-ink);line-height:1.2;}
+.cd-t-serif_band .cd-label{color:var(--ink);font-size:10px;letter-spacing:.06em;}
+.cd-t-serif_band .cd-party-name{font-size:12.5px;}
+.cd-t-serif_band .cd-lines{color:var(--ink);font-weight:600;font-size:10.5px;}
+.cd-t-serif_band .cd-parties{margin-bottom:28px;}
+.cd-t-serif_band .cd-meta-row{border-bottom:0;padding:2px 0;}
+.cd-t-serif_band .cd-table th{background:var(--accent);color:var(--on-accent);text-transform:none;letter-spacing:.02em;font-size:11px;font-weight:600;padding:11px 12px;}
+.cd-t-serif_band .cd-table td{border-bottom:1px solid var(--ink);padding:12px;font-size:12px;}
+.cd-t-serif_band .cd-table td:nth-child(even){background:var(--accent-soft);}
+.cd-t-serif_band .cd-tot-label{color:var(--ink);font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:11px;text-align:right;flex:1;}
+.cd-t-serif_band .cd-tot-value{font-weight:700;min-width:110px;text-align:right;}
+.cd-t-serif_band .cd-tot-grand{background:var(--accent-tint);color:var(--accent-ink);border-radius:0;}
+.cd-t-serif_band .cd-h{font-size:13px;text-transform:uppercase;letter-spacing:.08em;}
+.cd-t-serif_band .el-bar{position:absolute;left:0;right:0;bottom:0;height:20px;background:var(--accent);}
 `,
 };
 
 // ---------------------------------------------------------------------------
-// 9. Bold Header (full-bleed color bands)
+// 9. Bold Header (full-bleed color bands; id 'bold' until the original Bold design was restored)
 // ---------------------------------------------------------------------------
-const bold: ThemeDef = {
-  id: 'bold',
+const boldHeader: ThemeDef = {
+  id: 'bold_header',
   pad: { top: 48, x: 56, bottom: 44, footer: 16 },
   header: ({ m }) => block('cd-hdr', `
     <div class="bd-left">${titleH1(m)}${m.number ? `<div class="bd-no">${m.numberLabel} ${m.number}</div>` : ''}${statusBadge(m)}</div>
@@ -455,46 +438,46 @@ const bold: ThemeDef = {
     return [...defaultCompose(without(p, 'summary')), band];
   },
   css: () => `
-.cd-t-bold{--title-size:50px;}
-.cd-t-bold .cd-hdr{display:flex;justify-content:space-between;align-items:center;gap:24px;background:var(--accent);color:var(--on-accent);margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 30px calc(-1 * var(--pl));padding:34px var(--px) 30px var(--pl);min-height:140px;}
-.cd-t-bold .cd-title{color:var(--on-accent);text-transform:uppercase;font-weight:800;letter-spacing:.01em;}
-.cd-t-bold .bd-no{font-size:12px;margin-top:10px;opacity:.9;}
-.cd-t-bold .cd-status{color:var(--on-accent);}
-.cd-t-bold .bd-co{text-align:right;max-width:48%;}
-.cd-t-bold .bd-logo{display:block;width:max-content;margin-left:auto;background:#fff;border-radius:6px;padding:6px;margin-bottom:8px;}
-.cd-t-bold .bd-logo .cd-logo{max-height:38px;}
-.cd-t-bold .bd-co-name{font-weight:800;font-size:15px;}
-.cd-t-bold .bd-co .cd-lines{color:var(--on-accent);opacity:.88;font-size:11.5px;}
-.cd-t-bold .bd-parties{justify-content:space-between;margin-bottom:22px;}
-.cd-t-bold .bd-client{flex:1 1 0;min-width:0;color:var(--accent-ink);}
-.cd-t-bold .bd-to{font-size:13px;font-weight:700;color:var(--accent-ink);}
-.cd-t-bold .bd-client-name{font-size:22px;font-weight:800;line-height:1.2;margin:2px 0 4px;}
-.cd-t-bold .bd-client .cd-lines{color:var(--accent-ink);font-size:13px;}
-.cd-t-bold .bd-meta{flex:0 1 auto;min-width:0;max-width:52%;color:var(--accent-ink);font-size:12.5px;line-height:1.7;padding-top:12px;}
-.cd-t-bold .bd-ml{font-weight:700;}
-.cd-t-bold .bd-extra{margin-top:10px;line-height:1.5;}
-.cd-t-bold .cd-table th{background:var(--accent);color:var(--on-accent);font-size:13px;text-transform:none;letter-spacing:0;padding:10px 12px;}
-.cd-t-bold .cd-table td{border-bottom:1px solid var(--accent-line);padding:10px 12px;font-weight:600;color:var(--accent-ink);}
-.cd-t-bold .cd-item-name{font-weight:700;}
-.cd-t-bold .bd-band{display:flex;justify-content:space-between;gap:32px;background:var(--accent);color:var(--on-accent);margin:18px calc(-1 * var(--px)) calc(-1 * var(--pb)) calc(-1 * var(--pl));padding:24px var(--px) calc(var(--pb) + 14px) var(--pl);}
-.cd-t-bold .bd-sum-side{flex:1 1 auto;min-width:0;}
-.cd-t-bold .bd-band-slim{padding-top:16px;}
-.cd-t-bold .bd-band-slim .bd-sum-h{font-size:12px;margin-bottom:4px;opacity:.85;}
-.cd-t-bold .bd-band-slim .bd-sum-big{font-size:18px;}
-.cd-t-bold .bd-sum-h{font-size:15px;font-weight:700;margin-bottom:10px;}
-.cd-t-bold .bd-sum-big{font-size:22px;font-weight:800;}
-.cd-t-bold .bd-band .cd-label{color:var(--on-accent);opacity:.8;}
-.cd-t-bold .bd-band .cd-lines,.cd-t-bold .bd-band .cd-mini td{color:var(--on-accent);}
-.cd-t-bold .bd-band .cd-pay-btn{background:var(--on-accent);color:var(--accent);}
-.cd-t-bold .bd-band .cd-pay-url{color:var(--on-accent);opacity:.8;}
-.cd-t-bold .bd-band .cd-tot-label{color:var(--on-accent);font-weight:700;}
-.cd-t-bold .bd-band .cd-sum-closing{color:var(--on-accent);margin-top:14px;}
-.cd-t-bold .bd-band .cd-tot-grand{background:var(--on-accent);color:var(--accent);border-radius:0;}
-.cd-t-bold .bd-band .cd-tot-grand .cd-tot-label{color:var(--accent);}
-.cd-t-bold .bd-band .cd-tot-balance{border-color:var(--on-accent);}
-.cd-t-bold .bd-band .cd-tot-balance .cd-tot-label{color:var(--on-accent);}
-.cd-t-bold .cd-last .cd-footer,.cd-t-bold.cd-root .cd-page.cd-last .cd-footer{color:var(--on-accent);}
-.cd-t-bold .cd-h{font-size:12px;}
+.cd-t-bold_header{--title-size:50px;}
+.cd-t-bold_header .cd-hdr{display:flex;justify-content:space-between;align-items:center;gap:24px;background:var(--accent);color:var(--on-accent);margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 30px calc(-1 * var(--pl));padding:34px var(--px) 30px var(--pl);min-height:140px;}
+.cd-t-bold_header .cd-title{color:var(--on-accent);text-transform:uppercase;font-weight:800;letter-spacing:.01em;}
+.cd-t-bold_header .bd-no{font-size:12px;margin-top:10px;opacity:.9;}
+.cd-t-bold_header .cd-status{color:var(--on-accent);}
+.cd-t-bold_header .bd-co{text-align:right;max-width:48%;}
+.cd-t-bold_header .bd-logo{display:block;width:max-content;margin-left:auto;background:#fff;border-radius:6px;padding:6px;margin-bottom:8px;}
+.cd-t-bold_header .bd-logo .cd-logo{max-height:38px;}
+.cd-t-bold_header .bd-co-name{font-weight:800;font-size:15px;}
+.cd-t-bold_header .bd-co .cd-lines{color:var(--on-accent);opacity:.88;font-size:11.5px;}
+.cd-t-bold_header .bd-parties{justify-content:space-between;margin-bottom:22px;}
+.cd-t-bold_header .bd-client{flex:1 1 0;min-width:0;color:var(--accent-ink);}
+.cd-t-bold_header .bd-to{font-size:13px;font-weight:700;color:var(--accent-ink);}
+.cd-t-bold_header .bd-client-name{font-size:22px;font-weight:800;line-height:1.2;margin:2px 0 4px;}
+.cd-t-bold_header .bd-client .cd-lines{color:var(--accent-ink);font-size:13px;}
+.cd-t-bold_header .bd-meta{flex:0 1 auto;min-width:0;max-width:52%;color:var(--accent-ink);font-size:12.5px;line-height:1.7;padding-top:12px;}
+.cd-t-bold_header .bd-ml{font-weight:700;}
+.cd-t-bold_header .bd-extra{margin-top:10px;line-height:1.5;}
+.cd-t-bold_header .cd-table th{background:var(--accent);color:var(--on-accent);font-size:13px;text-transform:none;letter-spacing:0;padding:10px 12px;}
+.cd-t-bold_header .cd-table td{border-bottom:1px solid var(--accent-line);padding:10px 12px;font-weight:600;color:var(--accent-ink);}
+.cd-t-bold_header .cd-item-name{font-weight:700;}
+.cd-t-bold_header .bd-band{display:flex;justify-content:space-between;gap:32px;background:var(--accent);color:var(--on-accent);margin:18px calc(-1 * var(--px)) calc(-1 * var(--pb)) calc(-1 * var(--pl));padding:24px var(--px) calc(var(--pb) + 14px) var(--pl);}
+.cd-t-bold_header .bd-sum-side{flex:1 1 auto;min-width:0;}
+.cd-t-bold_header .bd-band-slim{padding-top:16px;}
+.cd-t-bold_header .bd-band-slim .bd-sum-h{font-size:12px;margin-bottom:4px;opacity:.85;}
+.cd-t-bold_header .bd-band-slim .bd-sum-big{font-size:18px;}
+.cd-t-bold_header .bd-sum-h{font-size:15px;font-weight:700;margin-bottom:10px;}
+.cd-t-bold_header .bd-sum-big{font-size:22px;font-weight:800;}
+.cd-t-bold_header .bd-band .cd-label{color:var(--on-accent);opacity:.8;}
+.cd-t-bold_header .bd-band .cd-lines,.cd-t-bold_header .bd-band .cd-mini td{color:var(--on-accent);}
+.cd-t-bold_header .bd-band .cd-pay-btn{background:var(--on-accent);color:var(--accent);}
+.cd-t-bold_header .bd-band .cd-pay-url{color:var(--on-accent);opacity:.8;}
+.cd-t-bold_header .bd-band .cd-tot-label{color:var(--on-accent);font-weight:700;}
+.cd-t-bold_header .bd-band .cd-sum-closing{color:var(--on-accent);margin-top:14px;}
+.cd-t-bold_header .bd-band .cd-tot-grand{background:var(--on-accent);color:var(--accent);border-radius:0;}
+.cd-t-bold_header .bd-band .cd-tot-grand .cd-tot-label{color:var(--accent);}
+.cd-t-bold_header .bd-band .cd-tot-balance{border-color:var(--on-accent);}
+.cd-t-bold_header .bd-band .cd-tot-balance .cd-tot-label{color:var(--on-accent);}
+.cd-t-bold_header .cd-last .cd-footer,.cd-t-bold_header.cd-root .cd-page.cd-last .cd-footer{color:var(--on-accent);}
+.cd-t-bold_header .cd-h{font-size:12px;}
 `,
 };
 
@@ -752,8 +735,13 @@ const coastal: ThemeDef = {
 `,
 };
 
-export const THEMES: Record<TemplateId, ThemeDef> = {
-  classic, modern, corporate, spectrum, statement, executive, ledger, elegant, bold, friendly, boutique, construction, coastal,
-};
+const CORE_THEMES: ThemeDef[] = [
+  classic, modern, corporate, spectrum, statement, executive, ledger, serifBand, boldHeader, friendly, boutique, construction, coastal,
+];
+
+/** Every theme by template id (Featured designs + design modules). Unregistered ids resolve before lookup. */
+export const THEMES = Object.fromEntries(
+  [...CORE_THEMES, ...DESIGN_LIST.map((d) => d.theme)].map((t) => [t.id, t]),
+) as Record<TemplateId, ThemeDef>;
 
 export { footerHtml, metaList, defaultParties };
