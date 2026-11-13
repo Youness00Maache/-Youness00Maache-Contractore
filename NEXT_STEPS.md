@@ -119,6 +119,12 @@ Owner: saved profit calculations disappear after logout/login. Audit EVERYTHING 
 move real user data to the database (migration 20261113000500_user_data_sync.sql, additive; apply after review),
 with a one-time import of existing browser data. A helper started 17:40.
 
+**STOPPED 2026-11-13 17:47 at 92% (owner's 95% rule).** Uncommitted in the tree, NOTHING committed or applied:
+requests+photos FINISHED (199 checks; migration 0400 written); pay, reminders and data-sync stopped mid-work
+(pay was adding the RequestLinkSettings mount in Settings.tsx and PortalPhotos in PortalView.tsx; reminders was
+doing a visual check; data-sync was writing the sync module). On resume: SendMessage pay/reminders/data-sync to
+finish, then tsc + all tests (incl. scripts/requests-photos-check.ts, reminders-check.ts), commit, apply migrations
+0200/0300/0400/0500, deploy the reminders + gmail functions.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
