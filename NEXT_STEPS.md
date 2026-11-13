@@ -32,6 +32,13 @@ one-shot timer a few minutes after the reset (local time = UTC) to continue.
 
 ## 0b. QA test report (owner's file "ContractorDocs QA Test Report.docx", Nov 13, 2026). Fix ALL, in this order
 
+**Owner decisions (2026-11-13 ~15:40):** plan gating → make the pricing table match the app (only gate what
+the old app gated). Live changes approved: switch GEMINI_MODEL to the current model ONLY. NOT approved (ask
+again later): database rule locking signed documents (app-side lock is done instead), profit-calculator table
+(0b.20), one-time backfill linking existing jobs' typed client names (new jobs link clients from now on).
+Work started 15:45 with 3 helpers: AI (0.1, 0b.2/9/19), forms (0.2, 0b.1/6/11–14/16 PO/18/21), app
+(0b.3/4/5/7/8/10/15/16 phone/17/22).
+
 Tested on localhost:3010 desktop Chrome + 375px. Bugs:
 1. **HIGH: signed estimates stay editable.** After the client signs, the estimate can be edited (a line changed
    $1,500 → $9,999), it stays "Accepted", and the client link shows "Approved by …" next to the NEW total.
