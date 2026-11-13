@@ -34,7 +34,7 @@ const StrokeIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({ children, ...prop
 );
 
 export const AppLogo: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (props) => (
-  <img src="/favicon.svg" alt="ContractorDocs" loading="eager" decoding="async" {...props} />
+  <img src="/logo.png" alt="ContractorDocs" loading="eager" decoding="async" {...props} />
 );
 
 // --- Navigation & UI ---

@@ -1,5 +1,6 @@
 /**
- * Generates the PNG/ICO brand assets in public/ from public/favicon.svg, plus the 1200×630 Open Graph image.
+ * Generates the PNG/ICO brand assets in public/ from public/logo.png (the original ContractorDocs logo: document +
+ * hard hat on a blue tile), plus the 1200×630 Open Graph image.
  * Uses headless Chrome only (no image libraries). Run manually after changing the logo: `npm run seo:assets`.
  *   CHROME_PATH=/path/to/chrome npm run seo:assets   (defaults to the standard Windows install path)
  * Outputs: favicon.ico (16+32+48), favicon-16x16.png, favicon-32x32.png, apple-touch-icon.png (180, full-bleed),
@@ -14,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 const ROOT = process.cwd();
 const PUBLIC = path.join(ROOT, 'public');
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const BRAND = '#2148ed';
+const BRAND = '#2148ed'; // brand-600, the logo tile's blue, used behind full-bleed / maskable icons
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cd-assets-'));
 const chrome = (args) =>
   execFileSync(CHROME, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', `--user-data-dir=${path.join(tmp, 'profile')}`, ...args], {
@@ -23,7 +24,7 @@ const chrome = (args) =>
     stdio: ['ignore', 'pipe', 'ignore'],
   });
 
-const svg = fs.readFileSync(path.join(PUBLIC, 'favicon.svg'), 'utf8');
+const logoDataUrl = 'data:image/png;base64,' + fs.readFileSync(path.join(PUBLIC, 'logo.png')).toString('base64');
 const SPECS = [
   { name: 'favicon-16x16.png', size: 16, mode: 'tile' },
   { name: 'favicon-32x32.png', size: 32, mode: 'tile' },
@@ -34,11 +35,11 @@ const SPECS = [
   { name: 'icon-maskable-512.png', size: 512, mode: 'maskable' },
 ];
 
-// 1) Rasterize the SVG at each size in a canvas and dump the PNGs as data URLs.
+// 1) Draw the logo at each size in a canvas and dump the PNGs as data URLs.
 const genHtml = `<!doctype html><meta charset="utf-8"><body><pre id="out"></pre><script>
 (async () => {
   const img = new Image();
-  img.src = 'data:image/svg+xml;base64,' + btoa(${JSON.stringify(svg)});
+  img.src = ${JSON.stringify(logoDataUrl)};
   await img.decode();
   const specs = ${JSON.stringify(SPECS)};
   const out = {};
@@ -48,7 +49,7 @@ const genHtml = `<!doctype html><meta charset="utf-8"><body><pre id="out"></pre>
     if (s.mode === 'tile') ctx.drawImage(img, 0, 0, s.size, s.size);
     else {
       ctx.fillStyle = '${BRAND}'; ctx.fillRect(0, 0, s.size, s.size);
-      const scale = s.mode === 'maskable' ? 0.78 : 0.92; const d = s.size * scale; const o = (s.size - d) / 2;
+      const scale = s.mode === 'maskable' ? 0.78 : 1; const d = s.size * scale; const o = (s.size - d) / 2;
       ctx.drawImage(img, o, o, d, d);
     }
     out[s.name] = c.toDataURL('image/png');
@@ -84,7 +85,7 @@ const dir = icoEntries.map(({ size, data }) => {
 fs.writeFileSync(path.join(PUBLIC, 'favicon.ico'), Buffer.concat([header, ...dir, ...icoEntries.map((e) => e.data)]));
 
 // 3) Open Graph image (1200×630).
-const markSvg = svg.replace('width="64" height="64"', 'width="56" height="56"');
+const markImg = `<img src="${logoDataUrl}" width="56" height="56" alt="">`;
 const ogHtml = `<!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
 <style>
@@ -93,7 +94,7 @@ body{font-family:Inter,Arial,sans-serif;background:#1a36d9;background:radial-gra
 .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.07) 1px,transparent 1px);background-size:48px 48px}
 .left{position:absolute;left:72px;top:64px;width:600px}
 .brand{display:flex;align-items:center;gap:14px;font-family:'Plus Jakarta Sans';font-weight:800;font-size:30px;letter-spacing:-.3px}
-.brand svg{border-radius:14px;box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+.brand img{display:block}
 h1{font-family:'Plus Jakarta Sans';font-weight:800;font-size:56px;line-height:1.06;letter-spacing:-1px;margin-top:40px}
 h1 span{color:#fcd34d}
 p{margin-top:22px;font-size:22px;line-height:1.45;color:#dae6ff;max-width:540px}
@@ -112,7 +113,7 @@ td{padding:9px 0;border-bottom:1px solid #eef2f7}td:last-child{text-align:right;
 .badge b{display:inline-flex;width:26px;height:26px;border-radius:50%;background:#10b981;color:#fff;align-items:center;justify-content:center;font-size:15px}
 </style></head><body><div class="grid"></div>
 <div class="left">
-  <div class="brand">${markSvg}<span>ContractorDocs</span></div>
+  <div class="brand">${markImg}<span>ContractorDocs</span></div>
   <h1>Professional contractor paperwork <span>in minutes</span></h1>
   <p>Invoices, estimates, change orders and daily reports. E-signatures, a client portal and Gmail sending.</p>
 </div>

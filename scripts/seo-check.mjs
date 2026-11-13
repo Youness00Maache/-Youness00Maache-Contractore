@@ -167,7 +167,7 @@ else {
 const verification = 'google58a3bf2c7e0ed45b.html';
 if (!fs.existsSync(path.join(DIST, verification))) fail(`${verification} missing from dist`);
 else if (read(path.join(DIST, verification)).trim() !== `google-site-verification: ${verification}`) fail(`${verification} content changed`);
-for (const f of ['favicon.ico', 'favicon.svg', 'favicon-32x32.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'og-image.png', 'logo.svg', 'manifest.webmanifest']) {
+for (const f of ['favicon.ico', 'favicon-32x32.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'og-image.png', 'logo.png', 'manifest.webmanifest']) {
   if (!fs.existsSync(path.join(DIST, f))) fail(`dist/${f} missing`);
 }
 try {
