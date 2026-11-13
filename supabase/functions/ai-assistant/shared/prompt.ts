@@ -4,6 +4,7 @@
  */
 import { DOC_LABELS, DOC_TYPES, getSchema, resolveDocKey, type DocKey, type FieldSpec } from './documentSchema.ts';
 import { APP_ROUTES, isSampleRequest, PLAN_MAX_STEPS, SCOPE_ACTIONS, type RouterRequest } from './routerContract.ts';
+import { buildKnowledgeBlock, HOW_TO_DO_ACTIONS } from './knowledge.ts';
 
 const ACTION_HELP: Record<string, string> = {
     CHAT: 'answer a question or ask ONE short clarifying question (reply_text only).',
@@ -18,7 +19,8 @@ const ACTION_HELP: Record<string, string> = {
     RESTOCK_INVENTORY: 'change stock of an EXISTING inventory item: inventory_item_id (from context) + quantity_delta (positive adds, negative removes).',
     UPDATE_JOB_STATUS: 'job_id (from context) + job_status.',
     DUPLICATE_JOB: 'job_id (from context) of the job to copy.',
-    NAVIGATE_TO: `route, one of ${APP_ROUTES.join(', ')}.`,
+    NAVIGATE_TO: `open a screen or Settings section: route, one of ${APP_ROUTES.join(', ')}; or job_id (from context) to open that job; or document_ids (one id from context) to open that document.`,
+    HOW_TO: `the user asks HOW to do something in the app, WHERE something is, or WHETHER the app can do it: reply_text = the direct answer; how_to_steps = the exact steps from PRODUCT KNOWLEDGE (real button names in [[ ]]); route = the screen or section for "Take me there"; do_action (one of ${HOW_TO_DO_ACTIONS.join(', ')}) when you could do it for the user, with its payload when the user gave details (e.g. entity.name).`,
     RUN_PLAN: `the user asks for TWO OR MORE things in one message (e.g. a job + clients + documents): plan_steps = every step, in order (max ${PLAN_MAX_STEPS}). Each step = {action_type, ref, …the payload of that single action}. Steps that create something get a short unique ref ("client_michael", "job1"); later steps point to them with job_ref / client_ref, or to existing records with job_id / client_id from CONTEXT DATA. GENERATE_DOCUMENT step: document_type + fields + line_items + job_ref|job_id + client_ref|client_id. The app saves documents of a plan as Drafts.`,
 };
 
@@ -68,6 +70,16 @@ export function buildSystemPrompt(req: RouterRequest): string {
         : scope === 'form'
             ? `The user has a ${formType ? DOC_LABELS[formType] : 'document'} form open. Fill ONLY that form (document_type ${formType}). Use GENERATE_DOCUMENT with every field you can fill (the user asked you to fill the form, so fill all the boxes the request covers), or CHAT only if the request has nothing to do with this form.`
             : 'You are on the dashboard and can help with the whole account.';
+    const canHowTo = SCOPE_ACTIONS[scope].includes('HOW_TO');
+    const knowledge = canHowTo
+        ? buildKnowledgeBlock(req.message, (req.history || []).filter(h => h.role === 'user').map(h => h.text))
+        : null;
+    const howToRules = canHowTo ? `
+17. Questions about the app ("how do I…", "where is…", "can I…", "does it…", "why can't I…") are answered ONLY from PRODUCT KNOWLEDGE, with HOW_TO: reply_text answers the exact question first in one or two sentences; how_to_steps are the exact steps in order (no numbering in the text), each naming the real button, menu, tab or section and where it is, with button names in [[ ]] copied exactly from the knowledge; route = the "open" route of the matching knowledge entry; do_action = its do_action when the user may want you to do it.
+18. Never give generic advice ("check your settings", "look in the menu", "contact support", "refer to the documentation") and never pad with marketing. Be specific: the exact screen, section, button and value.
+19. Mention plan limits or prices only when the question is about them or a limit blocks what the user wants.
+20. If PRODUCT KNOWLEDGE does not describe it, the app cannot do it: say so plainly in one sentence and point to the closest real feature from the knowledge. Never invent features, buttons, menus, settings, integrations, routes or limits.
+21. When the user asks you to DO it ("create…", "add…", "open…", "take me to…", "do it for me"), use the action itself (CREATE_CLIENT, CREATE_JOB, GENERATE_DOCUMENT, RUN_PLAN, NAVIGATE_TO, …), not HOW_TO.` : '';
     return `You are the ContractorDocs assistant for construction contractors. Today is ${today} (the user's local date).
 ${scopeLine}${sampleNow}
 
@@ -89,10 +101,13 @@ HARD RULES:
 10. reply_text: one or two short, friendly sentences in the user's language. Use plain text.
 11. A pending_draft in the context is the document the user is completing: return the COMPLETE document again (pending values plus the new ones).
 12. Questions about existing documents ("is the invoice paid?", "what's on the estimate?", "what is still owed?"): answer with CHAT from the document's summary in CONTEXT DATA (status, total, paid, balance_due, due_date, signed_by, items; more_items = lines not listed). Name the document by its label. A status "Paid" or balance_due 0 with a total means paid; a balance_due above 0 means money is still owed. Only state what the summary shows: if a document has no summary or the fact is not in it, say you can't see it and suggest opening the document. Never guess amounts or statuses.${planRules}${sampleRule}
-16. "Fill all the boxes" / "every field": fill every field of the field list (document) or every entity key (client, job) you have a value for; never stop at the name.
+16. "Fill all the boxes" / "every field": fill every field of the field list (document) or every entity key (client, job) you have a value for; never stop at the name.${howToRules}
 
 DOCUMENT FIELDS (exact keys):
-${buildFieldGuide(formType)}`;
+${buildFieldGuide(formType)}${knowledge ? `
+
+PRODUCT KNOWLEDGE (how ContractorDocs works; the only source for questions about the app; [[Label]] = exact on-screen label):
+${knowledge.text}` : ''}`;
 }
 
 /** The data block placed in the user turn (untrusted). */

@@ -15,6 +15,7 @@ import type { AIAssistant } from '../../hooks/useAIAssistant.ts';
 import { buildEmailDrafts, type AIEmailDraft } from '../emailBatch.ts';
 import type { PlanStep, PlanStepAction, RouterProposal } from '../../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { applyPlanEdits, stepsNeedingJob, summarizePlanRun, type PlanStepResult } from '../planRunner.ts';
+import { NAV_LABELS } from '../../../supabase/functions/ai-assistant/shared/knowledge.ts';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -24,11 +25,19 @@ const DOC_ICONS: Record<DocKey, IconType> = {
     NOTE: NoteIcon, RECEIPT: ReceiptIcon, CHANGE_ORDER: ChangeOrderIcon, PURCHASE_ORDER: TruckIcon,
 };
 
-const ROUTE_LABELS: Record<string, string> = {
-    '/dashboard': 'Dashboard', '/clients': 'Clients', '/inventory': 'Inventory', '/pricebook': 'Price book',
-    '/analytics': 'Analytics', '/calendar': 'Calendar', '/communication': 'Communication', '/calculator': 'Profit calculator',
-    '/forum': 'Community', '/settings': 'Settings', '/profile': 'Profile',
-};
+const ROUTE_LABELS: Record<string, string> = NAV_LABELS;
+
+/** Text with [[Label]] chips that look like the real button (assistant answers and how-to steps). */
+export const LabelText: React.FC<{ text: string }> = ({ text }) => (
+    <>
+        {text.split(/(\[\[[^\]]+\]\])/g).map((part, i) => {
+            const m = part.match(/^\[\[([^\]]+)\]\]$/);
+            return m
+                ? <span key={i} className="mx-0.5 inline-flex items-center whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-px align-baseline text-[12px] font-semibold leading-5 text-foreground shadow-sm">{m[1]}</span>
+                : <React.Fragment key={i}>{part}</React.Fragment>;
+        })}
+    </>
+);
 
 // ───────────────────────────── shell ─────────────────────────────
 
@@ -432,7 +441,8 @@ const ConfirmCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = 
             icon = BriefcaseIcon; title = 'Duplicate a job'; action = 'Duplicate'; needsJob = true;
             break;
         case 'NAVIGATE_TO':
-            icon = ExternalLinkIcon; title = `Open ${ROUTE_LABELS[p.route || ''] || 'page'}`; action = 'Open';
+            icon = ExternalLinkIcon; action = 'Open';
+            title = p.document_ids?.length ? 'Open the document' : p.job_id ? `Open ${jobs.find(j => j.id === p.job_id)?.name || 'the job'}` : `Open ${ROUTE_LABELS[p.route || ''] || 'page'}`;
             break;
         default:
             return null;
@@ -454,6 +464,50 @@ const ConfirmCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = 
             {p.sample_data && <SampleNote>Sample data: the boxes are filled with example details (emails end in @example.com). Change anything before you save.</SampleNote>}
             {body && <div className="divide-y divide-border/60">{body}</div>}
             {needsJob && (fixedJob ? <Row label="Job">{fixedJob.name}</Row> : <JobPicker value={jobId} onChange={setJobId} jobs={jobs} />)}
+        </CardShell>
+    );
+};
+
+// ───────────────────────────── how-to answer ─────────────────────────────
+
+/**
+ * HOW_TO: the exact steps (real button names as chips), "Take me there" (the screen or Settings section) and
+ * "Do it for me" (prepares the action as its own card, or opens the empty form). The steps stay visible after
+ * a button was used, so the user can follow them on the page.
+ */
+const HowToCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({ message, assistant }) => {
+    const p = message.proposal as RouterProposal;
+    const steps = p.how_to_steps || [];
+    if (!steps.length) return null;
+    const done = message.status === 'done' || message.status === 'dismissed';
+    const doLabel = p.do_it ? 'Do it for me' : p.open_form ? 'Open the form' : null;
+    const where = p.route ? ROUTE_LABELS[p.route] : '';
+    const footer = done
+        ? <span className="inline-flex min-h-[32px] items-center gap-1.5 text-xs font-medium text-success"><CheckCircleIcon className="h-4 w-4" /> {message.result || 'Done'}</span>
+        : (p.route || doLabel) ? (
+            <>
+                {p.route && (
+                    <button type="button" className={doLabel ? btnOutline : btnPrimary} onClick={() => assistant.takeMeThere(message.id)}>
+                        <ExternalLinkIcon className="h-4 w-4" /> Take me there
+                    </button>
+                )}
+                {doLabel && (
+                    <button type="button" className={btnPrimary} onClick={() => assistant.doItForMe(message.id)}>
+                        <SparklesIcon className="h-4 w-4" /> {doLabel}
+                    </button>
+                )}
+            </>
+        ) : undefined;
+    return (
+        <CardShell icon={CheckCircleIcon} title="Step by step" subtitle={where ? `In ${where}` : undefined} footer={footer}>
+            <ol className="space-y-2.5" aria-label="Steps">
+                {steps.map((step, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-[13px] leading-6 text-foreground">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">{i + 1}</span>
+                        <span className="min-w-0 flex-1 break-words"><LabelText text={step} /></span>
+                    </li>
+                ))}
+            </ol>
         </CardShell>
     );
 };
@@ -657,6 +711,7 @@ export const ProposalCard: React.FC<{ message: ChatMessage; assistant: AIAssista
     if (!p || !message.status) return null;
     switch (p.action_type) {
         case 'RUN_PLAN': return (p.plan || []).length ? <PlanCard message={message} assistant={assistant} /> : null;
+        case 'HOW_TO': return <HowToCard message={message} assistant={assistant} />;
         case 'GENERATE_DOCUMENT': return resolveDocKey(p.document_type) ? <DraftCard message={message} assistant={assistant} /> : null;
         case 'GATHER_INFO': return resolveDocKey(p.document_type) ? <SetupCard message={message} assistant={assistant} /> : null;
         case 'PREPARE_EMAIL_BATCH': return <EmailBatchCard message={message} assistant={assistant} />;

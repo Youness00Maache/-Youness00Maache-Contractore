@@ -8,6 +8,7 @@ import { DOC_LABELS, escapeHtml, normalizeDate, parseLineItemsText, resolveDocKe
 import {
     isSampleRequest, isSendOnlyRequest, SCOPE_ACTIONS, type AppRoute, type ModelOutput, type ModelPlanStep, type RouterRequest,
 } from './routerContract.ts';
+import { scoreKnowledge } from './knowledge.ts';
 
 const DOC_PATTERNS: Array<[DocKey, RegExp]> = [
     ['DAILY_REPORT', /\b(daily\s+(?:job\s+|construction\s+|site\s+)?report|site\s+report|field\s+report|job\s+report|daily\s+log)\b/i],
@@ -30,6 +31,16 @@ export function detectDocTypeFromText(text: string): DocKey | null {
 }
 
 const NAV_RULES: Array<[RegExp, AppRoute]> = [
+    [/\b(payment|pay(?:ment)? link|payments? (?:&|and) reviews?|google review|financing) settings?\b|\bsettings?\b.*\b(payments?|pay link|reviews?)\b/i, '/settings#payments'],
+    [/\b(reminders?|follow-?ups?)\b.*\bsettings?\b|\bsettings?\b.*\breminders?\b|\breminder settings\b/i, '/settings#reminders'],
+    [/\b(request(?:-a-quote)? link|quote link|request page|quote requests? settings)\b/i, '/settings#requests'],
+    [/\b(billing|my plan|subscription|plan (?:&|and) billing)\b/i, '/settings#billing'],
+    [/\b(signature settings|default signature)\b/i, '/settings#signature'],
+    [/\b(appearance|dark mode|theme|language settings)\b/i, '/settings#appearance'],
+    [/\b(company (?:details|settings|info)|my logo)\b/i, '/settings#company'],
+    [/\b(delete (?:my )?account|account settings)\b/i, '/settings#account'],
+    [/\b(tutorials?|help (?:page|center)|app tour|guides)\b/i, '/tutorials'],
+    [/\b(new job form|create a job page)\b/i, '/jobs/create'],
     [/\b(calendar|schedule|appointments?)\b/i, '/calendar'],
     [/\b(analytics|insights|revenue|earnings|stats|statistics|reports? dashboard)\b/i, '/analytics'],
     [/\b(calculat\w*|profit margin|markup|overhead|bid price)\b/i, '/calculator'],
@@ -342,6 +353,29 @@ function findByName<T extends { id: string; name: string }>(text: string, list: 
     });
 }
 
+const QUESTION_RE = /^\s*(?:how|where|can (?:i|my|you)|is (?:it|there)|does|do i|why|what is|what's|which|comment|o[uù] |como|c[oó]mo|d[oó]nde|wie|wo |warum|come |dove|perch[eé]|onde|por ?que|如何|怎么|怎样|在哪|哪里|どう|どこ|どうやって|어떻게|어디|как|где|почему)|\?\s*$|\b(?:how (?:do|can|to|does)|where (?:is|are|can|do)|is it possible|can (?:i|you|my clients))\b/i;
+const SETUP_RE = /\b(?:make my|turn (?:on|off)|switch (?:on|off)|enable|disable|set up|setup|get paid online|show (?:a |the )?qr)\b/i;
+
+/** "How do I …?" / "where is …?" / "make my invoices show a QR code" → HOW_TO from the best knowledge entry. */
+function mockHowTo(req: RouterRequest): ModelOutput | null {
+    const text = req.message || '';
+    if (!SCOPE_ACTIONS[req.scope].includes('HOW_TO')) return null;
+    if (!QUESTION_RE.test(text) && !SETUP_RE.test(text)) return null;
+    // A question that names a concrete record to create ("can you create a client named Sam?") is a request to do it.
+    if (/\b(?:named|called)\s+[A-Z]/.test(text)) return null;
+    const top = scoreKnowledge(text)[0];
+    if (!top || top.score < 3) return null;
+    const e = top.entry;
+    const steps = e.steps?.length ? e.steps : e.facts;
+    return {
+        action_type: 'HOW_TO',
+        reply_text: e.facts[0],
+        how_to_steps: steps,
+        route: e.route ?? null,
+        do_action: e.doAction ?? null,
+    };
+}
+
 export function mockModelOutput(req: RouterRequest): ModelOutput {
     const text = req.message || '';
     const t = text.toLowerCase();
@@ -360,7 +394,11 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
         return { action_type: 'GENERATE_DOCUMENT', reply_text: `I filled the ${DOC_LABELS[docType]} with what you told me.`, document_type: docType, ...extractFields(docType, text, today) };
     }
 
-    // 2) Send / email existing documents (never a new document).
+    // 2) How-to / where-is questions about the app → the steps from the product knowledge.
+    const howTo = mockHowTo(req);
+    if (howTo) return howTo;
+
+    // 2b) Send / email existing documents (never a new document).
     if (isSendOnlyRequest(text)) {
         const clients = mentionClients.length ? mentionClients : findByName(text, c.clients).map(x => x.id);
         const docs = mentionDocs.length ? mentionDocs : (c.documents || []).filter(d => {

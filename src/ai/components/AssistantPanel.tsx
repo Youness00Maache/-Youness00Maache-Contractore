@@ -5,13 +5,13 @@ import {
 import AIChatMentionInput from '../../../components/AIChatMentionInput.tsx';
 import type { AIAssistant } from '../../hooks/useAIAssistant.ts';
 import type { AIConversation } from '../../hooks/useMasterAIRouter.ts';
-import { ProposalCard } from './ProposalCards.tsx';
+import { LabelText, ProposalCard } from './ProposalCards.tsx';
 
 const DASHBOARD_SUGGESTIONS = [
     'Draft today’s daily report: ',
     'Invoice for 2 doors at $450 and 6 hours labor at $75',
     'Email the latest invoice to @',
-    'Open my calendar',
+    'How do I get paid online?',
 ];
 const JOB_SUGGESTIONS = [
     'Daily report: ',
@@ -171,7 +171,7 @@ export const AssistantPanel: React.FC<{ assistant: AIAssistant }> = ({ assistant
                                 </span>
                                 <p className="text-base font-semibold">{mode === 'job' && job ? `What do you need for ${job.name}?` : 'What can I do for you?'}</p>
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    I draft documents from your notes, prepare emails with your documents and run tasks — you review everything before it is saved or sent.
+                                    I draft documents from your notes, prepare emails with your documents, run tasks and explain how anything in the app works — you review everything before it is saved or sent.
                                 </p>
                                 <div className="mt-5 flex w-full flex-col gap-2">
                                     {suggestions.map(s => (
@@ -193,7 +193,7 @@ export const AssistantPanel: React.FC<{ assistant: AIAssistant }> = ({ assistant
                                             ? 'rounded-bl-md border border-destructive/30 bg-destructive/10 text-foreground'
                                             : 'rounded-bl-md bg-muted text-foreground'}`}>
                                         {m.isError && <AlertTriangleIcon className="mr-1.5 inline h-4 w-4 -translate-y-px text-destructive" />}
-                                        {m.content}
+                                        {m.role === 'assistant' ? <LabelText text={m.content} /> : m.content}
                                     </div>
                                 </div>
                                 {m.role === 'assistant' && m.proposal && <ProposalCard message={m} assistant={assistant} />}

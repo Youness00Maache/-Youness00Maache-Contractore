@@ -11,11 +11,12 @@ import {
     DOC_LABELS, DOC_TYPES, ALL_FIELD_KEYS, getItemsKey, getMissingAskFields, getSchema, isDocKey, normalizeDate, normalizePrefill,
     resolveDocKey, toLocalYmd, toNumberOrUndefined, toPlainText, type DocKey, type NormalizeOptions,
 } from './documentSchema.ts';
+import { HOW_TO_DO_ACTIONS, KNOWN_LABELS, NAV_ROUTES, scoreKnowledge, type HowToDoAction } from './knowledge.ts';
 
 export const ROUTER_ACTIONS = [
     'CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY',
     'CREATE_JOB', 'CREATE_CLIENT', 'ADD_INVENTORY', 'ADD_PRICE_BOOK_ITEM', 'RESTOCK_INVENTORY',
-    'UPDATE_JOB_STATUS', 'DUPLICATE_JOB', 'NAVIGATE_TO', 'RUN_PLAN',
+    'UPDATE_JOB_STATUS', 'DUPLICATE_JOB', 'NAVIGATE_TO', 'RUN_PLAN', 'HOW_TO',
 ] as const;
 export type RouterAction = typeof ROUTER_ACTIONS[number];
 
@@ -37,11 +38,12 @@ export const ACTION_POLICY: Record<RouterAction, 'reply' | 'card' | 'confirm' | 
     DUPLICATE_JOB: 'confirm',
     NAVIGATE_TO: 'auto',
     RUN_PLAN: 'confirm',
+    HOW_TO: 'card',
 };
 
 export const SCOPE_ACTIONS: Record<RouterScope, readonly RouterAction[]> = {
     dashboard: ROUTER_ACTIONS,
-    job: ['CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY', 'UPDATE_JOB_STATUS', 'RUN_PLAN'],
+    job: ['CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY', 'UPDATE_JOB_STATUS', 'RUN_PLAN', 'HOW_TO'],
     form: ['CHAT', 'GENERATE_DOCUMENT'],
 };
 
@@ -57,11 +59,13 @@ export type PlanStepAction = typeof PLAN_STEP_ACTIONS[number];
 /** Most steps one plan may contain (extra steps are dropped with a note). */
 export const PLAN_MAX_STEPS = 20;
 
-export const APP_ROUTES = [
-    '/dashboard', '/clients', '/inventory', '/pricebook', '/analytics', '/calendar', '/communication',
-    '/calculator', '/forum', '/settings', '/profile',
-] as const;
+/** Every screen and Settings section (knowledge.ts NAV_ROUTES; checked against lib/routes.ts by the QA script). */
+export const APP_ROUTES = NAV_ROUTES;
 export type AppRoute = typeof APP_ROUTES[number];
+
+/** HOW_TO "Do it for me" with no details yet: opens the empty form of that action. */
+export const OPENABLE_FORMS = ['CREATE_CLIENT', 'CREATE_JOB', 'ADD_INVENTORY', 'ADD_PRICE_BOOK_ITEM'] as const;
+export type OpenableForm = typeof OPENABLE_FORMS[number];
 
 export const JOB_STATUSES = ['active', 'paused', 'completed', 'inactive'] as const;
 export type JobStatus = typeof JOB_STATUSES[number];
@@ -86,6 +90,13 @@ const ACTION_ALIASES: Record<string, { action: RouterAction; route?: AppRoute }>
     UPDATE_INVENTORY: { action: 'RESTOCK_INVENTORY' },
     CREATE_INVENTORY_ITEM: { action: 'ADD_INVENTORY' },
     CREATE_DOCUMENT: { action: 'GENERATE_DOCUMENT' },
+    HOWTO: { action: 'HOW_TO' },
+    HOW_TO_ANSWER: { action: 'HOW_TO' },
+    EXPLAIN: { action: 'HOW_TO' },
+    OPEN_TUTORIALS: { action: 'NAVIGATE_TO', route: '/tutorials' },
+    OPEN_HELP: { action: 'NAVIGATE_TO', route: '/tutorials' },
+    OPEN_BILLING: { action: 'NAVIGATE_TO', route: '/settings#billing' },
+    OPEN_FORUM_PAGE: { action: 'NAVIGATE_TO', route: '/forum' },
 };
 
 // ───────────────────────────── request ─────────────────────────────
@@ -309,6 +320,10 @@ export interface ModelOutput {
     email_body?: string | null;
     /** RUN_PLAN: every step of a multi-part request, in order. */
     plan_steps?: ModelPlanStep[];
+    /** HOW_TO: the exact steps (button names in [[ ]]). */
+    how_to_steps?: string[];
+    /** HOW_TO: the action "Do it for me" runs (payload in the usual fields). */
+    do_action?: string | null;
 }
 
 /** One RUN_PLAN step as the model returns it (same payload keys as the single actions). */
@@ -388,6 +403,11 @@ export function buildResponseSchema(scope: RouterScope, options: { compact?: boo
             },
         },
     } : {};
+    const doActions = HOW_TO_DO_ACTIONS.filter(a => SCOPE_ACTIONS[scope].includes(a));
+    const howTo = SCOPE_ACTIONS[scope].includes('HOW_TO') ? {
+        how_to_steps: { type: 'ARRAY', items: S() },
+        do_action: S({ enum: [...doActions], nullable: true }),
+    } : {};
     return {
         type: 'OBJECT',
         properties: {
@@ -411,6 +431,7 @@ export function buildResponseSchema(scope: RouterScope, options: { compact?: boo
             email_subject: S({ nullable: true }),
             email_body: S({ nullable: true }),
             ...planSteps,
+            ...howTo,
         },
         required: ['action_type', 'reply_text'],
     };
@@ -462,6 +483,12 @@ export interface RouterProposal {
     plan_notes?: string[];
     /** The user asked for example/sample/test/random data: documents, clients and jobs carry realistic sample content. */
     sample_data?: boolean;
+    /** HOW_TO: exact steps; [[Label]] marks a real button (labels the knowledge does not know are made plain text). */
+    how_to_steps?: string[];
+    /** HOW_TO: "Do it for me" prepares this action (its own card then asks for the usual confirmation). */
+    do_it?: RouterProposal | null;
+    /** HOW_TO: "Do it for me" opens this empty form (no details given yet). */
+    open_form?: OpenableForm | null;
 }
 
 /**
@@ -627,6 +654,17 @@ function dropSampleGuesses(docType: DocKey, prefill: Record<string, unknown>, us
         out[key] = value;
     }
     return out;
+}
+
+/** [[Label]] stays a button chip only when the knowledge knows that label (no invented buttons). */
+export function cleanLabels(text: string): string {
+    return text.replace(/\[\[([^\]]{1,80})\]\]/g, (m, label: string) => (KNOWN_LABELS.has(label.trim()) ? `[[${label.trim()}]]` : label.trim()));
+}
+
+/** One HOW_TO step: plain text, no numbering or bullets, known labels only. */
+function cleanHowToStep(raw: unknown): string {
+    const text = toPlainText(typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').replace(/^\s*(?:(?:step\s*)?\d+[.):]|[-*•])\s*/i, '').trim();
+    return text ? cleanLabels(text).slice(0, 400) : '';
 }
 
 const defaultReply: Partial<Record<RouterAction, string>> = {
@@ -1104,9 +1142,35 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
             return proposal;
         }
         case 'NAVIGATE_TO': {
-            if (!route) return { action_type: 'CHAT', reply_text: replyRaw || defaultReply.CHAT! };
-            proposal.route = route;
+            // A screen / Settings section, or one of the user's own documents or jobs (ids from the context only).
+            const docId = uniqueValid([...mentionDocIds, ...(output.document_ids || [])], docIds, 1)[0];
+            if (docId) proposal.document_ids = [docId];
+            else if (jobId) proposal.job_id = jobId;
+            else if (route) proposal.route = route;
+            else return { action_type: 'CHAT', reply_text: replyRaw || defaultReply.CHAT! };
             proposal.reply_text = replyRaw || defaultReply.NAVIGATE_TO!;
+            return proposal;
+        }
+        case 'HOW_TO': {
+            const steps = (Array.isArray(output.how_to_steps) ? output.how_to_steps : []).map(cleanHowToStep).filter(Boolean).slice(0, 12);
+            const reply = cleanLabels(replyRaw);
+            if (!steps.length) return { action_type: 'CHAT', reply_text: reply || defaultReply.CHAT! };
+            proposal.how_to_steps = steps;
+            proposal.reply_text = reply || 'Here is how:';
+            // "Take me there": the model's screen, else the screen of the clearly matching knowledge entry.
+            let target: AppRoute | null = route;
+            if (!target) {
+                const top = scoreKnowledge(req.message)[0];
+                if (top && top.score >= 4 && top.entry.route && top.entry.route !== '/dashboard') target = top.entry.route;
+            }
+            proposal.route = target;
+            const doAction = (HOW_TO_DO_ACTIONS as readonly string[]).includes(String(output.do_action)) && allowed.includes(output.do_action as RouterAction)
+                ? output.do_action as HowToDoAction : null;
+            if (doAction) {
+                const nested = buildProposal({ ...output, action_type: doAction, how_to_steps: undefined, do_action: null, reply_text: '' }, ctx);
+                if (nested.action_type !== 'CHAT' && nested.action_type !== 'HOW_TO' && nested.action_type !== 'NAVIGATE_TO') proposal.do_it = nested;
+                else if ((OPENABLE_FORMS as readonly string[]).includes(doAction)) proposal.open_form = doAction as OpenableForm;
+            }
             return proposal;
         }
         case 'CHAT':

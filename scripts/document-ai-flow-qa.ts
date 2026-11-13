@@ -32,6 +32,27 @@ import { buildEmailDrafts, textToEmailHtml, toEmailBatchItems } from '../src/ai/
 import { inferTemplateIdFromIntent, resolveTemplateId } from '../src/utils/aiTemplateUtils.ts';
 import { getFieldSpecs } from '../components/forms/documentFields.ts';
 import { mergeDraftIntoForm } from '../hooks/useDocumentDraftPrefill.ts';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { HELP_GUIDES } from '../components/help/helpContent.ts';
+import { FREE_LIMITS, PAID_AI_LIMITS, PLANS } from '../lib/plans.ts';
+import { parseView } from '../lib/routes.ts';
+import { HELP_GUIDES_SNAPSHOT } from '../supabase/functions/ai-assistant/shared/helpGuides.generated.ts';
+import {
+    APP_MAP_TEXT, KNOWLEDGE, KNOWLEDGE_DEFAULTS, KNOWN_LABELS, NAV_LABELS, NAV_ROUTES, PLAN_FACTS, buildKnowledgeBlock, isGeneralQuestion,
+    renderEntry, retrieveKnowledge, scoreKnowledge,
+} from '../supabase/functions/ai-assistant/shared/knowledge.ts';
+
+// The edge function can't import components/: it bundles a copy of the help guides. Regenerate it with
+//   npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge
+const guideSnapshot = () => HELP_GUIDES.map(g => ({ id: g.id, title: g.title, summary: g.summary, where: g.where, appPath: g.appPath, steps: g.steps.map(st => ({ title: st.title, text: st.text })), tips: g.tips || [] }));
+if (process.argv.includes('--sync-knowledge')) {
+    const file = 'supabase/functions/ai-assistant/shared/helpGuides.generated.ts';
+    const head = readFileSync(file, 'utf8').split('export const HELP_GUIDES_SNAPSHOT')[0];
+    writeFileSync(file, `${head}export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = ${JSON.stringify(guideSnapshot(), null, 4)};\n`);
+    console.log(`Wrote ${file} (${HELP_GUIDES.length} guides).`);
+    process.exit(0);
+}
 
 let checks = 0;
 const ok = (cond: unknown, msg: string) => { assert.ok(cond, msg); checks++; };
@@ -659,6 +680,19 @@ await planRunnerTests();
     ok(partial.includes('6 of 7 steps done') && partial.includes('Retry 1 failed step') && partial.includes('See plans'), 'partial run: summary, retry and plan-limit upgrade');
     eq((partial.match(/>Open\s*<svg/g) || []).length, 6, 'a link for every created record');
     ok(render({ status: 'dismissed', result: 'Cancelled' }).includes('Cancelled'), 'cancelled plan collapses');
+
+    // HOW_TO card: numbered steps with button chips, "Take me there" and "Do it for me" / "Open the form".
+    const howRender = (q: string, message: Record<string, unknown> = {}) => {
+        const p = runLocalMockRouter(q, 'dashboard', ctx);
+        return renderToStaticMarkup(createElement(ProposalCard, { message: { id: 'h1', role: 'assistant', content: p.reply_text, proposal: p, status: 'pending', ...message } as any, assistant: { ...assistant, takeMeThere: () => undefined, doItForMe: () => undefined } }));
+    };
+    const pay = howRender('how do I get paid online?');
+    ok(pay.includes('Step by step') && pay.includes('In Settings › Payments &amp; reviews') && pay.includes('Take me there') && !pay.includes('[['), 'how-to card: steps, where, Take me there, no raw [[ ]]');
+    ok((pay.match(/<li /g) || []).length >= 3 && /rounded-md border[^>]*>Settings</.test(pay), 'steps numbered, buttons shown as chips');
+    const temp = howRender('where are temporary clients?');
+    ok(temp.includes('Open the form') && temp.includes('Take me there'), 'how-to card: Open the form when the assistant can start it');
+    const doneCard = howRender('how do I get paid online?', { status: 'done', result: 'Opened' });
+    ok(doneCard.includes('Opened') && doneCard.includes('Step by step') && !doneCard.includes('Take me there'), 'after Take me there the steps stay visible');
 }
 
 // ── 12. Edge function handler: auth, CORS, plan limit, metering, model fallback ──
@@ -1135,7 +1169,190 @@ async function sampleAndFieldTests() {
     }
 }
 
+// ── 18. Product knowledge (owner: "the AI should know everything about the platform … the exact steps … or do it") ──
+/** All app source the user sees (labels), without the knowledge itself. */
+function appSourceText(): string {
+    const files: string[] = [];
+    const walk = (dir: string) => {
+        for (const name of readdirSync(dir)) {
+            const path = join(dir, name);
+            if (statSync(path).isDirectory()) walk(path);
+            else if (/\.(tsx?|ts)$/.test(name) && !/helpContent\.ts$/.test(name)) files.push(path);
+        }
+    };
+    for (const dir of ['components', 'src', 'pages', 'lib']) walk(dir);
+    files.push('App.tsx', 'utils/translations.ts');
+    return files.map(f => readFileSync(f, 'utf8')).join('\n')
+        .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&apos;|&#39;/g, "'").replace(/\s+/g, ' ');
+}
+
+async function knowledgeTests() {
+    // 18a. The bundled guides are exactly the in-app help guides; plan numbers are lib/plans.ts.
+    eq(HELP_GUIDES_SNAPSHOT, guideSnapshot(), 'helpGuides.generated.ts = components/help/helpContent.ts (run the QA script with --sync-knowledge)');
+    eq([PLAN_FACTS.free.jobs, PLAN_FACTS.free.clients, PLAN_FACTS.free.docs, PLAN_FACTS.free.emails, PLAN_FACTS.free.ai], [FREE_LIMITS.jobs, FREE_LIMITS.clients, FREE_LIMITS.docs, FREE_LIMITS.emails, FREE_LIMITS.ai], 'free limits = lib/plans.ts');
+    eq([PLAN_FACTS.premium.name, PLAN_FACTS.premium.monthlyPrice, PLAN_FACTS.premium.yearlyPrice, PLAN_FACTS.premium.ai], [PLANS.premium.name, PLANS.premium.monthlyPrice, PLANS.premium.yearlyPrice, PAID_AI_LIMITS.premium], 'Premium = lib/plans.ts');
+    eq([PLAN_FACTS.ai.name, PLAN_FACTS.ai.monthlyPrice, PLAN_FACTS.ai.yearlyPrice, PLAN_FACTS.ai.ai], [PLANS.ai.name, PLANS.ai.monthlyPrice, PLANS.ai.yearlyPrice, PAID_AI_LIMITS.ai], 'Premium + AI = lib/plans.ts');
+
+    // 18b. Every route is a real screen; every #section is a real Settings section.
+    const sectionIds = Array.from(readFileSync('components/Settings.tsx', 'utf8').matchAll(/\{ id: '(\w+)', label: '/g), m => m[1]);
+    ok(sectionIds.length >= 9, 'Settings sections found');
+    const routes = new Set<string>([...NAV_ROUTES, ...KNOWLEDGE.map(e => e.route || '/dashboard'), ...HELP_GUIDES.map(g => g.appPath)]);
+    const badRoutes = [...routes].filter(r => {
+        const [path, hash] = r.split('#');
+        return parseView(path, '', null).screen === 'notFound' || (hash !== undefined && !(path === '/settings' && sectionIds.includes(hash)));
+    });
+    eq(badRoutes, [], 'every knowledge route opens a real screen / Settings section');
+    eq(Object.keys(NAV_LABELS).sort(), [...NAV_ROUTES].sort(), 'every navigation target has a label');
+
+    // 18c. Every [[Label]] the assistant may show exists in the app's source.
+    const source = appSourceText();
+    const labelInSource = (label: string) => {
+        const core = label.replace(/\s*\$?…$/, '').replace(/\s+/g, ' ').trim();
+        return core.length > 0 && source.includes(core);
+    };
+    const missingLabels = [...KNOWN_LABELS].filter(l => !labelInSource(l));
+    eq(missingLabels, [], 'every [[label]] in the knowledge exists in the app');
+    ok(KNOWN_LABELS.size > 120, `the knowledge names the real controls (${KNOWN_LABELS.size} labels)`);
+    ok(!labelInSource('Request approval') && !KNOWN_LABELS.has('Request approval'), 'old labels are gone (Request approval → Get approval)');
+    for (const topic of ['pay-link', 'mark-paid', 'reminders-detail', 'quote-requests', 'photos-detail', 'portal', 'approval-signature', 'temporary-clients', 'gmail',
+        'inventory-qr', 'pricebook-items', 'designs', 'calculator-modes', 'recurring-invoices', 'signed-lock', 'convert-estimate', 'data-sync', 'tutorials', 'plans-billing']) {
+        ok(KNOWLEDGE.some(e => e.id === topic), `knowledge covers ${topic}`);
+    }
+    eq(KNOWLEDGE.filter(e => e.id.startsWith('guide-')).length, HELP_GUIDES.length, 'all help guides are in the knowledge');
+
+    // 18d. Retrieval picks the right entries (English and the app's other languages).
+    const top: Array<[string, string]> = [
+        ['how do I get paid online?', 'pay-link'],
+        ['how do I send an estimate for signature?', 'approval-signature'],
+        ['where are temporary clients?', 'temporary-clients'],
+        ['how do reminders stop?', 'reminders-detail'],
+        ['make my invoices show a QR code', 'pay-link'],
+        ['how do I print QR labels for my shelves?', 'inventory-qr'],
+        ['can I make an invoice repeat every month?', 'recurring-invoices'],
+        ['how do I edit a signed estimate? it says locked', 'signed-lock'],
+        ['turn an accepted estimate into an invoice', 'convert-estimate'],
+        ['how do I connect my gmail', 'gmail'],
+        ['is my data synced to my other device?', 'data-sync'],
+        ['how much does premium cost?', 'plans-billing'],
+        ['switch the profit calculator to advanced', 'calculator-modes'],
+        ['how do I import my clients from excel', 'clients-import-export'],
+        ['where do new quote requests show up?', 'quote-requests'],
+        ['¿Cómo envío un recordatorio de pago?', 'reminders-detail'],
+        ['comment envoyer un devis pour signature ?', 'approval-signature'],
+        ['Wie drucke ich QR-Etiketten für mein Lager?', 'inventory-qr'],
+        ['Где временные клиенты?', 'temporary-clients'],
+        ['請求書にQRコードを表示したい', 'pay-link'],
+        ['청구서를 매월 반복하려면?', 'recurring-invoices'],
+        ['Come faccio a collegare Gmail?', 'gmail'],
+        ['Como converter um orçamento em fatura?', 'convert-estimate'],
+    ];
+    for (const [q, id] of top) {
+        eq(scoreKnowledge(q)[0]?.entry.id, id, `"${q}" → ${id}`);
+        ok(retrieveKnowledge(q).some(e => e.id === id), `"${q}" puts ${id} in the prompt`);
+    }
+    ok(retrieveKnowledge('如何添加客户').some(e => e.id === 'guide-clients'), 'Chinese "add a client" still finds the clients guide');
+    for (const q of ['what can you do?', 'Hi', '¿qué puedes hacer?', 'что ты умеешь?']) {
+        ok(isGeneralQuestion(q) && retrieveKnowledge(q)[0]?.id === 'overview', `"${q}" → overview first`);
+    }
+    {
+        const long = 'how do I get paid online, send reminders, print QR labels, convert estimates, make recurring invoices, connect gmail, use the price book and the calculator?';
+        const picked = retrieveKnowledge(long);
+        const chars = picked.reduce((n, e) => n + renderEntry(e).length, 0);
+        ok(picked.length <= KNOWLEDGE_DEFAULTS.maxEntries && chars <= KNOWLEDGE_DEFAULTS.maxChars, `knowledge stays within the cap (${picked.length} entries, ${chars} chars)`);
+        const block = buildKnowledgeBlock(long);
+        ok(block.text.length <= APP_MAP_TEXT.length + KNOWLEDGE_DEFAULTS.maxChars + 10 * KNOWLEDGE_DEFAULTS.maxEntries, 'the prompt block is capped (≈2k tokens)');
+    }
+
+    // 18e. Prompt: the right knowledge and the answer rules, never for the form fill.
+    {
+        const sys = buildSystemPrompt(req('how do I get paid online?'));
+        ok(sys.includes('PRODUCT KNOWLEDGE') && sys.includes('“Pay now” link and the “Scan to pay” QR code') && sys.includes('/settings#payments'), 'pay-link knowledge is in the prompt');
+        ok(!sys.includes('Community forum'), 'unrelated entries stay out');
+        ok(/answers the exact question first/.test(sys) && /Never give generic advice/.test(sys) && /Never invent features/.test(sys) && /plan limits or prices only when/.test(sys) && /say so plainly/.test(sys), 'answer style rules');
+        ok(/HOW_TO/.test(sys) && /do_action/.test(sys), 'HOW_TO explained');
+        ok(!buildSystemPrompt(req('how do I get paid online?', 'form', { form_document_type: 'INVOICE' })).includes('PRODUCT KNOWLEDGE'), 'form fill prompt has no knowledge block');
+        ok(buildSystemPrompt(req('how do I add photos?', 'job', { active_job_id: job.id })).includes('PRODUCT KNOWLEDGE'), 'job assistant knows the app too');
+    }
+
+    // 18f. Answer shape (mock model = same pipeline as the edge function with AI_PROVIDER=mock).
+    const shape: Array<[string, string, Partial<Record<'open_form' | 'do_it', string>>]> = [
+        ['how do I get paid online?', '/settings#payments', {}],
+        ['how do I send an estimate for signature?', '/clients', {}],
+        ['where are temporary clients?', '/clients', { open_form: 'CREATE_CLIENT' }],
+        ['how do reminders stop?', '/settings#reminders', {}],
+        ['make my invoices show a QR code', '/settings#payments', {}],
+    ];
+    for (const [q, route, extra] of shape) {
+        const p = runLocalMockRouter(q, 'dashboard', ctx);
+        eq([p.action_type, p.route], ['HOW_TO', route], `"${q}" → HOW_TO with Take me there ${route}`);
+        const steps = p.how_to_steps || [];
+        ok(steps.length >= 2 && steps.every(st => !/^\d+[.)]/.test(st)), `"${q}": numbered steps (clean text)`);
+        ok(steps.some(st => /\[\[[^\]]+\]\]/.test(st)), `"${q}": steps name the real buttons`);
+        const labels = steps.flatMap(st => Array.from(st.matchAll(/\[\[([^\]]+)\]\]/g), m => m[1]));
+        ok(labels.every(l => KNOWN_LABELS.has(l)), `"${q}": only real labels`);
+        if (extra.open_form) eq(p.open_form, extra.open_form, `"${q}": Do it for me opens the form`);
+        ok(p.reply_text.length > 20 && !/I can't|contact support|check (?:the|your) settings/i.test(p.reply_text), `"${q}": a specific answer first`);
+    }
+    eq(runLocalMockRouter('Create a client named Sam Lee', 'dashboard', ctx).action_type, 'CREATE_CLIENT', 'asking to DO it still does it (no how-to)');
+    eq(runLocalMockRouter('how do I add a photo?', 'job', { ...ctx, active_job_id: job.id }).action_type, 'HOW_TO', 'job assistant answers how-to questions');
+
+    // 18g. HOW_TO validation: invented buttons become plain text, ids/routes checked, Do it for me prepared.
+    {
+        const p = buildProposal({
+            action_type: 'HOW_TO', reply_text: 'Use [[Settings]] and the [[Magic Button]].',
+            how_to_steps: ['1. Open [[Settings]] (avatar, top right).', '- Click [[Teleport]].', '', '<b>Then</b> [[Save changes]].'],
+            route: '/settings#payments', do_action: 'CREATE_CLIENT', entity: { name: 'Sam Lee' },
+        }, { request: req('how do I add a client named Sam Lee?') });
+        eq(p.how_to_steps, ['Open [[Settings]] (avatar, top right).', 'Click Teleport.', 'Then [[Save changes]].'], 'steps cleaned: numbering, HTML, unknown labels');
+        eq(p.reply_text, 'Use [[Settings]] and the Magic Button.', 'reply: invented button is plain text');
+        eq([p.route, p.do_it?.action_type, p.do_it?.entity?.name], ['/settings#payments', 'CREATE_CLIENT', 'Sam Lee'], 'Do it for me prepares the client');
+        const fallback = buildProposal({ action_type: 'HOW_TO', reply_text: 'Add your link.', how_to_steps: ['Open [[Settings]].', 'Paste the Payment link.'] }, { request: req('how do I get paid online?') });
+        eq(fallback.route, '/settings#payments', 'Take me there falls back to the matching knowledge entry');
+        eq(buildProposal({ action_type: 'HOW_TO', reply_text: 'x', how_to_steps: ['a', 'b'], route: '/admin' }, { request: req('x') }).route, null, 'unknown routes dropped');
+        eq(buildProposal({ action_type: 'HOW_TO', reply_text: 'Not possible.', how_to_steps: [] }, { request: req('x') }).action_type, 'CHAT', 'no steps → plain answer');
+        const jobScope = buildProposal({ action_type: 'HOW_TO', reply_text: 'x', how_to_steps: ['a'], do_action: 'CREATE_CLIENT', entity: { name: 'Zed' } }, { request: req('how do I add a client', 'job', { active_job_id: job.id }) });
+        ok(!jobScope.do_it && !jobScope.open_form, 'Do it for me only offers actions the scope allows');
+        const openForm = buildProposal({ action_type: 'HOW_TO', reply_text: 'x', how_to_steps: ['a'], do_action: 'CREATE_JOB' }, { request: req('how do I create a job?') });
+        eq([openForm.do_it ?? null, openForm.open_form], [null, 'CREATE_JOB'], 'no details → Do it for me opens the empty form');
+        const plan = buildProposal({ action_type: 'HOW_TO', reply_text: 'x', how_to_steps: ['a'], do_action: 'RUN_PLAN', plan_steps: [
+            { action_type: 'CREATE_CLIENT', ref: 'c1', entity: { name: 'Ann' } }, { action_type: 'CREATE_JOB', ref: 'j1', entity: { name: 'Deck' }, client_ref: 'c1' },
+        ] }, { request: req('how do I set up a client with a job') });
+        eq(plan.do_it?.action_type, 'RUN_PLAN', 'Do it for me can be a whole plan');
+    }
+
+    // 18h. NAVIGATE_TO reaches every screen and section, the user's jobs and documents (ids from the context only).
+    for (const r of NAV_ROUTES) eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', route: r }, { request: req('open it') }).route, r, `navigate to ${r}`);
+    eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', job_id: job.id }, { request: req('open the kitchen job') }).job_id, job.id, 'open a job page');
+    eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', document_ids: ['inv-B'] }, { request: req('open invoice INV-002') }).document_ids, ['inv-B'], 'open a document');
+    eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', document_ids: ['evil'], job_id: 'evil' }, { request: req('open it') }).action_type, 'CHAT', 'foreign ids never navigate');
+    eq(buildProposal({ action_type: 'OPEN_BILLING', reply_text: '' }, { request: req('billing') }).route, '/settings#billing', 'legacy alias → Plan & billing');
+    for (const [q, r] of [['open my payment settings', '/settings#payments'], ['open the reminder settings', '/settings#reminders'], ['show the tutorials', '/tutorials'], ['open my billing', '/settings#billing']] as const) {
+        eq(runLocalMockRouter(q, 'dashboard', ctx).route, r, `"${q}" → ${r}`);
+    }
+
+    // 18i. Gemini schema: HOW_TO fields per scope, still small.
+    const dash = buildResponseSchema('dashboard') as any;
+    ok(dash.properties.how_to_steps?.type === 'ARRAY' && dash.properties.do_action.enum.includes('CREATE_CLIENT') && dash.properties.route.enum.includes('/settings#reminders'), 'dashboard schema: how-to steps, do_action, every route');
+    eq((buildResponseSchema('job') as any).properties.do_action.enum, ['GENERATE_DOCUMENT', 'RUN_PLAN', 'DRAFT_EMAIL_ONLY', 'PREPARE_EMAIL_BATCH'], 'job scope: only its own actions');
+    eq((buildResponseSchema('form') as any).properties.how_to_steps, undefined, 'form scope: no how-to');
+    ok(JSON.stringify(dash).length < 12_000, `schema still small (${JSON.stringify(dash).length} chars)`);
+
+    // 18j. End to end through the edge function: Gemini answers HOW_TO with the knowledge in its instruction.
+    {
+        const answer = { action_type: 'HOW_TO', reply_text: 'Add your payment link once in Settings; invoices then show a Pay now button and a QR code.', how_to_steps: ['Open [[Settings]] › Payments & reviews.', 'Paste your Payment link and click [[Save changes]].'], route: '/settings#payments', do_action: null };
+        const g = makeFetch({ modelResponses: [geminiOk(answer)] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: g.f, log: quiet, sleep: noWait })(post({ message: 'how do I get paid online?', scope: 'dashboard', context: ctx }, 'Bearer user-jwt'));
+        const json = await res.json() as any;
+        eq([res.status, json.proposal.action_type, json.proposal.route, json.proposal.how_to_steps.length], [200, 'HOW_TO', '/settings#payments', 2], 'Gemini HOW_TO → validated proposal');
+        const sent = JSON.parse(String(g.calls.find(c => c.url.includes('generativelanguage'))?.init?.body));
+        const system = sent.systemInstruction.parts[0].text as string;
+        ok(system.includes('PRODUCT KNOWLEDGE') && system.includes('pay-link') && !system.includes('how do I get paid online?'), 'knowledge chosen for the message; the message itself stays out of the instruction');
+        ok(sent.generationConfig.responseSchema.properties.how_to_steps, 'schema sent with how-to fields');
+    }
+}
+
 await sampleAndFieldTests();
+await knowledgeTests();
 await handlerTests();
 await modelChainTests();
 console.log(`Document AI flow QA passed: ${checks} checks across ${DOC_TYPES.length} document types.`);

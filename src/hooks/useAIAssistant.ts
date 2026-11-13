@@ -6,7 +6,8 @@
  *   GENERATE_DOCUMENT → "Open & edit" / "Save"      PREPARE_EMAIL_BATCH → checkboxes + "Send" (exactly once)
  *   UPDATE_JOB_STATUS / DUPLICATE_JOB / CREATE_* / ADD_* / RESTOCK_INVENTORY → "Confirm"
  *   RUN_PLAN → "Do it all": every step runs in order, documents are saved as Drafts (no form opens)
- *   NAVIGATE_TO is harmless and runs immediately.
+ *   NAVIGATE_TO is harmless and runs immediately (a screen, a Settings section, a job or a document).
+ *   HOW_TO → "Take me there" (navigation) / "Do it for me" (prepares the action as its own card, or opens the empty form).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -128,6 +129,38 @@ export function useAIAssistant(deps: AIAssistantDeps) {
 
     const setComposerText = useCallback((text: string) => setComposer(prev => ({ ...prev, [mode]: text })), [mode]);
 
+    /**
+     * Where a NAVIGATE_TO / HOW_TO proposal leads: a screen or Settings section (route), one of the user's documents
+     * (document_ids) or jobs (job_id). Ids were checked against the user's own records by the server.
+     */
+    const targetPath = useCallback((p: RouterProposal | undefined | null): string | null => {
+        if (!p) return null;
+        const d = depsRef.current;
+        const docId = p.document_ids?.[0];
+        if (p.action_type === 'NAVIGATE_TO' && docId) {
+            const f = d.forms.find(x => x.id === docId);
+            return f ? `/jobs/${f.jobId}/forms/${encodeURIComponent(f.type)}/${f.id}` : null;
+        }
+        if (p.action_type === 'NAVIGATE_TO' && p.job_id) return d.jobs.some(j => j.id === p.job_id) ? `/jobs/${p.job_id}` : null;
+        return p.route || null;
+    }, []);
+
+    /** Opens a path; a #section (Settings) is scrolled into view once the page has rendered it. */
+    const goTo = useCallback((path: string) => {
+        setIsOpen(false);
+        navigate(path);
+        const hash = path.split('#')[1];
+        if (!hash || typeof document === 'undefined') return;
+        let tries = 0;
+        const timer = setInterval(() => {
+            const el = document.getElementById(`settings-${hash}`) || document.getElementById(hash);
+            if (el || ++tries > 30) {
+                clearInterval(timer);
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 100);
+    }, [navigate]);
+
     const userText = useCallback((messages: ChatMessage[]) => messages.filter(m => m.role === 'user').map(m => m.content).join('\n'), []);
 
     const pendingGather = useCallback((): ChatMessage | undefined => [...chat.messages].reverse()
@@ -248,13 +281,13 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         const { proposal, userMessageId, replyMessageId } = await chat.send(text, { context, images: routerImages, displayText: display || 'Sent photos' });
         if (images.length) photosRef.current.set(userMessageId, images.map(i => i.file));
         if (gather && proposal && proposal.action_type !== 'CHAT') chat.updateMessage(gather.id, { status: 'done', result: 'Updated' });
-        if (proposal?.action_type === 'NAVIGATE_TO' && proposal.route) {
+        const path = proposal?.action_type === 'NAVIGATE_TO' ? targetPath(proposal) : null;
+        if (path) {
             // Navigation is harmless: run it right away (the card stays as a "done" record).
             if (replyMessageId) chat.updateMessage(replyMessageId, { status: 'done', result: 'Opened' });
-            navigate(proposal.route);
-            setIsOpen(false);
+            goTo(path);
         }
-    }, [buildContext, chat, completeGather, job, loadDocumentRows, mode, navigate, pendingGather, setComposerText]);
+    }, [buildContext, chat, completeGather, goTo, job, loadDocumentRows, mode, pendingGather, setComposerText, targetPath]);
 
     /** Photos sent in the user turn right before this assistant message. */
     const photosFor = useCallback((messageId: string): File[] => {
@@ -412,7 +445,8 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                     return;
                 }
                 case 'NAVIGATE_TO': {
-                    if (p.route) { finish(messageId, 'Opened'); setIsOpen(false); navigate(p.route); }
+                    const path = targetPath(p);
+                    if (path) { finish(messageId, 'Opened'); goTo(path); } else chat.updateMessage(messageId, { status: 'pending' });
                     return;
                 }
                 default:
@@ -421,7 +455,46 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         } catch (err) {
             fail(messageId, err instanceof Error ? err.message : 'That did not work. Please try again.');
         }
-    }, [chat, fail, finish, navigate]);
+    }, [chat, fail, finish, goTo, navigate, targetPath]);
+
+    /** HOW_TO "Take me there": opens the screen / Settings section of the answer. */
+    const takeMeThere = useCallback((messageId: string) => {
+        const p = chat.messages.find(m => m.id === messageId)?.proposal;
+        if (!p?.route) return;
+        chat.updateMessage(messageId, { status: 'done', result: 'Opened' });
+        goTo(p.route);
+    }, [chat, goTo]);
+
+    /**
+     * HOW_TO "Do it for me": with details, the prepared action appears as its own card (same confirmation as when
+     * the user asks directly); without details, the empty form of that action opens.
+     */
+    const doItForMe = useCallback((messageId: string) => {
+        const p = chat.messages.find(m => m.id === messageId)?.proposal;
+        if (!p) return;
+        if (p.do_it) {
+            chat.updateMessage(messageId, { status: 'done', result: 'Prepared below' });
+            chat.appendMessages([{
+                role: 'assistant',
+                content: p.do_it.action_type === 'RUN_PLAN' ? 'Here is the plan. Check the steps, then press "Do it all".' : 'Here it is. Check the details, then confirm.',
+                proposal: p.do_it,
+                status: 'pending',
+            }]);
+            return;
+        }
+        const forms: Record<string, () => void> = {
+            CREATE_CLIENT: () => navigate('/clients', { state: { openCreateModal: true } }),
+            CREATE_JOB: () => navigate('/jobs/create'),
+            ADD_INVENTORY: () => navigate('/inventory', { state: { openAddModal: true } }),
+            ADD_PRICE_BOOK_ITEM: () => navigate('/pricebook', { state: { openAddModal: true } }),
+        };
+        const open = p.open_form ? forms[p.open_form] : undefined;
+        if (!open) return;
+        if (p.open_form === 'CREATE_JOB' && depsRef.current.checkLimit && !depsRef.current.checkLimit('jobs')) return;
+        chat.updateMessage(messageId, { status: 'done', result: 'Opened the form' });
+        setIsOpen(false);
+        open();
+    }, [chat, navigate]);
 
     /** Sends the selected emails exactly once (AI-005). */
     const sendEmails = useCallback(async (messageId: string, drafts: AIEmailDraft[]) => {
@@ -682,6 +755,8 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         confirmAction,
         sendEmails,
         runPlan,
+        takeMeThere,
+        doItForMe,
         openLink,
         dismiss,
         upgrade,
