@@ -381,7 +381,7 @@ const PlanEditor: React.FC<{
                     <span className="label">How often</span>
                     <div className="flex flex-wrap gap-1.5">
                         {FREQUENCY_PRESETS.map(f => (
-                            <button key={f.id} type="button" onClick={() => setV(cur => ({ ...cur, intervalUnit: f.unit, intervalCount: f.count }))} aria-pressed={preset === f.id}
+                            <button key={f.id} type="button" onClick={() => setV(cur => ({ ...cur, intervalUnit: f.unit, intervalCount: f.count, anchorDay: null }))} aria-pressed={preset === f.id}
                                 className={`h-9 rounded-full border px-3 text-sm font-medium transition ${preset === f.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}>
                                 {f.label}
                             </button>
@@ -389,8 +389,8 @@ const PlanEditor: React.FC<{
                     </div>
                     <div className="mt-2 flex items-center gap-2 text-sm">
                         <span className="text-muted-foreground">or every</span>
-                        <span className="w-20"><NumberInput value={v.intervalCount} onValueChange={(n) => set('intervalCount', Math.max(1, Math.round(n) || 1))} decimals={0} min={1} max={v.intervalUnit === 'week' ? 52 : 24} aria-label="Every how many" /></span>
-                        <select className="input h-10 w-auto" value={v.intervalUnit} onChange={(e) => set('intervalUnit', e.target.value as IntervalUnit)} aria-label="Weeks or months">
+                        <span className="w-20"><NumberInput value={v.intervalCount} onValueChange={(n) => setV(cur => ({ ...cur, intervalCount: Math.max(1, Math.round(n) || 1), anchorDay: null }))} decimals={0} min={1} max={v.intervalUnit === 'week' ? 52 : 24} aria-label="Every how many" /></span>
+                        <select className="input h-10 w-auto" value={v.intervalUnit} onChange={(e) => setV(cur => ({ ...cur, intervalUnit: e.target.value as IntervalUnit, anchorDay: null }))} aria-label="Weeks or months">
                             <option value="week">weeks</option>
                             <option value="month">months</option>
                         </select>
@@ -399,7 +399,7 @@ const PlanEditor: React.FC<{
 
                 <div className="grid gap-3 sm:grid-cols-3">
                     <Field label={kind === 'create' ? 'First visit' : 'Next visit'} htmlFor="sp-next">
-                        <input id="sp-next" type="date" className="input" value={v.nextVisit} onChange={(e) => set('nextVisit', e.target.value)} />
+                        <input id="sp-next" type="date" className="input" value={v.nextVisit} onChange={(e) => setV(cur => ({ ...cur, nextVisit: e.target.value, anchorDay: null }))} />
                     </Field>
                     <Field label="Ends (optional)" htmlFor="sp-ends">
                         <input id="sp-ends" type="date" className="input" value={v.endsOn} onChange={(e) => set('endsOn', e.target.value)} />

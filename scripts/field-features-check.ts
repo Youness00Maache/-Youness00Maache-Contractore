@@ -398,6 +398,7 @@ const plan = (over: Partial<ServicePlan> = {}): ServicePlan => ({
     const row = planRowOf(plan({ intervalUnit: 'week', intervalCount: 99, leadDays: 90, price: 12.345 }), 'u1');
     eq('row: counts and lead days clamped, money rounded', [row.interval_count, row.lead_days, row.price, row.user_id, row.job_id], [52, 60, 12.35, 'u1', 'job-sp']);
     eq('row: a new plan without a job lets the database make one', 'job_id' in planRowOf(plan({ jobId: null }), 'u1'), false);
+    eq('row: anchor day kept for month plans (month ends), cleared for week plans', [planRowOf(plan({ anchorDay: 31, nextVisit: '2027-02-28' }), 'u1').anchor_day, planRowOf(plan({ anchorDay: null }), 'u1').anchor_day, planRowOf(plan({ intervalUnit: 'week', anchorDay: 31 }), 'u1').anchor_day], [31, null, null]);
     const odd = mapPlanRow({ id: 'x', billing: 'weird', interval_unit: 'day', interval_count: 0, status: 'gone', price: '-5' });
     eq('odd rows are safe', [odd.billing, odd.intervalUnit, odd.intervalCount, odd.status, odd.price, odd.leadDays], ['per_visit', 'month', 1, 'active', 0, 14]);
     eq('visit rows', mapVisitRow({ id: 'v', plan_id: 'p', scheduled_for: '2026-12-01', status: 'nope' }).status, 'scheduled');
@@ -425,6 +426,8 @@ const plan = (over: Partial<ServicePlan> = {}): ServicePlan => ({
     ok('plans sql: cron tick only for the service role, portal for anon', /grant execute on function public\.service_plans_cron_tick\(\)\s+to service_role;/.test(code) && /grant execute on function public\.get_portal_service_plans\(text\)\s+to anon, authenticated;/.test(code));
     const fns = code.match(/create or replace function[\s\S]*?\$\$;/g) || [];
     ok('plans sql: every function pins search_path', fns.length >= 11 && fns.every(f => /set search_path = ''/.test(f)));
+    ok('plans sql: anchor day only reset when the app clears it', /if new\.interval_unit = 'month' and new\.anchor_day is null then/.test(code) && !/v_reanchor/.test(code));
+    ok('punch sql: the item guard is not SECURITY DEFINER (tells the browser from the portal function)', /function public\.guard_punch_item\(\)\s*returns trigger\s*language plpgsql\s*set search_path = ''/.test(readMigration('20261115000200_punch_lists.sql')));
     ok('plans sql: OLD is only read in UPDATE branches', !/tg_op = 'INSERT' or [^;]*old\./i.test(code) && !/tg_op = 'UPDATE' and [^;]*old\./i.test(code));
     ok('plans sql: additive only', !/drop table|alter table public\.(jobs|documents|clients|reminder_overrides)|delete from|truncate (table )?public/i.test(code));
     for (const f of ['20261115000200_punch_lists.sql', '20261115000300_papers_vault.sql']) {

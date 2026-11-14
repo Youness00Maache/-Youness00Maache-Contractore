@@ -64,7 +64,8 @@ export async function runPaperReminders(
     if (!userIds.length) return summary;
     const today = now.toISOString().slice(0, 10);
     const horizon = new Date(now.getTime() + 121 * 86_400_000).toISOString().slice(0, 10);
-    const keys = opts.dryRun ? null : await tokenKeys();
+    // token keys are read only when a reminder is actually sent
+    let keys: Awaited<ReturnType<typeof tokenKeys>> | null = null;
 
     for (const ids of chunks(userIds, CHUNK)) {
       if (Date.now() >= opts.deadline) break;
@@ -144,7 +145,8 @@ export async function runPaperReminders(
             text: mail.text,
             html: stripActiveHtml(mail.html),
           });
-          const result = await sendWithAccount(admin, keys!, sender, built.raw);
+          keys = keys ?? await tokenKeys();
+          const result = await sendWithAccount(admin, keys, sender, built.raw);
           await admin.from('paper_reminders').update({ status: 'sent', sent_at: new Date().toISOString(), gmail_message_id: String(result?.id ?? '').slice(0, 200) || null }).eq('id', (claim as { id: string }).id);
           summary.sent++;
         } catch (e) {

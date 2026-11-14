@@ -158,13 +158,11 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_browser        boolean := current_user in ('authenticated', 'anon');
   v_client         public.clients%rowtype;
   v_job_id         uuid;
   -- what changed (OLD is only read in the UPDATE branch)
   v_client_changed boolean := true;
   v_job_changed    boolean := true;
-  v_reanchor       boolean := false;
 begin
   if tg_op = 'INSERT' then
     if not public.is_service_context() and public.user_effective_tier(new.user_id) not in ('premium', 'ai') then
@@ -174,8 +172,6 @@ begin
   else
     v_client_changed := new.client_id is distinct from old.client_id;
     v_job_changed := new.job_id is distinct from old.job_id;
-    -- a new first visit typed in the app (not the generator moving it) resets the day of the month
-    v_reanchor := v_browser and new.next_visit is distinct from old.next_visit and new.anchor_day is not distinct from old.anchor_day;
   end if;
   if new.client_id is not null and v_client_changed then
     select * into v_client from public.clients c where c.id = new.client_id and c.user_id = new.user_id;
@@ -194,8 +190,9 @@ begin
   end if;
   new.name := btrim(new.name);
   new.assigned_to := nullif(btrim(coalesce(new.assigned_to, '')), '');
-  -- month plans keep the day of the month
-  if new.interval_unit = 'month' and (new.anchor_day is null or v_reanchor) then
+  -- month plans keep the day of the month; the app sends anchor_day = null when the user picks a new visit date or
+  -- rhythm, so it is taken from that date (the generator moving next_visit keeps it: Jan 31 → Feb 28 → Mar 31)
+  if new.interval_unit = 'month' and new.anchor_day is null then
     new.anchor_day := extract(day from new.next_visit)::int;
   end if;
   if new.interval_unit = 'week' then
@@ -370,6 +367,7 @@ declare
   v_next    date;
   v_iter    integer;
   v_n       integer;
+  v_job     uuid;
   v_created integer := 0;
 begin
   if p_user_id is null or public.user_effective_tier(p_user_id) not in ('premium', 'ai') then
@@ -383,6 +381,15 @@ begin
     order by next_visit
   loop
     begin
+      -- the plan's job was deleted: the visits need one again
+      if pl.job_id is null then
+        insert into public.jobs (user_id, name, client_id, client_name, client_address, start_date, end_date, status, worker_name)
+        values (pl.user_id, left(pl.name || ' (service plan)', 200), pl.client_id, pl.client_name, pl.client_address,
+                pl.next_visit, pl.next_visit, 'active', pl.assigned_to)
+        returning id into v_job;
+        update public.service_plans set job_id = v_job where id = pl.id;
+        pl.job_id := v_job;
+      end if;
       v_next := pl.next_visit;
       v_iter := 0;
       v_n := 0;

@@ -110,6 +110,8 @@ export const planRowOf = (p: ServicePlan, userId: string): Record<string, unknow
     billing: p.billing,
     interval_unit: p.intervalUnit,
     interval_count: clampCount(p.intervalUnit, p.intervalCount),
+    // null = take the day from next_visit (a new date or rhythm picked in the app); kept otherwise (month ends)
+    anchor_day: p.intervalUnit === 'month' ? p.anchorDay : null,
     next_visit: p.nextVisit,
     ends_on: p.endsOn || null,
     assigned_to: p.assignedTo.trim().slice(0, 120) || null,

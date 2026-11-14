@@ -94,10 +94,12 @@ create trigger trg_punch_lists_guard before insert or update on public.punch_lis
 
 -- Same-owner job and photos; timestamps follow the status; the client's verification / note are written only by
 -- punch_item_feedback_via_portal (a browser save can keep or clear them, never invent them).
+-- NOT security definer (like guard_document_write): current_user is then the writer, so a save from the browser
+-- ('authenticated') is told apart from the portal function (which runs as its owner). Its reads are the owner's own
+-- rows, which RLS lets through.
 create or replace function public.guard_punch_item()
 returns trigger
 language plpgsql
-security definer
 set search_path = ''
 as $$
 declare
