@@ -187,7 +187,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const { notice, notify, clear } = useNotice();
 
   // ------------------------------------------------------------------ suppliers, reorder quantities, open POs
-  const { suppliers, persist: persistSuppliers } = useSuppliers();
+  const { suppliers, persist: persistSuppliers, table: suppliersTable } = useSuppliers();
   const [reorder, setReorder] = useState<ParsedReorder>({ qty: {}, jobId: null });
   const [openOrders, setOpenOrders] = useState<OpenPurchaseOrder[]>([]);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
@@ -1063,6 +1063,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
             onClose={() => setReorderOpen(false)}
             items={items}
             suppliers={suppliers}
+            supplierRecords={suppliersTable ? suppliersTable.records : null}
             reorder={reorder}
             openOrders={openOrders}
             priceBook={savedItems}
@@ -1086,7 +1087,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({
 
       {suppliersOpen && (
         <Suspense fallback={null}>
-          <SuppliersModal open onClose={() => setSuppliersOpen(false)} suppliers={suppliers} onSave={persistSuppliers} />
+          <SuppliersModal open onClose={() => setSuppliersOpen(false)} suppliers={suppliers} onSave={persistSuppliers} table={suppliersTable} paid={paid} onUpgrade={onUpgrade} />
         </Suspense>
       )}
 

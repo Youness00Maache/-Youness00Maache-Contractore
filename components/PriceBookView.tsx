@@ -15,6 +15,8 @@ import HelpButton from './help/HelpButton.tsx';
 import { marginFromPrice } from '../utils/stockMath.ts';
 import { toNumber } from '../utils/money.ts';
 import { compressImage } from '../utils/imageCompression.ts';
+import { updatePriceBookLibraryFields } from '../lib/suppliers/suppliersDb.ts';
+import { NEEDS_CONNECTION } from '../lib/offline/connection.ts';
 
 interface PriceBookViewProps {
   onBack: () => void;
@@ -31,6 +33,8 @@ interface PriceBookViewProps {
   /** Optional uploader; by default photos go to `price-book-images/<uid>/`. */
   onUploadImage?: (file: File) => Promise<string>;
   isPremium?: boolean;
+  /** opens the upgrade prompt (Premium supplier hints in the item editor) */
+  onUpgrade?: (reason?: string) => void;
   /** @deprecated ignored: every item is loaded */
   onLoadMore?: () => Promise<void>;
   /** @deprecated ignored */
@@ -86,7 +90,7 @@ const MarginChip: React.FC<{ item: Item }> = ({ item }) => {
   return <span className={`badge ${m < 0 ? 'badge-danger' : m < 15 ? 'badge-warning' : 'badge-success'}`}>{m}% margin</span>;
 };
 
-const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed, onUploadImage, isPremium: isPremiumProp, onDataChanged, openAddModal, prefillData }) => {
+const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed, onUploadImage, isPremium: isPremiumProp, onUpgrade, onDataChanged, openAddModal, prefillData }) => {
   const [items, setItems] = useState<Item[]>(() => (seed || []).map(normalize));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -240,7 +244,10 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
       await outbox.queue('price_item', before ? 'edit' : 'create', id, before ? { ...payload } : { id, user_id: uid, ...payload });
       const saved = normalize({ ...(before || {}), ...payload, id, user_id: uid });
       setItems(before ? items.map((i) => (i.id === id ? saved : i)) : [...items, saved]);
-      notify('success', "Saved on this device. It syncs when you're back online.");
+      // product link / specs / preferred supplier need a connection (roadmap D4): say so instead of dropping them silently
+      notify(draft.library ? 'info' : 'success', draft.library
+        ? `Saved on this device. The product link, specs and supplier were not saved. ${NEEDS_CONNECTION}`
+        : "Saved on this device. It syncs when you're back online.");
       setEditorOpen(false);
       setEditing(null);
       changed.current?.();
@@ -254,7 +261,21 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
       result = await withSchemaFallback(row, (p) => supabase.from('saved_items').insert(p).select('*').single());
     }
     if (result.error) throw result.error;
-    const saved = normalize(result.data || { ...(before || {}), ...payload });
+    let saved = normalize(result.data || { ...(before || {}), ...payload });
+    // product link / specs / preferred supplier (roadmap D4): written after the item itself, only what the user changed
+    let libraryError: string | null = null;
+    if (draft.library) {
+      try {
+        await updatePriceBookLibraryFields(saved.id, draft.library);
+        const f: Record<string, unknown> = {};
+        if ('url' in draft.library) f.url = draft.library.url ?? '';
+        if ('specs' in draft.library) f.specs = draft.library.specs ?? null;
+        if ('supplierId' in draft.library) f.supplier_id = draft.library.supplierId ?? null;
+        saved = { ...saved, ...f } as Item;
+      } catch (e) {
+        libraryError = friendlyError(e, 'The product link, specs and supplier could not be saved.');
+      }
+    }
     const nextItems = before ? items.map((i) => (i.id === saved.id ? saved : i)) : [...items, saved];
     setItems(nextItems);
 
@@ -265,7 +286,8 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
     removeImages(candidates, nextItems);
 
     const lost = result.dropped.filter((c) => ['images', 'assembly_items', 'is_assembly'].includes(c));
-    notify(lost.length ? 'info' : 'success', lost.length ? 'Saved, but photos or kit components could not be stored yet. Please contact support.' : before ? 'Item updated.' : `"${saved.name}" added to your price book.`);
+    if (libraryError) notify('info', `${before ? 'Item updated' : `"${saved.name}" added`}, but the product link, specs and supplier were not saved: ${libraryError}`);
+    else notify(lost.length ? 'info' : 'success', lost.length ? 'Saved, but photos or kit components could not be stored yet. Please contact support.' : before ? 'Item updated.' : `"${saved.name}" added to your price book.`);
     setEditorOpen(false);
     setEditing(null);
     changed.current?.();
@@ -509,6 +531,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
         allItems={items}
         onUploadImage={uploadImage}
         isPremium={isPremium}
+        onUpgrade={onUpgrade}
       />
 
       <ConfirmDialog

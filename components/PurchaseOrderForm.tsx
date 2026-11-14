@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { FormType, type PurchaseOrderData, type UserProfile, type Job, type Client, type SavedItem, type InventoryItem, type FormData as FormDataType } from '../types.ts';
 import { generatePurchaseOrderPDF } from '../services/pdfGenerator.ts';
 import { computeDocumentTotals, toNumber } from '../utils/money.ts';
@@ -25,6 +25,8 @@ import { OrderStatusStrip, SaveVendorLine, SavedSupplierPicker } from './supplie
 import { DeliveriesLog, SupplierInvoiceFields, type SupplierInvoicePatch } from './suppliers/PurchaseOrderLifecycle.tsx';
 import { syncNote, useSuppliers } from './suppliers/useSuppliers.ts';
 import { errorText } from '../lib/offline/connection.ts';
+import { listSupplierItems } from '../lib/suppliers/suppliersDb.ts';
+import { prefillPoForm } from '../lib/suppliers/libraryView.ts';
 // dialogs load when opened
 const SuppliersModal = lazy(() => import('./suppliers/SuppliersModal.tsx'));
 const ReceiveOrderDialog = lazy(() => import('./suppliers/ReceiveOrderDialog.tsx'));
@@ -66,7 +68,7 @@ const PurchaseOrderForm: React.FC<Props> = ({
     const [shareOpen, setShareOpen] = useState(false);
     const [vendorEmailTouched, setVendorEmailTouched] = useState(false);
     // supplier ordering (lib/suppliers.ts): saved suppliers, "Send to supplier", "Mark received"
-    const { suppliers, persist: persistSuppliers } = useSuppliers();
+    const { suppliers, persist: persistSuppliers, table: suppliersTable } = useSuppliers();
     const [suppliersOpen, setSuppliersOpen] = useState(false);
     const [supplierMode, setSupplierMode] = useState(false);
     const [vendorNote, setVendorNote] = useState<string | null>(null);
@@ -139,10 +141,33 @@ const PurchaseOrderForm: React.FC<Props> = ({
     const savedSupplier = findSupplierByName(suppliers, d.vendorName);
     const [receiveOpen, setReceiveOpen] = useState(false);
 
+    // Suppliers table + Premium (roadmap D4): the supplier's catalogue fills the unit, price and SKU of matching lines.
+    // Only empty fields are filled, nothing is removed, and every line stays editable. Without the table: nothing happens.
+    const catalogueFill = suppliersTable !== null && paid;
+    const [fillNote, setFillNote] = useState<string | null>(null);
+    const dataRef = useRef(d);
+    dataRef.current = d;
+    const fillFromCatalogue = async (s: Supplier) => {
+        if (!catalogueFill) return;
+        try {
+            const items = await listSupplierItems({ supplierId: s.id });
+            if (!items.length) { setFillNote(null); return; }
+            const { lines, filled } = prefillPoForm(dataRef.current.lineItems, items, s.id);
+            if (filled > 0) update({ lineItems: lines });
+            setFillNote(filled > 0
+                ? `${filled} line${filled === 1 ? '' : 's'} filled from ${s.name}’s catalogue (unit, price, SKU). Change anything you like.`
+                : `No line matches ${s.name}’s catalogue yet.`);
+        } catch {
+            setFillNote(null);
+        }
+    };
+
     const pickSupplier = (s: Supplier) => {
         update({ ...supplierToVendor(s), notes: withAccountNumberNote(d.notes, s.accountNumber) });
         setVendorEmailTouched(false);
         setVendorNote(null);
+        setFillNote(null);
+        void fillFromCatalogue(s);
     };
 
     const saveVendor = async () => {
@@ -426,6 +451,12 @@ const PurchaseOrderForm: React.FC<Props> = ({
             </FormSection>
 
             <FormSection title="Items" description="Products and quantities to order." icon={BoxIcon}>
+                {catalogueFill && savedSupplier && (
+                    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <button type="button" className="font-semibold text-primary hover:underline" onClick={() => void fillFromCatalogue(savedSupplier)}>Fill unit, price and SKU from {savedSupplier.name}’s catalogue</button>
+                        {fillNote && <span role="status">{fillNote}</span>}
+                    </p>
+                )}
                 <LineItemsEditor
                     items={d.lineItems}
                     onChange={items => update({ lineItems: items })}
@@ -481,7 +512,7 @@ const PurchaseOrderForm: React.FC<Props> = ({
 
             {suppliersOpen && (
                 <Suspense fallback={null}>
-                    <SuppliersModal open onClose={() => setSuppliersOpen(false)} suppliers={suppliers} onSave={persistSuppliers} />
+                    <SuppliersModal open onClose={() => setSuppliersOpen(false)} suppliers={suppliers} onSave={persistSuppliers} table={suppliersTable} paid={paid} onUpgrade={onUpgrade} />
                 </Suspense>
             )}
             {receiveOpen && savedId && (
