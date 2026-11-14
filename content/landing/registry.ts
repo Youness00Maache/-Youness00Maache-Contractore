@@ -13,7 +13,7 @@ export const LANDING_PAGES: LandingMeta[] = [
     kind: 'ai',
     label: 'AI estimate generator',
     title: 'AI Estimate Generator for Contractors | ContractorDocs',
-    description: 'Describe the job in a sentence and ContractorDocs drafts the estimate: line items, your price book prices and good/better/best options. You review before it sends.',
+    description: 'Describe the job in a sentence and ContractorDocs drafts the estimate: line items, your price book prices and good/better/best options. You review it first.',
     updated: UPDATED,
   },
   {
@@ -22,7 +22,7 @@ export const LANDING_PAGES: LandingMeta[] = [
     kind: 'ai',
     label: 'AI invoice generator',
     title: 'AI Invoice Generator for Contractors | ContractorDocs',
-    description: 'Type or say what you did and ContractorDocs drafts the invoice, change order or daily report, with tax, deposits and your prices. Free plan includes AI requests.',
+    description: 'Type or say what you did and ContractorDocs drafts the invoice, change order or daily report with tax, deposits and your prices. AI is on the Free plan too.',
     updated: UPDATED,
   },
   {
@@ -140,3 +140,7 @@ export const getLandingMeta = (path: string): LandingMeta | undefined => LANDING
 export const getLandingMetaByKey = (key: string): LandingMeta | undefined => LANDING_PAGES.find((p) => p.key === key);
 
 export const landingPagesOf = (kind: LandingKind): LandingMeta[] => LANDING_PAGES.filter((p) => p.kind === kind);
+
+/** Breadcrumb name for a landing page ("For plumbers", "For HVAC contractors", "Jobber alternative"). */
+export const landingCrumb = (m: LandingMeta): string =>
+  m.kind === 'trade' ? `For ${m.key === 'for-hvac' ? 'HVAC contractors' : m.label.toLowerCase()}` : m.label;
