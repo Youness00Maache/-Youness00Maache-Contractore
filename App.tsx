@@ -59,6 +59,7 @@ import { setOfflineEntityQueue } from './lib/offline/offlineEntities.ts';
 import { TEMP_TAG } from './utils/clientPortalRules.ts';
 import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
+import { useCrewFeature } from './lib/crew/crewFeature.ts';
 import { OfflineDocContext, OutboxStatusContext, sendBlockedReasonFor } from './components/offline/OfflineContext.tsx';
 import SyncStatusBar from './components/offline/SyncStatusBar.tsx';
 import InstallAppBanner, { DOCUMENT_SAVED_EVENT } from './components/InstallAppBanner.tsx';
@@ -112,6 +113,9 @@ const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
 // Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
 const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
 const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
+// Crew clock-in links (/crew + the job page's Crew tab): NEXT_STEPS 0c #13. Hidden until the database has it.
+const CrewView = lazy(() => import('./components/crew/CrewView.tsx'));
+const JobCrewPanel = lazy(() => import('./components/crew/JobCrewPanel.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
@@ -232,14 +236,14 @@ const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
 
 const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
 const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
-const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline', 'crew'];
 
 const navSectionFor = (screen: AppView['screen']): NavSection => {
     switch (screen) {
         case 'dashboard': case 'jobDetails': case 'createJob': case 'selectDocType': return 'dashboard';
         case 'clients': return 'clients';
         case 'communication': return 'communication';
-        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': return 'tools';
+        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': case 'crew': return 'tools';
         case 'forum': return 'forum';
         case 'settings': case 'profile': return 'settings';
         default: return 'none';
@@ -277,6 +281,7 @@ const App: React.FC = () => {
             case 'pricebook': navigate('/pricebook'); break;
             case 'profitCalculator': navigate('/calculator'); break;
             case 'pipeline': navigate('/pipeline'); break;
+            case 'crew': navigate('/crew'); break;
             case 'help': navigate('/tutorials'); break;
             case 'forum': navigate(newView.postId ? `/forum/${encodeURIComponent(newView.postId)}` : '/forum'); break;
             case 'gmailCallback': navigate('/gmail-callback'); break;
@@ -364,6 +369,8 @@ const App: React.FC = () => {
     const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
     const [documentPagination, setDocumentPagination] = useState<Record<string, { offset: number; hasMore: boolean; loading: boolean; loaded: boolean }>>({});
     const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+    // crew clock-in tables in the database? (the Crew menu item, job tab and page stay hidden until they are)
+    const crewFeature = useCrewFeature(session?.user?.id ?? null, isOnline);
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [notificationCount, setNotificationCount] = useState(0);
     const [formLoad, setFormLoad] = useState<{ id: string; error: string | null } | null>(null);
@@ -1217,6 +1224,7 @@ const App: React.FC = () => {
             case 'billing': navigate('/settings#billing'); break;
             case 'export': navigate('/settings#data'); break;
             case 'pipeline': navigate('/pipeline'); break;
+            case 'crew': navigate('/crew'); break;
             case 'help': navigate('/tutorials'); break;
         }
     };
@@ -2281,6 +2289,14 @@ const App: React.FC = () => {
                         />
                     </Suspense>
                 )}
+                crewSlot={crewFeature === 'ready' ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobCrewPanel
+                            job={job} jobs={jobs} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade}
+                            onOpenCrew={() => navigate('/crew')}
+                        />
+                    </Suspense>
+                ) : undefined}
             />
         );
     };
@@ -2556,6 +2572,20 @@ const App: React.FC = () => {
                 />;
             case 'profitCalculator':
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
+            case 'crew':
+                return <CrewView
+                    userId={session?.user?.id || ''}
+                    jobs={jobs}
+                    profile={profile}
+                    plan={plan}
+                    isOnline={isOnline}
+                    feature={crewFeature}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onUpgrade={openUpgrade}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onTimeSheetsSaved={(docs) => { handleSupplierDocuments(docs, true); docs.forEach(d => bumpDocUsage(d.jobId)); }}
+                    onOpenTimeSheet={(jobId, docId) => setView({ screen: 'form', formType: FormType.TimeSheet, jobId, formId: docId })}
+                />;
             case 'pipeline':
                 return <PipelineView
                     jobs={jobs}
@@ -2634,6 +2664,7 @@ const App: React.FC = () => {
                     lowStockCount={lowStockCount}
                     isOnline={isOnline}
                     showTabBar={showTabBar}
+                    crewEnabled={crewFeature === 'ready'}
                 />
             )}
             {showNav && (

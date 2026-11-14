@@ -15,14 +15,14 @@ import type { FormData as FormDataType } from '../../types.ts';
 import type { OutboxItem } from '../../lib/offline/outboxModel.ts';
 import { notificationStore } from '../../lib/notifications/store.ts';
 import {
-    fetchActivityDocs, fetchDueDocs, fetchForum, fetchGmailAccounts, fetchOrders, fetchReminders, fetchRequests, markForumRead,
+    fetchActivityDocs, fetchCrewMissed, fetchDueDocs, fetchForum, fetchGmailAccounts, fetchOrders, fetchReminders, fetchRequests, markForumRead,
     type ForumData,
 } from '../../lib/notifications/sources.ts';
 import {
-    buildNotifications, deriveDocNotifications, deriveForumNotifications, deriveGmailNotifications, deriveLimitNotifications,
+    buildNotifications, deriveCrewNotifications, deriveDocNotifications, deriveForumNotifications, deriveGmailNotifications, deriveLimitNotifications,
     deriveOutboxNotifications, deriveReminderNotifications, deriveRequestNotifications, deriveStockNotifications, deriveThreadReplies,
     dismiss as dismissIds, docInputOf, forget, markAllRead as markAllIds, markRead, pickPopups, pruneSeen,
-    type DocInput, type GmailAccountInput, type ReminderInput, type RequestInput, type ShownNotification, type StockInput, type UsageInput,
+    type CrewMissedInput, type DocInput, type GmailAccountInput, type ReminderInput, type RequestInput, type ShownNotification, type StockInput, type UsageInput,
 } from '../../lib/notifications/model.ts';
 import { popupSupport, showPopup } from '../../lib/notifications/popups.ts';
 import { requestOpenInventoryItem, requestOpenQuoteRequest } from '../../lib/notifications/intents.ts';
@@ -55,9 +55,10 @@ interface Remote {
     forum: ForumData | null;
     reminders: ReminderInput[] | null;
     gmail: GmailAccountInput[] | null;
+    crew: CrewMissedInput[] | null;
 }
 
-const EMPTY_REMOTE: Remote = { activity: null, due: null, orders: null, requests: null, forum: null, reminders: null, gmail: null };
+const EMPTY_REMOTE: Remote = { activity: null, due: null, orders: null, requests: null, forum: null, reminders: null, gmail: null, crew: null };
 const FAST_MS = 3 * 60_000;
 const SLOW_MS = 10 * 60_000;
 const BACK_MIN_MS = 60_000;
@@ -133,6 +134,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
                 fetchActivityDocs(uid).then(activity => (activity ? { activity } : {})).catch(() => ({})),
                 fetchRequests().then(requests => (requests ? { requests } : {})).catch(() => ({})),
                 fetchForum(uid).then(forum => (forum ? { forum } : {})).catch(() => ({})),
+                fetchCrewMissed().then(crew => (crew ? { crew } : {})).catch(() => ({})),
             );
         }
         if (which.slow) {
@@ -225,11 +227,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
             ...(remote.forum ? deriveThreadReplies(remote.forum, remote.forum.lookups, ctx) : []),
             ...deriveReminderNotifications(remote.reminders || [], ctx),
             ...deriveGmailNotifications(remote.gmail || [], ctx),
+            ...deriveCrewNotifications(remote.crew || [], ctx),
             ...deriveOutboxNotifications(outboxItems.map(i => ({ docId: i.docId, userId: i.userId, jobId: i.jobId, type: i.type, status: i.status, error: i.error, data: i.data })), ctx),
             ...deriveLimitNotifications(usage, docUsage, ctx, jobNames),
         ];
         return buildNotifications({ now: ctx.now, items, state: stored.state, prefs: stored.prefs, seen: notificationStore.getSeen() });
-    }, [docs, stock, remote.requests, remote.forum, remote.reminders, remote.gmail, outboxItems, usage, docUsage, ctx, jobNames, stored.state, stored.prefs]);
+    }, [docs, stock, remote.requests, remote.forum, remote.reminders, remote.gmail, remote.crew, outboxItems, usage, docUsage, ctx, jobNames, stored.state, stored.prefs]);
 
     // Low stock that is back to normal: forget it, so the next time it runs low is new again.
     useEffect(() => {

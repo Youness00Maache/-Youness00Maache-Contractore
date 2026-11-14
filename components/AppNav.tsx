@@ -11,6 +11,7 @@ import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
 import { HelpCircleIcon } from './help/HelpText.tsx';
 import { PipelineIcon } from './pipeline/PipelineIcon.tsx';
+import { CrewIcon } from './crew/CrewIcon.tsx';
 import NotificationBell from './notifications/NotificationBell.tsx';
 
 export type NavDestination =
@@ -18,6 +19,8 @@ export type NavDestination =
     | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing' | 'help'
     /** pipeline board (/pipeline) */
     | 'pipeline'
+    /** crew clock-in links and hours (/crew) */
+    | 'crew'
     /** Settings → Your data (export everything, bookkeeper CSV) */
     | 'export';
 
@@ -41,6 +44,8 @@ interface AppNavProps {
     isOnline: boolean;
     /** Show the mobile bottom tab bar (hidden on editors). */
     showTabBar: boolean;
+    /** crew clock-in is in the database (Tools › Crew shows) */
+    crewEnabled?: boolean;
 }
 
 const TOOLS: { dest: NavDestination; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; description: string }[] = [
@@ -48,6 +53,7 @@ const TOOLS: { dest: NavDestination; label: string; icon: React.ComponentType<Re
     { dest: 'inventory', label: 'Inventory', icon: BoxIcon, description: 'Stock, QR tags and job allocations' },
     { dest: 'pricebook', label: 'Price book', icon: TagIcon, description: 'Saved items and assemblies' },
     { dest: 'calendar', label: 'Calendar', icon: CalendarIcon, description: 'Job schedule' },
+    { dest: 'crew', label: 'Crew', icon: CrewIcon, description: 'Clock-in links and weekly hours' },
     { dest: 'analytics', label: 'Insights', icon: BarChartIcon, description: 'Revenue and outstanding invoices' },
     { dest: 'calculator', label: 'Profit calculator', icon: CalculatorIcon, description: 'Price a job with your margin' },
 ];
@@ -102,9 +108,10 @@ const Avatar: React.FC<{ name: string; url?: string; size?: 'sm' | 'md' }> = ({ 
 
 const AppNav: React.FC<AppNavProps> = ({
     active, userName, userEmail, avatarUrl, plan, onNavigate, onUpgrade, onLogout, primaryAction,
-    clientBadge = 0, forumBadge = 0, lowStockCount = 0, isOnline, showTabBar,
+    clientBadge = 0, forumBadge = 0, lowStockCount = 0, isOnline, showTabBar, crewEnabled = false,
 }) => {
     const [moreOpen, setMoreOpen] = useState(false);
+    const tools = TOOLS.filter(t => t.dest !== 'crew' || crewEnabled);
     const paid = isPaidTier(plan);
     const hasPageTitle = useSyncExternalStore(subscribeSlots, () => slotUsers.title > 0, () => false);
 
@@ -199,7 +206,7 @@ const AppNav: React.FC<AppNavProps> = ({
                             }
                         >
                             <DropdownLabel>Tools</DropdownLabel>
-                            {TOOLS.map(tool => (
+                            {tools.map(tool => (
                                 <DropdownItem key={tool.dest} onClick={() => onNavigate(tool.dest)}>
                                     <tool.icon className="h-4 w-4 shrink-0 text-primary" />
                                     <span className="min-w-0 flex-1">
@@ -249,7 +256,7 @@ const AppNav: React.FC<AppNavProps> = ({
                             </button>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
-                            {[...TOOLS, { dest: 'forum' as NavDestination, label: 'Community', icon: MessageSquareIcon, description: '' }, { dest: 'settings' as NavDestination, label: 'Settings', icon: SettingsIcon, description: '' }, { dest: 'billing' as NavDestination, label: 'Billing', icon: CreditCardIcon, description: '' }].map(item => (
+                            {[...tools, { dest: 'forum' as NavDestination, label: 'Community', icon: MessageSquareIcon, description: '' }, { dest: 'settings' as NavDestination, label: 'Settings', icon: SettingsIcon, description: '' }, { dest: 'billing' as NavDestination, label: 'Billing', icon: CreditCardIcon, description: '' }].map(item => (
                                 <button
                                     key={item.dest}
                                     type="button"

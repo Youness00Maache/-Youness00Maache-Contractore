@@ -1269,6 +1269,10 @@ async function knowledgeTests() {
         ['how do I export all my data?', 'export-data'],
         ['send a CSV to my bookkeeper', 'export-data'],
         ['¿Cómo exporto todos mis datos para mi contador?', 'export-data'],
+        ['how can my crew clock in from their phones?', 'crew-clock-in'],
+        ['can I see where my workers were when they clocked in? gps', 'crew-clock-in'],
+        ['who forgot to clock out?', 'crew-clock-in'],
+        ['¿Cómo marcan entrada mis trabajadores desde el teléfono?', 'crew-clock-in'],
     ];
     for (const [q, id] of top) {
         eq(scoreKnowledge(q)[0]?.entry.id, id, `"${q}" → ${id}`);
