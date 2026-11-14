@@ -133,7 +133,14 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   fetchCrewTasks/updateCrewTask/uploadCrewTaskPhoto, workOrderTasks.*, runExtractTasks); (4) redeploy ai-assistant
   (extract_tasks).
 - PAUSED 2026-11-14 ~21:40 UTC at 71% of the 5-hour limit (weekly 23%). Resume timer 23:55 UTC (5-hour reset 23:50).
-  The D4 phase B (Sonnet UI) helper was still running when paused: when it finishes, merge it, but start nothing new until 23:55.
+  D4 phase B (Sonnet UI) DONE and MERGED on my-branch (9a3b8aa; supplier-library-check 253). D4 is ready to SHIP together
+  with D2 (not pushed yet). D4 click path to test live: Inventory > Suppliers > a supplier > Catalogue / Price list; Price
+  book > edit item > Product; Inventory > low stock > Create reorder POs; a PO > pick a saved supplier. Help text was added
+  in components/help/helpContent.ts: run `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge` once (together with D2's
+  help) before shipping, then redeploy ai-assistant. Worktrees to remove at ship time: agent-a8065d0e9893c21f9,
+  agent-a851aa5eafd62ef24 (junction first: `cmd /c rmdir <worktree>\node_modules`).
+  NEXT AT RESUME: review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
+  dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
 - Known small gap: saved_items.supplier_id has no same-owner trigger (id is an unguessable uuid; harmless).
 
