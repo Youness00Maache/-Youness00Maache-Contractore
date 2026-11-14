@@ -1,3 +1,4 @@
+-- Applied 2026-11-14 with the owner's OK ("Crew & field tables"), Supabase SQL editor, project iauteblvljppwzsxloyd.
 -- =====================================================================================
 -- ContractorDocs: recurring service plans (competitor gap #15, NEXT_STEPS 0c "NEXT")
 --

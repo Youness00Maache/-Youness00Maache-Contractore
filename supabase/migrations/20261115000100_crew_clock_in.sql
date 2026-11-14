@@ -1,3 +1,4 @@
+-- Applied 2026-11-14 with the owner's OK ("Crew & field tables"), Supabase SQL editor, project iauteblvljppwzsxloyd.
 -- =====================================================================================
 -- ContractorDocs: crew clock-in links (competitor gap #13 "GPS time clock").
 --
