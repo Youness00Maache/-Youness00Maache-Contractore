@@ -139,6 +139,14 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   in components/help/helpContent.ts: run `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge` once (together with D2's
   help) before shipping, then redeploy ai-assistant. Worktrees to remove at ship time: agent-a8065d0e9893c21f9,
   agent-a851aa5eafd62ef24 (junction first: `cmd /c rmdir <worktree>\node_modules`).
+  HAND-OVER (2026-11-14 23:40 UTC, coordinator context passed 150k): a FRESH coordinator session should take over from
+  here. Brief for it: "Continue docs/work/COMPETITOR_ROADMAP.md from 'Coordinator state'. Cost rules: NEXT_STEPS.md top
+  (rule 8). Apply the DB changes with the SQL-editor method in NEXT_STEPS (Chrome deviceId 23a0a75c...: hidden file input +
+  monaco setValue, confirm the destructive dialog, verify read-only, add the 'Applied <date> with the owner's OK' header).
+  The owner pre-approved ALL D1-D13 DB changes." Pattern per DB batch: Opus helper = SQL + data layer + tests (phase A),
+  review SQL, merge, apply; then Sonnet helper = UI (phase B); no-DB batches = Sonnet. Max 2 helpers. Pacing: pause at 70% of
+  the 5-hour limit (one-shot timer after reset), stop at 50% weekly (resume Thu 2026-11-19 17:00 UTC). Old session timers
+  (hourly usage check c214774c, resume 0c677266) die with the old session: the new one re-creates them.
   NEXT AT RESUME: review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
