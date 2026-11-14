@@ -219,8 +219,9 @@ const AppNav: React.FC<AppNavProps> = ({
                     <div className="ml-auto flex shrink-0 items-center gap-2">
                         {/* phones: the page's quick actions (e.g. the AI assistant on the dashboard) */}
                         <div ref={actionsSlotRef} className="flex items-center gap-2 empty:hidden md:hidden" />
+                        {/* computers only: on phones the offline state is the thin strip under the bar (SyncStatusBar) */}
                         {!isOnline && (
-                            <span className="badge badge-warning" title="You're offline. Field documents and estimate / invoice drafts save on this device and sync when you reconnect.">
+                            <span className="badge badge-warning hidden md:inline-flex" title="You're offline. Field documents and estimate / invoice drafts save on this device and sync when you reconnect.">
                                 <WifiOffIcon className="h-3.5 w-3.5" /> Offline
                             </span>
                         )}

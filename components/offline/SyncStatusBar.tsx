@@ -36,13 +36,14 @@ const SyncStatusBar: React.FC<Props> = ({ online, usingCachedData, items, notice
 
     if (!online) {
         return (
-            <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-sm text-foreground" role="status">
-                <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
-                    <span>
-                        <WifiOffIcon className="mr-1.5 inline h-4 w-4 align-[-3px] text-warning" />
+            <div className="border-b border-warning/30 bg-warning/10 px-4 py-1 text-xs text-foreground sm:py-2 sm:text-sm" role="status">
+                <div className="mx-auto flex max-w-7xl items-center justify-center gap-x-2 text-center">
+                    {/* phones: one short line (the app bar stays clean); computers: the full sentence */}
+                    <span className="min-w-0 truncate sm:whitespace-normal">
+                        <WifiOffIcon className="mr-1.5 inline h-3.5 w-3.5 align-[-2px] text-warning sm:h-4 sm:w-4 sm:align-[-3px]" />
                         {count
-                            ? <>You're offline. <strong className="font-semibold">{plural(count, 'document')}</strong> saved on this device, waiting to sync.</>
-                            : "You're offline. Daily reports, time sheets, logs, notes and receipts still save on this device; estimates and invoices can be drafted."}
+                            ? <><span className="sm:hidden">Offline · </span><span className="hidden sm:inline">You're offline. </span><strong className="font-semibold">{plural(count, 'change')}</strong><span className="hidden sm:inline"> saved on this device,</span> waiting to sync.</>
+                            : <><span className="sm:hidden">Offline: your work saves on this device and syncs later.</span><span className="hidden sm:inline">You're offline. Daily reports, time sheets, logs, notes and receipts still save on this device; estimates and invoices can be drafted.</span></>}
                     </span>
                     {count > 0 && <LinkButton onClick={onOpen}>View</LinkButton>}
                 </div>
