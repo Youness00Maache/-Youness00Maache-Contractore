@@ -19,7 +19,7 @@ export async function applyKelviqWebhookEvent(event: Record<string, unknown>, rp
     if (route === 'credits') {
         const r = await rpc('apply_ai_credit_event', { p_event: event });
         if (r.error && isMissingFunction(r.error)) {
-            return { fn: 'apply_ai_credit_event', data: null, error: { message: 'AI credit pack event, but docs/work/DRAFT_ai_credits.sql is not applied', code: r.error.code } };
+            return { fn: 'apply_ai_credit_event', data: null, error: { message: 'AI credit pack event, but supabase/migrations/20261114000200_ai_credits.sql is not applied', code: r.error.code } };
         }
         return { fn: 'apply_ai_credit_event', ...r };
     }

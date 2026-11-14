@@ -10,7 +10,7 @@
  *   estimateOptionsInternal  { [lineId]: private line fields } of every option line (unit cost, inventory links…).
  *                            The key contains "internal", so the database never sends it to a client page.
  *   clientOptionChoice       the client's pick, written by the database when the client signs with an option
- *                            (docs/work/DRAFT_estimate_options_choice.sql, NOT applied yet). Until that SQL is applied
+ *                            (supabase/migrations/20261114000100_estimate_options_choice.sql, NOT applied yet). Until that SQL is applied
  *                            the client pages put the pick in the signer's name instead: "Jane Doe (chose B: Better)".
  *   lineItems                always mirrors the effective option (its lines + the shared lines), so every older reader
  *                            of an estimate (emails, lists, stock, exports, the AI) keeps working unchanged.

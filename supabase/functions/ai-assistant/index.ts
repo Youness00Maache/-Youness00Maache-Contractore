@@ -3,7 +3,7 @@
 //      GEMINI_API_KEY, GEMINI_MODEL (default gemini-3.5-flash-lite; backups in handler.ts), SITE_URL,
 //      GEMINI_THINKING_LEVEL (Gemini 3+: minimal|low|medium|high, default low),
 //      AI_PROVIDER=mock for deterministic local testing without a key, AI_RATE_PER_MINUTE (default 10).
-//      AI credits (off unless AI_CREDITS_ENABLED=true and docs/work/DRAFT_ai_credits.sql is applied):
+//      AI credits (off unless AI_CREDITS_ENABLED=true and supabase/migrations/20261114000200_ai_credits.sql is applied):
 //      KELVIQ_SERVER_API_KEY + KELVIQ_ENV for automatic top-ups (POST /charges/).
 import { createHandler } from './handler.ts';
 

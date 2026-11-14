@@ -4,7 +4,7 @@
  *
  *  1. packs and pricing (minimum $5, credits per dollar, margin vs the plans and the model cost, Kelviq fees)
  *  2. ledger math: balance, refunds (proportional, capped, never below zero), automatic top-up due, charge outcomes
- *  3. the DRAFT SQL (docs/work/DRAFT_ai_credits.sql): same numbers as the code, additive only, RLS read-own,
+ *  3. the DRAFT SQL (supabase/migrations/20261114000200_ai_credits.sql): same numbers as the code, additive only, RLS read-own,
  *     service-role-only functions, idempotency keys, nothing applied (it is not in supabase/migrations)
  *  4. kelviq-webhook routing: credit packs never reach the subscription handler; refunds fall back when the SQL is missing
  *  5. kelviq-checkout credit actions: flag off, SQL missing, one-time checkout body, settings validation
@@ -120,11 +120,12 @@ const eq = (name: string, actual: unknown, expected: unknown) => check(name, JSO
 
 // ───────────────────────────── 3. DRAFT SQL ─────────────────────────────
 {
-    const sqlPath = 'docs/work/DRAFT_ai_credits.sql';
+    const sqlPath = 'supabase/migrations/20261114000200_ai_credits.sql';
     const sql = read(sqlPath);
     const code = sql.replace(/--[^\n]*/g, ''); // statements only (the header and the rollback are comments)
-    check('the SQL is a draft outside supabase/migrations (nothing applied)', !readdirSync(join(root, 'supabase/migrations')).some(f => /ai_credits/i.test(f) || /ai_credit_ledger|apply_ai_credit_event/i.test(read(`supabase/migrations/${f}`))));
-    check('header says DRAFT / NOT applied', /DRAFT FOR THE OWNER'S OK/.test(sql) && /NOT applied/.test(sql));
+    // Applied 2026-11-14 with the owner's OK: exactly one migration holds it.
+    check('the SQL is one applied migration', readdirSync(join(root, 'supabase/migrations')).filter(f => /ai_credits/i.test(f)).length === 1);
+    check('header records the owner-approved apply', /Applied 2026-11-14 with the owner's OK/.test(sql));
 
     const sqlPacks = Object.fromEntries(Array.from(code.matchAll(/when '(ai-credits-\d+)'\s+then (\d+)/g), m => [m[1], Number(m[2])]));
     eq('SQL pack sizes = code', sqlPacks, Object.fromEntries(AI_CREDIT_PACKS.map(p => [p.id, p.credits])));

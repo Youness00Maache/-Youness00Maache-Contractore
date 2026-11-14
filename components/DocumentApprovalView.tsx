@@ -213,7 +213,7 @@ export const optionLabelOf = (set: OptionSet, id: string | null | undefined): st
 
 /**
  * Signs an options estimate with the chosen option. Uses the database function that stores the choice
- * (docs/work/DRAFT_estimate_options_choice.sql) when it exists; until then the existing signing function is used and
+ * (supabase/migrations/20261114000100_estimate_options_choice.sql) when it exists; until then the existing signing function is used and
  * the choice is written in the signer's name ("Jane Doe (chose B: Better)"), which the contractor's app reads.
  */
 export async function signWithOption(

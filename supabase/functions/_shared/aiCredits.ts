@@ -5,7 +5,7 @@
  *
  *  - 1 credit = 1 AI request, used only AFTER the plan's monthly allowance is used up. Credits never expire.
  *  - Packs are one-time Kelviq plans (Product catalog: billing cycle "One time") with the identifiers below.
- *    The SQL (docs/work/DRAFT_ai_credits.sql, ai_credit_pack_credits()) holds the same numbers; the check script
+ *    The SQL (supabase/migrations/20261114000200_ai_credits.sql, ai_credit_pack_credits()) holds the same numbers; the check script
  *    compares them.
  *  - Everything is OFF until the edge-function secret AI_CREDITS_ENABLED=true is set AND the SQL is applied
  *    (the functions also check that the SQL exists and fall back to the old behaviour when it does not).

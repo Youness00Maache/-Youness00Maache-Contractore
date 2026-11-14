@@ -3,7 +3,7 @@
 //  POST { tier: 'premium' | 'ai', period: 'MONTHLY' | 'YEARLY', successUrl }  -> { url, sessionId }
 //  POST { action: 'portal' }                                                  -> { url }
 //  POST { action: 'credits_status' | 'credits_checkout' | 'credits_settings' } -> AI credit top-ups (credits.ts;
-//       off until AI_CREDITS_ENABLED=true and docs/work/DRAFT_ai_credits.sql is applied)
+//       off until AI_CREDITS_ENABLED=true and supabase/migrations/20261114000200_ai_credits.sql is applied)
 //
 // Errors: { error, code } with 401 UNAUTHORIZED, 400 BAD_REQUEST, 409 ALREADY_SUBSCRIBED,
 //         404 NO_BILLING_ACCOUNT (portal before any purchase), 503 BILLING_NOT_CONFIGURED,

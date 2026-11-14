@@ -3,7 +3,7 @@
  * upgrade window). Everything goes through the `kelviq-checkout` edge function (service role, user id from the
  * JWT); credits are added only by the Kelviq webhook or an automatic top-up, never from the browser.
  *
- * Hidden unless the server says `enabled: true` (secret AI_CREDITS_ENABLED + docs/work/DRAFT_ai_credits.sql applied).
+ * Hidden unless the server says `enabled: true` (secret AI_CREDITS_ENABLED + supabase/migrations/20261114000200_ai_credits.sql applied).
  * Packs and rules: supabase/functions/_shared/aiCredits.ts (same numbers on the server and in the SQL).
  */
 import { invokeFunction } from './supabase.ts';

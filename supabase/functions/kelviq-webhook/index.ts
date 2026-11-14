@@ -3,7 +3,7 @@
 // Kelviq signature instead. Business logic + idempotency live in SQL: public.apply_kelviq_event(jsonb)
 // records the event in billing_events (unique by event id) and updates the profile in ONE transaction.
 // AI credit packs (and refund.*) go to public.apply_ai_credit_event(jsonb) instead (route.ts;
-// docs/work/DRAFT_ai_credits.sql); subscription events are handled exactly as before.
+// supabase/migrations/20261114000200_ai_credits.sql); subscription events are handled exactly as before.
 //
 // Responses: 401 bad/missing signature or stale timestamp (Kelviq does not retry 4xx),
 //            400 malformed JSON, 200 processed / duplicate / test / ignored / unmatched,

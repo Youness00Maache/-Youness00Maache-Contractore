@@ -382,7 +382,7 @@ const PACKED = packOptionsForSave(EST) as any;
 // 8. draft SQL + wiring
 // ---------------------------------------------------------------------------------------------------------------
 {
-    const sql = read('docs/work/DRAFT_estimate_options_choice.sql');
+    const sql = read('supabase/migrations/20261114000100_estimate_options_choice.sql');
     check('draft SQL: functions only (no table change)', !/\b(create|alter|drop)\s+table\b/i.test(sql) && !/\bupdate\s+public\.documents\s+set\b(?![^;]*where id = v_doc\.id)/i.test(sql));
     check('draft SQL: both signing functions', sql.includes('function public.sign_document_option_via_portal(\n  p_key text, p_doc_id uuid, p_option_id text, p_signature text, p_signer_name text default null)')
         && sql.includes('function public.approve_document_option_by_token(\n  doc_token uuid, p_option_id text, p_signature text, p_signer_name text default null)'));
@@ -390,7 +390,8 @@ const PACKED = packOptionsForSave(EST) as any;
     check('draft SQL: private fields restored from estimateOptionsInternal', sql.includes("p_doc.data -> 'estimateOptionsInternal' -> (l.value ->> 'id')"));
     check('draft SQL: public grants for the two functions', sql.includes('grant execute on function public.sign_document_option_via_portal(text, uuid, text, text, text) to anon, authenticated;')
         && sql.includes('grant execute on function public.approve_document_option_by_token(uuid, text, text, text)      to anon, authenticated;'));
-    check('draft SQL is not a migration', !readdirSync(join(root, 'supabase/migrations')).some((f: string) => /option/i.test(f)));
+    // Applied 2026-11-14 with the owner's OK: exactly one migration holds it.
+    check('options SQL is one applied migration', readdirSync(join(root, 'supabase/migrations')).filter((f: string) => /estimate_options_choice/.test(f)).length === 1);
 
     const form = read('components/EstimateForm.tsx');
     check('form: saves client-safe options', form.includes('prepare: d => packOptionsForSave(d)') && form.includes('hydrate: d => unpackOptionsForEdit(backfillCompany({'));

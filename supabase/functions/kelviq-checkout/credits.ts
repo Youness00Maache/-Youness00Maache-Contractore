@@ -6,7 +6,7 @@
 //  POST { action: 'credits_settings', autoRecharge, threshold, pack } -> status (as credits_status)
 //
 // OFF (credits_status says enabled: false, the others answer 503 CREDITS_DISABLED) until the secret
-// AI_CREDITS_ENABLED=true is set AND docs/work/DRAFT_ai_credits.sql is applied. Credits are added only by
+// AI_CREDITS_ENABLED=true is set AND supabase/migrations/20261114000200_ai_credits.sql is applied. Credits are added only by
 // kelviq-webhook (checkout.completed) or by an automatic top-up in ai-assistant, never from here.
 import { AI_CREDIT_PACKS, AUTO_RECHARGE, aiCreditsEnabled, packById } from '../_shared/aiCredits.ts';
 
