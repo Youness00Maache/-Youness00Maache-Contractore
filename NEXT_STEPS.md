@@ -74,6 +74,9 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+**2026-11-14 ~21:10 UTC: NEW BIG TASK = docs/work/COMPETITOR_ROADMAP.md** (46 competitor features: audit done,
+batches N1-N12 need no DB, D1-D13 need the owner's DB OK). Owner pacing for it: pause at 70% of the 5-hour limit,
+stop at 50% weekly, loop until everything is shipped. Read that file first.
 **2026-11-14 ~20:30 UTC: "small things" DONE and LIVE** (main fb3c34d, ai-assistant redeployed 354 KB, 30 suites pass):
 - Free plan: Convert to invoice + Create revision check the job's document slot before the new form opens
   (components/forms/DocSlotContext.ts; copy-to-job-check +4).
