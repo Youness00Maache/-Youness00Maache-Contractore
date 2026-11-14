@@ -15,6 +15,7 @@
  *   notification types / quiet → public.user_settings 'notifications.prefs' (pop-ups on/off stay on the device)
  *   default document design    → public.user_settings 'documents.design' (lib/designAccess.ts; picker + Settings)
  *   crew overtime rule         → public.user_settings 'crew.settings' (components/crew/crewUi.tsx useOvertimeRule)
+ *   job task templates         → public.user_settings 'tasks.templates' (lib/tasks/taskLogic.ts TaskTemplatesSetting)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -379,6 +380,17 @@ export const loadDesignDefaultRaw = (): Promise<unknown> => loadJsonSetting(DESI
 
 /** Saves an already validated default design (device copy + account). */
 export const saveDesignDefaultRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(DESIGN_DEFAULT_KEY, designDefaultLocalKey, value);
+
+// --------------------------------------------------------------------------- task templates
+// Raw storage only: lib/tasks/taskLogic.ts parses / size-checks the value (parseTaskTemplates, serializeTaskTemplates)
+// and lib/tasks/tasksApi.ts wraps it (loadTaskTemplates, saveTaskTemplates). Same key string as
+// TASK_TEMPLATES_SETTING in lib/tasks/taskTypes.ts (scripts/job-tasks-check.ts checks they match).
+export const TASK_TEMPLATES_KEY = 'tasks.templates';
+const taskTemplatesLocalKey = (uid: string) => `cd.tasks.templates:${uid}`;
+
+/** Raw 'tasks.templates' value (account, else this device's copy); parse it with parseTaskTemplates(). */
+export const loadTaskTemplatesRaw = (): Promise<unknown> => loadJsonSetting(TASK_TEMPLATES_KEY, taskTemplatesLocalKey);
+export const saveTaskTemplatesRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(TASK_TEMPLATES_KEY, taskTemplatesLocalKey, value);
 
 // -------------------------------------------------------------------------- notifications
 /**
