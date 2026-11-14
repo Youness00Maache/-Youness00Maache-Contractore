@@ -308,6 +308,16 @@ SEO leftovers (scratchpad/seo/PROGRESS.md + rewritten-links.txt): render the 8 t
 /ai-estimate-generator, /ai-invoice-generator, 4 /compare pages, nav/footer links, IndexNow key + ping script.
 Templates leftovers (scratchpad/tpl2/PROGRESS.md): full --pdfdiff run on all kinds, marketing Templates page PNGs
 (content/templatePreviews.ts) still show retired designs, optional Settings default-design section.
+**14:10:** Chrome "Browser 2" (deviceId 23a0a75c…) has Supabase, Vercel, Kelviq signed in (Browser 1 is a different
+profile, signed out). ai-assistant REDEPLOYED (templates/notifications knowledge; credits flag off). Vercel env has
+VITE_SUPABASE_URL, VITE_SUPPORT_EMAIL, VITE_KELVIQ_PRODUCT_ID, VITE_KELVIQ_ENV, VITE_SITE_URL (anon key falls back
+to the built-in production key: OK). Supabase secrets still missing KELVIQ_WEBHOOK_SECRET + KELVIQ_SERVER_API_KEY
+(owner adds: Kelviq Settings > Webhooks > endpoint > signing secret; Settings > API keys (Live); Supabase
+Functions > Secrets). Kelviq webhook endpoint exists (to iauteblvljppwzsxloyd.supabase.co), not yet verified: after
+the secrets are in, click Verify endpoint + Send test event. kelviq-checkout / kelviq-webhook code changed (credits
+routing, flag off) but NOT redeployed yet — deploy together with the subscribe-flow change.
+Started subscribe-flow helper a5bac949ae036a6c1 (sign up first → automatic checkout for the chosen plan; existing
+account → log in; intent survives email confirmation/OAuth; "Finish upgrading" banner; no DB change).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
