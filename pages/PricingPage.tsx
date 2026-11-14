@@ -93,7 +93,7 @@ const PricingPage: React.FC = () => {
             <a href="#price-promise" className="font-semibold text-brand-700 underline underline-offset-4">Read our price promise</a>
           </p>
           <ul className="mt-8 flex flex-col items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground sm:flex-row">
-            <li className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-brand-600" /> Secure checkout by Kelviq (merchant of record)</li>
+            <li className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-brand-600" /> Secure checkout</li>
             <li className="flex items-center gap-2"><Clock className="h-4 w-4 text-brand-600" /> Cancel anytime from Settings</li>
             <li className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-brand-600" /> Prices in USD; tax added at checkout where applicable</li>
           </ul>

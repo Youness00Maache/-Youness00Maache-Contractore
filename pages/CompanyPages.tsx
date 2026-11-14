@@ -54,7 +54,7 @@ export const AboutPage: React.FC = () => (
             { icon: Globe, t: 'Vercel', d: 'Hosting and global delivery of the web app over HTTPS.' },
             { icon: Sparkles, t: 'Google Gemini', d: 'Large language model behind the AI assistant’s drafts.' },
             { icon: Send, t: 'Gmail API', d: 'Sends documents from your own Gmail address when you connect it.' },
-            { icon: CreditCard, t: 'Kelviq', d: 'Merchant of record for subscriptions: checkout, tax and receipts.' },
+            { icon: CreditCard, t: 'Secure payments', d: 'Subscriptions are paid through a secure checkout that handles tax and receipts.' },
             { icon: Lock, t: 'Security headers & encryption', d: 'TLS in transit, encrypted Gmail tokens, strict browser security policies.' },
           ].map((p) => (
             <li key={p.t} className="flex gap-3 rounded-2xl border border-border bg-card p-4">

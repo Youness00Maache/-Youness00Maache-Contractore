@@ -32,7 +32,7 @@ const FOOTER_COLUMNS: { title: string; links: { to: string; label: string }[] }[
       { to: '/blog/construction-estimate-template', label: 'Pricing a job' },
       { to: '/blog/change-order-form-guide', label: 'Change orders' },
       { to: '/blog/daily-job-report-template', label: 'Daily job reports' },
-      { to: '/blog', label: 'All articles' },
+      { to: '/blog', label: 'Blog' },
     ],
   },
   {
@@ -186,7 +186,6 @@ export const SiteFooter: React.FC = () => (
         <p className="flex items-center gap-2">
           <LogoMark className="h-5 w-5" /> © {SITE.year} ContractorDocs. All rights reserved.
         </p>
-        <p>Payments are processed by Kelviq, our merchant of record.</p>
       </div>
     </Container>
   </footer>

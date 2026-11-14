@@ -66,7 +66,7 @@ const TRUST = [
   { title: 'Encrypted connections', text: 'HTTPS everywhere, with strict security headers.', proof: <HttpsProof /> },
   { title: 'Your data stays yours', text: 'Per-account access rules in the database.', proof: <AccountProof /> },
   { title: 'Send-only Gmail access', text: 'We can send for you, never read your inbox.', proof: <GmailScopeProof /> },
-  { title: 'Payments by Kelviq', text: 'Merchant of record; we never see your card.', proof: <CardProof /> },
+  { title: 'Secure checkout', text: 'Card details go to a secure checkout; we never see your card.', proof: <CardProof /> },
 ];
 
 const LandingPage: React.FC = () => {
@@ -78,14 +78,10 @@ const LandingPage: React.FC = () => {
       <section className="relative overflow-hidden">
         <div aria-hidden="true" className={`${GRID_BG} pointer-events-none absolute inset-0 opacity-80`} />
         <div aria-hidden="true" className="pointer-events-none absolute -top-40 left-1/2 h-[520px] w-[900px] -translate-x-1/2 rounded-full bg-brand-200/40 blur-3xl" />
-        <Container className="relative pb-20 pt-10 sm:pt-16 lg:pb-28 lg:pt-20">
-          <div className="grid items-center gap-14 lg:grid-cols-[0.95fr_1.05fr] lg:gap-12">
+        <Container className="relative pb-20 pt-8 sm:pt-12 lg:pb-28 lg:pt-12">
+          <div className="grid items-center gap-14 lg:items-start lg:grid-cols-[0.95fr_1.05fr] lg:gap-12">
             <div className="max-w-xl">
-              <p className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white/80 px-3 py-1.5 text-[13px] font-semibold text-brand-700 shadow-soft">
-                <MarkerTick className="h-4 w-4 text-amber-500" />
-                One job. Every document. Signed online.
-              </p>
-              <h1 className="mt-6 font-display text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-foreground sm:text-6xl">
+              <h1 className="font-display text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-foreground sm:text-6xl">
                 Professional contractor paperwork{' '}
                 <span className="relative whitespace-nowrap text-brand-600">
                   in minutes

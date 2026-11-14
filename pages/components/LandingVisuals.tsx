@@ -321,7 +321,7 @@ export const GmailScopeProof: React.FC = () => (
   </span>
 );
 
-/** Card details are entered at Kelviq's checkout, not with us. */
+/** Card details are entered at the secure checkout, not with us. */
 export const CardProof: React.FC = () => (
   <span className="flex items-center gap-3">
     <span className="relative h-[40px] w-[64px] flex-none overflow-hidden rounded-md bg-gradient-to-br from-slate-600 to-slate-900 shadow-sm">
@@ -330,7 +330,7 @@ export const CardProof: React.FC = () => (
     </span>
     <span className="leading-tight">
       <span className="block font-mono text-[11px] tracking-[0.1em] text-slate-400">•••• •••• ••••</span>
-      <span className="mt-0.5 block text-[12px] font-semibold text-slate-800">Entered at Kelviq checkout</span>
+      <span className="mt-0.5 block text-[12px] font-semibold text-slate-800">Entered at secure checkout</span>
     </span>
   </span>
 );

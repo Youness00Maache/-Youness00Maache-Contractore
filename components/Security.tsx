@@ -20,7 +20,7 @@ export const SECURITY_SECTIONS: LegalSection[] = [
           ContractorDocs runs on established cloud providers. The app is served by Vercel over HTTPS. Your data lives in a managed PostgreSQL
           database, authentication service and file storage provided by Supabase, which encrypts stored data at rest and keeps backups.
         </p>
-        <p>Payments are processed by Kelviq, our merchant of record, so card details are entered on Kelviq’s checkout and never touch our servers.</p>
+        <p>Payments are processed by our payment provider, so card details are entered on its secure checkout and never touch our servers.</p>
       </>
     ),
   },

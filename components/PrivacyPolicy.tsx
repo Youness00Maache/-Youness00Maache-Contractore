@@ -35,7 +35,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
         <p><strong>Content you create.</strong> Jobs, clients and their contact details, documents (invoices, estimates, reports and the rest), line items, prices, notes, photos, receipts, inventory and price-book items, calendar entries and email templates. You decide what you enter. When you add information about your own clients, you are responsible for having the right to share it with us.</p>
         <p><strong>Client portal activity.</strong> When your client approves, declines or signs a document through a portal or approval link, we store the signature image, the signer’s name, the decision and the time, together with the document.</p>
         <p><strong>Community forum.</strong> Posts, comments, votes and images you publish in the forum, along with your display name and profile picture.</p>
-        <p><strong>Billing information.</strong> Payments are handled by Kelviq, our merchant of record. We receive your plan, billing period, subscription status and a customer reference. We do not receive or store your full card number.</p>
+        <p><strong>Billing information.</strong> Payments are handled by our payment provider. We receive your plan, billing period, subscription status and a customer reference. We do not receive or store your full card number.</p>
         <p><strong>Usage and technical data.</strong> Counts we need to apply plan limits (for example jobs created, emails sent and AI requests per month), and standard technical logs from our hosting and database providers, such as IP address, browser type, and request times, used for security and troubleshooting.</p>
         <p><strong>Communications.</strong> Messages you send us, for example support emails.</p>
         <p>We do not use advertising cookies or third-party ad trackers. The app uses your browser’s local storage to keep you signed in and remember preferences such as your theme.</p>
@@ -118,7 +118,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
               <tr><td className="px-4 py-3 font-semibold">Supabase</td><td className="px-4 py-3">Database, authentication, file storage and server functions</td></tr>
               <tr><td className="px-4 py-3 font-semibold">Vercel</td><td className="px-4 py-3">Website and app hosting</td></tr>
               <tr><td className="px-4 py-3 font-semibold">Google</td><td className="px-4 py-3">Google Sign-In, Gmail sending (Gmail API) and the AI assistant (Gemini API)</td></tr>
-              <tr><td className="px-4 py-3 font-semibold">Kelviq</td><td className="px-4 py-3">Merchant of record: checkout, payment processing, tax and receipts</td></tr>
+              <tr><td className="px-4 py-3 font-semibold">Payment provider</td><td className="px-4 py-3">Checkout, payment processing, tax and receipts</td></tr>
             </tbody>
           </table>
         </div>
@@ -140,7 +140,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
           and permanently deletes your account, your content and the files you uploaded. If you can’t access that option, email{' '}
           <Email /> from your account’s email address and we will delete your data within 30 days.
         </p>
-        <p>Copies may remain in encrypted backups for a limited period before they are overwritten. Kelviq keeps its own payment and tax records as required by law, and we may keep limited records where we are legally required to.</p>
+        <p>Copies may remain in encrypted backups for a limited period before they are overwritten. Our payment provider keeps its own payment and tax records as required by law, and we may keep limited records where we are legally required to.</p>
       </>
     ),
   },

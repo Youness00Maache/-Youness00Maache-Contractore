@@ -182,7 +182,7 @@ const STATIC: Record<string, StaticDef> = {
   },
   '/terms': {
     title: 'Terms of Service | ContractorDocs',
-    description: 'The terms for using ContractorDocs: accounts, Free and paid plans, billing through Kelviq, cancellation, acceptable use, your content and the AI assistant.',
+    description: 'The terms for using ContractorDocs: accounts, Free and paid plans, billing, cancellation, acceptable use, your content and the AI assistant.',
     crumb: 'Terms of Service',
   },
   '/help': {

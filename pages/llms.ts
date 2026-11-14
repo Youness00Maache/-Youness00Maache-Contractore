@@ -45,7 +45,7 @@ const intro = (): string[] => [
     const price = t === 'free' ? '$0' : `${money(p.monthlyPrice)}/month or ${money(p.yearlyPrice)}/year`;
     return `- ${p.name} (${price}): ${p.features.join('; ')}.`;
   }),
-  `- AI requests per month: ${FREE_LIMITS.ai} on Free, ${PAID_AI_LIMITS.premium} on ${PLANS.premium.name}, ${PAID_AI_LIMITS.ai} on ${PLANS.ai.name}. Payments are processed by Kelviq (merchant of record). Cancel anytime. Details: ${abs('/pricing')}`,
+  `- AI requests per month: ${FREE_LIMITS.ai} on Free, ${PAID_AI_LIMITS.premium} on ${PLANS.premium.name}, ${PAID_AI_LIMITS.ai} on ${PLANS.ai.name}. Cancel anytime. Details: ${abs('/pricing')}`,
 ];
 
 export function buildLlmsTxt(): string {

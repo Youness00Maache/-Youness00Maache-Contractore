@@ -217,15 +217,16 @@ export const AiMockup: React.FC<{ variant?: 'default' | 'paper' }> = ({ variant 
 
 /** Client portal / e-signature illustration (phone). */
 export const PortalMockup: React.FC = () => (
-  // A realistic phone: metal edge, side buttons, black bezel, dynamic island, status bar, home indicator.
-  <div className="relative mx-auto w-[272px]" aria-hidden="true">
-    <span className="absolute -left-[3px] top-[92px] h-7 w-[3px] rounded-l-sm bg-slate-500" />
-    <span className="absolute -left-[3px] top-[136px] h-12 w-[3px] rounded-l-sm bg-slate-500" />
-    <span className="absolute -left-[3px] top-[196px] h-12 w-[3px] rounded-l-sm bg-slate-500" />
-    <span className="absolute -right-[3px] top-[150px] h-16 w-[3px] rounded-r-sm bg-slate-500" />
-    <div className="rounded-[3rem] bg-gradient-to-br from-slate-400 via-slate-700 to-slate-500 p-[2.5px] shadow-[0_40px_70px_-30px_rgba(16,24,40,.65)]">
-      <div className="rounded-[2.85rem] bg-slate-950 p-[9px]">
-        <div className="relative overflow-hidden rounded-[2.3rem] bg-white">
+  // A natural phone: real proportions (about 19.5:9), thin titanium edge and bezel, the portal as the client sees it in
+  // the phone's browser (company bar on top, address bar at the bottom), home indicator.
+  <div className="relative mx-auto w-[258px]" aria-hidden="true">
+    <span className="absolute -left-[2px] top-[104px] h-6 w-[2px] rounded-l bg-slate-400" />
+    <span className="absolute -left-[2px] top-[146px] h-11 w-[2px] rounded-l bg-slate-400" />
+    <span className="absolute -left-[2px] top-[200px] h-11 w-[2px] rounded-l bg-slate-400" />
+    <span className="absolute -right-[2px] top-[160px] h-16 w-[2px] rounded-r bg-slate-400" />
+    <div className="rounded-[2.75rem] bg-[linear-gradient(145deg,#e2e5e9,#9aa0a8_35%,#5b6068_55%,#c7cbd0)] p-[2px] shadow-[0_45px_70px_-35px_rgba(16,24,40,.55),0_18px_28px_-18px_rgba(16,24,40,.35)]">
+      <div className="rounded-[2.65rem] bg-[#0b0d10] p-[6px]">
+        <div className="relative flex h-[530px] flex-col overflow-hidden rounded-[2.25rem] bg-slate-50">
           {/* Status bar laid out like a real phone: time centred in the left "ear", icons in the right one, island in between. */}
           <div className="grid h-[38px] grid-cols-[minmax(0,1fr)_78px_minmax(0,1fr)] items-center text-slate-900">
             <span className="pl-2 text-center text-[11.5px] font-semibold tabular-nums tracking-[-0.01em]">9:41</span>
@@ -246,25 +247,43 @@ export const PortalMockup: React.FC = () => (
               </span>
             </span>
           </div>
-          <div className="px-4 pb-4 pt-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Northline Renovations</p>
-            <p className="mt-1 text-sm font-bold text-slate-800">Change Order #3</p>
-            <p className="text-[11px] text-slate-500">Maple St. kitchen remodel</p>
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-[11px]">
-              <p className="font-semibold text-slate-700">Add pantry pull-out shelves (4)</p>
-              <div className="mt-2 flex justify-between text-slate-500"><span>Price change</span><span className="font-bold text-slate-800">+$860.00</span></div>
-              <div className="flex justify-between text-slate-500"><span>Schedule</span><span className="font-semibold text-slate-700">+1 day</span></div>
+          <div className="flex items-center gap-2 border-b border-slate-200/80 bg-white px-4 pb-2.5 pt-1">
+            <span className="grid h-7 w-7 flex-none place-items-center rounded-lg bg-slate-900 text-[10px] font-extrabold text-amber-400">NR</span>
+            <span className="min-w-0">
+              <span className="block truncate text-[11.5px] font-bold text-slate-800">Northline Renovations</span>
+              <span className="block text-[9.5px] text-slate-500">Client portal · Dana Whitfield</span>
+            </span>
+          </div>
+          <div className="flex flex-1 flex-col px-3.5 pb-3 pt-3">
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(16,24,40,.06)]">
+              <div className="flex items-baseline justify-between">
+                <p className="text-[13px] font-bold text-slate-800">Change Order #3</p>
+                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">Signed</span>
+              </div>
+              <p className="text-[10.5px] text-slate-500">Maple St. kitchen remodel</p>
+              <div className="mt-2.5 border-t border-slate-100 pt-2 text-[10.5px]">
+                <p className="font-semibold text-slate-700">Add pantry pull-out shelves (4)</p>
+                <div className="mt-1.5 flex justify-between text-slate-500"><span>Price change</span><span className="font-bold tabular-nums text-slate-800">+$860.00</span></div>
+                <div className="flex justify-between text-slate-500"><span>Schedule</span><span className="font-semibold text-slate-700">+1 day</span></div>
+                <div className="mt-1.5 flex justify-between border-t border-slate-100 pt-1.5 text-slate-500"><span>New contract total</span><span className="font-bold tabular-nums text-slate-800">$29,140.00</span></div>
+              </div>
             </div>
-            <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-2">
-              <p className="text-[9px] uppercase tracking-wider text-slate-400">Signature</p>
+            <div className="mt-2.5 rounded-2xl border border-slate-200/80 bg-white px-3 pb-2 pt-2">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">Your signature</p>
               <Signature className="h-9 w-full" />
+              <p className="border-t border-slate-100 pt-1 text-[9.5px] text-slate-500">Dana Whitfield · Nov 12, 2026, 2:14 PM</p>
             </div>
-            <p className="mt-1.5 text-[10px] text-slate-500">Dana Whitfield · Nov 12, 2026, 2:14 PM</p>
-            <div className="mt-3 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-[12px] font-bold text-white">
+            <div className="mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-[12px] font-bold text-white">
               <Check className="h-3.5 w-3.5" strokeWidth={3} /> Approved & signed
             </div>
           </div>
-          <div className="mx-auto mb-2 h-[5px] w-28 rounded-full bg-slate-900" />
+          <div className="bg-white/95 px-4 pb-1.5 pt-2">
+            <div className="flex items-center justify-center gap-1 rounded-full bg-slate-100 py-1.5 text-[10px] text-slate-600">
+              <svg viewBox="0 0 12 14" className="h-[9px] w-[8px]" fill="currentColor"><path d="M6 0a3.5 3.5 0 0 0-3.5 3.5V6H2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-.5V3.5A3.5 3.5 0 0 0 6 0Zm-2 6V3.5a2 2 0 1 1 4 0V6H4Z" /></svg>
+              contractordocs.app
+            </div>
+            <div className="mx-auto mt-2 h-[4px] w-24 rounded-full bg-slate-900" />
+          </div>
         </div>
       </div>
     </div>

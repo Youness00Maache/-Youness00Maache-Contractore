@@ -61,9 +61,8 @@ export const TERMS_SECTIONS: LegalSection[] = [
           pricing page in US dollars; taxes may be added at checkout.
         </p>
         <p>
-          <strong>Merchant of record.</strong> Purchases are processed by Kelviq, which acts as the merchant of record and reseller of the
-          subscription. Kelviq handles payment, applicable sales tax or VAT, invoices and receipts, and its own terms apply to the payment
-          transaction.
+          <strong>Payments.</strong> Purchases are processed by our payment provider, which handles payment, applicable sales tax or VAT,
+          invoices and receipts, and whose own terms apply to the payment transaction.
         </p>
         <p>
           <strong>Renewal and cancellation.</strong> Subscriptions renew automatically at the end of each billing period until cancelled. You can
@@ -76,7 +75,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
         </p>
         <p>
           <strong>Refunds.</strong> Except where required by law, payments are non-refundable and we don’t provide credits for partial periods. If
-          you believe you were charged in error, contact <Email /> and we will review it with you; approved refunds are issued through Kelviq.
+          you believe you were charged in error, contact <Email /> and we will review it with you; approved refunds are issued to your original payment method.
         </p>
       </>
     ),
@@ -141,7 +140,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
     title: 'Third-party services',
     body: (
       <p>
-        Some features depend on third-party services such as Google (Sign-In, Gmail and Gemini) and Kelviq. Your use of those services is also
+        Some features depend on third-party services such as Google (Sign-In, Gmail and Gemini) and our payment provider. Your use of those services is also
         subject to their terms. We are not responsible for third-party services, and features that rely on them may change if those services
         change.
       </p>
