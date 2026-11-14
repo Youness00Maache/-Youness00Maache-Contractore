@@ -6,9 +6,10 @@
  *   (lib/offline/outboxStore.ts, its own database), which logout / account switches do not wipe without a warning.
  */
 export const DB_NAME = 'contractor_db';
-export const DB_VERSION = 3;
+/** 4: + `lists` (last copy of screen lists, per user: lib/offline/deviceCache.ts) and `photo_thumbs` (job photo previews) */
+export const DB_VERSION = 4;
 
-export const STORES = ['jobs', 'documents', 'clients', 'profile', 'offline_queue', 'inventory', 'saved_items'] as const;
+export const STORES = ['jobs', 'documents', 'clients', 'profile', 'offline_queue', 'inventory', 'saved_items', 'lists', 'photo_thumbs'] as const;
 export type StoreName = typeof STORES[number];
 
 let dbPromise: Promise<IDBDatabase> | null = null;

@@ -15,13 +15,35 @@ import {
     docSyncState, findImageDataUrls, hashString, isExpired, itemsOfUser, logoutGuard, makeHistoryEntry, mergeForUpload, nextSeq,
     numberRuleFor, offlinePhotosIn, offlineSavePolicy, orderForSync, outboxItemId, outboxTitle, pendingCreatesByJob, photoHash,
     queueSave, replaceDataUrls, resolveOfflineNumber, stableStringify, unseenNotices, HISTORY_TTL_MS, OFFLINE_SAVE_BLOCKED,
-    applyEntityOverlay, entityOf, pendingEntityCreates, remapItem,
+    applyEntityOverlay, entityOf, pendingEntityCreates, remapItem, ENTITY_TYPE, rowSnapshot, statusForError, isNetworkError,
     type OutboxItem, type QueueInput,
 } from '../lib/offline/outboxModel.ts';
 import { createMemoryOutboxStore, type OutboxStore } from '../lib/offline/outboxStore.ts';
 import { discardOutboxItem, dismissNotice, pruneHistory, queueOfflineSave, restoreHistoryEntry } from '../lib/offline/outboxActions.ts';
 import { runOutboxSync, type SyncDeps } from '../lib/offline/syncEngine.ts';
 import { dataUrlToBlob, extensionForType } from '../lib/offline/offlinePhotos.ts';
+import {
+    OFFLINE_PHOTO_MAX_BYTES, OFFLINE_PHOTO_MAX_COUNT, PHOTO_FILE_MAIN, PHOTO_FILE_THUMB, applyPhotoOverlay, isOfflinePath, offlineMainPath,
+    offlinePhotoRoom, offlinePhotoRow, offlinePhotoUsage, offlineThumbPath, pendingPhotoStats, pendingPhotoToJobPhoto, photoEditPatch,
+    uploadQueuedPhoto, uploadRowFor, type OfflinePhotoInput, type PhotoUploadDeps,
+} from '../lib/offline/offlineJobPhotos.ts';
+import { checkPhotoQuota, mapPhotoRow, photoStoragePaths, type PhotoUsage } from '../components/photos/photoLogic.ts';
+import {
+    applyProfileOverlay, comparableProfileRow, offlineProfilePatch, pendingProfileItem, profileBaseFor, profileFieldsFromRow, withoutPaymentColumns,
+} from '../lib/offline/offlineProfile.ts';
+import { paymentSettingsOf } from '../lib/payments.ts';
+import {
+    NO_DEVICE_COPY, hasPhotoThumb, loadWithDeviceCopy, readListCopy, readPhotoThumbs, savePhotoThumb, setDeviceCacheBackend, setDeviceCacheUser,
+} from '../lib/offline/deviceCache.ts';
+import { pendingStockDeltas, withPendingRows } from '../lib/offline/offlineEntities.ts';
+import { NEEDS_CONNECTION, connectionProblem, errorText, offlineAwareFetch } from '../lib/offline/connection.ts';
+import { scanWrites, type WriteHit } from '../lib/offline/writePathScan.ts';
+import { WRITE_PATHS, auditRowsFor } from '../lib/offline/writePathAudit.ts';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 let failures = 0;
 let passes = 0;
@@ -121,6 +143,565 @@ const input = (over: Partial<QueueInput> & { docId: string }): QueueInput => ({
 });
 
 const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+
+/** Pretend the browser is offline / online (Node has a navigator without onLine). */
+const setOnline = (online: boolean) => {
+    Object.defineProperty(globalThis, 'navigator', { value: { onLine: online }, configurable: true, writable: true });
+};
+
+// =====================================================================================================================
+// Job photos taken offline: queue (files on the device) + upload mapping (same as an online "Add photos")
+// =====================================================================================================================
+const blob = (bytes: number, type = 'image/jpeg') => new Blob([new Uint8Array(bytes)], { type });
+
+class FakePhotoAccount {
+    rows = new Map<string, Record<string, unknown>>();
+    files = new Map<string, { size: number; type: string }>();
+    calls: string[] = [];
+    mode: 'ok' | 'network' | 'upload_fails' | 'plan_limit' = 'ok';
+    shared = new Map<string, boolean>();
+    perJobLimit: number | null = null;
+    deps = (): PhotoUploadDeps => ({
+        insertRow: async (row) => {
+            if (this.mode === 'network') return { error: { message: "You're offline: This needs a connection; try again when you're back online." } };
+            if (this.rows.has(String(row.id))) return { error: { code: '23505', message: 'duplicate key value violates unique constraint "job_photos_pkey"' } };
+            const onJob = Array.from(this.rows.values()).filter(r => r.job_id === row.job_id).length;
+            if (this.mode === 'plan_limit' || (this.perJobLimit !== null && onJob >= this.perJobLimit)) {
+                return { error: { code: 'P0001', message: 'PLAN_LIMIT: The Free plan keeps up to 30 photos per job. Upgrade to Premium for unlimited photos per job and 5 GB of photo storage.' } };
+            }
+            this.calls.push(`insert:${row.id}`);
+            this.rows.set(String(row.id), { ...row });
+            return { error: null };
+        },
+        upload: async (path, file, contentType) => {
+            if (this.mode === 'upload_fails' && !path.endsWith('_t.jpg')) return { error: { message: 'Payload too large', statusCode: '413' } };
+            if (this.files.has(path)) return { error: { message: 'The resource already exists', statusCode: '409' } };
+            this.calls.push(`upload:${path}:${contentType}:${file.size}`);
+            this.files.set(path, { size: file.size, type: contentType });
+            return { error: null };
+        },
+        deleteRow: async (id) => { this.calls.push(`delete:${id}`); this.rows.delete(id); },
+        updateRow: async (id, patch) => {
+            this.calls.push(`update:${id}:${JSON.stringify(patch)}`);
+            const r = this.rows.get(id);
+            if (r) this.rows.set(id, { ...r, ...patch });
+            return { error: null };
+        },
+        fetchRow: async (id) => {
+            const r = this.rows.get(id);
+            return r ? mapPhotoRow({ ...r, shared_in_portal: this.shared.get(id) || false }) : null;
+        },
+        share: async (photo, shared) => { this.calls.push(`share:${photo.id}:${photo.storagePath}:${shared}`); this.shared.set(photo.id, shared); },
+    });
+}
+
+const photoInput = (id: string, over: Partial<OfflinePhotoInput> = {}): OfflinePhotoInput => ({
+    userId: A, jobId: JOB, id, tag: 'before', caption: '', takenAt: '2026-11-14T09:00:00.000Z', width: 1600, height: 1200,
+    mainType: 'image/jpeg', mainSize: 300_000, thumbSize: 20_000, ...over,
+});
+
+const queuePhoto = (store: OutboxStore, id: string, over: Partial<OfflinePhotoInput> = {}, when = at(1), withFiles = true) =>
+    queueOfflineSave(store, {
+        entity: 'job_photo', userId: A, docId: id, jobId: over.jobId || JOB, type: ENTITY_TYPE.job_photo, kind: 'create',
+        data: offlinePhotoRow(photoInput(id, over)),
+    }, when, withFiles ? { [PHOTO_FILE_MAIN]: blob(300_000), [PHOTO_FILE_THUMB]: blob(20_000) } : null);
+
+const photoSaveEntity = (acct: FakePhotoAccount, rest?: SyncDeps['saveEntity']): SyncDeps['saveEntity'] => async (entity, kind, row, files) => {
+    if (entity === 'job_photo') return uploadQueuedPhoto(acct.deps(), kind, row, files);
+    return rest ? rest(entity, kind, row, files) : { error: null };
+};
+
+async function photoChecks() {
+    // ------------------------------------------------------------ the row and the patch
+    {
+        const row = offlinePhotoRow(photoInput('p1', { caption: '  Kitchen wall  ', shared: true, mainType: 'image/png', sourcePhotoId: 'p0' }));
+        eq('photo row: keys like addJobPhoto (+ ext, portal wish)', Object.keys(row).sort(), ['caption', 'ext', 'height', 'id', 'job_id', 'request_id', 'shared_in_portal', 'size_bytes', 'source_photo_id', 'tag', 'taken_at', 'user_id', 'width']);
+        eq('photo row: values', [row.caption, row.size_bytes, row.ext, row.shared_in_portal, row.source_photo_id, row.tag], ['Kitchen wall', 320_000, 'png', true, 'p0', 'before']);
+        eq('photo row: bad stage → during', offlinePhotoRow(photoInput('p2', { tag: 'oops' as any })).tag, 'during');
+        eq('photo patch: stage + caption + portal', photoEditPatch({ tag: 'after', caption: ' x ', shared: false }), { tag: 'after', caption: 'x', shared_in_portal: false });
+        eq('photo patch: empty caption → null', photoEditPatch({ caption: '   ' }), { caption: null });
+        eq('photo patch: nothing', photoEditPatch({}), {});
+    }
+
+    // ------------------------------------------------------------ queue with files, discard
+    {
+        const store = createMemoryOutboxStore();
+        const item = await queuePhoto(store, 'p1');
+        eq('photo queue: item', [item.entity, item.kind, item.jobId, item.type, item.status], ['job_photo', 'create', JOB, 'Job photo', 'pending']);
+        const files = await store.getBlobs(item.id);
+        eq('photo queue: files kept with the item', [Object.keys(files?.files || {}).sort(), files?.bytes, files?.userId], [['main', 'thumb'], 320_000, A]);
+        eq('photo queue: device usage', await store.listBlobs(A).then(l => l.length), 1);
+        eq('photo queue: other user sees nothing', await store.listBlobs(B).then(l => l.length), 0);
+        // a caption change of the offline photo merges into it (one item per photo)
+        await queueOfflineSave(store, { entity: 'job_photo', userId: A, docId: 'p1', jobId: JOB, type: ENTITY_TYPE.job_photo, kind: 'edit', data: photoEditPatch({ caption: 'Wall', tag: 'issue' }) }, at(2));
+        const merged = (await store.getItems(A))[0];
+        eq('photo queue: later change merges, still a create', [merged.kind, merged.data.caption, merged.data.tag, merged.data.size_bytes], ['create', 'Wall', 'issue', 320_000]);
+        eq('photo queue: title', outboxTitle(merged.type, merged.data), 'Job photo · Issue · Wall');
+        // a failed write of the item removes the files it just stored (nothing left without an item)
+        store.failNextWrite = false;
+        const bad = createMemoryOutboxStore();
+        const realUpdate = bad.updateItem.bind(bad);
+        bad.updateItem = async () => { throw new Error('QuotaExceededError'); };
+        let threw = false;
+        try { await queuePhoto(bad, 'p9'); } catch { threw = true; }
+        bad.updateItem = realUpdate;
+        eq('photo queue: storage full → error, no orphan files', [threw, (await bad.listBlobs(A)).length], [true, 0]);
+        // discard: the photo and its files are gone; nothing to restore (it only existed here)
+        const entry = await discardOutboxItem(store, A, 'p1', at(3));
+        eq('photo discard: item + files removed', [(await store.getItems(A)).length, (await store.listBlobs(A)).length], [0, 0]);
+        eq('photo discard: history without a restorable copy', [entry?.reason, entry?.item, entry?.data, entry?.entity], ['discarded', null, null, 'job_photo']);
+        eq('photo discard: restore does nothing', await restoreHistoryEntry(store, entry!, at(4)), null);
+    }
+
+    // ------------------------------------------------------------ device room + plan limits offline
+    {
+        eq('room: fits', offlinePhotoRoom({ count: 10, bytes: 10 * 340 * 1024 }, 5, 5 * 340 * 1024).ok, true);
+        const full = offlinePhotoRoom({ count: OFFLINE_PHOTO_MAX_COUNT - 2, bytes: 0 }, 5, 5 * 1000);
+        eq('room: count cap', [full.ok, full.allowed], [false, 2]);
+        ok('room: says why', /keeps up to 200 photos/.test(full.reason));
+        const bytes = offlinePhotoRoom({ count: 0, bytes: OFFLINE_PHOTO_MAX_BYTES - 1_000_000 }, 10, 10 * 340 * 1024);
+        eq('room: size cap', [bytes.ok, bytes.allowed], [false, 2]);
+
+        const store = createMemoryOutboxStore();
+        await queuePhoto(store, 'q1');
+        await queuePhoto(store, 'q2', {}, at(2));
+        await queuePhoto(store, 'q3', { jobId: JOB2 }, at(3));
+        const items = await store.getItems(A);
+        eq('pending stats', pendingPhotoStats(items, A, JOB), { count: 3, bytes: 960_000, jobCount: 2 });
+        // Free plan: 30 per job. 27 on the account (last known) + 2 waiting → 1 more fits, the 2nd is refused with the reason
+        const known: PhotoUsage = { tier: 'free', perJob: 30, totalBytes: 250 * 1024 * 1024, usedBytes: 9_000_000, usedCount: 27, jobCount: 27 };
+        const u = offlinePhotoUsage(known, 'free', 27, pendingPhotoStats(items, A, JOB));
+        eq('offline usage: + waiting photos', [u.jobCount, u.usedCount, u.usedBytes], [29, 30, 9_960_000]);
+        const q = checkPhotoQuota(u, 2, 2 * 340 * 1024);
+        eq('offline plan check: 1 of 2 fits', [q.ok, q.allowed], [false, 1]);
+        ok('offline plan check: reason kept', /Free plan keeps up to 30 photos per job/.test(q.reason));
+        const unknown = offlinePhotoUsage(null, 'premium', 4, { count: 0, bytes: 0, jobCount: 0 });
+        eq('offline usage: never loaded → plan table', [unknown.tier, unknown.perJob, unknown.jobCount], ['premium', null, 4]);
+    }
+
+    // ------------------------------------------------------------ the Photos tab list
+    {
+        const store = createMemoryOutboxStore();
+        await queuePhoto(store, 'new1', { caption: 'Fresh' });
+        await queueOfflineSave(store, { entity: 'job_photo', userId: A, docId: 'old1', jobId: JOB, type: ENTITY_TYPE.job_photo, kind: 'edit', data: photoEditPatch({ tag: 'after', shared: true }) }, at(2));
+        await queuePhoto(store, 'other', { jobId: JOB2 }, at(3));
+        const items = await store.getItems(A);
+        const server = [mapPhotoRow({ id: 'old1', job_id: JOB, storage_path: `${A}/${JOB}/old1.jpg`, thumb_path: `${A}/${JOB}/old1_t.jpg`, tag: 'before', caption: 'Old', taken_at: '2026-11-10T09:00:00Z', size_bytes: 1000 })];
+        const shown = applyPhotoOverlay(server, items, A, JOB);
+        eq('tab: offline photo first, other job left out', shown.map(p => p.id), ['new1', 'old1']);
+        eq('tab: offline photo uses its device copy', [shown[0].storagePath, shown[0].thumbPath, isOfflinePath(shown[0].storagePath), shown[0].caption], [offlineMainPath('new1'), offlineThumbPath('new1'), true, 'Fresh']);
+        eq('tab: change made offline shows', [shown[1].tag, shown[1].sharedInPortal, shown[1].caption], ['after', true, 'Old']);
+        eq('tab: nothing waiting → same list', applyPhotoOverlay(server, [], A, JOB) === server, true);
+        eq('tab: other user → same list', applyPhotoOverlay(server, items, B, JOB) === server, true);
+        eq('tab: pending photo as JobPhoto', pendingPhotoToJobPhoto(items[0]).sizeBytes, 320_000);
+    }
+
+    // ------------------------------------------------------------ upload mapping
+    {
+        const acct = new FakePhotoAccount();
+        const store = createMemoryOutboxStore();
+        await queuePhoto(store, 'u1', { shared: true, caption: 'Wall' });
+        const item = (await store.getItems(A))[0];
+        const files = await store.getBlobs(item.id);
+        const res = await uploadQueuedPhoto(acct.deps(), 'create', { ...item.data, id: item.docId }, files);
+        eq('upload: ok', res.error, null);
+        const { dbRow, paths } = uploadRowFor({ ...item.data, id: item.docId });
+        eq('upload: same paths as online', paths, photoStoragePaths(A, JOB, 'u1', 'jpg'));
+        eq('upload: row columns like addJobPhoto', Object.keys(dbRow).sort(), ['caption', 'height', 'id', 'job_id', 'request_id', 'size_bytes', 'source_photo_id', 'storage_path', 'tag', 'taken_at', 'thumb_path', 'user_id', 'width']);
+        eq('upload: row saved', [acct.rows.get('u1')?.storage_path, acct.rows.get('u1')?.thumb_path, acct.rows.get('u1')?.caption, acct.rows.get('u1')?.tag],
+            [`${A}/${JOB}/u1.jpg`, `${A}/${JOB}/u1_t.jpg`, 'Wall', 'before']);
+        eq('upload: order = row, photo, preview, portal', acct.calls, [
+            'insert:u1', `upload:${A}/${JOB}/u1.jpg:image/jpeg:300000`, `upload:${A}/${JOB}/u1_t.jpg:image/jpeg:20000`, `share:u1:${A}/${JOB}/u1.jpg:true`,
+        ]);
+        // a retry after a partial run (row and file already there) is safe
+        acct.calls = [];
+        acct.shared.delete('u1');
+        eq('upload: retry is safe', (await uploadQueuedPhoto(acct.deps(), 'create', { ...item.data, id: item.docId }, files)).error, null);
+        eq('upload: retry only redoes the portal copy', acct.calls, [`share:u1:${A}/${JOB}/u1.jpg:true`]);
+        // the photo file is refused: the row is removed again (like online), the error is returned
+        const failing = new FakePhotoAccount();
+        failing.mode = 'upload_fails';
+        const r2 = await uploadQueuedPhoto(failing.deps(), 'create', { ...item.data, id: 'u2' }, files);
+        eq('upload: failed file → row removed, error kept', [Boolean(r2.error), failing.rows.has('u2'), failing.calls.includes('delete:u2')], [true, false, true]);
+        eq('upload: no files → clear error', /no longer on this device/.test(String((await uploadQueuedPhoto(acct.deps(), 'create', { ...item.data, id: 'u3' }, null)).error && (await uploadQueuedPhoto(acct.deps(), 'create', { ...item.data, id: 'u3' }, null) as any).error.message)), true);
+        // png keeps its extension
+        const png = uploadRowFor({ ...offlinePhotoRow(photoInput('u4', { mainType: 'image/png' })) });
+        eq('upload: png path', png.paths.main, `${A}/${JOB}/u4.png`);
+        // edits of a synced photo
+        acct.calls = [];
+        acct.rows.set('s1', { id: 's1', job_id: JOB, storage_path: `${A}/${JOB}/s1.jpg`, tag: 'before' });
+        await uploadQueuedPhoto(acct.deps(), 'edit', { id: 's1', ...photoEditPatch({ tag: 'after', caption: 'Done', shared: true }) }, null);
+        eq('edit: stage/caption update, then portal copy', acct.calls, [`update:s1:${JSON.stringify({ tag: 'after', caption: 'Done' })}`, `share:s1:${A}/${JOB}/s1.jpg:true`]);
+        acct.calls = [];
+        await uploadQueuedPhoto(acct.deps(), 'edit', { id: 's1', ...photoEditPatch({ shared: true }) }, null);
+        eq('edit: already shown → no second copy', acct.calls, []);
+        const gone = await uploadQueuedPhoto(acct.deps(), 'edit', { id: 'zz', ...photoEditPatch({ shared: false }) }, null);
+        const cls = classifySyncError(gone.error);
+        eq('edit: photo deleted elsewhere → blocked with the reason', [cls.kind, statusForError(cls.kind as any), cls.message], ['job_missing', 'blocked', 'This photo was deleted on another device.']);
+    }
+
+    // ------------------------------------------------------------ the sync engine with photos
+    {
+        const store = createMemoryOutboxStore();
+        const docs = new FakeAccount();
+        const photos = new FakePhotoAccount();
+        await queuePhoto(store, 'v1', {}, at(1));
+        await queueOfflineSave(store, input({ docId: 'd-report' }), at(2));
+        const rep = await runOutboxSync(deps(store, docs, A, { saveEntity: photoSaveEntity(photos) }));
+        eq('sync: document first, then the photo', [docs.upserts, photos.calls[0]], [['d-report'], 'insert:v1']);
+        eq('sync: photo left the outbox, files deleted', [(await store.getItems(A)).length, (await store.listBlobs(A)).length, rep.synced.map(s => s.entity)], [0, 0, ['document', 'job_photo']]);
+
+        // offline / connection lost: everything stays, files included
+        const s2 = createMemoryOutboxStore();
+        const p2 = new FakePhotoAccount();
+        p2.mode = 'network';
+        await queuePhoto(s2, 'w1');
+        const rep2 = await runOutboxSync(deps(s2, docs, A, { saveEntity: photoSaveEntity(p2) }));
+        eq('sync: lost connection keeps photo + files pending', [rep2.networkStopped, (await s2.getItems(A))[0]?.status, (await s2.listBlobs(A)).length], [true, 'pending', 1]);
+
+        // plan limit: blocked with the reason, files kept (the user can upgrade, or discard)
+        const s3 = createMemoryOutboxStore();
+        const p3 = new FakePhotoAccount();
+        p3.mode = 'plan_limit';
+        await queuePhoto(s3, 'x1');
+        const rep3 = await runOutboxSync(deps(s3, docs, A, { saveEntity: photoSaveEntity(p3) }));
+        const left3 = (await s3.getItems(A))[0];
+        eq('sync: photo limit → blocked, reason kept, files kept', [left3?.status, left3?.error?.kind, (await s3.listBlobs(A)).length, rep3.refused[0]?.kind], ['blocked', 'plan_limit', 1, 'plan_limit']);
+        ok('sync: plan message shown', /30 photos per job/.test(left3?.error?.message || ''));
+        const again = await runOutboxSync(deps(s3, docs, A, { saveEntity: photoSaveEntity(p3) }));
+        eq('sync: blocked photo waits for the user (auto runs skip it)', again.synced.length + again.refused.length, 0);
+
+        // the job was created offline and isn't on the account yet: its photos wait with it
+        const s4 = createMemoryOutboxStore();
+        const p4 = new FakePhotoAccount();
+        await queueOfflineSave(s4, { entity: 'job', userId: A, docId: 'job-new', jobId: 'job-new', type: 'Job', kind: 'create', data: { id: 'job-new', user_id: A, name: 'New' } }, at(1));
+        await queuePhoto(s4, 'y1', { jobId: 'job-new' }, at(2));
+        const refuseJob = photoSaveEntity(p4, async (entity) => (entity === 'job' ? { error: { message: 'PLAN_LIMIT: The Free plan includes 6 new jobs per month.' } } : { error: null }));
+        const rep4 = await runOutboxSync(deps(s4, docs, A, { saveEntity: refuseJob }));
+        eq('sync: photo of a refused job waits', [rep4.waiting, p4.calls.length, (await s4.getItems(A)).find(i => i.docId === 'y1')?.status], [1, 0, 'pending']);
+
+        // a marked-up copy of a photo that didn't sync keeps itself, without the link
+        const s5 = createMemoryOutboxStore();
+        const p5 = new FakePhotoAccount();
+        p5.perJobLimit = 1;
+        await queuePhoto(s5, 'orig', {}, at(1));
+        await queuePhoto(s5, 'm1', { sourcePhotoId: 'orig' }, at(2));
+        await queuePhoto(s5, 'seed', { jobId: JOB2 }, at(0));
+        p5.rows.set('existing', { id: 'existing', job_id: JOB });
+        const rep5 = await runOutboxSync(deps(s5, docs, A, { saveEntity: photoSaveEntity(p5) }));
+        eq('sync: refused original, copy refused too (same limit)', rep5.refused.map(r => r.docId).sort(), ['m1', 'orig']);
+        p5.perJobLimit = null;
+        await runOutboxSync(deps(s5, docs, A, { saveEntity: photoSaveEntity(p5), includeBlocked: true }));
+        eq('sync: after an upgrade both upload, copy linked to the original', [p5.rows.has('orig'), p5.rows.get('m1')?.source_photo_id], [true, 'orig']);
+
+        // files without an item (another tab discarded it) are cleaned up after a grace period
+        const s6 = createMemoryOutboxStore();
+        await s6.putBlobs({ id: `${A}:ghost`, userId: A, files: { main: blob(10) }, bytes: 10, createdAt: at(-60).toISOString() });
+        await s6.putBlobs({ id: `${A}:fresh`, userId: A, files: { main: blob(10) }, bytes: 10, createdAt: NOW.toISOString() });
+        await runOutboxSync(deps(s6, docs, A));
+        eq('sync: orphan files removed, a save in progress kept', (await s6.listBlobs(A)).map(b => b.id), [`${A}:fresh`]);
+        eq('sync order: photos after documents', orderForSync([
+            { id: 'a', seq: 1, createdAt: '', entity: 'job_photo' as const }, { id: 'b', seq: 2, createdAt: '' }, { id: 'c', seq: 3, createdAt: '', entity: 'profile' as const },
+        ]).map(i => i.id), ['c', 'b', 'a']);
+    }
+}
+
+// =====================================================================================================================
+// Settings saved offline
+// =====================================================================================================================
+async function settingsChecks() {
+    const baseline = {
+        id: A, name: 'Sam Lee', companyName: 'Lee Build', email: 'sam@example.com', phone: '555', address: '1 Main', website: '',
+        logoUrl: 'https://cdn.example/logo.png', profilePictureUrl: '', jobTitle: 'Owner', language: 'English', emailTemplates: {},
+        payLinkDefault: 'https://paypal.me/lee', payLinkLabel: 'PayPal', financingLink: '', financingMinAmount: 0, googleReviewLink: '', reviewAutoSend: false,
+    } as any;
+    const accountRow = {
+        id: A, name: 'Sam Lee', company_name: 'Lee Build', email: 'sam@example.com', phone: '555', address: '1 Main', website: null,
+        logo_url: 'https://cdn.example/logo.png', profile_picture_url: null, job_title: 'Owner', language: null, email_templates: null,
+        default_pay_link: 'https://paypal.me/lee', default_pay_link_label: 'PayPal', financing_link: null, financing_min_amount: null,
+        google_review_link: null, review_auto_send: false, subscription_tier: 'free', theme: 'dark',
+    };
+    {
+        const patch = offlineProfilePatch({ ...baseline, companyName: ' Lee Build & Sons ' }, { logoUrl: 'data:image/png;base64,AAAA', pictureUrl: '' });
+        eq('settings patch: profile columns', Object.keys(patch).sort(), ['address', 'company_name', 'email', 'email_templates', 'job_title', 'language', 'logo_url', 'name', 'phone', 'profile_picture_url', 'website']);
+        eq('settings patch: values like the online save', [patch.company_name, patch.logo_url, patch.profile_picture_url], ['Lee Build & Sons', 'data:image/png;base64,AAAA', null]);
+        const withPay = offlineProfilePatch(baseline, {}, { ...paymentSettingsOf(baseline), googleReviewLink: 'g.page/lee' });
+        eq('settings patch: payment links only when changed', [Object.keys(patch).includes('default_pay_link'), withPay.google_review_link], [false, 'https://g.page/lee']);
+        eq('settings patch: without payment columns', Object.keys(withoutPaymentColumns(withPay)).includes('google_review_link'), false);
+        eq('settings: fields back for the screens', profileFieldsFromRow({ company_name: 'X', logo_url: 'u', google_review_link: 'https://g', default_pay_link: null }).companyName, 'X');
+
+        // base: the account values of the changed fields; unchanged on the account → no conflict (defaults don't count)
+        const base = profileBaseFor(baseline, patch);
+        eq('settings base: keys of the patch', base.keys, Object.keys(patch).sort());
+        eq('settings base: account copy compares equal (null vs "" vs English)', contentHash(rowSnapshot(comparableProfileRow(accountRow), base.keys!)), base.hash);
+        const changedElsewhere = { ...accountRow, phone: '999' };
+        ok('settings base: a real change elsewhere differs', contentHash(rowSnapshot(comparableProfileRow(changedElsewhere), base.keys!)) !== base.hash);
+
+        // queue: one item per user, later saves merge (newest value wins), the first base is kept
+        const store = createMemoryOutboxStore();
+        await queueOfflineSave(store, { entity: 'profile', userId: A, docId: A, jobId: '', type: ENTITY_TYPE.profile, kind: 'edit', data: patch, base }, at(1));
+        await queueOfflineSave(store, { entity: 'profile', userId: A, docId: A, jobId: '', type: ENTITY_TYPE.profile, kind: 'edit', data: { phone: '777' }, base: null }, at(2));
+        const items = await store.getItems(A);
+        eq('settings queue: one item, merged', [items.length, items[0].data.phone, items[0].data.company_name, items[0].base?.hash], [1, '777', 'Lee Build & Sons', base.hash]);
+        eq('settings queue: title', outboxTitle(items[0].type, items[0].data), 'Profile and business settings');
+        eq('settings overlay: screens show the offline values', applyProfileOverlay(baseline, items, A)?.companyName, 'Lee Build & Sons');
+        eq('settings overlay: nothing waiting → same object', applyProfileOverlay(baseline, [], A) === baseline, true);
+        eq('settings overlay: other user unaffected', applyProfileOverlay(baseline, items, B) === baseline, true);
+        eq('settings: pending item', pendingProfileItem(items, A)?.docId, A);
+
+        // sync: logo picked offline uploaded first, conflict noticed, last write wins
+        const acct = new FakeAccount();
+        let saved: Record<string, unknown> | null = null;
+        const rep = await runOutboxSync(deps(store, acct, A, {
+            fetchEntity: async (_e, id) => (id === A ? comparableProfileRow(changedElsewhere) : null),
+            saveEntity: async (entity, _kind, row) => { if (entity === 'profile') saved = row; return { error: null }; },
+        }));
+        // (the logo data URL is only uploaded when it was registered as a photo taken offline: here it wasn't)
+        eq('settings sync: saved with the offline values', [(saved as any)?.phone, (saved as any)?.company_name], ['777', 'Lee Build & Sons']);
+        const notice = rep.notices[0];
+        eq('settings sync: "changed on another device" notice', [notice?.reason, notice?.entity, (notice?.data as any)?.phone], ['conflict', 'profile', '999']);
+        ok('settings sync: notice text', /Changed on another device/.test(notice?.message || ''));
+        eq('settings sync: left the outbox', (await store.getItems(A)).length, 0);
+        const restored = await restoreHistoryEntry(store, notice!, at(5));
+        eq('settings restore: queued again as settings', [restored?.entity, restored?.kind, restored?.data.phone], ['profile', 'edit', '999']);
+
+        // a logo picked offline: registered → uploaded on sync and swapped in
+        const s2 = createMemoryOutboxStore();
+        const logo = 'data:image/png;base64,QUJD';
+        await s2.putPhoto({ id: `${A}:${photoHash(logo)}`, userId: A, hash: photoHash(logo), createdAt: NOW.toISOString() });
+        await queueOfflineSave(s2, { entity: 'profile', userId: A, docId: A, jobId: '', type: ENTITY_TYPE.profile, kind: 'edit', data: { logo_url: logo }, base: null }, at(1));
+        let saved2: Record<string, unknown> | null = null;
+        await runOutboxSync(deps(s2, acct, A, { saveEntity: async (_e, _k, row) => { saved2 = row; return { error: null }; } }));
+        eq('settings sync: offline logo uploaded and swapped in', [(saved2 as any)?.logo_url, acct.uploads.length], [`https://storage.example/logos/${A}/doc-1.jpg`, 1]);
+
+        // unchanged on the account: no notice
+        const s3 = createMemoryOutboxStore();
+        await queueOfflineSave(s3, { entity: 'profile', userId: A, docId: A, jobId: '', type: ENTITY_TYPE.profile, kind: 'edit', data: patch, base }, at(1));
+        const rep3 = await runOutboxSync(deps(s3, acct, A, { fetchEntity: async () => comparableProfileRow(accountRow), saveEntity: async () => ({ error: null }) }));
+        eq('settings sync: unchanged account → no notice', rep3.notices.length, 0);
+        // lost connection: kept
+        const s4 = createMemoryOutboxStore();
+        await queueOfflineSave(s4, { entity: 'profile', userId: A, docId: A, jobId: '', type: ENTITY_TYPE.profile, kind: 'edit', data: patch, base }, at(1));
+        const rep4 = await runOutboxSync(deps(s4, acct, A, { fetchEntity: async () => { throw new Error('TypeError: Failed to fetch'); }, saveEntity: async () => ({ error: null }) }));
+        eq('settings sync: lost connection keeps it pending', [rep4.networkStopped, (await s4.getItems(A))[0]?.status], [true, 'pending']);
+        // reminder settings: their own item, synced first with the settings
+        eq('reminder settings: entity label', ENTITY_TYPE.reminder_settings, 'Reminder settings');
+        eq('sync order: settings before jobs', orderForSync([
+            { id: 'j', seq: 1, createdAt: '', entity: 'job' as const }, { id: 'r', seq: 2, createdAt: '', entity: 'reminder_settings' as const },
+        ]).map(i => i.id), ['r', 'j']);
+    }
+}
+
+// =====================================================================================================================
+// Lists opened offline (device copy) + outbox items on top
+// =====================================================================================================================
+async function listCacheChecks() {
+    const mem = new Map<string, any>();
+    const backend = {
+        get: async (s: string, k: string) => mem.get(`${s}/${k}`),
+        put: async (s: string, row: any) => { mem.set(`${s}/${row.id}`, structuredClone(row)); },
+        getAll: async (s: string) => Array.from(mem.entries()).filter(([k]) => k.startsWith(`${s}/`)).map(([, v]) => v),
+        delete: async (s: string, k: string) => { mem.delete(`${s}/${k}`); },
+    };
+    setDeviceCacheBackend(backend);
+    setDeviceCacheUser(A);
+    try {
+        setOnline(true);
+        const rows = [{ id: 'i1', user_id: A, name: '2x4', quantity: 10 }];
+        const online = await loadWithDeviceCopy('inventory', async () => ({ rows, error: null }));
+        await new Promise(r => setTimeout(r, 0));
+        eq('lists: online → account rows, copy kept', [online.fromDevice, online.rows.length, (await readListCopy('inventory'))?.rows.length], [false, 1, 1]);
+        setOnline(false);
+        let called = false;
+        const offline = await loadWithDeviceCopy('inventory', async () => { called = true; return { rows: [], error: null }; });
+        eq('lists: offline (after a reload) → device copy, no request', [offline.fromDevice, offline.rows, offline.error, called], [true, rows, null, false]);
+        setOnline(true);
+        const dropped = await loadWithDeviceCopy('inventory', async () => ({ rows: [], error: { message: 'TypeError: Failed to fetch' } }));
+        eq('lists: request lost on the way → device copy', [dropped.fromDevice, dropped.rows.length], [true, 1]);
+        const refused = await loadWithDeviceCopy('inventory', async () => ({ rows: [], error: { code: '42501', message: 'permission denied' } }));
+        eq('lists: a real error stays an error', [refused.fromDevice, Boolean(refused.error)], [false, true]);
+        setOnline(false);
+        const none = await loadWithDeviceCopy('calendar-never-opened', async () => ({ rows: [], error: null }));
+        eq('lists: never loaded here → says so', [none.fromDevice, (none.error as Error)?.message], [true, NO_DEVICE_COPY]);
+        setDeviceCacheUser(B);
+        eq('lists: another account on this device sees nothing', await readListCopy('inventory'), null);
+        setDeviceCacheUser(A);
+
+        // previews
+        await savePhotoThumb(`${A}/${JOB}/p_t.jpg`, blob(2000));
+        const thumbs = await readPhotoThumbs([`${A}/${JOB}/p_t.jpg`, 'missing']);
+        eq('previews: kept per user', [Object.keys(thumbs), await hasPhotoThumb(`${A}/${JOB}/p_t.jpg`)], [[`${A}/${JOB}/p_t.jpg`], true]);
+        eq('previews: too big not kept', (await savePhotoThumb('big', blob(600 * 1024)), await hasPhotoThumb('big')), false);
+
+        // outbox items on top of a screen's list (inventory / price book)
+        const store = createMemoryOutboxStore();
+        await queueOfflineSave(store, { entity: 'inventory', userId: A, docId: 'i2', jobId: '', type: 'Inventory item', kind: 'create', data: { id: 'i2', user_id: A, name: 'Screws', quantity: 3 } }, at(1));
+        await queueOfflineSave(store, { entity: 'inventory', userId: A, docId: 'i1', jobId: '', type: 'Inventory item', kind: 'edit', data: { name: '2x4 stud' } }, at(2));
+        await queueOfflineSave(store, { entity: 'stock_move', userId: A, docId: 'm1', jobId: '', type: 'Stock change', kind: 'create', data: { p_item_id: 'i1', p_delta: -4 } }, at(3));
+        await queueOfflineSave(store, { entity: 'stock_move', userId: A, docId: 'm2', jobId: '', type: 'Stock change', kind: 'create', data: { p_item_id: 'i1', p_delta: 1 } }, at(4));
+        const items = await store.getItems(A);
+        const shown = withPendingRows(rows, items, A, 'inventory', (row, prev) => ({ ...(prev || {}), ...row } as any));
+        eq('lists overlay: edit applied, new item added', shown.map((r: any) => `${r.id}:${r.name}`), ['i1:2x4 stud', 'i2:Screws']);
+        eq('lists overlay: stock changes waiting', Array.from(pendingStockDeltas(items).entries()), [['i1', -3]]);
+        eq('lists overlay: nothing waiting → same list', withPendingRows(rows, [], A, 'inventory', (r) => r as any) === rows, true);
+        eq('lists overlay: price book items only', withPendingRows([], items, A, 'price_item', (r) => r as any).length, 0);
+    } finally {
+        setOnline(true);
+        setDeviceCacheBackend(null);
+        setDeviceCacheUser(null);
+    }
+}
+
+// =====================================================================================================================
+// "You're offline. This needs a connection" (never a raw network error)
+// =====================================================================================================================
+async function connectionChecks() {
+    setOnline(false);
+    try {
+        let err: any = null;
+        try { await offlineAwareFetch('https://example.invalid/rest/v1/jobs'); } catch (e) { err = e; }
+        eq('fetch offline: fails at once', Boolean(err), true);
+        const printed = `${err.name}: ${err.message}`; // how database errors print it
+        eq('fetch offline: database error reads as one sentence', printed, "You're offline: This needs a connection; try again when you're back online.");
+        eq('fetch offline: storage error (message only) is plain too', err.message, "This needs a connection; try again when you're back online.");
+        eq('helpers: offline request → standard message', [connectionProblem(printed), connectionProblem(err.message)], [NEEDS_CONNECTION, NEEDS_CONNECTION]);
+        eq('helpers: raw TypeError offline → standard message', connectionProblem('TypeError: Failed to fetch'), NEEDS_CONNECTION);
+        eq('helpers: edge function offline → standard message', connectionProblem('Failed to send a request to the Edge Function'), NEEDS_CONNECTION);
+        eq('errorText: wrapped message', errorText(new Error(`Could not load reminder settings: ${printed}`), 'x'), NEEDS_CONNECTION);
+        eq('errorText: other errors unchanged', errorText(new Error('PLAN_LIMIT: nope'), 'x'), 'PLAN_LIMIT: nope');
+        eq('errorText: empty → fallback', errorText({}, 'Could not save.'), 'Could not save.');
+        eq('outbox: offline request = no connection (item stays pending)', [isNetworkError({ message: printed }), isNetworkError({ message: err.message })], [true, true]);
+        eq('outbox: classify', classifySyncError({ message: printed }).kind, 'network');
+        ok('message names the fix', /needs a connection/.test(NEEDS_CONNECTION) && /back online/.test(NEEDS_CONNECTION));
+    } finally {
+        setOnline(true);
+    }
+    eq('helpers online: dropped request → network error', connectionProblem('TypeError: Failed to fetch'), 'Network error. Check your connection and try again.');
+    eq('helpers online: other message → not about the connection', connectionProblem('duplicate key'), null);
+}
+
+// =====================================================================================================================
+// Every write path in the app is in the offline audit table
+// =====================================================================================================================
+function writePathAuditChecks() {
+    const roots = ['App.tsx', 'components', 'lib', 'src', 'utils', 'services', 'hooks'];
+    const files: string[] = [];
+    const walk = (p: string) => {
+        if (!existsSync(p)) return;
+        const s = statSync(p);
+        if (s.isDirectory()) { for (const f of readdirSync(p)) walk(join(p, f)); return; }
+        if (/\.(ts|tsx)$/.test(p)) files.push(p);
+    };
+    for (const r of roots) walk(join(ROOT, r));
+    const hits: WriteHit[] = [];
+    for (const f of files) {
+        const rel = relative(ROOT, f).replace(/\\/g, '/');
+        if (rel.startsWith('lib/offline/') || rel.startsWith('utils/templates/')) continue; // the outbox itself; PDF templates (no writes)
+        hits.push(...scanWrites(rel, readFileSync(f, 'utf8')));
+    }
+    ok(`audit: write calls found (${hits.length})`, hits.length > 100);
+    const uncovered = hits.filter(h => !auditRowsFor(h.file, h.text).length);
+    for (const h of uncovered) console.error(`  write path not in lib/offline/writePathAudit.ts: ${h.file}:${h.line}  ${h.text.slice(0, 120)}`);
+    eq('audit: every write call is in the table', uncovered.length, 0);
+    const stale = WRITE_PATHS.filter(r => !hits.some(h => h.file === r.file && h.text.includes(r.match)));
+    for (const r of stale) console.error(`  audit row matches no code: ${r.file} "${r.match}"`);
+    eq('audit: every row matches code', stale.length, 0);
+    const modes = new Set(['queue', 'device', 'sync', 'needs_connection', 'background', 'public']);
+    eq('audit: valid modes', WRITE_PATHS.every(r => modes.has(r.offline) && r.what.trim().length > 3), true);
+    // what the owner asked for works offline
+    const queued = (file: string, match: string) => WRITE_PATHS.find(r => r.file === file && r.match === match)?.offline;
+    eq('audit: job photos queue', queued('components/photos/photosApi.ts', "from('job_photos').insert(row).select"), 'queue');
+    eq('audit: settings queue', queued('App.tsx', "from('profiles').update(row)"), 'queue');
+    eq('audit: payment links queue', queued('lib/paymentsApi.ts', "from('profiles').update(paymentSettingsRow(settings))"), 'queue');
+    eq('audit: inventory checkout queues', queued('components/InventoryView.tsx', "rpc('checkout_inventory'"), 'queue');
+    eq('audit: documents queue', queued('lib/documentSave.ts', "from('documents').upsert(record)"), 'queue');
+    const count = (m: string) => WRITE_PATHS.filter(r => r.offline === m).length;
+    console.log(`write-path audit: ${hits.length} calls, ${WRITE_PATHS.length} rows — queue ${count('queue')}, device ${count('device')}, sync ${count('sync')}, needs connection ${count('needs_connection')}, background ${count('background')}, public ${count('public')}`);
+}
+
+// =====================================================================================================================
+// public/sw.js: the installed app opens offline (shell + its files, screens' files once loaded)
+// =====================================================================================================================
+async function serviceWorkerChecks() {
+    const ORIGIN = 'https://app.test';
+    const SHELL = '<!doctype html><script type="module" crossorigin src="/assets/index-AAA.js"></script><link rel="modulepreload" href="/assets/react-BBB.js"><link rel="stylesheet" href="/assets/index-CCC.css">';
+    const server = new Map<string, string>([
+        ['/app.html', SHELL], ['/assets/index-AAA.js', 'entry'], ['/assets/react-BBB.js', 'react'], ['/assets/index-CCC.css', 'css'],
+        ['/assets/InventoryView-DDD.js', 'inventory'], ['/assets/Settings-EEE.js', 'settings'], ['/dashboard', 'page'],
+        ['/manifest.webmanifest', '{}'], ['/icon-192.png', 'png'], ['/icon-512.png', 'png'], ['/favicon.ico', 'ico'],
+    ]);
+    let networkUp = true;
+    const fetched: string[] = [];
+    const basic = (body: string, status = 200) => { const r = new Response(body, { status }); Object.defineProperty(r, 'type', { value: 'basic' }); return r; };
+    const fakeFetch = async (input: any) => {
+        const url = new URL(typeof input === 'string' ? input : input.url, ORIGIN);
+        if (!networkUp) throw new TypeError('Failed to fetch');
+        fetched.push(url.pathname);
+        const body = server.get(url.pathname);
+        return body === undefined ? basic('missing', 404) : basic(body);
+    };
+    const stores = new Map<string, Map<string, Response>>();
+    const keyOf = (req: any) => new URL(typeof req === 'string' ? req : req.url, ORIGIN).href;
+    const cacheApi = (name: string) => {
+        if (!stores.has(name)) stores.set(name, new Map());
+        const m = stores.get(name)!;
+        return {
+            match: async (req: any) => m.get(keyOf(req))?.clone(),
+            put: async (req: any, res: Response) => { m.set(keyOf(req), res); },
+            keys: async () => Array.from(m.keys()).map(url => ({ url })),
+            delete: async (req: any) => m.delete(keyOf(req)),
+        };
+    };
+    const caches = { open: async (n: string) => cacheApi(n), keys: async () => Array.from(stores.keys()), delete: async (n: string) => stores.delete(n) };
+    const listeners = new Map<string, (e: any) => void>();
+    const self: any = {
+        location: { origin: ORIGIN }, addEventListener: (t: string, fn: (e: any) => void) => listeners.set(t, fn),
+        skipWaiting: () => undefined, clients: { claim: async () => undefined },
+    };
+    // eslint-disable-next-line no-new-func
+    new Function('self', 'caches', 'fetch', readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8'))(self, caches, fakeFetch);
+    const fire = async (type: string, extra: Record<string, unknown>) => {
+        const waits: Promise<unknown>[] = [];
+        let responded: Promise<Response> | null = null;
+        listeners.get(type)!({ ...extra, waitUntil: (p: Promise<unknown>) => waits.push(p), respondWith: (p: Promise<Response>) => { responded = p; } });
+        const res = responded ? await (responded as Promise<Response>).catch((e: unknown) => e) : null;
+        await Promise.all(waits);
+        return res;
+    };
+    const cached = (name: string) => Array.from(stores.get(name)?.keys() || []).map(u => new URL(u).pathname).sort();
+
+    await fire('install', {});
+    eq('sw install: shell kept', cached('cd-shell-v1').includes('/app.html'), true);
+    eq('sw install: the files the shell starts with kept with it', cached('cd-assets-v1'), ['/assets/index-AAA.js', '/assets/index-CCC.css', '/assets/react-BBB.js']);
+    eq('sw install: app icon + manifest kept', ['/manifest.webmanifest', '/icon-192.png'].every(p => cached('cd-shell-v1').includes(p)), true);
+
+    // online: pages from the network (unchanged behaviour); a screen's file is kept once loaded
+    const page = await fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/dashboard`, mode: 'navigate' } }) as Response;
+    eq('sw online: page from the network', await page.text(), 'page');
+    await fire('fetch', { request: new Request(`${ORIGIN}/assets/InventoryView-DDD.js`) });
+    eq('sw online: loaded screen file kept', cached('cd-assets-v1').includes('/assets/InventoryView-DDD.js'), true);
+    // the app's background prefetch posts the files it loaded
+    await fire('message', { data: { type: 'cd-warm', urls: [`${ORIGIN}/assets/Settings-EEE.js`, 'https://cdn.example/x.js'] } });
+    eq('sw warm: posted screen files kept (other sites ignored)', cached('cd-assets-v1').includes('/assets/Settings-EEE.js'), true);
+
+    // offline: the app opens from the copy, screens' files come from the cache
+    networkUp = false;
+    const offlinePage = await fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/jobs/abc`, mode: 'navigate' } }) as Response;
+    eq('sw offline: any app page opens the shell', await offlinePage.text(), SHELL);
+    const inv = await fire('fetch', { request: new Request(`${ORIGIN}/assets/InventoryView-DDD.js`) }) as Response;
+    eq('sw offline: inventory screen file from the cache', await inv.text(), 'inventory');
+    const settingsFile = await fire('fetch', { request: new Request(`${ORIGIN}/assets/Settings-EEE.js`) }) as Response;
+    eq('sw offline: settings screen file from the cache', await settingsFile.text(), 'settings');
+    const icon = await fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/icon-192.png`, mode: 'no-cors' } }) as Response;
+    eq('sw offline: app icon from the cache', await icon.text(), 'png');
+    const other = await fire('fetch', { request: { method: 'GET', url: 'https://iauteblvljppwzsxloyd.supabase.co/rest/v1/jobs', mode: 'cors' } });
+    eq('sw: account requests are never touched', other, null);
+    const post = await fire('fetch', { request: { method: 'POST', url: `${ORIGIN}/assets/x.js`, mode: 'cors' } });
+    eq('sw: only GET', post, null);
+    // a shell refresh while offline keeps the copy
+    await fire('message', { data: { type: 'cd-warm', urls: [] } });
+    eq('sw offline warm: copy kept', cached('cd-shell-v1').includes('/app.html'), true);
+}
 
 const run = async () => {
     // ---------------------------------------------------------------- which documents work offline
@@ -629,6 +1210,13 @@ const run = async () => {
         eq('stock: not enough stock → blocked with the reason', [left.map(i => i.docId), left[0]?.status, rep.refused[0]?.kind], [['m2'], 'blocked', 'stock']);
         eq('stock: display types', [outboxTitle('Inventory item', { name: '2x4 stud' }), outboxTitle('Price book item', { name: 'Door install' })], ['Inventory item · 2x4 stud', 'Price book item · Door install']);
     }
+
+    await photoChecks();
+    await settingsChecks();
+    await listCacheChecks();
+    await connectionChecks();
+    writePathAuditChecks();
+    await serviceWorkerChecks();
 
     // ---------------------------------------------------------------- chips
     {

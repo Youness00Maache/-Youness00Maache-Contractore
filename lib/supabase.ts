@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { NEEDS_CONNECTION, isBrowserOffline, offlineAwareFetch } from './offline/connection.ts';
 
 /**
  * The ONE Supabase client for the whole app.
@@ -33,6 +34,8 @@ export const supabase: SupabaseClient = createClient(
       detectSessionInUrl: true,
       storageKey: 'contractordocs-auth',
     },
+    // offline: requests fail at once with "You're offline: this needs a connection …" (online: the browser's fetch)
+    global: { fetch: offlineAwareFetch },
   },
 );
 
@@ -41,8 +44,13 @@ export const SUPABASE_FUNCTIONS_URL = url ? `${url.replace(/\/$/, '')}/functions
 
 /** Calls an edge function with the current user's JWT. Throws on non-2xx with the server's message. */
 export async function invokeFunction<T = unknown>(name: string, body?: unknown): Promise<T> {
+  if (isBrowserOffline()) throw new Error(NEEDS_CONNECTION);
   const { data, error } = await supabase.functions.invoke(name, { body: body as any });
   if (error) {
+    // the request never reached the server (connection lost on the way)
+    if ((error as any)?.name === 'FunctionsFetchError') {
+      throw new Error(isBrowserOffline() ? NEEDS_CONNECTION : 'Could not reach the server. Check your connection and try again.');
+    }
     let message = error.message || `Request to ${name} failed`;
     try {
       const ctx: any = (error as any).context;

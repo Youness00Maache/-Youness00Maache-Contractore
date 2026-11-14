@@ -22,6 +22,8 @@ import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
 import DataExportSection from './export/DataExportSection.tsx';
 import { AICreditsRow } from './billing/AICredits.tsx';
 import NotificationSettingsCard from './notifications/NotificationSettingsCard.tsx';
+import { SyncChip } from './offline/OfflineContext.tsx';
+import { errorText } from '../lib/offline/connection.ts';
 
 type ThemeName = 'light' | 'dark' | 'blue';
 export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'notifications' | 'data' | 'account';
@@ -29,8 +31,13 @@ export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 
 interface SettingsProps {
     mode: 'settings' | 'profile';
     profile: UserProfile;
-    /** Should throw on failure: the page stays open with the user's edits and shows the error. */
-    onSave: (profile: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => Promise<unknown> | void;
+    /**
+     * Should throw on failure: the page stays open with the user's edits and shows the error. Offline the app keeps the
+     * save on the device (`extras.paymentSettings`: the payment / review links changed in this save, or null).
+     */
+    onSave: (profile: UserProfile, logoFile?: File | null, profilePicFile?: File | null, extras?: { paymentSettings?: PaymentSettings | null }) => Promise<unknown> | void;
+    /** settings saved offline that haven't reached the account yet (chip next to Save) */
+    syncState?: { tone: 'pending' | 'syncing' | 'error'; label: string; reason: string } | null;
     onBack: () => void;
     theme: ThemeName;
     setTheme: (theme: ThemeName) => void;
@@ -103,7 +110,7 @@ const Meter: React.FC<{ label: string; used: number; limit: number | null }> = (
 
 const Settings: React.FC<SettingsProps> = ({
     mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout, onUpgradeClick,
-    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection,
+    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection, syncState,
 }) => {
     const [profile, setProfile] = useState<UserProfile>(initialProfile);
     const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -231,7 +238,12 @@ const Settings: React.FC<SettingsProps> = ({
         try {
             // links are stored as https:// addresses ("paypal.me/acme" → "https://paypal.me/acme")
             let savedPay: PaymentSettings | null = null;
-            if (payDirty && !payUnavailable) {
+            const payChanged = payDirty && !payUnavailable;
+            // offline: everything (payment settings included) waits on this device and is saved when back online
+            const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (payChanged && offline) {
+                savedPay = mapPaymentSettings(paymentSettingsRow(pay));
+            } else if (payChanged) {
                 const res = await savePaymentSettings(initialProfile.id, pay);
                 if (res === 'saved') savedPay = mapPaymentSettings(paymentSettingsRow(pay));
                 else setPayNotice('Your payment settings need a one-time database update before they can be saved. Everything else was saved.');
@@ -245,6 +257,7 @@ const Settings: React.FC<SettingsProps> = ({
                 },
                 logoFile,
                 profilePicFile,
+                { paymentSettings: savedPay ? pay : null },
             );
             if (savedPay) {
                 setPay(savedPay);
@@ -255,7 +268,7 @@ const Settings: React.FC<SettingsProps> = ({
             baselineRef.current = profile;
             setSavedAt(Date.now());
         } catch (err: any) {
-            setSaveError(err?.message || 'Your changes could not be saved. Please try again.');
+            setSaveError(errorText(err, 'Your changes could not be saved. Please try again.'));
         } finally {
             setSaving(false);
         }
@@ -287,7 +300,7 @@ const Settings: React.FC<SettingsProps> = ({
         setBillingBusy(true);
         setBillingError(null);
         try { await onManageBilling(); }
-        catch (err: any) { setBillingError(err?.message || 'Could not open the billing portal.'); }
+        catch (err: any) { setBillingError(errorText(err, 'Could not open the billing portal.')); }
         finally { setBillingBusy(false); }
     };
 
@@ -296,7 +309,7 @@ const Settings: React.FC<SettingsProps> = ({
         setDeleteBusy(true);
         setDeleteError(null);
         try { await onDeleteAccount(); }
-        catch (err: any) { setDeleteError(err?.message || 'We could not delete your account automatically.'); setDeleteBusy(false); }
+        catch (err: any) { setDeleteError(errorText(err, 'We could not delete your account automatically.')); setDeleteBusy(false); }
     };
 
     const statusBadge = (() => {
@@ -687,8 +700,9 @@ const Settings: React.FC<SettingsProps> = ({
             {(dirty || saveError || savedAt) && (
                 <div className="fixed inset-x-0 bottom-16 z-30 px-4 md:bottom-4">
                     <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border border-border bg-popover p-3 shadow-lift sm:flex-row sm:items-center sm:justify-between">
-                        <p className={`text-sm ${saveError ? 'text-destructive' : 'text-muted-foreground'}`} role={saveError ? 'alert' : 'status'}>
-                            {saveError ? saveError : dirty ? 'You have unsaved changes.' : 'All changes saved.'}
+                        <p className={`flex min-w-0 items-center gap-2 text-sm ${saveError ? 'text-destructive' : 'text-muted-foreground'}`} role={saveError ? 'alert' : 'status'}>
+                            {saveError ? saveError : dirty ? 'You have unsaved changes.' : syncState ? 'Saved on this device. It syncs when you’re back online.' : 'All changes saved.'}
+                            {!saveError && !dirty && syncState && <SyncChip tone={syncState.tone} label={syncState.label} title={syncState.reason} />}
                         </p>
                         {dirty && (
                             <div className="flex gap-2">

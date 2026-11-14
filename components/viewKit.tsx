@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase.ts';
+import { connectionProblem } from '../lib/offline/connection.ts';
 import { BackArrowIcon, XCircleIcon, CheckCircleIcon, AlertTriangleIcon } from './Icons.tsx';
 
 // ---------------------------------------------------------------------------------------------
@@ -25,11 +26,9 @@ export const friendlyError = (error: unknown, fallback = 'Something went wrong. 
   const msg = String(e.message || (typeof error === 'string' ? error : '') || '');
   if (/^PLAN_LIMIT/i.test(msg)) return msg.replace(/^PLAN_LIMIT:?\s*/i, '') || 'You have reached a limit of the Free plan.';
   if (e.code === '42501' || /row-level security|permission denied/i.test(msg)) return "You don't have permission to do that.";
-  if (/failed to fetch|networkerror|network request failed|load failed/i.test(msg)) {
-    // offline: this action needs a connection (say it plainly instead of a vague network error)
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return "You're offline. This needs a connection; try again when you're back online.";
-    return 'Network error. Check your connection and try again.';
-  }
+  // offline: this action needs a connection (say it plainly instead of a vague network error)
+  const connection = connectionProblem(msg);
+  if (connection) return connection;
   if (/insufficient/i.test(msg)) return 'Not enough stock for this change.';
   if (/JWT|not authenticated|auth session missing/i.test(msg)) return 'Your session has expired. Please sign in again.';
   if (/bucket not found/i.test(msg)) return 'File storage is not set up yet. Please contact support.';

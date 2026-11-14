@@ -4,6 +4,7 @@ import { PLANS, isPaidTier, normalizeTier, type BillingPeriod, type PlanTier } f
 import { startCheckout, getBillingPortalUrl } from '../lib/billing.ts';
 import { supabase } from '../lib/supabase.ts';
 import { AICreditsStrip } from './billing/AICredits.tsx';
+import { errorText } from '../lib/offline/connection.ts';
 
 interface UpgradeModalProps {
     isOpen: boolean;
@@ -71,7 +72,7 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
             const { url } = await startCheckout(tier, period, uid);
             window.location.assign(url);
         } catch (err: any) {
-            setError(err?.message || 'Could not start checkout. Please try again.');
+            setError(errorText(err, 'Could not start checkout. Please try again.'));
             setBusyTier(null);
         }
     };
@@ -84,7 +85,7 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
             if (!url) throw new Error('The billing portal is not available right now. Please contact support to change your plan.');
             window.location.assign(url);
         } catch (err: any) {
-            setError(err?.message || 'Could not open the billing portal.');
+            setError(errorText(err, 'Could not open the billing portal.'));
             setBusyTier(null);
         }
     };

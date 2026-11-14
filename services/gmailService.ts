@@ -3,6 +3,7 @@
  * Google tokens never reach the browser: connecting, sending, refreshing and revoking all happen server-side.
  */
 import { supabase } from '../lib/supabase.ts';
+import { NEEDS_CONNECTION, isBrowserOffline } from '../lib/offline/connection.ts';
 import type { Job, UserProfile } from '../types.ts';
 
 /* ------------------------------------------------------------------ types */
@@ -88,6 +89,8 @@ export const setPreferredSender = (accountId: string | null) => {
 /* ------------------------------------------------------------------ transport */
 
 async function callGmail<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+    // offline: email needs a connection (said plainly, before trying)
+    if (isBrowserOffline()) throw new GmailError(NEEDS_CONNECTION, 'NETWORK');
     let data: unknown;
     let error: any;
     try {

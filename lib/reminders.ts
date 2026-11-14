@@ -7,6 +7,7 @@
  * so the components can hide themselves or say so.
  */
 import { supabase } from './supabase.ts';
+import { offlineEntityQueueFor, pendingEntityItems } from './offline/offlineEntities.ts';
 import { fetchUsage, type UsageSnapshot } from './account.ts';
 import { isPaidTier } from './plans.ts';
 import {
@@ -110,7 +111,8 @@ export async function loadReminderBasics(force = false): Promise<ReminderBasics>
         if (settingsRes.error) fail(settingsRes.error, 'Could not load reminder settings');
         if (configRes.error) fail(configRes.error, 'Could not load reminder settings');
         const row = (settingsRes.data as ReminderSettingsRow | null) ?? null;
-        const settings = settingsFromRow(row);
+        // settings saved offline that haven't synced yet win (they are the newest)
+        const settings = pendingReminderSettings() ?? settingsFromRow(row);
         const senders: GmailSender[] = ((sendersRes.data as any[] | null) ?? []).map((a) => ({
             id: a.id, gmail_address: a.gmail_address, display_name: a.display_name ?? null, is_default: !!a.is_default,
             needs_reconnect: a.status === 'needs_reconnect',
@@ -135,8 +137,24 @@ export async function loadReminderBasics(force = false): Promise<ReminderBasics>
     }
 }
 
+/** Outbox id of reminder settings saved offline (one per user). */
+export const reminderSettingsOutboxId = (userId: string) => `reminders:${userId}`;
+
+/** Reminder settings saved offline and not synced yet (null: none). */
+export const pendingReminderSettings = (): ReminderSettings | null => {
+    const item = pendingEntityItems('reminder_settings')[0];
+    return item ? settingsFromRow(item.data as unknown as ReminderSettingsRow) : null;
+};
+
 export async function saveReminderSettings(settings: ReminderSettings): Promise<ReminderSettings> {
     const userId = await currentUserId();
+    // offline (or settings saved offline still waiting): kept on this device, saved to the account when back online
+    const outbox = offlineEntityQueueFor(reminderSettingsOutboxId(userId));
+    if (outbox) {
+        await outbox.queue('reminder_settings', 'edit', reminderSettingsOutboxId(userId), { user_id: userId, ...settingsToRow(settings) });
+        if (basicsCache && basicsCache.value.userId === userId) basicsCache = { ...basicsCache, value: { ...basicsCache.value, settings, saved: true } };
+        return settings;
+    }
     const { data, error } = await supabase
         .from('reminder_settings')
         .upsert({ user_id: userId, ...settingsToRow(settings) }, { onConflict: 'user_id' })

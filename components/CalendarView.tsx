@@ -1,5 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
+import { isOffline, isOfflineFailure } from '../lib/offline/deviceCache.ts';
+import { pendingEntityItems } from '../lib/offline/offlineEntities.ts';
+
+/** Jobs created offline that haven't reached the account yet. */
+const pendingJobIds = () => new Set(pendingEntityItems('job').filter((i) => i.kind === 'create').map((i) => i.docId));
 import type { Job } from '../types.ts';
 import { BriefcaseIcon, CalendarIcon, MapPinIcon, PlusIcon, UserIcon } from './Icons.tsx';
 import { ChevronLeftIcon, ChevronRightIcon, EmptyState, InlineError, PageHeader, Segmented, fetchAllPages, friendlyError, getCurrentUserId, useIsMobile } from './viewKit.tsx';
@@ -62,6 +67,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
   const [jobs, setJobs] = useState<CalJob[]>(() => seed.map(fromJob));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** showing the app's own jobs (offline) instead of the account's list */
+  const [offlineView, setOfflineView] = useState(false);
+  const seedRef = useRef(seed);
+  seedRef.current = seed;
   const [view, setView] = useState<ViewKey>(() => (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches ? 'list' : 'month'));
   const [anchor, setAnchor] = useState<Date>(() => parseLocalDate(todayYMD())!);
   const [selected, setSelected] = useState<string | null>(todayYMD());
@@ -75,13 +84,34 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
       if (uid) q = q.eq('user_id', uid);
       return q;
     });
+    if (isOffline()) {
+      // offline (also after a reload): the app's jobs, i.e. this device's copy + the ones created offline
+      setOfflineView(true);
+      setJobs(seedRef.current.map(fromJob));
+      setLoading(false);
+      return;
+    }
     let res = await run('id,name,client_name,client_address,start_date,end_date,status,worker_name');
     if (res.error && (res.error.code === '42703' || /does not exist/i.test(res.error.message || ''))) res = await run('*');
-    if (res.error) setError(friendlyError(res.error, 'Could not load your jobs.'));
-    else setJobs(res.rows.map(fromRow));
+    if (res.error && isOfflineFailure(res.error)) { setOfflineView(true); setJobs(seedRef.current.map(fromJob)); }
+    else if (res.error) setError(friendlyError(res.error, 'Could not load your jobs.'));
+    else {
+      setOfflineView(false);
+      // jobs created offline that haven't synced yet stay on the calendar
+      const loaded = res.rows.map(fromRow);
+      const ids = new Set(loaded.map((j) => j.id));
+      setJobs([...loaded, ...seedRef.current.filter((j) => !ids.has(j.id) && pendingJobIds().has(j.id)).map(fromJob)]);
+    }
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  // offline: follow the app's list (a job created or rescheduled offline shows at once); back online: reload
+  useEffect(() => { if (offlineView) setJobs(seed.map(fromJob)); }, [seed, offlineView]);
+  useEffect(() => {
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [load]);
 
   const spans = useMemo(() => spansFor(jobs), [jobs]);
   const today = todayYMD();

@@ -6,6 +6,9 @@
  *  - select photos → before/after PDF report, show / hide in the client portal, delete
  *  - Free plan photo cap (per job + total MB), checked before uploading and enforced by the database
  *  - Premium + AI: "Write client update" and "AI walkthrough" from the photos (PhotoAIModal.tsx)
+ *  - offline: photos taken / picked are kept on this device and upload when the connection is back; stage, caption,
+ *    portal and markup changes wait too; the list and previews are the device's last copy
+ *    (lib/offline/offlineJobPhotos.ts, lib/offline/deviceCache.ts)
  * Shows a short notice instead when the database doesn't have job photos yet (migration 20261113000400).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,6 +34,11 @@ import {
 } from './photoUpdates.ts';
 import { loadSentUpdates } from './photoUpdatesApi.ts';
 import type { PhotoAIMode } from './PhotoAIModal.tsx';
+import {
+    applyPhotoOverlay, isOfflinePath, offlineMainPath, offlinePhotoRoom, offlinePhotoUsage, offlineThumbPath, pendingPhotoStats,
+    PHOTO_FILE_MAIN, PHOTO_FILE_THUMB, type OfflinePhotoApi,
+} from '../../lib/offline/offlineJobPhotos.ts';
+import { hasPhotoThumb, isOfflineFailure, NEEDS_CONNECTION, readListCopy, readPhotoThumbs, saveListCopy, savePhotoThumb } from '../../lib/offline/deviceCache.ts';
 
 const PhotoMarkupEditor = React.lazy(() => import('./PhotoMarkupEditor.tsx'));
 const PhotoAIModal = React.lazy(() => import('./PhotoAIModal.tsx'));
@@ -49,10 +57,28 @@ export interface JobPhotosProps {
     onEmailSent?: () => void;
     /** a document was added to the job (the record of a sent client update) */
     onDocumentsChanged?: () => void;
+    /** the app's offline outbox for photos (null: photos need a connection, as before) */
+    offline?: OfflinePhotoApi | null;
 }
 
 /** Rough size of one compressed photo + preview, for the pre-upload check. */
 const EST_PHOTO_BYTES = 340 * 1024;
+/** Previews kept on this device per job (so the tab shows pictures offline). */
+const THUMBS_KEPT_PER_JOB = 120;
+
+const newPhotoId = (): string => {
+    const c = globalThis.crypto;
+    if (c?.randomUUID) return c.randomUUID();
+    const b = new Uint8Array(16);
+    c.getRandomValues(b);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
+
+const listKey = (jobId: string) => `job_photos:${jobId}`;
+const usageKey = (jobId: string) => `job_photo_usage:${jobId}`;
 
 const FILTERS: { value: PhotoFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -62,9 +88,11 @@ const FILTERS: { value: PhotoFilter; label: string }[] = [
 
 const isCoarsePointer = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
-const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onUpgrade, client, clients, uploadImage, onEmailSent, onDocumentsChanged }) => {
-    /** undefined = loading, null = feature not in the database yet */
+const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onUpgrade, client, clients, uploadImage, onEmailSent, onDocumentsChanged, offline }) => {
+    /** undefined = loading, null = feature not in the database yet. The account's list (or the device copy). */
     const [photos, setPhotos] = useState<JobPhoto[] | null | undefined>(undefined);
+    /** the list is the device copy (offline) */
+    const [fromDevice, setFromDevice] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [usage, setUsage] = useState<PhotoUsage | null>(null);
     const [urls, setUrls] = useState<Record<string, string>>({});
@@ -89,8 +117,33 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
 
     useEffect(() => () => { objectUrls.current.forEach(u => URL.revokeObjectURL(u)); }, []);
 
+    const online = isOnline && (typeof navigator === 'undefined' || navigator.onLine !== false);
+    const onlineRef = useRef(online);
+    onlineRef.current = online;
+
+    const objectUrlFor = (blob: Blob) => {
+        const url = URL.createObjectURL(blob);
+        objectUrls.current.push(url);
+        return url;
+    };
+
+    /** Keeps previews on this device (background, online): the tab shows pictures offline too. */
+    const keepThumbs = useCallback(async (map: Record<string, string>, paths: string[]) => {
+        if ((navigator as any).connection?.saveData) return;
+        for (const path of paths.slice(0, THUMBS_KEPT_PER_JOB)) {
+            const url = map[path];
+            if (!url || !onlineRef.current || await hasPhotoThumb(path)) continue;
+            try {
+                const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+                if (res.ok) await savePhotoThumb(path, await res.blob());
+            } catch { /* optional */ }
+        }
+    }, []);
+
     const loadUrls = useCallback(async (paths: string[]) => {
-        const todo = paths.filter(p => p && !requested.current.has(p));
+        // photos only on this device have their own URLs; offline nothing can be signed (asked again once online)
+        if (!onlineRef.current) return {} as Record<string, string>;
+        const todo = paths.filter(p => p && !isOfflinePath(p) && !requested.current.has(p));
         if (!todo.length) return {} as Record<string, string>;
         todo.forEach(p => requested.current.add(p));
         const map = await signedPhotoUrls(todo).catch(() => ({} as Record<string, string>));
@@ -100,29 +153,114 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
 
     const ensureUrl = useCallback((path: string) => { void loadUrls([path]); }, [loadUrls]);
 
+    /** Offline: the job's last list, usage and previews saved on this device. */
+    const loadDeviceCopy = useCallback(async () => {
+        const [copy, usageCopy] = await Promise.all([readListCopy<JobPhoto>(listKey(job.id)), readListCopy<PhotoUsage>(usageKey(job.id))]);
+        const list = copy?.rows || [];
+        setPhotos(list);
+        setFromDevice(true);
+        setStage(s => s ?? defaultTagForNewPhotos(list));
+        if (usageCopy?.rows?.[0]) setUsage(prev => prev ?? usageCopy.rows[0]);
+        const thumbs = await readPhotoThumbs(list.map(p => p.thumbPath || p.storagePath).filter(Boolean));
+        const found: Record<string, string> = {};
+        for (const [path, blob] of Object.entries(thumbs)) found[path] = objectUrlFor(blob);
+        if (Object.keys(found).length) setUrls(prev => ({ ...found, ...prev }));
+    }, [job.id]);
+
     const load = useCallback(async () => {
         setLoadError('');
+        if (!onlineRef.current) { await loadDeviceCopy(); return; }
         try {
             const list = await listJobPhotos(job.id);
             setPhotos(list);
+            setFromDevice(false);
             if (!list) return;
+            void saveListCopy(listKey(job.id), list);
             setStage(s => s ?? defaultTagForNewPhotos(list));
-            fetchPhotoUsage(job.id, plan).then(u => { if (u) setUsage(u); }).catch(() => undefined);
+            fetchPhotoUsage(job.id, plan).then(u => {
+                if (!u) return;
+                setUsage(u);
+                void saveListCopy(usageKey(job.id), [u]);
+            }).catch(() => undefined);
             const map = await loadUrls(list.map(p => p.thumbPath || p.storagePath));
             // previews that never uploaded: use the photo itself
             const missing = list.filter(p => p.thumbPath && !map[p.thumbPath]).map(p => p.storagePath);
             if (missing.length) void loadUrls(missing);
+            void keepThumbs(map, list.map(p => p.thumbPath || p.storagePath));
         } catch (e) {
+            if (isOfflineFailure(e)) { await loadDeviceCopy(); return; }
             setLoadError(describeError(e, 'Could not load the photos.'));
             setPhotos(prev => prev ?? []);
         }
-    }, [job.id, plan, loadUrls]);
+    }, [job.id, plan, loadUrls, loadDeviceCopy, keepThumbs]);
 
     useEffect(() => {
         void load();
-        const t = window.setTimeout(() => { flushStorageCleanup().catch(() => undefined); }, 3000);
+        const t = window.setTimeout(() => { if (onlineRef.current) flushStorageCleanup().catch(() => undefined); }, 3000);
         return () => window.clearTimeout(t);
     }, [load]);
+
+    // back online: the account's list again (photos waiting on this device upload by themselves)
+    const wasOnline = useRef(online);
+    useEffect(() => {
+        if (online && !wasOnline.current) { requested.current.clear(); void load(); }
+        wasOnline.current = online;
+    }, [online, load]);
+
+    // ------------------------------------------------------------------------------- offline photos
+    const offlineItems = offline?.items;
+    const pendingItems = useMemo(() => (offlineItems ? offlineItems.filter(i => i.jobId === job.id) : []), [offlineItems, job.id]);
+    const pendingIdsKey = pendingItems.filter(i => i.kind === 'create').map(i => i.docId).join(',');
+    const pendingIds = useMemo(() => new Set(pendingItems.map(i => i.docId)), [pendingItems]);
+    const isPendingCreate = useCallback((id: string) => pendingItems.some(i => i.docId === id && i.kind === 'create'), [pendingItems]);
+
+    // the device copies of photos taken offline (object URLs from the stored files)
+    const lastPending = useRef(new Map<string, Record<string, unknown>>());
+    const deviceUrlIds = useRef(new Set<string>());
+    const offlineRef = useRef(offline);
+    offlineRef.current = offline;
+    const pendingRef = useRef(pendingItems);
+    pendingRef.current = pendingItems;
+    useEffect(() => {
+        const api = offlineRef.current;
+        if (!api) return;
+        let active = true;
+        const creates = pendingRef.current.filter(i => i.kind === 'create');
+        (async () => {
+            const next: Record<string, string> = {};
+            for (const item of creates) {
+                const main = offlineMainPath(item.docId);
+                if (deviceUrlIds.current.has(item.docId)) continue;
+                const files = await api.filesOf(item.docId);
+                if (!active || !files) continue;
+                deviceUrlIds.current.add(item.docId);
+                if (files[PHOTO_FILE_MAIN]) next[main] = objectUrlFor(files[PHOTO_FILE_MAIN]);
+                if (files[PHOTO_FILE_THUMB]) next[offlineThumbPath(item.docId)] = objectUrlFor(files[PHOTO_FILE_THUMB]);
+            }
+            if (active && Object.keys(next).length) setUrls(prev => ({ ...prev, ...next }));
+        })();
+        // photos that just synced: their uploaded paths show the same pictures until the list reloads
+        const nowIds = new Set(creates.map(i => i.docId));
+        const synced: Record<string, string> = {};
+        for (const [id, row] of lastPending.current) {
+            if (nowIds.has(id)) continue;
+            const ext = row.ext === 'png' || row.ext === 'webp' ? row.ext : 'jpg';
+            const base = `${String(row.user_id)}/${String(row.job_id)}/${id}`;
+            setUrls(prev => {
+                const main = prev[offlineMainPath(id)];
+                const thumb = prev[offlineThumbPath(id)];
+                if (!main && !thumb) return prev;
+                return { ...prev, ...(main ? { [`${base}.${ext}`]: main } : {}), ...(thumb ? { [`${base}_t.jpg`]: thumb } : {}) };
+            });
+            requested.current.add(`${base}.${ext}`);
+            requested.current.add(`${base}_t.jpg`);
+            synced[id] = id;
+        }
+        lastPending.current = new Map(creates.map(i => [i.docId, i.data]));
+        if (Object.keys(synced).length && onlineRef.current) void load();
+        return () => { active = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingIdsKey, Boolean(offline)]);
 
     // Client updates already sent (Notes tagged "Client update"): what "new since the last update" means.
     useEffect(() => {
@@ -132,7 +270,13 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         return () => { active = false; };
     }, [aiPlan, job.id]);
 
-    const list = photos || [];
+    // the account's photos (or the device copy) with the ones taken / changed offline on top
+    const list = useMemo(
+        () => (offlineItems && offline ? applyPhotoOverlay(photos || [], offlineItems, offline.userId, job.id) : photos || []),
+        [photos, offlineItems, offline?.userId, job.id], // eslint-disable-line react-hooks/exhaustive-deps
+    );
+    /** photos that are on the account (reports, AI and downloads use these) */
+    const uploaded = useMemo(() => list.filter(p => !isOfflinePath(p.storagePath)), [list]);
     const counts = useMemo(() => countByFilter(list), [list]);
     const visible = useMemo(() => sortPhotos(filterPhotos(list, filter)), [list, filter]);
     const groups = useMemo(() => groupByDay(visible), [visible]);
@@ -149,13 +293,76 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         else onUpgrade(reason);
     };
 
+    /** Photos are kept on this device (offline, or the job itself still waits to sync). */
+    const deviceMode = Boolean(offline) && (!online || Boolean(offline?.jobWaiting));
+
+    /** The plan check offline: the last known usage + the photos waiting on this device (the account checks again). */
+    const deviceUsage = (): PhotoUsage => offlinePhotoUsage(usage, plan, (photos || []).length, pendingPhotoStats(offline?.items || [], offline?.userId, job.id));
+
+    /** Keeps prepared photos on this device; returns how many were kept. */
+    const keepOnDevice = async (todo: File[], tag: PhotoTag, extra?: { caption?: string; sourcePhotoId?: string; takenAt?: (prepared: string) => string }): Promise<{ added: number; ids: string[]; failed: number; lastError: string }> => {
+        const api = offline!;
+        let added = 0;
+        let failed = 0;
+        let lastError = '';
+        const ids: string[] = [];
+        for (let i = 0; i < todo.length; i++) {
+            try {
+                const prepared = await preparePhoto(todo[i]);
+                const id = newPhotoId();
+                await api.add({
+                    userId: api.userId, jobId: job.id, id, tag, caption: extra?.caption ?? null, sourcePhotoId: extra?.sourcePhotoId ?? null,
+                    takenAt: extra?.takenAt ? extra.takenAt(prepared.takenAt) : prepared.takenAt,
+                    width: prepared.width, height: prepared.height, mainType: prepared.main.type || 'image/jpeg', mainSize: prepared.main.size, thumbSize: prepared.thumb.size,
+                }, { main: prepared.main, thumb: prepared.thumb });
+                // show it at once (the outbox reload gives the same URLs to the tile)
+                deviceUrlIds.current.add(id);
+                setUrls(prev => ({ ...prev, [offlineMainPath(id)]: objectUrlFor(prepared.main), [offlineThumbPath(id)]: objectUrlFor(prepared.thumb) }));
+                ids.push(id);
+                added++;
+            } catch (e) {
+                failed++;
+                lastError = /quota|storage|cancelled/i.test(String((e as any)?.message || '')) ? "This device's storage is full. Free some space or reconnect to upload." : describeImageError(e);
+            }
+            setUploading({ done: i + 1, total: todo.length });
+        }
+        return { added, ids, failed, lastError };
+    };
+
     // ------------------------------------------------------------------------------- add photos
     const addFiles = async (fileList: FileList | null) => {
         const files = Array.from(fileList || []).slice(0, 50);
         if (fileRef.current) fileRef.current.value = '';
         if (cameraRef.current) cameraRef.current.value = '';
         if (!files.length) return;
-        if (!isOnline || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        if (deviceMode) {
+            // offline: the same plan check with what this device knows, then the device's own room
+            let todo = files;
+            const q = checkPhotoQuota(deviceUsage(), todo.length, todo.length * EST_PHOTO_BYTES);
+            if (!q.ok) {
+                if (q.allowed <= 0) { limitReached(q.reason); return; }
+                toast.info(`Only ${q.allowed} of ${todo.length} photos fit. ${q.reason}`, { duration: 8000 });
+                todo = todo.slice(0, q.allowed);
+            }
+            const room = offlinePhotoRoom(await offline!.fileUsage(), todo.length, todo.length * EST_PHOTO_BYTES);
+            if (!room.ok) {
+                if (room.allowed <= 0) { toast.error(room.reason, { duration: 8000 }); return; }
+                toast.info(`Only ${room.allowed} of ${todo.length} photos fit. ${room.reason}`, { duration: 8000 });
+                todo = todo.slice(0, room.allowed);
+            }
+            const tag = stage || defaultTagForNewPhotos(list);
+            setUploading({ done: 0, total: todo.length });
+            const res = await keepOnDevice(todo, tag);
+            setUploading(null);
+            if (res.added) {
+                toast.success(online
+                    ? `${res.added} ${res.added === 1 ? 'photo' : 'photos'} saved as “${tagLabel(tag)}”. They upload once this job has synced.`
+                    : `${res.added} ${res.added === 1 ? 'photo' : 'photos'} saved on this device as “${tagLabel(tag)}”. They upload when you’re back online.`);
+            }
+            if (res.failed && res.lastError) toast.error(`${res.failed} ${res.failed === 1 ? 'photo was' : 'photos were'} not added. ${res.lastError}`);
+            return;
+        }
+        if (!online) {
             toast.error("You're offline. Reconnect to add photos.");
             return;
         }
@@ -204,6 +411,14 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                     lastError = '';
                     break;
                 }
+                if (offline && isOfflineFailure(e)) {
+                    // the connection dropped: this photo and the rest wait on this device and upload later
+                    const res = await keepOnDevice(todo.slice(i), tag);
+                    if (res.added) toast.info(`The connection dropped: ${res.added} ${res.added === 1 ? 'photo is' : 'photos are'} saved on this device and upload when you’re back online.`, { duration: 8000 });
+                    failed += res.failed;
+                    lastError = res.lastError;
+                    break;
+                }
                 failed++;
                 lastError = describeError(e);
             }
@@ -212,29 +427,58 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         setUploading(null);
         if (added) toast.success(`${added} ${added === 1 ? 'photo' : 'photos'} added as “${tagLabel(tag)}”.`);
         if (failed && lastError) toast.error(`${failed} ${failed === 1 ? 'photo was' : 'photos were'} not added. ${lastError}`);
-        fetchPhotoUsage(job.id, plan).then(next => { if (next) setUsage(next); }).catch(() => undefined);
+        if (onlineRef.current) fetchPhotoUsage(job.id, plan).then(next => { if (next) { setUsage(next); void saveListCopy(usageKey(job.id), [next]); } }).catch(() => undefined);
     };
 
     // ------------------------------------------------------------------------------- edits
+    /** This change waits in the outbox: offline, a photo only on this device, or one with changes already waiting. */
+    const editsWait = (photo: JobPhoto) => Boolean(offline) && (!online || pendingIds.has(photo.id) || Boolean(offline?.jobWaiting));
+
+    const queueEdit = async (photo: JobPhoto, patch: { tag?: PhotoTag; caption?: string; shared?: boolean }) => {
+        try {
+            await offline!.edit(photo.id, job.id, patch);
+        } catch (e) {
+            toast.error(`This change couldn't be kept on this device. ${describeError(e)}`);
+        }
+    };
+
     const changeTag = async (photo: JobPhoto, tag: PhotoTag) => {
         if (photo.tag === tag) return;
+        if (editsWait(photo)) { await queueEdit(photo, { tag }); return; }
         patchPhoto(photo.id, { tag });
-        try { await updateJobPhoto(photo.id, { tag }); } catch (e) { patchPhoto(photo.id, { tag: photo.tag }); toast.error(describeError(e)); }
+        try { await updateJobPhoto(photo.id, { tag }); } catch (e) {
+            if (offline && isOfflineFailure(e)) { await queueEdit(photo, { tag }); return; }
+            patchPhoto(photo.id, { tag: photo.tag }); toast.error(describeError(e));
+        }
     };
 
     const changeCaption = async (photo: JobPhoto, caption: string) => {
+        if (editsWait(photo)) { await queueEdit(photo, { caption }); return; }
         patchPhoto(photo.id, { caption: caption.trim() });
-        try { await updateJobPhoto(photo.id, { caption }); } catch (e) { patchPhoto(photo.id, { caption: photo.caption }); toast.error(describeError(e)); }
+        try { await updateJobPhoto(photo.id, { caption }); } catch (e) {
+            if (offline && isOfflineFailure(e)) { patchPhoto(photo.id, { caption: photo.caption }); await queueEdit(photo, { caption }); return; }
+            patchPhoto(photo.id, { caption: photo.caption }); toast.error(describeError(e));
+        }
     };
 
     const share = async (targets: JobPhoto[], shared: boolean) => {
         const todo = targets.filter(p => p.sharedInPortal !== shared);
         if (!todo.length) return;
+        // offline (or photos only on this device): the portal change waits and is made when they sync
+        const waiting = todo.filter(editsWait);
+        if (waiting.length) {
+            for (const p of waiting) await queueEdit(p, { shared });
+            toast.success(shared
+                ? `${waiting.length} ${waiting.length === 1 ? 'photo shows' : 'photos show'} in the client portal once ${waiting.length === 1 ? 'it has' : 'they have'} synced.`
+                : `${waiting.length} ${waiting.length === 1 ? 'photo is' : 'photos are'} removed from the client portal once synced.`);
+        }
+        const direct = todo.filter(p => !editsWait(p));
+        if (!direct.length) return;
         const userId = (await currentUserId()) || job.userId;
         setBusy(true);
         let done = 0;
         try {
-            for (const p of todo) {
+            for (const p of direct) {
                 const res = await setPhotoShared(p, shared, userId);
                 patchPhoto(p.id, res);
                 done++;
@@ -249,11 +493,28 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         }
     };
 
-    const remove = async (ids: string[]) => {
-        if (!ids.length) return;
+    const remove = async (allIds: string[]) => {
+        if (!allIds.length) return;
+        // photos only on this device: deleted here (no connection needed)
+        const local = allIds.filter(isPendingCreate);
+        for (const id of local) await offline?.discard(id).catch(() => undefined);
+        const ids = allIds.filter(id => !isPendingCreate(id));
+        if (!ids.length) {
+            setSelected(new Set());
+            toast.success(local.length === 1 ? 'Photo deleted.' : `${local.length} photos deleted.`);
+            return;
+        }
+        if (!online) {
+            toast.error(local.length
+                ? `${local.length} ${local.length === 1 ? 'photo' : 'photos'} deleted from this device. ${NEEDS_CONNECTION.replace("You're offline. This needs", 'Deleting the uploaded ones needs')}`
+                : NEEDS_CONNECTION);
+            return;
+        }
         setBusy(true);
         try {
             await deleteJobPhotos(ids);
+            // changes still waiting for these photos go with them
+            for (const id of ids) if (pendingIds.has(id)) await offline?.discard(id).catch(() => undefined);
             const gone = new Set(ids);
             const removed = list.filter(p => gone.has(p.id));
             setPhotos(prev => (prev ? prev.filter(p => !gone.has(p.id)) : prev));
@@ -264,7 +525,7 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                 usedCount: Math.max(0, prev.usedCount - removed.length),
                 jobCount: Math.max(0, prev.jobCount - removed.length),
             } : prev));
-            toast.success(ids.length === 1 ? 'Photo deleted.' : `${ids.length} photos deleted.`);
+            toast.success(allIds.length === 1 ? 'Photo deleted.' : `${allIds.length} photos deleted.`);
         } catch (e) {
             toast.error(describeError(e));
         } finally {
@@ -272,9 +533,21 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         }
     };
 
+    /** The full photo: the device copy of a photo taken offline, else the account's file. */
+    const photoBlob = async (photo: JobPhoto): Promise<Blob> => {
+        if (isOfflinePath(photo.storagePath)) {
+            const files = await offline?.filesOf(photo.id);
+            const main = files?.[PHOTO_FILE_MAIN];
+            if (!main) throw new Error('This photo is no longer on this device.');
+            return main;
+        }
+        if (!online) throw new Error(NEEDS_CONNECTION);
+        return downloadPhoto(photo.storagePath);
+    };
+
     const download = async (photo: JobPhoto) => {
         try {
-            const blob = await downloadPhoto(photo.storagePath);
+            const blob = await photoBlob(photo);
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             const ext = /\.(png|webp)$/i.exec(photo.storagePath)?.[1] || 'jpg';
@@ -290,10 +563,13 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
 
     // ------------------------------------------------------------------------------- markup
     const openMarkup = async (photo: JobPhoto) => {
-        if (!isOnline) { toast.error("You're offline. Reconnect to mark up photos."); return; }
+        if (!online && !isOfflinePath(photo.storagePath)) {
+            toast.error(offline ? "You're offline. This photo isn't saved on this device; mark it up when you're back online (photos you take offline can be marked up now)." : "You're offline. Reconnect to mark up photos.");
+            return;
+        }
         setBusy(true);
         try {
-            const blob = await downloadPhoto(photo.storagePath);
+            const blob = await photoBlob(photo);
             setMarkup({ photo, blob });
         } catch (e) {
             toast.error(describeError(e));
@@ -305,6 +581,26 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
     const saveMarkup = async (file: File) => {
         if (!markup) return;
         const original = markup.photo;
+        // offline, or the original is only on this device: the marked-up copy waits on this device too
+        if (offline && (deviceMode || isOfflinePath(original.storagePath))) {
+            const q = checkPhotoQuota(deviceUsage(), 1, EST_PHOTO_BYTES);
+            if (!q.ok) { setMarkup(null); limitReached(q.reason); return; }
+            const room = offlinePhotoRoom(await offline.fileUsage(), 1, EST_PHOTO_BYTES);
+            if (!room.ok) throw new Error(room.reason);
+            const t = new Date(original.takenAt).getTime();
+            const res = await keepOnDevice([file], original.tag, {
+                caption: original.caption ? `${original.caption} (marked up)`.slice(0, 500) : 'Marked up',
+                sourcePhotoId: original.id,
+                takenAt: () => new Date((Number.isFinite(t) ? t : Date.now()) + 1000).toISOString(),
+            });
+            setUploading(null);
+            if (!res.added) throw new Error(res.lastError || 'The marked-up copy could not be saved.');
+            setMarkup(null);
+            if (filter !== 'all' && filter !== original.tag) setFilter('all');
+            setViewerId(res.ids[0] || null);
+            toast.success(online ? 'Marked-up copy saved. The original is kept.' : 'Marked-up copy saved on this device. It uploads when you’re back online; the original is kept.');
+            return;
+        }
         const userId = (await currentUserId()) || job.userId;
         try {
             const prepared = await preparePhoto(file);
@@ -340,8 +636,10 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
 
     // ------------------------------------------------------------------------------- report
     const makeReport = async () => {
-        const source = selecting && selected.size ? selectedPhotos : list;
-        if (!isOnline) { toast.error("You're offline. Reconnect to build the report."); return; }
+        // photos still on this device are added once they have synced
+        const source = (selecting && selected.size ? selectedPhotos : list).filter(p => !isOfflinePath(p.storagePath));
+        if (!online) { toast.error("You're offline. Reconnect to build the report."); return; }
+        if (!source.length) { toast.info('These photos are still waiting to sync. Build the report once they have uploaded.'); return; }
         setReport({ done: 0, total: 1 });
         try {
             const { downloadPhotoReport } = await import('./photoReport.ts');
@@ -364,11 +662,11 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
     const lastUpdate = sentUpdates[0] || null;
     const openAi = (mode: PhotoAIMode) => {
         if (!aiPlan) { onUpgrade(AI_PHOTOS_UPGRADE_REASON); return; }
-        if (!isOnline) { toast.error("You're offline. Reconnect to use the AI."); return; }
+        if (!online) { toast.error("You're offline. Reconnect to use the AI."); return; }
         // A selection on the timeline wins; otherwise the default pick (since the last update / the latest day).
         const pick = selecting && selected.size
-            ? capPhotos(selectedPhotos)
-            : mode === 'update' ? pickUpdatePhotos(list, lastUpdate?.sentAt) : pickWalkthroughPhotos(list);
+            ? capPhotos(selectedPhotos.filter(p => !isOfflinePath(p.storagePath)))
+            : mode === 'update' ? pickUpdatePhotos(uploaded, lastUpdate?.sentAt) : pickWalkthroughPhotos(uploaded);
         if (selecting && selected.size > pick.length) toast.info(`The AI takes up to ${pick.length} photos at a time: the newest ${pick.length} of your selection are used.`);
         setAiMode({ mode, pick });
     };
@@ -399,24 +697,32 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         );
     }
 
-    const usageText = usage
-        ? usage.perJob !== null
-            ? `${Math.min(usage.jobCount, usage.perJob)} of ${usage.perJob} photos on this job · ${formatBytes(usage.usedBytes)} of ${formatBytes(usage.totalBytes)} used`
-            : `${formatBytes(usage.usedBytes)} of ${formatBytes(usage.totalBytes)} photo storage used`
+    // with photos waiting on this device, the meter counts them too (they take their room when they sync)
+    const pendingCount = pendingItems.filter(i => i.kind === 'create').length;
+    const shownUsage = usage && pendingCount && offline ? deviceUsage() : usage;
+    const usageText = shownUsage
+        ? shownUsage.perJob !== null
+            ? `${Math.min(shownUsage.jobCount, shownUsage.perJob)} of ${shownUsage.perJob} photos on this job · ${formatBytes(shownUsage.usedBytes)} of ${formatBytes(shownUsage.totalBytes)} used`
+            : `${formatBytes(shownUsage.usedBytes)} of ${formatBytes(shownUsage.totalBytes)} photo storage used`
         : '';
     const pairsPossible = list.some(p => p.tag === 'before') || list.some(p => p.tag === 'after');
     const working = busy || !!uploading || !!report;
+    const deviceNote = !online && offline
+        ? `Offline: ${fromDevice && (photos || []).length ? 'the photos below are the copy saved on this device. ' : ''}New photos stay on this device and upload when you’re back online.`
+        : pendingCount && offline?.jobWaiting
+            ? 'This job hasn’t synced yet: its photos upload right after it.'
+            : '';
 
     return (
         <section aria-label="Job photos" className="min-w-0">
             <div className="mb-4 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                     {touch && (
-                        <button type="button" className="btn btn-primary min-h-[44px]" onClick={() => cameraRef.current?.click()} disabled={!isOnline || !!uploading}>
+                        <button type="button" className="btn btn-primary min-h-[44px]" onClick={() => cameraRef.current?.click()} disabled={(!online && !offline) || !!uploading}>
                             <CameraIcon className="h-4 w-4" /> Take photo
                         </button>
                     )}
-                    <button type="button" className={`btn min-h-[44px] ${touch ? 'btn-outline' : 'btn-primary'}`} onClick={() => fileRef.current?.click()} disabled={!isOnline || !!uploading}>
+                    <button type="button" className={`btn min-h-[44px] ${touch ? 'btn-outline' : 'btn-primary'}`} onClick={() => fileRef.current?.click()} disabled={(!online && !offline) || !!uploading}>
                         <UploadImageIcon className="h-4 w-4" /> {touch ? 'Upload' : 'Add photos'}
                     </button>
                     {list.length > 0 && (
@@ -439,6 +745,7 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                     </div>
                     {usageText && <p className="text-xs text-muted-foreground sm:text-right">{usageText}</p>}
                 </div>
+                {deviceNote && <p className="text-xs text-muted-foreground" role="status">{deviceNote}</p>}
                 {list.length > 0 && (
                     <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
                         <p className="min-w-0 flex-1 text-xs text-muted-foreground">
@@ -461,7 +768,9 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
             {(uploading || report) && (
                 <div className="mb-4 rounded-xl border border-border bg-muted/40 px-4 py-3" role="status" aria-live="polite">
                     <p className="text-sm font-medium">
-                        {uploading ? `Adding photos ${Math.min(uploading.done + 1, uploading.total)} of ${uploading.total}…` : `Building the report ${report!.done} of ${report!.total}…`}
+                        {uploading
+                            ? `${deviceMode ? 'Saving photos on this device' : 'Adding photos'} ${Math.min(uploading.done + 1, uploading.total)} of ${uploading.total}…`
+                            : `Building the report ${report!.done} of ${report!.total}…`}
                     </p>
                     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                         <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.round(((uploading ? uploading.done : report!.done) / Math.max(1, uploading ? uploading.total : report!.total)) * 100)}%` }} />
@@ -514,16 +823,23 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                                 {g.photos.map(p => {
                                     const src = (p.thumbPath && urls[p.thumbPath]) || urls[p.storagePath] || '';
                                     const isSel = selected.has(p.id);
+                                    const sync = pendingIds.has(p.id) ? offline?.stateOf(p.id) ?? null : null;
                                     return (
                                         <button
                                             key={p.id}
                                             type="button"
                                             onClick={() => (selecting ? toggleSelected(p.id) : setViewerId(p.id))}
                                             aria-pressed={selecting ? isSel : undefined}
-                                            aria-label={`${tagLabel(p.tag)} photo${p.caption ? `: ${p.caption}` : ''}`}
+                                            aria-label={`${tagLabel(p.tag)} photo${p.caption ? `: ${p.caption}` : ''}${sync ? ` (${sync.label})` : ''}`}
                                             className={`relative aspect-square overflow-hidden rounded-lg bg-muted outline-none transition focus-visible:ring-4 focus-visible:ring-primary/40 ${isSel ? 'ring-4 ring-primary' : ''}`}
                                         >
-                                            {src ? <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" draggable={false} /> : <span className="skeleton block h-full w-full" />}
+                                            {src ? <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" draggable={false} /> : <span className={`${online ? 'skeleton ' : ''}block h-full w-full`} />}
+                                            {sync && (
+                                                <span title={sync.reason} className="absolute right-1 top-1 inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                                    <span className={`h-1.5 w-1.5 rounded-full ${sync.tone === 'error' ? 'bg-red-400' : sync.tone === 'syncing' ? 'animate-pulse bg-sky-300' : 'bg-amber-300'}`} aria-hidden />
+                                                    {sync.tone === 'pending' ? 'Waiting' : sync.label}
+                                                </span>
+                                            )}
                                             <span className="absolute bottom-1 left-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold text-white">{tagLabel(p.tag)}</span>
                                             {p.sharedInPortal && <span className="absolute bottom-1 right-1 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">Portal</span>}
                                             {selecting && (
@@ -597,7 +913,7 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                         clients={clients}
                         profile={profile}
                         plan={plan}
-                        photos={list}
+                        photos={uploaded}
                         urls={urls}
                         ensureUrl={ensureUrl}
                         initialPick={aiMode.pick}

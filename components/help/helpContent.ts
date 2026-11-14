@@ -92,7 +92,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     tips: [
       `Free plan: ${FREE_LIMITS.docs} new documents per job each month (deleted documents still count).`,
       'Invoices can repeat on a schedule (Repeat this invoice) and switch to progress billing in Items.',
-      'No signal on site? Daily job reports, time sheets, material and expense logs, notes and receipts still save on your device with a Waiting to sync badge, and new estimates and invoices can be drafted (their number is confirmed when they sync). They sync by themselves when you are back online, or tap [[Sync now]]. Sending and links wait until then; [[View]] lists what is waiting.',
+      'No signal on site? Daily job reports, time sheets, material and expense logs, notes and receipts still save on your device with a Waiting to sync badge, and new estimates and invoices can be drafted (their number is confirmed when they sync). Jobs, clients, job photos, stock changes, the price book and your settings work offline too. They sync by themselves when you are back online, or tap [[Sync now]]. Sending and links wait until then; [[View]] lists what is waiting.',
     ],
   },
   {

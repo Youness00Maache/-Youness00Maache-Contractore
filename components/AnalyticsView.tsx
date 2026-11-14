@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
+import { isOfflineFailure, readListCopy, saveListCopy } from '../lib/offline/deviceCache.ts';
 import type { FormData as FormDataType, Job } from '../types.ts';
 import { AwardIcon, BarChartIcon, BriefcaseIcon, ClockIcon, CreditCardIcon, PieChartIcon, RefreshCwIcon, TrendingUpIcon, ReceiptIcon } from './Icons.tsx';
 import { EmptyState, InlineError, PageHeader, StatCard, fetchAllPages, friendlyError, getCurrentUserId, money, useIsMobile } from './viewKit.tsx';
@@ -216,6 +217,18 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRa
         };
       };
     }
+    if (res.error && isOfflineFailure(res.error)) {
+      // offline (also after a reload): the figures last loaded on this device
+      const copy = await readListCopy<{ docs: AnalyticsDoc[]; truncated: boolean; jobCounts: Record<string, number> | null }>('analytics');
+      const kept = copy?.rows?.[0];
+      if (kept) {
+        setDocs(kept.docs || []);
+        setTruncated(Boolean(kept.truncated));
+        if (kept.jobCounts) setJobCounts(kept.jobCounts);
+      } else setError(friendlyError(res.error, 'Could not load your documents.'));
+      setLoading(false);
+      return;
+    }
     if (res.error) {
       setError(friendlyError(res.error, 'Could not load your documents.'));
     } else {
@@ -229,7 +242,9 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRa
       const { count, error: e } = await q;
       return e ? null : [s, count || 0] as const;
     }));
-    if (counts.every(Boolean)) setJobCounts(Object.fromEntries(counts as (readonly [string, number])[]));
+    const nextCounts = counts.every(Boolean) ? Object.fromEntries(counts as (readonly [string, number])[]) : null;
+    if (nextCounts) setJobCounts(nextCounts);
+    if (!res.error) void saveListCopy('analytics', [{ docs: res.rows.map(mapRow), truncated: res.truncated, jobCounts: nextCounts }]);
     setLoading(false);
   }, []);
 

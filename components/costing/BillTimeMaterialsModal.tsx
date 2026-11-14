@@ -16,6 +16,7 @@ import { loadTmRates, saveTmRates } from '../../lib/userData.ts';
 import { todayISO } from '../forms/formUtils.ts';
 import { DateField, NumberField, NumberInput, Segmented } from '../forms/Fields.tsx';
 import { Modal, Notice, Spinner, cx, getErrorMessage } from '../commsKit.tsx';
+import { errorText } from '../../lib/offline/connection.ts';
 
 export interface BillTimeMaterialsModalProps {
     job: Job & { clientId?: string | null };
@@ -142,7 +143,7 @@ const BillTimeMaterialsModal: React.FC<BillTimeMaterialsModalProps> = ({
             onCreated(result);
         } catch (err) {
             if (err instanceof TmPlanLimitError) {
-                setError(err.message);
+                setError(errorText(err, 'Something went wrong. Please try again.'));
                 onUpgrade(err.message);
             } else {
                 setError(getErrorMessage(err, 'The invoice could not be created.'));

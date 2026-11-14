@@ -3,6 +3,7 @@ import type { Client, UserProfile } from '../types.ts';
 import { BriefcaseIcon, UserIcon, CalendarIcon, StarIcon } from './Icons.tsx';
 import { PageHeader } from './ui/PageHeader.tsx';
 import { FREE_LIMITS, isPaidTier, normalizeTier } from '../lib/plans.ts';
+import { errorText } from '../lib/offline/connection.ts';
 
 export interface JobFormValues {
   name: string;
@@ -132,7 +133,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onCancel, supabase, session, 
         clientTemporary: isNewClientName && clientTemporary,
       });
     } catch (err: any) {
-      setError(err?.message || 'Could not create the job. Please try again.');
+      setError(errorText(err, 'Could not create the job. Please try again.'));
     } finally {
       setLoading(false);
     }

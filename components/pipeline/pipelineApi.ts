@@ -6,6 +6,7 @@
  * background (stale-while-revalidate).
  */
 import { supabase } from '../../lib/supabase.ts';
+import { readListCopy, saveListCopy } from '../../lib/offline/deviceCache.ts';
 import { FormType } from '../../types.ts';
 import type { FormData as FormDataType } from '../../types.ts';
 import { LIGHTWEIGHT_DOCUMENT_FLAG, normalizeDocumentType } from '../../lib/documents.ts';
@@ -80,7 +81,10 @@ const loadRequests = async (): Promise<QuoteRequest[] | null> => {
 /** Cached data of the signed-in user (may be a little old), or null. */
 export const peekPipelineData = async (): Promise<PipelineData | null> => {
     const uid = await getCurrentUserId();
-    return cache && uid && cache.uid === uid ? cache.data : null;
+    if (cache && uid && cache.uid === uid) return cache.data;
+    // after a reload (e.g. offline): the board's last copy on this device
+    const copy = uid ? await readListCopy<PipelineData>('pipeline', uid) : null;
+    return copy?.rows?.[0] ?? null;
 };
 
 /** Loads (or returns fresh cached) board data. `force` always reads the server. */
@@ -98,6 +102,7 @@ export const loadPipelineData = async (force = false): Promise<PipelineData> => 
             truncated: docs.truncated,
         };
         cache = { uid, data };
+        void saveListCopy('pipeline', [data]); // the board opens offline with its last copy
         return data;
     })();
     inflight = { uid, promise };

@@ -57,6 +57,7 @@ import {
 } from './commsKit.tsx';
 import HelpButton from './help/HelpButton.tsx';
 import { DocSyncChip } from './offline/OfflineContext.tsx';
+import { isOfflineFailure } from '../lib/offline/deviceCache.ts';
 import {
     CheckIcon,
     ClockIcon,
@@ -338,7 +339,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({
         setListError(null);
         const { data, error } = await buildQuery(0, debouncedSearch, filter);
         if (req !== requestRef.current) return;
-        if (error) {
+        if (error && isOfflineFailure(error)) {
+            // offline: the app's clients (this device's copy + the ones added offline), searched here
+            setServerLoaded(false);
+            setHasMore(false);
+        } else if (error) {
             setListError(getErrorMessage(error, 'Could not load clients.'));
         } else {
             setItems((data || []) as Client[]);
@@ -364,6 +369,13 @@ const ClientsView: React.FC<ClientsViewProps> = ({
 
     useEffect(() => { loadFirstPage(); }, [loadFirstPage]);
     useEffect(() => { loadCount(); }, [loadCount]);
+    // back online after showing this device's copy: the account's list again
+    const wasOnlineRef = useRef(isOnline);
+    useEffect(() => {
+        if (isOnline && wasOnlineRef.current === false && !serverLoaded) { loadFirstPage(); loadCount(); }
+        wasOnlineRef.current = isOnline;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOnline]);
 
     const loadMore = async () => {
         if (loadingMore) return;

@@ -12,6 +12,7 @@ import { StarIcon } from '../Icons.tsx';
 import { onOrderByItem, planReorder, type ParsedReorder, type ReorderGroup, type ReorderLine, type Supplier } from '../../lib/suppliers.ts';
 import { ReorderCreateError, createReorderPurchaseOrders, saveReorder, type OpenPurchaseOrder, type ReorderOrderInput } from '../../lib/suppliersApi.ts';
 import { todayISO } from '../forms/formUtils.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 const NEW_JOB = '__new';
 export const SHOP_JOB_NAME = 'Shop stock';
@@ -101,7 +102,7 @@ const ReorderModal: React.FC<{
                 if (e.created.length && job) { setCreated(e.created); onCreated(e.created, job); }
                 if (e.planLimit) onUpgrade?.(e.message);
             }
-            setError(e instanceof Error ? e.message : 'The purchase orders could not be created.');
+            setError(errorText(e, 'The purchase orders could not be created.'));
         } finally {
             setBusy(false);
         }

@@ -12,6 +12,7 @@ import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME } from './useDocumentForm.ts';
 import { approvalUrl, copyToClipboard, ensureApprovalToken } from '../../utils/clientLinks.ts';
 import { designDefaultFromDocument, designPlan } from '../../lib/designAccess.ts';
 import { currentDesignDefault, saveDesignDefault } from '../../lib/designDefaults.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 // ---------------------------------------------------------------------------
 // Logo
@@ -299,7 +300,7 @@ export const ApprovalSection: React.FC<{
             setLink(url);
             setState((await copyToClipboard(url)) ? 'copied' : 'copy-failed');
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Could not create the approval link.');
+            setError(errorText(e, 'Could not create the approval link.'));
             setState('error');
         }
         window.setTimeout(() => setState(s => (s === 'copied' ? 'idle' : s)), 2500);

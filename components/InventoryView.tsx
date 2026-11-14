@@ -1,6 +1,8 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
-import { offlineEntityQueueFor } from '../lib/offline/offlineEntities.ts';
+import { discardPendingCreate, offlineEntityQueueFor, pendingEntityItems, pendingStockDeltas, withPendingRows } from '../lib/offline/offlineEntities.ts';
+import { loadWithDeviceCopy } from '../lib/offline/deviceCache.ts';
+import { dbApi } from '../utils/db.ts';
 import type { AssemblyItem, Client, FormData as FormDataType, InventoryHistoryItem, InventoryItem, Job, SavedItem, UserProfile } from '../types.ts';
 import { AlertTriangleIcon, BoxIcon, BriefcaseIcon, CameraIcon, ClockIcon, CopyIcon, EditIcon, MapPinIcon, PlusIcon, PrinterIcon, SearchIcon, TrashIcon, TruckIcon, UsersIcon } from './Icons.tsx';
 import { isPlanLimitError, planLimitMessage } from '../lib/account.ts';
@@ -224,6 +226,13 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
   // ------------------------------------------------------------------ loading
+  /** Items and stock changes saved offline that haven't synced yet, on top of a loaded list. */
+  const withPending = useCallback((rows: InventoryItem[]): InventoryItem[] => {
+    const created = withPendingRows(rows, pendingEntityItems('inventory'), null, 'inventory', (row, prev) => normalizeItem({ ...(prev || {}), ...row }));
+    const deltas = pendingStockDeltas(pendingEntityItems('stock_move'));
+    return deltas.size ? created.map((i) => (deltas.has(i.id) ? { ...i, quantity: toNumber(i.quantity) + (deltas.get(i.id) || 0) } : i)) : created;
+  }, []);
+
   const load = useCallback(async () => {
     setLoadError(null);
     const uid = userId ?? (await getCurrentUserId());
@@ -234,12 +243,22 @@ const InventoryView: React.FC<InventoryViewProps> = ({
         if (uid) q = q.eq('user_id', uid);
         return q;
       });
-    let res = await run(COLUMNS);
-    if (res.error && (res.error.code === '42703' || /does not exist/i.test(res.error.message || ''))) res = await run('*');
-    if (res.error) setLoadError(friendlyError(res.error, 'Could not load your inventory.'));
-    else setItems(res.rows.map(normalizeItem));
+    // offline (also after a reload): the list last seen on this device
+    const res = await loadWithDeviceCopy<any>('inventory', async () => {
+      let r = await run(COLUMNS);
+      if (r.error && (r.error.code === '42703' || /does not exist/i.test(r.error.message || ''))) r = await run('*');
+      return r;
+    });
+    if (res.fromDevice && !res.error) setItems(withPending(res.rows.map(normalizeItem)));
+    else if (res.fromDevice) {
+      // never opened here online: the copy the app keeps for documents (or the items passed in)
+      const kept = uid ? (await dbApi.getAll('inventory').catch(() => [] as any[])).filter((r) => r?.user_id === uid) : [];
+      if (kept.length || (seed || []).length) setItems(withPending((kept.length ? kept : seed || []).map(normalizeItem)));
+      else setLoadError(friendlyError(res.error, 'Could not load your inventory.'));
+    } else if (res.error) setLoadError(friendlyError(res.error, 'Could not load your inventory.'));
+    else setItems(withPending(res.rows.map(normalizeItem)));
     setLoading(false);
-  }, [userId]);
+  }, [userId, withPending]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -516,7 +535,9 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const confirmDelete = async () => {
     if (!deleteFor) return;
     setDeleting(true);
-    const { error } = await supabase.from('inventory').delete().eq('id', deleteFor.id);
+    // an item only on this device (added offline) is removed here; others need a connection (a clear message offline)
+    const local = await discardPendingCreate(deleteFor.id);
+    const { error } = local ? { error: null } : await supabase.from('inventory').delete().eq('id', deleteFor.id);
     setDeleting(false);
     if (error) { notify('error', friendlyError(error, 'Could not delete the item.')); return; }
     setItems((prev) => prev.filter((i) => i.id !== deleteFor.id));
@@ -973,7 +994,19 @@ const InventoryView: React.FC<InventoryViewProps> = ({
               : note.trim() || (jobName ? `Checked out to ${jobName}` : 'Checked out');
             const target = jobId ? jobName : clientName;
             const moves = checkoutMoves(item, qty);
-            const { error } = await supabase.rpc('checkout_inventory', { p_item_id: item.id, p_qty: qty, p_job_id: jobId, p_reason: reason });
+            // offline (or an item still waiting to sync): the same stock moves wait on this device, each logged to the
+            // job / client like online, and go through the stock RPC when the connection is back (stock rules apply then)
+            const waits = Boolean(offlineEntityQueueFor(item.id)) || moves.some((m) => Boolean(offlineEntityQueueFor(m.itemId)));
+            const { error } = waits
+              ? { error: null as any }
+              : await supabase.rpc('checkout_inventory', { p_item_id: item.id, p_qty: qty, p_job_id: jobId, p_reason: reason });
+            if (waits) {
+              for (const m of moves) await adjustStock(m.itemId, m.delta, item.is_assembly ? `${reason} (kit: ${item.name})` : reason, jobId);
+              notify('success', `Checked out ${qty} × ${item.name}${target ? ` to ${target}` : ''}. Saved on this device; it syncs ${navigator.onLine ? 'right after the item' : "when you're back online"}.`);
+              notifyChanged();
+              setCheckoutFor(null);
+              return;
+            }
             if (!error) {
               await refreshRows(moves.map((m) => m.itemId).concat(item.id));
             } else if (isMissingRpc(error)) {

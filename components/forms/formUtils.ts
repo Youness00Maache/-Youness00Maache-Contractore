@@ -631,7 +631,7 @@ export const errorMessage = (error: unknown, fallback = 'Something went wrong. P
     const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : (error as any)?.message;
     if (!raw || typeof raw !== 'string') return fallback;
     if (raw.startsWith('PLAN_LIMIT:')) return raw.replace(/^PLAN_LIMIT:\s*/, '') || 'You have reached your plan limit.';
-    if (/failed to fetch|networkerror|load failed/i.test(raw)) return 'You appear to be offline. Check your connection and try again; your changes are still on this screen.';
+    if (/failed to fetch|networkerror|load failed|you'?re offline|needs a connection/i.test(raw)) return 'You appear to be offline. Check your connection and try again; your changes are still on this screen.';
     if (/insufficient stock|not enough stock/i.test(raw)) return 'Not enough stock for one or more inventory-linked items. Reduce the quantity and try again.';
     return raw;
 };

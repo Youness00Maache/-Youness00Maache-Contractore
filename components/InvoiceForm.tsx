@@ -19,6 +19,7 @@ import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, t
 import { addDaysISO, addMonthsISO, blankLineItem, formatDisplayDate, isISODate, normalizeLineItems, normalizeLinkUrl, todayISO } from './forms/formUtils.ts';
 import { RECURRENCE_FREQUENCIES, STATUS_OPTIONS } from './forms/documentFields.ts';
 import { makeStockLookup } from './forms/inventory.ts';
+import { errorText } from '../lib/offline/connection.ts';
 
 interface InvoiceFormProps {
     job: Job;
@@ -156,7 +157,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
             await clearPaymentReport(savedId);
             form.replaceSilently(prev => withoutPaymentReport(prev));
         } catch (e) {
-            form.setFeedback({ tone: 'error', message: e instanceof Error ? e.message : 'Could not update the invoice.' });
+            form.setFeedback({ tone: 'error', message: errorText(e, 'Could not update the invoice.') });
         } finally {
             setReportBusy(false);
         }

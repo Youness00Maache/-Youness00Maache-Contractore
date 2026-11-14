@@ -11,13 +11,16 @@
  *   4. the save; on success the item leaves the outbox (unless it was saved again meanwhile: then it stays pending
  *      with the new data). A refusal keeps it with the reason (plan limit → blocked until the user acts); a lost
  *      connection stops the run and keeps everything pending.
+ * Other items (`entity`) go through `deps.saveEntity`: jobs, clients, inventory / price-book items, stock changes,
+ * settings (photos picked offline uploaded first; "changed on another device" notice like documents) and job photos
+ * taken offline (their files, kept with the item, are handed over and deleted once uploaded).
  */
 import {
     classifySyncError, contentHash, detectConflict, entityOf, remapItem, makeHistoryEntry, mergeForUpload, offlinePhotosIn, orderForSync, outboxTitle,
-    PHOTO_REGISTRY_TTL_MS, replaceDataUrls, resolveOfflineNumber, shouldSync, statusForError,
+    PHOTO_REGISTRY_TTL_MS, replaceDataUrls, resolveOfflineNumber, rowSnapshot, shouldSync, statusForError,
     type OutboxEntity, type OutboxErrorKind, type OutboxHistoryEntry, type OutboxItem, type OutboxKind, type ServerCopy,
 } from './outboxModel.ts';
-import type { OutboxStore } from './outboxStore.ts';
+import type { OutboxBlobs, OutboxStore } from './outboxStore.ts';
 
 export interface SyncedDoc {
     /** what was saved ('document' for documents) */
@@ -47,9 +50,12 @@ export interface SyncDeps {
     uploadPhoto: (dataUrl: string) => Promise<string>;
     /**
      * Saves a job / client row (insert for 'create', update of the row's own id for 'edit'). `id` is the account's id
-     * of the row when it differs from the one given offline (later items are remapped to it).
+     * of the row when it differs from the one given offline (later items are remapped to it). `files`: the files kept
+     * with the item (a job photo taken offline), null when it has none.
      */
-    saveEntity?: (entity: Exclude<OutboxEntity, 'document'>, kind: OutboxKind, row: Record<string, unknown>) => Promise<{ id?: string | null; error: unknown }>;
+    saveEntity?: (entity: Exclude<OutboxEntity, 'document'>, kind: OutboxKind, row: Record<string, unknown>, files?: OutboxBlobs | null) => Promise<{ id?: string | null; error: unknown }>;
+    /** the account's row of a settings item (conflict check of offline settings changes); null = not found */
+    fetchEntity?: (entity: Exclude<OutboxEntity, 'document'>, id: string) => Promise<Record<string, unknown> | null>;
     isOnline?: () => boolean;
     now?: () => Date;
     /** also retry items that need the user (plan limit, stock...): the manual "Sync now" */
@@ -76,6 +82,9 @@ export interface SyncReport {
 
 const upper = (s: string) => s.trim().toUpperCase();
 
+/** Files without an outbox item are deleted, unless they are younger than this (their save may still be running). */
+const ORPHAN_FILES_GRACE_MS = 10 * 60 * 1000;
+
 export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
     const { store, userId } = deps;
     const now = deps.now || (() => new Date());
@@ -94,6 +103,20 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
     /** offline id → account id, when the account gave a row another id */
     const remap = new Map<string, string>();
 
+    /** photos added offline inside `data` → storage (once per photo: the URLs are remembered on the item) */
+    const uploadEmbeddedPhotos = async <T,>(item: OutboxItem, data: T): Promise<{ data: T; found: Array<{ hash: string; dataUrl: string }> }> => {
+        const found = offlinePhotosIn(data, registry);
+        if (!found.length) return { data, found };
+        const urls: Record<string, string> = { ...(item.photos || {}) };
+        for (const p of found) {
+            if (urls[p.hash]) continue;
+            urls[p.hash] = await deps.uploadPhoto(p.dataUrl);
+            const url = urls[p.hash];
+            await store.updateItem(item.id, cur => (cur ? { ...cur, photos: { ...(cur.photos || {}), [p.hash]: url } } : cur));
+        }
+        return { data: replaceDataUrls(data, new Map(found.map(p => [p.dataUrl, urls[p.hash]]))), found };
+    };
+
     for (const queued of all) {
         if (queued.userId !== userId) continue;
         if (deps.onlyDocIds && !deps.onlyDocIds.includes(queued.docId)) continue;
@@ -107,8 +130,8 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
             item = fixed;
         }
         const entity = entityOf(item);
-        // a document inside a job that isn't on the account yet waits for it (the job's own item says why)
-        if (entity === 'document' && unsynced.has(item.jobId)) { report.waiting++; continue; }
+        // a document or photo inside a job that isn't on the account yet waits for it (the job's own item says why)
+        if ((entity === 'document' || entity === 'job_photo') && unsynced.has(item.jobId)) { report.waiting++; continue; }
         deps.onStart?.(item);
         try {
             if (entity !== 'document') {
@@ -116,11 +139,45 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
                 let row: Record<string, unknown> = { ...item.data, id: item.docId };
                 // its client didn't reach the account (e.g. the Free plan's client limit): the job keeps the typed name
                 if (typeof row.client_id === 'string' && unsynced.has(row.client_id)) { const { client_id: _drop, ...rest } = row; row = rest; }
-                const { id: savedId, error } = await deps.saveEntity(entity, item.kind, row);
+                // a marked-up copy of a photo that didn't reach the account is kept as a photo of its own
+                if (typeof row.source_photo_id === 'string' && unsynced.has(row.source_photo_id)) row = { ...row, source_photo_id: null };
+                let files: OutboxBlobs | null = null;
+                let foundPhotos: Array<{ hash: string; dataUrl: string }> = [];
+                let conflictData: Record<string, unknown> | null = null;
+                if (entity === 'job_photo' && item.kind === 'create') {
+                    files = await store.getBlobs(item.id);
+                    if (!files) throw new Error('The photo file is no longer on this device (the browser cleared its storage). Discard it and take the photo again.');
+                }
+                if (entity === 'profile') {
+                    // a logo / profile picture picked offline → storage, like an online save
+                    const up = await uploadEmbeddedPhotos(item, row);
+                    row = up.data;
+                    foundPhotos = up.found;
+                    // last write wins; when the account copy changed since the offline edit started, say so
+                    const keys = item.base?.keys;
+                    if (item.kind === 'edit' && item.base && keys?.length && deps.fetchEntity) {
+                        const server = await deps.fetchEntity(entity, item.docId);
+                        if (server && contentHash(rowSnapshot(server, keys)) !== item.base.hash) {
+                            conflictData = {};
+                            for (const k of keys) conflictData[k] = server[k] ?? null;
+                        }
+                    }
+                }
+                const { id: savedId, error } = await deps.saveEntity(entity, item.kind, row, files);
                 if (error) throw error;
+                foundPhotos.forEach(p => doneHashes.add(p.hash));
+                if (files) await store.deleteBlobs([item.id]).catch(() => undefined);
                 unsynced.delete(item.docId);
                 const finalId = savedId && savedId !== item.docId ? savedId : item.docId;
                 if (finalId !== item.docId) remap.set(item.docId, finalId);
+                if (conflictData) {
+                    const notice = makeHistoryEntry({
+                        userId, docId: item.docId, jobId: item.jobId, type: item.type, reason: 'conflict', data: conflictData, entity,
+                        message: 'Changed on another device — your offline version was saved. The other version is kept here for 7 days.',
+                    }, now());
+                    await store.putHistory(notice);
+                    report.notices.push(notice);
+                }
                 const pushedAt = item.updatedAt;
                 let resaved = false;
                 await store.updateItem(item.id, cur => {
@@ -128,7 +185,9 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
                     if (cur.updatedAt === pushedAt) return null;
                     resaved = true;
                     // saved again meanwhile: the newer version is now an edit of the row on the account
-                    return { ...cur, kind: 'edit', status: 'pending', error: null };
+                    // (compared with the version just sent, which is now the account's)
+                    const base = entity === 'profile' && cur.base?.keys ? { hash: contentHash(rowSnapshot(row, cur.base.keys)), updatedAt: null, keys: cur.base.keys } : cur.base;
+                    return { ...cur, kind: 'edit', base, status: 'pending', error: null };
                 });
                 if (resaved) report.resaved++;
                 const doc: SyncedDoc = {
@@ -144,17 +203,9 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
             const clientId = item.clientId && unsynced.has(item.clientId) ? null : item.clientId;
 
             // 1. photos added offline → storage
-            const found = offlinePhotosIn(data, registry);
-            if (found.length) {
-                const urls: Record<string, string> = { ...(item.photos || {}) };
-                for (const p of found) {
-                    if (urls[p.hash]) continue;
-                    urls[p.hash] = await deps.uploadPhoto(p.dataUrl);
-                    const url = urls[p.hash];
-                    await store.updateItem(item.id, cur => (cur ? { ...cur, photos: { ...(cur.photos || {}), [p.hash]: url } } : cur));
-                }
-                data = replaceDataUrls(data, new Map(found.map(p => [p.dataUrl, urls[p.hash]])));
-            }
+            const uploaded = await uploadEmbeddedPhotos(item, data);
+            data = uploaded.data;
+            const found = uploaded.found;
 
             // 2. edits: account copy, conflict, server-owned fields kept
             let conflict: 'none' | 'changed' | 'deleted' = 'none';
@@ -266,5 +317,12 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
         .filter(p => !stillUsed.has(p.hash) && (doneHashes.has(p.hash) || Date.parse(p.createdAt) < cutoff))
         .map(p => p.id);
     if (drop.length) await store.deletePhotos(drop);
+    // files whose item is gone (synced, discarded in another tab...); recent ones may belong to a save in progress
+    try {
+        const waitingIds = new Set(left.map(i => i.id));
+        const orphanCutoff = now().getTime() - ORPHAN_FILES_GRACE_MS;
+        const orphans = (await store.listBlobs(userId)).filter(b => !waitingIds.has(b.id) && !(Date.parse(b.createdAt) > orphanCutoff)).map(b => b.id);
+        if (orphans.length) await store.deleteBlobs(orphans);
+    } catch { /* clean-up is optional */ }
     return report;
 }

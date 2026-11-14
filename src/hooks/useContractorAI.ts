@@ -12,6 +12,7 @@ import { normalizePrefill, toLocalYmd, type DocKey } from '../config/documentFie
 import { inferTemplateIdFromIntent } from '../utils/aiTemplateUtils.ts';
 import { isSampleRequest, type RouterResponse } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { dispatchUpgradeEvent, isAiLimitCode } from '../ai/events.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 export { TEMPLATE_STYLE_MAP, resolveTemplateId, RICH_TEXT_FIELDS, extractRichTextField } from '../utils/aiTemplateUtils.ts';
 
@@ -107,7 +108,7 @@ export const useContractorAI = () => {
             return [doc];
         } catch (err) {
             if (controller.signal.aborted) return null;
-            setError(err instanceof Error ? err.message : 'The AI could not fill the form. Please try again.');
+            setError(errorText(err, 'The AI could not fill the form. Please try again.'));
             return null;
         } finally {
             if (abortRef.current === controller) abortRef.current = null;

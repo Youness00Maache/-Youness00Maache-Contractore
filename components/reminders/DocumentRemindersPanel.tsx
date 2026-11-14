@@ -16,6 +16,8 @@ import {
     type DocumentReminderContext,
 } from '../../lib/reminders.ts';
 import { InlineNote, StepRail, Switch } from './ui.tsx';
+import { isOfflineFailure, readListCopy, saveListCopy } from '../../lib/offline/deviceCache.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 interface Props {
     type: 'Invoice' | 'Estimate';
@@ -42,14 +44,21 @@ const DocumentRemindersPanel: React.FC<Props> = ({ type, documentId, data, clien
     const clientName = String(data?.clientName || '').trim();
 
     const load = useCallback(async () => {
+        const copyKey = `doc_reminders:${type}:${documentId}`;
         try {
             const next = await loadDocumentReminderContext(type, documentId, { clientId: formClientId, clientName });
             setCtx(next);
             setError(null);
             setNow(new Date());
+            void saveListCopy(copyKey, [next]);
         } catch (e) {
             if (e instanceof RemindersUnavailableError) setHidden(true);
-            else setError((e as Error)?.message || 'Could not load reminders.');
+            else if (isOfflineFailure(e)) {
+                // offline: the reminders as last seen on this device (changes need a connection)
+                const copy = await readListCopy<DocumentReminderContext>(copyKey);
+                if (copy?.rows?.[0]) { setCtx(copy.rows[0]); setError(null); setNow(new Date()); }
+                else setError("You're offline. Reminders show here once you're back online.");
+            } else setError(errorText(e, 'Could not load reminders.'));
         }
     }, [type, documentId, formClientId, clientName]);
 
@@ -93,7 +102,7 @@ const DocumentRemindersPanel: React.FC<Props> = ({ type, documentId, data, clien
             await setReminderOverride({ documentId }, next === defaultOn ? null : next);
             await load();
         } catch (e) {
-            setError((e as Error)?.message || 'Could not change reminders.');
+            setError(errorText(e, 'Could not change reminders.'));
         } finally {
             setBusy(false);
         }
@@ -107,7 +116,7 @@ const DocumentRemindersPanel: React.FC<Props> = ({ type, documentId, data, clien
             await setReminderOverride({ clientId: ctx.client.id }, enabled);
             await load();
         } catch (e) {
-            setError((e as Error)?.message || 'Could not change reminders.');
+            setError(errorText(e, 'Could not change reminders.'));
         } finally {
             setBusy(false);
         }
@@ -119,7 +128,7 @@ const DocumentRemindersPanel: React.FC<Props> = ({ type, documentId, data, clien
             await startGmailConnect({ returnTo: `${location.pathname}${location.search}`, loginHint: hint });
         } catch (e) {
             setConnecting(false);
-            setError((e as Error)?.message || 'Could not start the Google connection.');
+            setError(errorText(e, 'Could not start the Google connection.'));
         }
     };
 
