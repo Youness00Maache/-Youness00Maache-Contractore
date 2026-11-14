@@ -516,6 +516,20 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
                 client_ids: mentionClients.slice(0, 1),
             };
         }
+        // "fill every box" / sample data: every box filled (the user's own values win), like the real model under rule 15
+        if (isSampleRequest(text)) {
+            const sample = sampleDocument(docType, 0);
+            const given = new Set((extracted.fields || []).map(f => f.key));
+            return {
+                action_type: 'GENERATE_DOCUMENT',
+                reply_text: `Here is your ${DOC_LABELS[docType].toLowerCase()} draft, with sample data in the boxes you didn't give.`,
+                document_type: docType,
+                fields: [...(extracted.fields || []), ...(sample.fields || []).filter(f => !given.has(f.key))],
+                line_items: extracted.line_items?.length ? extracted.line_items : sample.line_items,
+                job_id: jobs.length === 1 ? jobs[0].id : null,
+                client_ids: mentionClients.slice(0, 1),
+            };
+        }
         return {
             action_type: 'GENERATE_DOCUMENT',
             reply_text: `Here is your ${DOC_LABELS[docType].toLowerCase()} draft.`,

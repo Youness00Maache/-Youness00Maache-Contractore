@@ -2030,7 +2030,72 @@ async function priceBookTests() {
     console.log(`  price book slice: test book ${slice.length} items / ${JSON.stringify(slice).length} B; realistic book ${realSlice.length} items / ${JSON.stringify(realSlice).length} B in the request; prompt block ${buildPriceBookBlock(sanitizePriceBook(realSlice)).length} chars`);
 }
 
+// ── 18. Owner 2026-11-14: "fill every box" (no word about sample data) fills EVERY box of every document type ──
+async function fillEverythingTests() {
+    for (const t of [
+        'create two documents and fill every box', 'Fill all the boxes please', 'fill in all the fields', 'fill everything', 'make sure every field is filled in',
+        'no empty boxes', 'fill the form completely', 'Create an invoice and a daily report and fill every box', 'populate all fields',
+    ]) ok(isSampleRequest(t), `"${t}" asks for every box (sample values where none given)`);
+    for (const t of [
+        'filled all junction boxes with mud', 'fill all junction boxes today', 'trench fully filled with gravel', 'fill in the invoice for Morgan',
+        'completed each section of the wall', 'fill the holes in the drywall', 'Create an invoice for 2 doors at $450',
+    ]) ok(!isSampleRequest(t), `"${t}" is real work, not a fill-everything request`);
+
+    const appOwned = (type: DocKey, key: string) => {
+        const spec = getSchema(type)[key];
+        return Boolean(spec.source) || /Number$/.test(key) || key === 'status' || key === 'paypalLink' || spec.kind === 'template' || spec.kind === 'colors';
+    };
+    for (const type of DOC_TYPES) {
+        const expected = Object.keys(getSchema(type)).filter(k => !appOwned(type, k));
+        const formSpecs = getFieldSpecs(DOC_TYPE_TO_FORM_TYPE[type]);
+        // job assistant: "create a <document> and fill every box"
+        const r = req(`Create a ${DOC_LABELS[type]} and fill every box`, 'job', { active_job_id: job.id });
+        const p = buildProposal(mockModelOutput(r), { request: r });
+        eq([p.action_type, p.document_type, p.sample_data], ['GENERATE_DOCUMENT', type, true], `${type}: "fill every box" (job) → one filled draft`);
+        eq(expected.filter(k => p.prefill?.[k] === undefined), [], `${type}: "fill every box" (job) fills every box`);
+        eq(keysOk(type, p.prefill || {}), [], `${type}: fill-every-box keys are real form fields`);
+        const merged = mergeDraftIntoForm(DOC_TYPE_TO_FORM_TYPE[type], {}, p.prefill);
+        eq(expected.filter(k => formSpecs[k] && !merged.appliedKeys.includes(k)), [], `${type}: the form applies every filled box`);
+        // form open: "fill in all the fields"
+        const f = req('fill in all the fields', 'form', { form_document_type: type, active_job_id: job.id });
+        const pf = buildProposal(mockModelOutput(f), { request: f });
+        eq(expected.filter(k => pf.prefill?.[k] === undefined), [], `${type}: "fill in all the fields" (form) fills every box`);
+    }
+
+    // The user's own values are kept; only the boxes they left out get sample values.
+    {
+        const r = req('Create an invoice for 2 doors at $450 and fill every box', 'job', { active_job_id: job.id });
+        const p = buildProposal(mockModelOutput(r), { request: r });
+        const lines = (p.prefill?.lineItems as any[]) || [];
+        eq([lines.length, lines[0]?.quantity, lines[0]?.rate], [1, 2, 450], 'fill every box: the user\'s line item is kept as given');
+        ok(Boolean(p.prefill?.notes) && Number(p.prefill?.taxRate) > 0 && Boolean(p.prefill?.dueDate), 'fill every box: notes, tax and due date filled too');
+        // the real model under rule 15: what the user typed stays, nothing app-owned is taken from it
+        const real = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: '', document_type: 'INVOICE', fields: [
+            { key: 'invoiceNumber', value: 'INV-9' }, { key: 'taxRate', value: '8' }, { key: 'notes', value: 'Net 15' }, { key: 'amountPaid', value: '100' },
+        ], line_items: [{ description: 'Door', quantity: 2, rate: 450 }] }, { request: r });
+        eq([real.sample_data, real.prefill?.invoiceNumber, real.prefill?.taxRate, real.prefill?.notes], [true, undefined, 8, 'Net 15'], 'fill every box (model): values kept, document number stays the app\'s');
+    }
+
+    // The owner's case: two documents in one message, every box filled in both.
+    {
+        const p = runLocalMockRouter('Create an invoice and a daily report for this job and fill every box', 'job', { ...ctx, active_job_id: job.id });
+        eq(p.action_type, 'RUN_PLAN', 'two documents + fill every box → one plan');
+        const docs = (p.plan || []).filter(s => s.action_type === 'GENERATE_DOCUMENT');
+        eq(docs.map(d => d.document_type).sort(), ['DAILY_REPORT', 'INVOICE'], 'both documents in the plan');
+        for (const d of docs) {
+            const type = d.document_type as DocKey;
+            const expected = Object.keys(getSchema(type)).filter(k => !appOwned(type, k));
+            eq(expected.filter(k => d.prefill?.[k] === undefined), [], `plan ${type}: every box filled`);
+        }
+        ok(p.sample_data === true, 'plan flagged as sample data (said in the reply)');
+        const system = buildSystemPrompt(req('Create two documents and fill every box', 'dashboard'));
+        ok(/THIS CONVERSATION ASKS FOR SAMPLE/.test(system) && /^16\. Always put EVERY detail/m.test(system), 'prompt: fill-every-box flag + rule 16 (every detail the user gave, sample values for the rest)');
+        ok(!/THIS CONVERSATION ASKS FOR SAMPLE/.test(buildSystemPrompt(req('Create an invoice for 2 doors at $450', 'dashboard'))), 'no flag for a normal request');
+    }
+}
+
 await sampleAndFieldTests();
+await fillEverythingTests();
 await knowledgeTests();
 await handlerTests();
 await modelChainTests();

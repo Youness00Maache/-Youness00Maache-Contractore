@@ -623,6 +623,14 @@ const SAMPLE_PATTERNS: RegExp[] = [
     new RegExp(`\\b(?:make|making)\\s+up\\s+(?:the\\s+|some\\s+|all\\s+(?:the\\s+)?)?(?:${DATA_NOUNS}|everything|the\\s+rest)\\b`, 'i'),
     new RegExp(`\\binvent\\s+(?:the\\s+|some\\s+|all\\s+(?:the\\s+)?)?(?:${DATA_NOUNS}|everything|the\\s+rest)\\b`, 'i'),
     /\bfill\s+(?:it|them|everything|all(?:\s+the)?\s+(?:boxes|fields))\s+(?:in\s+|out\s+)?with\s+(?:examples?|samples?|anything|whatever)\b/i,
+    // "fill every box" / "fill in all the fields" / "fill everything" / "no empty boxes" (owner 2026-11-14: two documents
+    // asked with "fill every box" came back with only a couple of boxes filled): the user wants NO empty box, so the
+    // boxes they gave no value for get realistic sample values (rule 15), their own values are kept.
+    // (imperative "fill" and boxes / fields / blanks only: "filled all junction boxes", "trench fully filled" stay real work)
+    /\b(?:fill|filling|populate)\s+(?:in\s+|out\s+|up\s+)?(?:every|each|all(?:\s+of)?(?:\s+the)?)\s+(?:(?:form|document|empty|blank|remaining|other|the)\s+)?(?:box|boxes|field|fields|blanks)\b/i,
+    /\b(?:every|each|all(?:\s+the)?)\s+(?:box|boxes|field|fields)\s+(?:is\s+|are\s+)?(?:filled\s+(?:in|out)|completed|populated)\b/i,
+    /\bfill\s+(?:in\s+|out\s+)?everything\b|\bfill\s+(?:it|them|the\s+form|the\s+document)\s+(?:in\s+|out\s+)?(?:fully|completely)\b/i,
+    /\b(?:no|without(?:\s+any)?)\s+(?:empty|blank)\s+(?:box|boxes|field|fields)\b|\bleave\s+no\s+(?:box|field)\s+(?:empty|blank)\b/i,
 ];
 export function isSampleRequest(text: string): boolean {
     const t = text || '';
