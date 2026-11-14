@@ -1047,6 +1047,14 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
         try {
             const text = notesDraft.trim();
             const notes = isTemporaryClient(client) ? `${TEMP_TAG} ${text}`.trim() : text;
+            // offline (or a client still waiting to sync): the notes wait on this device and sync later
+            const outbox = offlineEntityQueueFor(client.id);
+            if (outbox) {
+                await outbox.queue('client', 'edit', client.id, { notes });
+                applyClientUpdate({ ...client, notes });
+                setEditingNotes(false);
+                return;
+            }
             const { data, error } = await supabase.from('clients').update({ notes }).eq('id', client.id).select(CLIENT_COLUMNS).single();
             if (error) throw new Error(error.message);
             applyClientUpdate(data as Client);
