@@ -1,5 +1,5 @@
 -- =====================================================================================
--- DRAFT FOR THE OWNER'S OK. Not in supabase/migrations, NOT applied.
+-- Applied 2026-11-14 with the owner's OK (was docs/work/DRAFT_estimate_options_choice.sql).
 -- Good / better / best options on estimates (#6): the client picks ONE option and signs, and the database stores
 -- the pick as data (instead of inside the signer's name, which is what the app does until this is applied).
 --
