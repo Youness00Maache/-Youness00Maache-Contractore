@@ -280,6 +280,14 @@ Breadcrumb JSON-LD on posts, /ai-estimate-generator, /ai-invoice-generator, /for
 new posts, IndexNow key + ping script, seo:check extended). AI credits helper asked to wrap up (flag OFF) to save budget.
 AFTER DEPLOY: Search Console (verification file public/google58a3bf2c7e0ed45b.html) → submit sitemap + request indexing
 of key pages; Bing Webmaster Tools import from Search Console; run scripts/indexnow-ping.ts.
+**13:05:** AI credits DONE (uncommitted, feature flag OFF; commit together with the other running tasks because they
+share Settings.tsx / helpContent.ts / knowledge.ts). Kelviq supports one-time plans + charging a saved card
+(POST /charges/), so auto-recharge is real (max 3/day, off on decline). Packs $5=100, $10=220, $20=480, $50=1300
+credits; credits used only after the plan allowance; Free can buy. Also fixes: a credit-pack refund can't downgrade a
+subscriber. TO SWITCH ON (owner): 4 one-time Kelviq plans ai-credits-5/10/20/50, webhook + order.* refund.* events,
+apply docs/work/DRAFT_ai_credits.sql (never run yet), redeploy ai-assistant + kelviq-checkout + kelviq-webhook, secret
+AI_CREDITS_ENABLED=true (needs Kelviq secrets D1). Details: scratchpad/credits/PROGRESS.md.
+DISK: C: was at 800 MB free; deleted old scratchpad QA output and stale HeadlessChrome temp profiles.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
