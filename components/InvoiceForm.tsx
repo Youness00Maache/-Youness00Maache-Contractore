@@ -276,6 +276,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                     savedItems={savedItems}
                     inventoryItems={inventoryItems}
                     availableStock={stockLookup}
+                    quickMeasure={{ jobId: job.id }}
                 />
                 <TotalsPanel
                     totals={totals}

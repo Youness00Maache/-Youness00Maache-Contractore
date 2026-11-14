@@ -336,6 +336,7 @@ const EstimateForm: React.FC<Props> = ({
                             savedItems={savedItems}
                             inventoryItems={inventoryItems}
                             availableStock={stockLookup}
+                            quickMeasure={{ jobId: job.id }}
                         />
                         <OptionChoiceBar
                             data={d}
@@ -359,6 +360,7 @@ const EstimateForm: React.FC<Props> = ({
                         savedItems={savedItems}
                         inventoryItems={inventoryItems}
                         availableStock={stockLookup}
+                        quickMeasure={{ jobId: job.id }}
                     />
                     {showCosts && (
                         <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/40 p-4 sm:grid-cols-4">

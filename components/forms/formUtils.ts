@@ -551,6 +551,8 @@ export const normalizeLineItem = (raw: unknown, usedIds?: Set<string>, cleanText
         item.item_id = typeof r.item_id === 'string' && r.item_id ? r.item_id : undefined;
         if (!item.inventoryItemId && !item.item_id) item.inventoryItemId = invId;
     }
+    // unit of the quantity (Quick measure, lib/measure.ts): kept only when there is one, so other lines are unchanged
+    if (typeof r.unit === 'string' && r.unit.trim()) item.unit = toSingleLine(r.unit).slice(0, 24);
     if (r.itemSource === 'pricebook' || r.itemSource === 'inventory') item.itemSource = r.itemSource;
     if (typeof r.track_inventory === 'boolean') item.track_inventory = r.track_inventory;
     if (r.currentStock !== undefined && r.currentStock !== null) item.currentStock = toNumber(r.currentStock);

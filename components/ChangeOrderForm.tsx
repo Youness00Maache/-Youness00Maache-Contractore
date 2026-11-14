@@ -220,6 +220,7 @@ const ChangeOrderForm: React.FC<Props> = ({
                         savedItems={savedItems}
                         inventoryItems={inventoryItems}
                         availableStock={stockLookup}
+                        quickMeasure={{ jobId: job.id }}
                     />
                 </LockedFieldset>
                 <div className="ml-auto w-full space-y-2 rounded-xl border border-border bg-muted/40 p-4 sm:max-w-sm">

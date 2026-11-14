@@ -48,10 +48,12 @@ interface EditorProps {
     savedItems?: SavedItem[];
     inventoryItems?: InventoryItem[];
     availableStock?: (item: LineItem) => number | null;
+    /** Quick measure on the option lines (passed to LineItemsEditor) */
+    quickMeasure?: { jobId?: string | null };
 }
 
 export const EstimateOptionsEditor: React.FC<EditorProps> = ({
-    data, set, onSetChange, onAdjust, onTurnOff, locked, showCosts, savedItems = [], inventoryItems = [], availableStock,
+    data, set, onSetChange, onAdjust, onTurnOff, locked, showCosts, savedItems = [], inventoryItems = [], availableStock, quickMeasure,
 }) => {
     const summaries = useMemo(() => summarizeOptions(data, set), [data, set]);
     const [selected, setSelected] = useState<string>(() => set.recommendedId || set.options[0].id);
@@ -226,6 +228,7 @@ export const EstimateOptionsEditor: React.FC<EditorProps> = ({
                             savedItems={savedItems}
                             inventoryItems={inventoryItems}
                             availableStock={availableStock}
+                            quickMeasure={quickMeasure}
                             addLabel={`Add line to ${optionName(current, set.options.indexOf(current))}`}
                         />
                     </LockedFieldset>
@@ -265,6 +268,7 @@ export const EstimateOptionsEditor: React.FC<EditorProps> = ({
                             savedItems={savedItems}
                             inventoryItems={inventoryItems}
                             availableStock={availableStock}
+                            quickMeasure={quickMeasure}
                             addLabel="Add a line for every option"
                         />
                     </LockedFieldset>

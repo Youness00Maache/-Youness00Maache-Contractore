@@ -198,6 +198,44 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "quick-measure",
+        "title": "Quick measure",
+        "summary": "Measure a room, an area, lengths, a roof or a slab, and put the quantity on an estimate, invoice or change order line.",
+        "where": [
+            "Job",
+            "Estimate, Invoice or Change Order",
+            "Items"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open it from a line",
+                "text": "In the items, tap [[Measure]] next to Qty on a phone, or the ruler button next to the description on a computer."
+            },
+            {
+                "title": "Choose what to measure",
+                "text": "Room (length, width and height; doors and windows come off the walls), Area (rectangles and triangles, added or taken away), Linear (lengths added up), Roof (plan area × pitch in x/12 or degrees, plus roofing squares) or Volume (length × width × depth in cubic yards, for concrete)."
+            },
+            {
+                "title": "Type the sizes",
+                "text": "Use feet and inches, or metres: switch with ft-in / m at the top, and your choice is saved to your account. A door is 3' × 6' 8\" and a window 3' × 4' until you change its size."
+            },
+            {
+                "title": "Add waste and packs",
+                "text": "Tap a Waste % or type your own. For material sold by the box, set Packs (for example 1 box = 20 sq ft): the quantity is rounded up to whole boxes, and you choose whether the line gets the area or the number of boxes."
+            },
+            {
+                "title": "Use it",
+                "text": "Pick a result (floor, walls, squares…) and click [[Use this quantity]]. The line gets the quantity and its unit. Tick Add measurement to description to print how you measured it. It is off by default, so nothing else on the document changes."
+            }
+        ],
+        "tips": [
+            "[[Price book]] in the measure window puts a price book item on the line. An item priced per square or per cubic yard opens Roof or Volume.",
+            "Measurements you used stay on this device under Recent on this job, ready to reuse.",
+            "Free on every plan."
+        ]
+    },
+    {
         "id": "payments",
         "title": "Getting paid",
         "summary": "A Pay now link on invoices, client “I’ve paid” notices, and one-click receipts.",

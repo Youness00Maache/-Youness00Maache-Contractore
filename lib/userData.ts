@@ -10,6 +10,7 @@
  *   T&M billing rates          → public.user_settings 'billing.tm' (Bill time & materials)
  *   saved suppliers            → public.user_settings 'suppliers.list' (lib/suppliers.ts SuppliersSetting)
  *   reorder qty per item + job → public.user_settings 'inventory.reorder' (lib/suppliers.ts ReorderSetting)
+ *   Quick measure units        → public.user_settings 'measure.units' (lib/measure.ts; recent measurements stay on the device)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -321,6 +322,38 @@ export const saveSuppliersSetting = (value: unknown): Promise<SyncMode> => saveJ
 /** Raw 'inventory.reorder' value; parse it with parseReorderSetting(). */
 export const loadReorderSetting = (): Promise<unknown> => loadJsonSetting(REORDER_SETTING, reorderLocalKey);
 export const saveReorderSetting = (value: unknown): Promise<SyncMode> => saveJsonSetting(REORDER_SETTING, reorderLocalKey, value);
+
+// -------------------------------------------------------------------------- quick measure
+/** public.user_settings key of the Quick measure units (lib/measure.ts): { system: 'imperial' | 'metric', updatedAt }. */
+export const MEASURE_UNITS_SETTING = 'measure.units';
+const measureUnitsLocalKey = (uid: string) => `cd.measure.units:${uid}`;
+type MeasureSystem = 'imperial' | 'metric';
+const measureSystemOf = (v: unknown): MeasureSystem | null => {
+    const s = v && typeof v === 'object' ? (v as { system?: unknown }).system : null;
+    return s === 'imperial' || s === 'metric' ? s : null;
+};
+
+/** The signed-in user's id when it is already known (set at login); null before that. For device-only keys. */
+export const activeUserIdNow = (): string | null => activeUserId;
+/** The signed-in user's id (session fallback). */
+export const currentUserId = async (): Promise<string | null> => activeUserId || await signedInUserId();
+
+/** This device's copy of the units choice (instant, no network); null = never chosen here. */
+export function readMeasureUnitsLocal(uid: string | null): MeasureSystem | null {
+    if (!uid) return null;
+    const raw = browserStore.getItem(measureUnitsLocalKey(uid));
+    if (!raw) return null;
+    try { return measureSystemOf(JSON.parse(raw)); } catch { return null; }
+}
+
+/** The units choice of the account (every device), else this device's copy; null = never chosen. */
+export async function loadMeasureUnits(): Promise<MeasureSystem | null> {
+    return measureSystemOf(await loadJsonSetting(MEASURE_UNITS_SETTING, measureUnitsLocalKey));
+}
+
+/** Remembers feet-inches / metric for Quick measure on this device and in the account. */
+export const saveMeasureUnits = (system: MeasureSystem): Promise<SyncMode> =>
+    saveJsonSetting(MEASURE_UNITS_SETTING, measureUnitsLocalKey, { system, updatedAt: new Date().toISOString() });
 
 // -------------------------------------------------------------------------------- login
 const syncedUsers = new Set<string>();

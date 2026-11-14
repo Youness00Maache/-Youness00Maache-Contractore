@@ -162,6 +162,8 @@ export interface LineItem {
   progressValue?: number; // For progress invoicing (Scheduled Value)
   progressPercentage?: number; // For progress invoicing (% to bill)
   previouslyBilled?: number; // For progress invoicing tracking
+  /** Unit of the quantity ("sq ft", "lf", "box"), set by Quick measure; shown in the line editor only (lib/measure.ts) */
+  unit?: string;
   itemSource?: 'pricebook' | 'inventory';
   // Assemblies
   isAssembly?: boolean;

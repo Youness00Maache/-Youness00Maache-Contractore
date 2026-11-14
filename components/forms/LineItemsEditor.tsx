@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import type { InventoryItem, LineItem, SavedItem } from '../../types.ts';
 import { cn } from '../../lib/utils.ts';
 import { formatMoney, lineItemAmount, lineItemScheduledValue, toNumber } from '../../utils/money.ts';
-import { BoxIcon, ChevronDownIcon, PlusIcon, SaveIcon, TagIcon, TrashIcon, CheckIcon } from '../Icons.tsx';
+import { BoxIcon, ChevronDownIcon, PlusIcon, RulerIcon, SaveIcon, TagIcon, TrashIcon, CheckIcon } from '../Icons.tsx';
 import { NumberInput } from './Fields.tsx';
 import ItemPickerModal from './ItemPickerModal.tsx';
 import { addLineToPriceBook } from './inventory.ts';
 import { blankLineItem } from './formUtils.ts';
 import { Spinner } from './Spinner.tsx';
+import QuickMeasureSheet, { type QuickMeasureResult } from '../measure/QuickMeasureSheet.tsx';
 
 export type LineItemsMode = 'standard' | 'progress';
 
@@ -34,6 +35,11 @@ interface LineItemsEditorProps {
     rateLabel?: string;
     amountLabel?: string;
     currency?: string;
+    /**
+     * Quick measure on every line (estimates, invoices, change orders): a calculator that fills the quantity and its
+     * unit (components/measure/QuickMeasureSheet.tsx). `jobId` keys the "Recent on this job" list on the device.
+     */
+    quickMeasure?: { jobId?: string | null };
 }
 
 /*
@@ -51,6 +57,7 @@ const LAYOUTS = {
         desc: 'pr-11 sm:pr-0',
         full: 'sm:col-span-full',
         divider: 'space-y-3 sm:space-y-2',
+        wide: 'hidden sm:inline-flex',
     },
     cost: {
         header: 'hidden md:grid md:grid-cols-[minmax(0,1fr)_76px_112px_112px_112px_40px] md:gap-3',
@@ -62,6 +69,7 @@ const LAYOUTS = {
         desc: 'pr-11 md:pr-0',
         full: 'md:col-span-full',
         divider: 'space-y-3 md:space-y-2',
+        wide: 'hidden md:inline-flex',
     },
     progress: {
         header: 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_72px_108px_84px_108px_112px_40px] lg:gap-3',
@@ -73,6 +81,7 @@ const LAYOUTS = {
         desc: 'pr-11 lg:pr-0',
         full: 'lg:col-span-full',
         divider: 'space-y-3 lg:space-y-2',
+        wide: 'hidden lg:inline-flex',
     },
 } as const;
 
@@ -82,11 +91,12 @@ const smallLabel = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide
 const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
     items, onChange, mode = 'standard', showCost = false, savedItems = [], inventoryItems = [], enablePicker = true,
     enableInventory = true, enableQuickAdd = true, availableStock, descriptionPlaceholder = 'Describe the work or material',
-    addLabel = 'Add line', rateLabel = 'Rate', amountLabel = 'Amount', currency = 'USD', inventoryPrice = 'sell',
+    addLabel = 'Add line', rateLabel = 'Rate', amountLabel = 'Amount', currency = 'USD', inventoryPrice = 'sell', quickMeasure,
 }) => {
     const progress = mode === 'progress';
     const L = progress ? LAYOUTS.progress : showCost ? LAYOUTS.cost : LAYOUTS.standard;
     const [pickerFor, setPickerFor] = useState<string | null>(null);
+    const [measureFor, setMeasureFor] = useState<string | null>(null);
     const [quickAdd, setQuickAdd] = useState<Record<string, 'saving' | 'saved' | { error: string }>>({});
     const [addedToBook, setAddedToBook] = useState<SavedItem[]>([]);
     const catalog = [...savedItems, ...addedToBook.filter(a => !savedItems.some(s => s.id === a.id))];
@@ -95,8 +105,8 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
     const removeItem = (id: string) => onChange(items.filter(li => li.id !== id));
     const addItem = () => onChange([...items, { ...blankLineItem(), ...(progress ? { percentComplete: 0 } : {}) }]);
 
-    const pickSaved = (s: SavedItem) => {
-        if (!pickerFor) return;
+    /** Puts a price book item on a line (from the line's picker or from Quick measure). */
+    const applySaved = (lineId: string, s: SavedItem) => {
         const components = s.is_assembly && Array.isArray(s.assembly_items)
             ? s.assembly_items.map(c => {
                 const def = catalog.find(i => i.id === c.item_id);
@@ -108,7 +118,7 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                 };
             })
             : undefined;
-        onChange(items.map(li => li.id !== pickerFor ? li : {
+        onChange(items.map(li => li.id !== lineId ? li : {
             ...li,
             description: s.name + (s.description && s.description !== s.name ? ` - ${s.description}` : ''),
             rate: toNumber(s.rate),
@@ -124,6 +134,10 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
             isExpanded: false,
             assemblyComponents: components,
         }));
+    };
+    const pickSaved = (s: SavedItem) => {
+        if (!pickerFor) return;
+        applySaved(pickerFor, s);
         setPickerFor(null);
     };
 
@@ -138,11 +152,11 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
         return book ? toNumber(book.rate) : null;
     };
 
-    const pickInventory = (inv: InventoryItem) => {
-        if (!pickerFor) return;
+    /** Puts an inventory item on a line (from the line's picker or from Quick measure). */
+    const applyInventory = (lineId: string, inv: InventoryItem) => {
         const cost = toNumber(inv.cost_price);
         const price = inventoryPrice === 'cost' ? cost : sellPriceOf(inv) ?? cost;
-        onChange(items.map(li => li.id !== pickerFor ? li : {
+        onChange(items.map(li => li.id !== lineId ? li : {
             ...li,
             description: inv.name,
             // a price the user already typed is kept (as in the original app); only an empty price is filled
@@ -159,8 +173,17 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
             hideComponentsOnPdf: undefined,
             assemblyComponents: undefined,
         }));
+    };
+    const pickInventory = (inv: InventoryItem) => {
+        if (!pickerFor) return;
+        applyInventory(pickerFor, inv);
         setPickerFor(null);
     };
+
+    /** "Use this quantity": the quantity, its unit and (only when ticked) the description with the measurement. */
+    const applyMeasure = (lineId: string, r: QuickMeasureResult) =>
+        patchItem(lineId, { quantity: r.quantity, unit: r.unit || undefined, ...(r.description !== undefined ? { description: r.description } : {}) });
+    const measureLine = measureFor ? items.find(li => li.id === measureFor) ?? null : null;
 
     const saveToBook = async (li: LineItem) => {
         if (!li.description.trim() || quickAdd[li.id] === 'saving') return;
@@ -231,6 +254,12 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                                             {qa === 'saving' ? <Spinner /> : qa === 'saved' ? <CheckIcon className="h-4 w-4" /> : <SaveIcon className="h-4 w-4" />}
                                         </button>
                                     )}
+                                    {/* computers: next to the description; phones: "Measure" next to Qty */}
+                                    {quickMeasure && (
+                                        <button type="button" className={cn('btn btn-outline h-[42px] w-[42px] shrink-0 p-0', L.wide)} onClick={() => setMeasureFor(li.id)} title="Quick measure: room, area, linear, roof, volume" aria-label={`Quick measure for item ${index + 1}`}>
+                                            <RulerIcon className="h-4 w-4" />
+                                        </button>
+                                    )}
                                 </div>
                                 {typeof qa === 'object' && <p className="mt-1 text-xs text-destructive">{qa.error}</p>}
                                 {qa === 'saved' && <p className="mt-1 text-xs text-success">Saved to your price book.</p>}
@@ -244,9 +273,35 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
 
                             <div className={L.nums}>
                                 <div className="min-w-0">
-                                    <span className={cn(smallLabel, L.label)}>Qty</span>
+                                    {quickMeasure ? (
+                                        <span className={cn(smallLabel, L.label, 'flex items-center justify-between gap-1')}>
+                                            Qty
+                                            <button
+                                                type="button"
+                                                onClick={() => setMeasureFor(li.id)}
+                                                className="-my-2 -mr-1 inline-flex items-center gap-1 rounded-md px-1 py-2 normal-case tracking-normal text-primary"
+                                                aria-label={`Quick measure for item ${index + 1}`}
+                                            >
+                                                <RulerIcon className="h-3.5 w-3.5" />
+                                                <span className={showCost && !progress ? 'sr-only' : undefined}>Measure</span>
+                                            </button>
+                                        </span>
+                                    ) : (
+                                        <span className={cn(smallLabel, L.label)}>Qty</span>
+                                    )}
                                     {/* negative quantities are credit lines (−1 × $500), as in the original app */}
                                     <NumberInput value={li.quantity} onValueChange={v => patchItem(li.id, { quantity: v })} allowNegative aria-label={`Item ${index + 1} quantity`} className="px-2.5 text-center" />
+                                    {li.unit && (
+                                        <button
+                                            type="button"
+                                            onClick={() => patchItem(li.id, { unit: undefined })}
+                                            className="mt-1 flex w-full items-center justify-center gap-1 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                                            title="Unit of the quantity (shown here only, not printed). Click to remove it."
+                                            aria-label={`Remove the unit ${li.unit} from item ${index + 1}`}
+                                        >
+                                            {li.unit} <span aria-hidden>×</span>
+                                        </button>
+                                    )}
                                 </div>
                                 {showCost && !progress && (
                                     <div className="min-w-0">
@@ -328,6 +383,23 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                 onPickInventory={pickInventory}
                 currency={currency}
             />
+
+            {quickMeasure && (
+                <QuickMeasureSheet
+                    open={measureLine !== null}
+                    onClose={() => setMeasureFor(null)}
+                    line={measureLine}
+                    lineNumber={measureLine ? items.indexOf(measureLine) + 1 : 0}
+                    jobId={quickMeasure.jobId}
+                    onApply={r => { if (measureFor) applyMeasure(measureFor, r); }}
+                    savedItems={catalog}
+                    inventoryItems={inventoryItems}
+                    showInventory={enableInventory}
+                    currency={currency}
+                    onPickSaved={enablePicker ? s => { if (measureFor) applySaved(measureFor, s); } : undefined}
+                    onPickInventory={enablePicker && enableInventory ? inv => { if (measureFor) applyInventory(measureFor, inv); } : undefined}
+                />
+            )}
         </div>
     );
 };
