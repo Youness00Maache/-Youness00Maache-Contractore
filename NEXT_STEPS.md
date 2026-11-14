@@ -74,6 +74,21 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+**2026-11-14 ~20:30 UTC: "small things" DONE and LIVE** (main fb3c34d, ai-assistant redeployed 354 KB, 30 suites pass):
+- Free plan: Convert to invoice + Create revision check the job's document slot before the new form opens
+  (components/forms/DocSlotContext.ts; copy-to-job-check +4).
+- AI fill on an OPEN estimate: "turn this into good/better/best options" / "add a premium option" uses the form's
+  current lines (lib/estimateOptions.ts applyAiOptionsDraft; qa:document-ai 1388). The job assistant can't be opened
+  from the estimate form, so the form's AI fill is the path.
+- Settings › Document design (/settings#documents): default PDF design for new documents (same store as "Use for new
+  documents"; Free = Basic only). components/settings/DocumentDesignSettings.tsx.
+- IndexNow: 51 URLs submitted (HTTP 200).
+- WAITING FOR THE OWNER'S OK: docs/work/DRAFT_expiry_rule_go_live.sql moves the "sign after expiry" cut-off from
+  2026-11-13 00:00 to the go-live 2026-11-14 15:00 UTC (one function; apply together with EXPIRY_RULE_START in
+  utils/clientPortalRules.ts + portal-approval-check). Not applied.
+- Still open for the owner: click-test signed in, first live payment, old questions (Premium gating of supplier
+  send/reorder + photo AI, photo AI defaults), housekeeping (old Gemini key, b@b.com, Kelviq org name, old functions).
+  The two empty "busy" folders in .claude/worktrees: rmdir after the app restarts.
 **2026-11-14 ~19:00 UTC: owner's 5 steps ALL DONE and LIVE.** Post-merge suites all passed (30); pushed my-branch +
 main (7bc0dd5: templates merge + shared offline message); live /templates = 200 with the 26 new designs + Premium
 badges, preview images load. Still open: the two EMPTY folders .claude/worktrees/agent-a300aae907df5b66c and
