@@ -404,7 +404,7 @@ const build = (items: AppNotification[], state: NotificationState = emptyState()
     eq('prefs parse garbage → defaults', parsePrefs('{bad'), defaultPrefs());
     eq('newest prefs win between devices', newerPrefs({ ...defaultPrefs(), at: 5 }, { ...defaultPrefs(), quiet: true, at: 9 }).quiet, true);
     eq('pop-ups are per device: not in the account prefs', Object.keys(defaultPrefs()).sort(), ['at', 'off', 'quiet', 'v']);
-    eq('12 types in Settings', NOTIFICATION_CATEGORIES.length, 12);
+    eq('13 types in Settings (crew missed clock-outs added)', NOTIFICATION_CATEGORIES.length, 13);
 }
 
 // ------------------------------------------------------------------------------------------------ 10. browser pop-ups
@@ -440,7 +440,7 @@ const build = (items: AppNotification[], state: NotificationState = emptyState()
     ok('the card has the anchor the bell opens', readFileSync('components/notifications/NotificationSettingsCard.tsx', 'utf8').includes('id="settings-notifications"'));
     const nav = readFileSync('components/AppNav.tsx', 'utf8');
     ok('the bell is in the app bar', nav.includes('<NotificationBell />'));
-    ok('existing badges kept (clients, tools low stock, community)', ['clientBadge > 0', 'lowStockCount > 0', 'forumBadge > 0', 'badgeCount: clientBadge', 'badgeCount: lowStockCount + forumBadge'].every(s => nav.includes(s)));
+    ok('existing badges kept (clients, tools low stock, community)', ['clientBadge > 0', 'lowStockCount > 0', 'forumBadge > 0', 'badgeCount: clientBadge', 'badgeCount: lowStockCount', 'badgeCount: forumBadge'].every(s => nav.includes(s)));
     const app = readFileSync('App.tsx', 'utf8');
     ok('App mounts the notification center once', (app.match(/<NotificationCenter\b/g) || []).length === 1);
     ok('App still passes the existing badges', ['clientBadge={clientNotificationCount}', 'forumBadge={notificationCount}', 'lowStockCount={lowStockCount}'].every(s => app.includes(s)));

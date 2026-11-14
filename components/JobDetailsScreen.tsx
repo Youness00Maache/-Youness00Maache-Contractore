@@ -50,6 +50,8 @@ interface JobDetailsScreenProps {
     onMarkPaid?: (form: FormDataType) => void;
     /** Job photo timeline (rendered by App); adds a Documents / Photos switch. URL hash #photos opens it. */
     photosSlot?: React.ReactNode;
+    /** Crew clock-in for this job (rendered by App when the feature is in the database); URL hash #crew opens it. */
+    crewSlot?: React.ReactNode;
 }
 
 // "get paid": invoice still open (not Paid / Cancelled) and the client's "I've paid" report
@@ -126,14 +128,20 @@ const DocumentTile: React.FC<{
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onCopyDocumentToJob, onDeleteDocument, onStatusChange,
-    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot,
+    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, crewSlot,
 }) => {
-    // Documents / Photos switch (kept in the URL hash so Back from a photo or a refresh stays on Photos).
-    const [tab, setTabState] = useState<'docs' | 'photos'>(() => (typeof window !== 'undefined' && window.location.hash === '#photos' ? 'photos' : 'docs'));
-    const setTab = (next: 'docs' | 'photos') => {
+    // Documents / Photos / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on that tab).
+    type JobTab = 'docs' | 'photos' | 'crew';
+    const [tabState, setTabState] = useState<JobTab>(() => {
+        const h = typeof window !== 'undefined' ? window.location.hash : '';
+        return h === '#photos' ? 'photos' : h === '#crew' ? 'crew' : 'docs';
+    });
+    const tab: JobTab = (tabState === 'photos' && !photosSlot) || (tabState === 'crew' && !crewSlot) ? 'docs' : tabState;
+    const setTab = (next: JobTab) => {
         setTabState(next);
-        try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next === 'photos' ? '#photos' : ''}`); } catch { /* ignore */ }
+        try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next === 'docs' ? '' : `#${next}`}`); } catch { /* ignore */ }
     };
+    const tabs: Array<[JobTab, string]> = [['docs', t.projectDocs || 'Documents'], ...(photosSlot ? [['photos', 'Photos'] as [JobTab, string]] : []), ...(crewSlot ? [['crew', 'Crew'] as [JobTab, string]] : [])];
     // Filters live here, so they reset when another job opens (CORE-025).
     const [query, setQuery] = useState('');
     const [typeFilter, setTypeFilter] = useState<string>('All');
@@ -238,9 +246,9 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 </div>
             )}
 
-            {photosSlot && (
+            {tabs.length > 1 && (
                 <div className="mb-4 flex gap-6 border-b border-border" role="tablist" aria-label="Job sections">
-                    {([['docs', t.projectDocs || 'Documents'], ['photos', 'Photos']] as const).map(([id, label]) => (
+                    {tabs.map(([id, label]) => (
                         <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
                             className={`-mb-px min-h-[44px] border-b-2 px-1 text-base font-bold transition ${tab === id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
                             {label}
@@ -249,7 +257,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 </div>
             )}
 
-            {photosSlot && tab === 'photos' ? photosSlot : (
+            {photosSlot && tab === 'photos' ? photosSlot : crewSlot && tab === 'crew' ? crewSlot : (
             /* Documents */
             <section aria-labelledby="docs-heading">
                 <div className="mb-3 flex items-center justify-between gap-2">

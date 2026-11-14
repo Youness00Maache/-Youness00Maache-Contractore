@@ -29,6 +29,7 @@ const RELATED: Partial<Record<HelpTopicId, HelpTopicId[]>> = {
   calendar: ['jobs'],
   settings: ['payments', 'reminders', 'quote-link', 'notifications'],
   notifications: ['settings', 'reminders', 'inventory'],
+  crew: ['job-costing', 'jobs', 'notifications'],
 };
 
 export const HelpPanel: React.FC<{ topic: HelpTopicId; open: boolean; onClose: () => void }> = ({ topic, open, onClose }) => {

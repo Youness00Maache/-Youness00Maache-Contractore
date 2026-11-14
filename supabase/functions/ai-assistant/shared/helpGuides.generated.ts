@@ -762,6 +762,55 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         "tips": []
     },
     {
+        "id": "crew",
+        "title": "Crew clock-in links",
+        "summary": "Your workers clock in and out of their jobs from their own phones with a private link: no app, no login, no seat fee. Their hours become time sheets.",
+        "where": [
+            "Tools",
+            "Crew"
+        ],
+        "appPath": "/crew",
+        "steps": [
+            {
+                "title": "Add your crew",
+                "text": "Open [[Tools]] and choose [[Crew]] (on a phone: [[More]], then [[Crew]]). Click [[Add crew member]], type the name (phone, email and hourly cost are optional), tick the jobs they work on, then [[Add and get link]]."
+            },
+            {
+                "title": "Send the link",
+                "text": "[[Copy link]], [[Text it]] or [[Email it]], or let them scan the QR code. The link only works for the jobs you gave them. On a job page, the [[Crew]] tab adds people to that job ([[Add to job]] or [[New crew member]])."
+            },
+            {
+                "title": "What your worker sees",
+                "text": "Today’s jobs with a big [[Clock in]] button, then [[Clock out]] and [[Start break]] / [[End break]]; [[Switch here]] moves them to another job. They can add a note or a photo. No prices, no rates, no other workers."
+            },
+            {
+                "title": "Location, only at the tap",
+                "text": "The first time, the page asks “Save your location when you tap?”. With [[Allow location]], one reading is saved with each punch, never in between. With [[Not now]] (or no signal) the punch is still saved and marked No location."
+            },
+            {
+                "title": "Far from the job",
+                "text": "On the job’s [[Crew]] tab, click [[Set pin]] and choose [[Use my location (I’m at the site)]] or paste a map link. Punches farther than the distance you pick show “Far from job”."
+            },
+            {
+                "title": "Check the week",
+                "text": "[[Crew]] › [[Hours]] shows each worker’s week as a time card (jobs × days), with overtime and their cost. Shifts that need a look are flagged; click [[Add clock-out]] or [[Edit]] to fix one, or [[Add a shift]] for a forgotten day. Then [[Approve week]]."
+            },
+            {
+                "title": "Turn hours into time sheets",
+                "text": "Click [[Create time sheet]]: one Time Sheet per job is saved on the job, so Financials, job costing and [[Bill time & materials]] count the hours. After fixing a shift, [[Update time sheet]] rewrites the same sheet."
+            },
+            {
+                "title": "Change or stop a link",
+                "text": "[[Share link]] on a crew member opens the link. [[New link]] replaces it (the old one stops at once); [[Turn off link]] stops it. [[Archive]] someone who left: their hours stay."
+            }
+        ],
+        "tips": [
+            "Offline: punches are saved on the worker’s phone and sent in order when the connection is back.",
+            "Missed clock-outs show in the bell at the end of the day (Settings › Notifications › Missed clock-outs).",
+            "Crew clock-in links are part of Premium, with as many workers as you need."
+        ]
+    },
+    {
         "id": "notifications",
         "title": "Notifications (the bell)",
         "summary": "One list of what happened while you were busy: signatures, payments, overdue invoices, low stock, quote requests and Community replies.",

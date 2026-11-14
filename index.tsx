@@ -11,6 +11,7 @@ import { BrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import MarketingSite from './pages/MarketingSite.tsx';
 import { isMarketingPath, isAppCallback, rootBelongsToApp, markLandingForced, normalizePath } from './pages/routes.ts';
 import { requestSlugFromPath } from './components/requests/requestLogic.ts';
+import { crewTokenFromPath } from './lib/crew/crewPath.ts';
 import { preloadRouteData } from './pages/blogLoader.ts';
 import { LogoMark } from './pages/components/Logo.tsx';
 import './index.css';
@@ -20,6 +21,8 @@ import './lib/installPrompt.ts';
 const App = lazy(() => import('./App.tsx'));
 /** Public request-a-quote page (/r/<slug>): its own small chunk, the app is not loaded. */
 const RequestQuotePage = lazy(() => import('./components/requests/RequestQuotePage.tsx'));
+/** Crew clock-in link (/clock/<token>): the worker's phone page, its own small chunk (no login, no app shell). */
+const CrewClockPage = lazy(() => import('./components/crew/CrewClockPage.tsx'));
 
 /** Fonts used by the document templates: only needed inside the app, so loaded on demand. */
 const TEMPLATE_FONTS_HREF =
@@ -72,7 +75,22 @@ const Root: React.FC = () => {
   if (isMarketingPath(path)) return <MarketingSite />;
   const requestSlug = requestSlugFromPath(location.pathname);
   if (requestSlug !== null) return <RequestBranch slug={requestSlug} />;
+  const crewToken = crewTokenFromPath(location.pathname);
+  if (crewToken !== null) return <CrewBranch token={crewToken} />;
   return <AppBranch />;
+};
+
+/** /clock/<token>: a crew member's clock-in page (Premium feature of their boss's account). */
+const CrewBranch: React.FC<{ token: string }> = ({ token }) => {
+  useEffect(() => {
+    document.documentElement.classList.remove('cd-site');
+    document.documentElement.classList.add('cd-app');
+  }, []);
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" aria-busy="true" />}>
+      <CrewClockPage token={token} />
+    </Suspense>
+  );
 };
 
 /** /r/<slug>: the contractor's public request-a-quote page (no login, no app shell, no ContractorDocs splash). */

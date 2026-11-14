@@ -10,12 +10,15 @@
  *   forum      public.notifications rows (likes, comments, comment likes) + replies in threads the user joined
  *   reminders  the automatic-reminder log + the document labels
  *   gmail      connected Gmail accounts (needs reconnecting)
+ *   crew       crew members still clocked in at the end of the day (lib/crew/crewApi.ts)
  */
 import { supabase } from '../supabase.ts';
 import { listQuoteRequests } from '../../components/requests/requestsApi.ts';
+import { fetchMissedClockOuts } from '../crew/crewApi.ts';
+import { crewFeatureState } from '../crew/crewFeature.ts';
 import {
     WINDOW_DAYS, docInputOf, docLabel, docPath,
-    type DocInput, type ForumCommentInput, type ForumLookups, type ForumRowInput, type GmailAccountInput, type ReminderInput, type RequestInput,
+    type CrewMissedInput, type DocInput, type ForumCommentInput, type ForumLookups, type ForumRowInput, type GmailAccountInput, type ReminderInput, type RequestInput,
 } from './model.ts';
 
 type PgError = { code?: string; message?: string; details?: string } | null | undefined;
@@ -214,4 +217,12 @@ export async function fetchGmailAccounts(uid: string): Promise<GmailAccountInput
     const { data, error } = await supabase.from('user_gmail_accounts').select('id,user_id,gmail_address,status,updated_at').eq('user_id', uid).limit(20);
     if (error) return null;
     return (data || []) as GmailAccountInput[];
+}
+
+/** Missed clock-outs of the crew (null = crew clock-in isn't in the database yet, or the read failed). */
+export async function fetchCrewMissed(): Promise<CrewMissedInput[] | null> {
+    if (crewFeatureState() !== 'ready') return null; // not in the database (or not checked yet): no request
+    const rows = await fetchMissedClockOuts();
+    if (!rows) return null;
+    return rows.map(r => ({ punchId: r.punchId, memberName: r.memberName, jobName: r.jobName, since: r.since, overdueAt: r.overdueAt }));
 }

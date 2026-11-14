@@ -17,7 +17,7 @@ import { HELP_GUIDES_SNAPSHOT, type GuideSnapshot } from './helpGuides.generated
 
 /** Every in-app screen and Settings section the assistant can open ("Take me there"). */
 export const NAV_ROUTES = [
-    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/inventory', '/pricebook', '/calendar', '/analytics',
+    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/crew', '/inventory', '/pricebook', '/calendar', '/analytics',
     '/calculator', '/forum', '/settings', '/settings#profile', '/settings#company', '/settings#payments', '/settings#requests',
     '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
     '/profile', '/tutorials',
@@ -31,6 +31,7 @@ export const NAV_LABELS: Record<NavRoute, string> = {
     '/clients': 'Clients',
     '/communication': 'Messages',
     '/pipeline': 'Pipeline',
+    '/crew': 'Crew (clock-in links and hours)',
     '/inventory': 'Inventory',
     '/pricebook': 'Price book',
     '/calendar': 'Calendar',
@@ -654,6 +655,30 @@ const FEATURES: KnowledgeEntry[] = [
         ],
     },
     {
+        id: 'crew-clock-in',
+        title: 'Crew clock-in links (GPS time clock for your workers)',
+        where: ['Tools', 'Crew'],
+        route: '/crew',
+        concepts: ['crew', 'job'],
+        keywords: ['clock in', 'clock out', 'clock-in', 'time clock', 'timeclock', 'punch in', 'gps', 'my crew', 'my workers', 'my employees', 'crew hours', 'missed clock', 'geofence', 'track hours'],
+        facts: [
+            'Each crew member gets a private, signed clock-in link (Tools › [[Crew]] › [[Add crew member]] › [[Add and get link]]). Workers need no app, no login and no seat fee; the link only works for the jobs they are assigned to and can be replaced ([[New link]]) or stopped ([[Turn off link]]) at any time.',
+            'Send it with [[Copy link]], [[Text it]] or [[Email it]] (or the QR code). The worker sees today’s jobs and big buttons: [[Clock in]], [[Clock out]], [[Start break]], [[End break]], [[Switch here]]; they can add a note or a photo. They never see prices, rates or other workers.',
+            'Location is taken ONCE at each tap and only after the worker taps [[Allow location]]; with [[Not now]] or no signal the punch is still saved and marked No location. There is no tracking in between.',
+            'Far from job: set the job site with the job page’s [[Crew]] tab › [[Set pin]] ([[Use my location (I’m at the site)]] or a pasted map link / coordinates) and a distance; punches farther away are flagged. No pin = no distance check (no address lookup).',
+            'Offline: punches are stored on the worker’s phone and sent in order when the connection is back (never twice).',
+            'Crew › [[Hours]]: each worker’s week as a time card (jobs × days), overtime (after 40 h a week by default; 8 h a day or none can be chosen) and cost at their own hourly rate. Missed clock-outs, missing clock-ins, long shifts, no location and far-from-job are flagged; [[Add clock-out]], [[Edit]] or [[Add a shift]] fixes them (the worker’s original time is kept). [[Approve week]] marks it approved.',
+            '[[Create time sheet]] saves one Time Sheet document per job and week (regular + overtime hours), so job Financials, job costing, Insights and [[Bill time & materials]] count the hours at your labor rate. After a fix, [[Update time sheet]] rewrites the same sheet.',
+            'At the end of the day the bell shows “<name> didn’t clock out” for anyone still on the clock (Settings › Notifications › Missed clock-outs).',
+        ],
+        steps: [
+            'Open [[Tools]] › [[Crew]] (phone: [[More]] › [[Crew]]) and click [[Add crew member]].',
+            'Type the name, tick their jobs, click [[Add and get link]], then [[Text it]] or [[Copy link]].',
+            'Each week open [[Hours]], fix flagged shifts, click [[Approve week]] and [[Create time sheet]].',
+        ],
+        limits: [`Crew clock-in links are part of ${P.name} ($${P.monthlyPrice}/month), with unlimited workers; the Free plan shows an upgrade prompt and pauses existing links.`],
+    },
+    {
         id: 'job-costing-tm',
         title: 'Job costing (budget vs actual) and Bill time & materials',
         where: ['Job', 'Financials'],
@@ -717,6 +742,7 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     payments: ['pay', 'paylink', 'markpaid', 'receipt'],
     pipeline: ['pipeline', 'job'],
     'job-costing': ['costing', 'financials'],
+    crew: ['crew', 'job'],
     ai: ['ai'],
     clients: ['client', 'portal'],
     messages: ['email', 'gmail'],
@@ -814,6 +840,7 @@ const LEXICON: Record<string, { w?: number; t: string }> = {
     ai: { w: 1, t: 'ai$|a\\.i\\.|assistant|chatbot|ia$|asistente|assistent|ki$|助手|人工智能|アシスタント|어시스턴트|ассистент|ии$|what can you do' },
     community: { w: 3, t: 'community|forum|comunidad|communaute|gemeinschaft|comunita|comunidade|社区|论坛|コミュニティ|커뮤니티|сообществ|форум' },
     pipeline: { w: 3, t: 'pipeline|kanban|board$|stage|funnel|deal flow|embudo|tablero|tuberia|tableau des|entonnoir|pipeline|vertriebs|trichter|imbuto|bacheca|funil|quadro|看板|管道|销售漏斗|パイプライン|カンバン|파이프라인|칸반|воронк|канбан|доска' },
+    crew: { w: 3, t: 'crew link|crew clock|crew member|crew hour|clock in|clock-in|clocked in|clock out|clock-out|clocked out|time clock|timeclock|punch in|punch out|punch clock|gps|geofenc|missed clock|marcar entrada|marcan entrada|reloj checador|fichar|fichaje|pointeuse|pointage|stempeluhr|zeiterfassung|timbratur|cartellino|relogio de ponto|bater ponto|打卡|考勤|タイムカード|打刻|출퇴근|табельн|отметк.{0,6}приход' },
     costing: { w: 3, t: 'job costing|costing|budget|over budget|cost overrun|actual cost|time and materials|time & materials|t&m|unbilled|bill (?:my )?hours|presupuesto vs|costo real|cout reel|depassement|kosten.{0,10}ist|budget|costi effettivi|orcamento vs|custo real|预算|超支|予算|원가|예산|бюджет|перерасход' },
     bookkeep: { w: 3, t: 'bookkeep|accountant|accounting|quickbooks|xero|backup|back up|contador|contabilidad|comptab|expert-comptable|buchhalt|steuerberater|commercialista|contabil|会计|记账|会計|税理士|経理|회계|세무|бухгалтер|резервн' },
     financials: { w: 3, t: 'financials|job profit|labor rate|labour rate|labor cost|how much did i make|costo de mano|cout de main|arbeitskosten|manodopera|mao de obra|人工费|人件費|인건비|трудозатрат|себестоимост' },
@@ -936,7 +963,7 @@ export const APP_MAP_TEXT = [
     'Screens (route: how to get there):',
     ...NAV_ROUTES.map(r => `- ${r}: ${NAV_LABELS[r]}`),
     'Job page: [[View Project]] on a dashboard job card. Document: job page › [[Project Documents]] › the document, or [[New Document]] for a new one.',
-    'Computer menus: [[Dashboard]], [[Clients]], [[Messages]], [[Tools]] ([[Inventory]], [[Price book]], [[Calendar]], [[Insights]], [[Profit calculator]]), [[Community]]; avatar (top right): [[Profile]], [[Settings]], [[Plan & billing]], [[Help & tutorials]], [[Log out]]. Phone bottom bar: [[Home]], [[Clients]], [[New job]] / [[New doc]], [[Messages]], [[More]].',
+    'Computer menus: [[Dashboard]], [[Clients]], [[Messages]], [[Tools]] ([[Pipeline]], [[Inventory]], [[Price book]], [[Calendar]], [[Crew]], [[Insights]], [[Profit calculator]]), [[Community]]; avatar (top right): [[Profile]], [[Settings]], [[Plan & billing]], [[Help & tutorials]], [[Log out]]. Phone bottom bar: [[Home]], [[Clients]], [[New job]] / [[New doc]], [[Messages]], [[More]].',
 ].join('\n');
 
 /** All labels the knowledge uses (answers may only put these in [[ ]]). */

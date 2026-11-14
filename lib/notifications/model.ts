@@ -54,11 +54,12 @@ export type NotificationKind =
     | 'forum_like' | 'forum_comment' | 'forum_comment_like' | 'forum_reply'
     | 'reminder_sent' | 'reminder_failed' | 'gmail_reconnect'
     | 'sync_failed'
-    | 'plan_limit';
+    | 'plan_limit'
+    | 'crew_missed_out';
 
 export type NotificationCategory =
     | 'clients' | 'payments' | 'overdue' | 'expiring' | 'requests' | 'stock' | 'orders' | 'community'
-    | 'reminders' | 'email' | 'sync' | 'limits';
+    | 'reminders' | 'email' | 'sync' | 'limits' | 'crew';
 
 export type NotificationTone = 'success' | 'info' | 'warning' | 'danger';
 
@@ -121,6 +122,7 @@ export const KIND_META: Record<NotificationKind, { category: NotificationCategor
     gmail_reconnect: { category: 'email', tone: 'danger' },
     sync_failed: { category: 'sync', tone: 'danger' },
     plan_limit: { category: 'limits', tone: 'warning' },
+    crew_missed_out: { category: 'crew', tone: 'warning' },
 };
 
 /** Settings › Notifications, in this order. */
@@ -137,6 +139,7 @@ export const NOTIFICATION_CATEGORIES: ReadonlyArray<{ id: NotificationCategory; 
     { id: 'email', label: 'Email problems', hint: 'A reminder couldn’t be sent, or Gmail needs to be reconnected.' },
     { id: 'sync', label: 'Offline sync problems', hint: 'A document saved offline couldn’t be saved to your account.' },
     { id: 'limits', label: 'Plan limits', hint: 'You reach a monthly limit of your plan.' },
+    { id: 'crew', label: 'Missed clock-outs', hint: 'A crew member is still clocked in at the end of the day (crew clock-in links).' },
 ];
 
 const CATEGORY_IDS = NOTIFICATION_CATEGORIES.map(c => c.id) as readonly NotificationCategory[];
@@ -747,6 +750,42 @@ export const deriveGmailNotifications = (accounts: readonly GmailAccountInput[],
                 at: changed ? ms(changed) : 0, condition: !changed, target: { kind: 'path', path: '/communication' } as NotificationTarget,
             };
         });
+
+// =====================================================================================================================
+// Crew clock-in: missed clock-outs (lib/crew/crewApi.ts fetchMissedClockOuts)
+// =====================================================================================================================
+export interface CrewMissedInput {
+    /** the clock-in punch of the open shift (one notification per shift) */
+    punchId: string;
+    memberName?: string | null;
+    jobName?: string | null;
+    /** clock-in time (ISO) */
+    since: string;
+    /** when it became a missed clock-out (ISO) */
+    overdueAt?: string | null;
+}
+
+/** "Maria is still clocked in": one per open shift; it goes away by itself once the shift is closed. */
+export const deriveCrewNotifications = (items: readonly CrewMissedInput[], ctx: DeriveContext): AppNotification[] => {
+    const out: AppNotification[] = [];
+    for (const it of items) {
+        if (!it || !it.punchId) continue;
+        const since = ms(it.since);
+        if (!since) continue;
+        const at = Math.min(ms(it.overdueAt) || since, ctx.now);
+        const name = clip(it.memberName || 'A crew member', 40);
+        const when = new Date(since);
+        const h = when.getHours();
+        const time = `${h % 12 || 12}:${String(when.getMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+        const sameDay = new Date(ctx.now).toDateString() === when.toDateString();
+        out.push({
+            id: `crew_out:${it.punchId}`, kind: 'crew_missed_out', text: `${name} didn’t clock out`,
+            detail: `Clocked in${it.jobName ? ` at ${clip(it.jobName, 40)}` : ''} ${sameDay ? 'at' : `${when.toLocaleDateString('en-US', { weekday: 'short' })}`} ${time}. Add the clock-out in Crew hours.`,
+            at, target: { kind: 'path', path: '/crew' }, actor: name,
+        });
+    }
+    return out;
+};
 
 // =====================================================================================================================
 // Offline outbox

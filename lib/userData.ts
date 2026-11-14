@@ -14,6 +14,7 @@
  *   notifications read/removed → public.user_settings 'notifications.state' (lib/notifications/model.ts, bounded)
  *   notification types / quiet → public.user_settings 'notifications.prefs' (pop-ups on/off stay on the device)
  *   default document design    → public.user_settings 'documents.design' (lib/designAccess.ts; picker + Settings)
+ *   crew overtime rule         → public.user_settings 'crew.settings' (components/crew/crewUi.tsx useOvertimeRule)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language

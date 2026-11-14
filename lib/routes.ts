@@ -36,6 +36,8 @@ export type AppView =
     | { screen: 'pricebook'; openAddModal?: boolean; prefillData?: any }
     | { screen: 'profitCalculator' }
     | { screen: 'pipeline' }
+    /** crew clock-in links: workers, their hours by week (lib/crew/*) */
+    | { screen: 'crew' }
     | { screen: 'help' }
     | { screen: 'forum'; postId?: string }
     | { screen: 'gmailCallback' }
@@ -64,6 +66,7 @@ export const parseView = (pathname: string, search: string, state: any): AppView
         case '/pricebook': return { screen: 'pricebook', openAddModal: state?.openAddModal, prefillData: state?.prefillData };
         case '/calculator': return { screen: 'profitCalculator' };
         case '/pipeline': return { screen: 'pipeline' };
+        case '/crew': return { screen: 'crew' };
         case '/tutorials': return { screen: 'help' };
         case '/forum': return { screen: 'forum', postId: state?.postId || undefined };
         case '/gmail-callback': return { screen: 'gmailCallback' };
