@@ -187,6 +187,9 @@ verifying UI with a local harness), job costing + T&M aef749bf3a0d5af15 (was wri
 redeploy ai-assistant (34e56d1 knowledge base), then add /settings#data to the AI knowledge.
 **04:20 (Nov 14) cycle 2 started** (5-hour 0%, weekly 79%). ai-assistant REDEPLOYED with the product knowledge (34e56d1).
 Resumed templates ab3e480c0eebe3ce2, pipeline a6f93a02a6c772da0, job costing aef749bf3a0d5af15. Pacing job every 5 min.
+**04:45:** pipeline board (#8) + job costing/T&M (#12) DONE and committed. Follow-ups: add /pipeline and /settings#data to
+the AI NAV_ROUTES + knowledge.ts, then redeploy ai-assistant. Templates helper ab3e480c0eebe3ce2 still running. Next:
+good/better/best (#6) after templates; DB-needing items wait for the owner's OK.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
