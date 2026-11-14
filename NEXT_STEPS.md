@@ -217,8 +217,13 @@ change (only one help tip changed). Owner OK (ask when back): public/sw.js servi
 only; network-first pages, cache-first hashed assets; the old app had an sw.js that was never registered); forms
 preloaded on job pages; price book + inventory now cached on the device (cleared on logout).
 Templates helper ab3e480c0eebe3ce2 FINISHED (native page renderer: PDF = preview; 30 old designs re-matched to 25ae5cc;
-empty-box + --pdfdiff QA). Static templates-qa 63,838 pass; full browser run with --pdfdiff running, then commit.
-Next: good/better/best (#6).
+empty-box + --pdfdiff QA).
+**07:50:** Templates COMMITTED (4074f37): full browser templates-qa --pdfdiff 70,885 checks, 0 failures (1,482 pages
+compared, worst 1.72%; 11 headless font-timeout fallbacks). Owner: please download a few PDFs to confirm they match.
+Known leftovers: paginator carries the last 2 rows with the totals (can leave a gap at the bottom of page 1,
+utils/templates paginate.ts); browsers that need the html2canvas fallback lose the dark-page logo effects.
+**07:35:** Started good/better/best (#6) helper aeff85915b68325bd (told "templates committed" at 07:50; draft SQL only
+if the client's choice needs an RPC change).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
