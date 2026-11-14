@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AuthShell, AuthField, PasswordInput, GoogleButton, OrDivider, FormMessage, friendlyAuthError } from '../pages/components/AuthShell.tsx';
 import { rememberPendingPlan } from '../pages/routes.ts';
+import { takeLoginPrefill } from '../lib/pendingPlan.ts';
 import { PLANS } from '../lib/plans.ts';
 
 interface LoginProps {
@@ -20,10 +21,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
   const [mode, setMode] = useState<'login' | 'reset'>('login');
   const [resetSent, setResetSent] = useState('');
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+  /** Signup found an existing account for this email: prefilled + explained. */
+  const [existingAccount, setExistingAccount] = useState(false);
 
   useEffect(() => {
     const pending = rememberPendingPlan(window.location.search);
     if (pending) setPendingPlan(`${PLANS[pending.plan].name} (${pending.period})`);
+    const prefill = takeLoginPrefill();
+    if (prefill?.email) {
+      setEmail(prefill.email);
+      setExistingAccount(prefill.existing);
+    }
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -111,8 +119,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
     >
       {pendingPlan ? (
         <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">
-          Log in to continue with <strong>{pendingPlan}</strong>. You can finish upgrading from Settings → Billing.
+          {existingAccount ? <>You already have an account. Log in to continue to <strong>{pendingPlan}</strong>.</> : <>Log in to continue to <strong>{pendingPlan}</strong>. We’ll take you straight to secure checkout.</>}
         </p>
+      ) : existingAccount ? (
+        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">You already have an account with this email. Log in to continue.</p>
       ) : null}
       <GoogleButton onClick={handleGoogle} disabled={loading}>Continue with Google</GoogleButton>
       <OrDivider />

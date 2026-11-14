@@ -39,9 +39,11 @@ import {
     limitsForTier, isPlanLimitError, planLimitMessage, describeError, clearUserBrowserStorage, rememberPostLoginRedirect,
     consumePostLoginRedirect, normalizeTheme, isMissingColumnError, usageMonthStart, fetchJobDocumentCount, fetchDocumentUsageByJob,
 } from './lib/account.ts';
-import { isPaidTier, normalizeTier } from './lib/plans.ts';
+import { PLANS, isPaidTier, normalizeTier } from './lib/plans.ts';
+import { captureIntentFromSearch, clearIntent, decideIntentAction, intentLabel, intentSearch, readIntent, setLoginPrefill, signupOutcome, toBillingPeriod, updateIntent, type PlanIntent } from './lib/pendingPlan.ts';
+import FinishUpgradeBanner from './components/FinishUpgradeBanner.tsx';
 import { setDesignPlan } from './lib/designPlan.ts';
-import { getBillingPortalUrl } from './lib/billing.ts';
+import { getBillingPortalUrl, startCheckout } from './lib/billing.ts';
 import { getTranslations } from './utils/translations.ts';
 import { parseView, type AppView } from './lib/routes.ts';
 import { dbApi } from './utils/db.ts';
@@ -294,6 +296,9 @@ const App: React.FC = () => {
     const [authReady, setAuthReady] = useState(false);
     const [profile, setProfile] = useState<AppProfile | null>(null);
     const [profileStatus, setProfileStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+    /** Plan picked on the website whose checkout wasn't completed (lib/pendingPlan.ts): small dismissible banner. */
+    const [upgradeBanner, setUpgradeBanner] = useState<PlanIntent | null>(null);
+    const [intentCheckoutBusy, setIntentCheckoutBusy] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [usage, setUsage] = useState<UsageSnapshot | null>(null);
     /** Free plan: documents CREATED this month per job, read from the server's usage_events (null = unknown). */
@@ -533,6 +538,7 @@ const App: React.FC = () => {
         loadedUserIdRef.current = null;
         deviceThemeChosenRef.current = false; // the next account's own theme applies
         setProfile(null);
+        setUpgradeBanner(null);
         setProfileStatus('idle');
         setLoadError(null);
         setUsage(null);
@@ -592,6 +598,8 @@ const App: React.FC = () => {
         const fullPath = location.pathname + location.search;
         if (session) {
             if (view.screen === 'auth' || view.screen === 'root' || view.screen === 'welcome') {
+                // ?plan=&period= (plan clicked on the website while signed in, or back from email confirmation / Google)
+                if (view.screen === 'auth') captureIntentFromSearch(location.search);
                 navigate(consumePostLoginRedirect() || '/dashboard', { replace: true });
             } else if (view.screen === 'notFound') {
                 navigate('/dashboard', { replace: true });
@@ -798,6 +806,82 @@ const App: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session?.user?.id]);
 
+    // ── Plan picked on the website before signing in (lib/pendingPlan.ts) ─────────────────────────────────
+    const launchIntentCheckout = useCallback(async (intent: PlanIntent, userId: string) => {
+        setIntentCheckoutBusy(true);
+        updateIntent({ checkoutStartedAt: Date.now() }); // closing the checkout → banner next time, never a forced loop
+        try {
+            const { url } = await startCheckout(intent.plan, toBillingPeriod(intent.period), userId);
+            window.location.assign(url);
+        } catch (err) {
+            setIntentCheckoutBusy(false);
+            const message = describeError(err, 'Could not start checkout. Please try again.');
+            if (/already have an active subscription/i.test(message)) {
+                clearIntent();
+                setUpgradeBanner(null);
+                toast.info("You're already on a paid plan.");
+            } else {
+                toast.error(message);
+            }
+        }
+    }, []);
+
+    /** Once per (user, plan) per page load, when the session AND the server's plan are known. */
+    const intentCheckedRef = useRef<string | null>(null);
+    useEffect(() => {
+        const user = session?.user;
+        if (!user || !profile || profileStatus !== 'ready' || usingCachedData || !isOnline) return;
+        if (view.screen === 'auth' || view.screen === 'root' || view.screen === 'welcome' || view.screen === 'updatePassword') return;
+        if (view.screen === 'billingSuccess') { // paid: the webhook activates the plan
+            clearIntent();
+            setUpgradeBanner(null);
+            return;
+        }
+        const key = `${user.id}:${plan}`;
+        if (intentCheckedRef.current === key) return;
+        intentCheckedRef.current = key;
+        const action = decideIntentAction(readIntent(), plan);
+        if (action.type === 'banner') {
+            setUpgradeBanner(updateIntent({ bannerShownAt: Date.now() }) || action.intent);
+            return;
+        }
+        setUpgradeBanner(null);
+        if (action.type === 'clear') clearIntent();
+        else if (action.type === 'alreadyOnPlan') {
+            clearIntent();
+            toast.info(`You're already on ${PLANS[action.current].name}.`);
+        } else if (action.type === 'checkout') {
+            toast.info(`Taking you to secure checkout for ${intentLabel(action.intent)}…`);
+            void launchIntentCheckout(action.intent, user.id);
+        }
+    }, [session?.user, profile, profileStatus, usingCachedData, isOnline, view.screen, plan, launchIntentCheckout]);
+
+    // Paid in another tab / closed the tab before returning: the webhook upgraded the account, so refresh the
+    // plan when the app regains focus (throttled; login already loads it).
+    const planRef = useRef(plan);
+    planRef.current = plan;
+    useEffect(() => {
+        const user = session?.user;
+        if (!user) return;
+        let last = Date.now();
+        const refresh = () => {
+            if (document.visibilityState !== 'visible' || !navigator.onLine || Date.now() - last < 60_000) return;
+            last = Date.now();
+            void loadProfileRow(user, theme).then(fresh => {
+                if (sessionUserIdRef.current !== user.id || fresh.plan === planRef.current) return;
+                loadAccountData(user, { silent: true }); // plan + usage limits
+                if (isPaidTier(fresh.plan)) toast.success(`You're on ${PLANS[fresh.plan].name} now.`);
+            }).catch(() => undefined);
+        };
+        window.addEventListener('focus', refresh);
+        document.addEventListener('visibilitychange', refresh);
+        return () => {
+            window.removeEventListener('focus', refresh);
+            document.removeEventListener('visibilitychange', refresh);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user?.id]);
+
     // Background jobs once per session: recurring invoices (VIEW-039) and community unread badge (VIEW-043).
     useEffect(() => {
         const uid = session?.user?.id;
@@ -983,11 +1067,19 @@ const App: React.FC = () => {
 
     const handleSignup = async (email: string, pass: string) => {
         if (!navigator.onLine) throw new Error("You're offline. Connect to the internet to sign up.");
+        // A paid plan picked on the website rides along in the confirmation link too (other browser/device).
+        const intent = readIntent();
         const { data, error } = await supabase.auth.signUp({
             email: email.trim(),
             password: pass,
-            options: { emailRedirectTo: `${window.location.origin}/auth/login` },
+            options: { emailRedirectTo: `${window.location.origin}/auth/login${intentSearch(intent)}` },
         });
+        if (signupOutcome(data, error) === 'alreadyRegistered') {
+            // That email already has an account: log in with it prefilled (keeping a picked plan, if any).
+            setLoginPrefill(email.trim());
+            navigate({ pathname: '/auth/login', search: intentSearch(intent) }, { replace: true });
+            return;
+        }
         if (error) throw error;
         try { sessionStorage.setItem('signup_email', email.trim()); } catch { /* ignore */ }
         // With email confirmation off, Supabase returns a session and the route guard opens the dashboard.
@@ -998,7 +1090,7 @@ const App: React.FC = () => {
         let email = '';
         try { email = sessionStorage.getItem('signup_email') || ''; } catch { /* ignore */ }
         if (!email) { navigate('/auth/signup'); return; }
-        const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${window.location.origin}/auth/login` } });
+        const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: `${window.location.origin}/auth/login${intentSearch(readIntent())}` } });
         if (error) toast.error(describeError(error));
         else toast.success(`We sent a new link to ${email}.`);
     };
@@ -1018,7 +1110,7 @@ const App: React.FC = () => {
     };
 
     const handleLoginWithGoogle = async () => {
-        const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/auth/login` } });
+        const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/auth/login${intentSearch(readIntent())}` } });
         if (error) throw error;
     };
 
@@ -2190,7 +2282,7 @@ const App: React.FC = () => {
         if (view.screen !== 'auth') return null;
         switch (view.authScreen) {
             case 'signup':
-                return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => navigate('/auth/login', { replace: true })} />;
+                return <Signup onSignup={handleSignup} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToLogin={() => navigate({ pathname: '/auth/login', search: intentSearch(readIntent()) }, { replace: true })} />;
             case 'checkEmail': {
                 let email = '';
                 try { email = sessionStorage.getItem('signup_email') || ''; } catch { /* ignore */ }
@@ -2205,7 +2297,7 @@ const App: React.FC = () => {
                 );
             }
             default:
-                return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => navigate('/auth/signup', { replace: true })} onResetPassword={handleResetPassword} />;
+                return <Login onLogin={handleLogin} onLoginWithGoogle={handleLoginWithGoogle} onSwitchToSignup={() => navigate({ pathname: '/auth/signup', search: intentSearch(readIntent()) }, { replace: true })} onResetPassword={handleResetPassword} />;
         }
     };
 
@@ -2453,6 +2545,15 @@ const App: React.FC = () => {
                     onSyncNow={() => { void outbox.sync({ trigger: 'manual', includeBlocked: true }); }}
                     onOpen={() => setOutboxOpen(true)}
                     onDismissNotices={() => { void outbox.dismiss(); }}
+                />
+            )}
+            {showNav && upgradeBanner && session?.user && !paid && (
+                <FinishUpgradeBanner
+                    planName={PLANS[upgradeBanner.plan].name}
+                    period={upgradeBanner.period}
+                    busy={intentCheckoutBusy}
+                    onUpgrade={() => { void launchIntentCheckout(upgradeBanner, session.user.id); }}
+                    onDismiss={() => setUpgradeBanner(null)}
                 />
             )}
 

@@ -83,7 +83,7 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onLoginWithGoogle, onSwitchTo
     >
       {pendingPlan ? (
         <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">
-          You picked <strong>{pendingPlan.name}</strong>, billed {pendingPlan.period}. Create your account first; you can complete the upgrade right after.
+          You picked <strong>{pendingPlan.name}</strong>, billed {pendingPlan.period}. Create your account and we’ll take you straight to secure checkout.
         </p>
       ) : null}
       <GoogleButton onClick={handleGoogle} disabled={loading}>Sign up with Google</GoogleButton>

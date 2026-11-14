@@ -4,10 +4,11 @@
  * `rootBelongsToApp` (keep both in sync).
  */
 import { BLOG_POSTS } from '../content/blog/registry.ts';
+import { PENDING_PLAN_KEY, captureIntentFromSearch } from '../lib/pendingPlan.ts';
 
 export const AUTH_STORAGE_KEY = 'contractordocs-auth'; // lib/supabase.ts storageKey
 export const LANDING_FLAG_KEY = 'cd_landing_token';
-export const PENDING_PLAN_KEY = 'cd_pending_plan';
+export { PENDING_PLAN_KEY }; // 'cd_pending_plan' (lib/pendingPlan.ts owns the intent)
 
 /** Static marketing routes (also prerendered). */
 export const STATIC_MARKETING_ROUTES = [
@@ -80,32 +81,8 @@ export const markLandingForced = (): void => {
   } catch { /* storage unavailable */ }
 };
 
-/** Remembers the plan picked on the pricing page (?plan=premium|ai&period=monthly|yearly) for after signup. */
+/** Remembers the plan picked on the pricing page (?plan=premium|ai&period=monthly|yearly) for after signup (lib/pendingPlan.ts). */
 export const rememberPendingPlan = (search: string): { plan: 'premium' | 'ai'; period: 'monthly' | 'yearly' } | null => {
-  try {
-    const params = new URLSearchParams(search);
-    const raw = (params.get('plan') || '').toLowerCase();
-    const plan = raw === 'ai' || raw === 'premium-ai' ? 'ai' : raw === 'premium' ? 'premium' : null;
-    if (raw === 'free') {
-      localStorage.removeItem(PENDING_PLAN_KEY);
-      return null;
-    }
-    if (!plan) {
-      const stored = localStorage.getItem(PENDING_PLAN_KEY);
-      if (!stored) return null;
-      const parsed = JSON.parse(stored);
-      // Forget a plan picked more than 7 days ago.
-      if (!parsed?.savedAt || Date.now() - Date.parse(parsed.savedAt) > 7 * 864e5) {
-        localStorage.removeItem(PENDING_PLAN_KEY);
-        return null;
-      }
-      return parsed.plan === 'ai' || parsed.plan === 'premium' ? { plan: parsed.plan, period: parsed.period === 'yearly' ? 'yearly' : 'monthly' } : null;
-    }
-    const period = (params.get('period') || '').toLowerCase() === 'yearly' ? 'yearly' : 'monthly';
-    const value = { plan, period } as const;
-    localStorage.setItem(PENDING_PLAN_KEY, JSON.stringify({ ...value, savedAt: new Date().toISOString() }));
-    return value;
-  } catch {
-    return null;
-  }
+  const intent = captureIntentFromSearch(search);
+  return intent ? { plan: intent.plan, period: intent.period } : null;
 };
