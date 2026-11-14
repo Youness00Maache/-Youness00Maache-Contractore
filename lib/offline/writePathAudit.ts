@@ -107,6 +107,7 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'components/photos/photosApi.ts', match: 'storage.from(JOB_PHOTOS_BUCKET).upload(path, file', what: 'photo taken offline: files', offline: 'sync' },
     { file: 'components/photos/photosApi.ts', match: "from('job_photos').update(patch)", what: 'photo change made offline', offline: 'sync' },
     { file: 'components/photos/photoUpdatesApi.ts', match: "functions.invoke('ai-assistant'", what: 'AI client update / walkthrough', offline: 'needs_connection' },
+    { file: 'lib/estimateReviewApi.ts', match: "functions.invoke('ai-assistant'", what: 'AI estimate review (the free checks work offline)', offline: 'needs_connection' },
     { file: 'components/photos/photoUpdatesApi.ts', match: "from('documents').update({ data })", what: 'AI client update: record', offline: 'needs_connection' },
     { file: 'components/photos/photoUpdatesApi.ts', match: "from('documents').insert(row)", what: 'AI client update: record', offline: 'needs_connection' },
 

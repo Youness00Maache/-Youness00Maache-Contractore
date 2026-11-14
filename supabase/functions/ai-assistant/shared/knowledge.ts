@@ -799,6 +799,21 @@ const FEATURES: KnowledgeEntry[] = [
         ],
         steps: ['Open the document and click [[AI fill]].', 'Describe the work and click [[Fill the form]].', 'Check the values, fill the form, then [[Save]].'],
     },
+    {
+        id: 'estimate-review',
+        title: 'Review estimate: a second look before you send',
+        where: ['Job', 'Estimate', 'Items', 'Review estimate'],
+        route: '/dashboard',
+        concepts: ['estimate', 'ai'],
+        keywords: ['review estimate', 'review my estimate', 'review my quote', 'check my estimate', 'check my quote', 'check the estimate', 'missing items', 'missing something', 'forgot', 'second look', 'second opinion', 'estimate reviewer', 'before sending', 'before i send'],
+        facts: [
+            'In an estimate, under the total, [[Review estimate]] opens a short list of things to check. The checks are free on every plan, instant and work offline: lines without a price, quantity 0, negative or unusually high quantities, decimals on items counted by the piece, prices below your cost or more than 25% away from your price book, a margin below your usual (from your price book) or below 10%, materials without labor (or labor without materials), no tax when your recent estimates and invoices charge tax, a discount bigger than the subtotal, a mistyped tax rate, and good / better / best options checked one by one (two options with the same lines too).',
+            'Premium + AI: the AI also looks for missing items (grout and adhesive on a tile job, primer for painting, fasteners), missing expenses (permits, dump / disposal fees, delivery, travel, rentals) and risky assumptions (hidden damage, no contingency). It uses one AI request. A suggested line gets your price-book price when it is one of your items; otherwise it has no price and you fill it in. If the AI cannot answer, the checks still show with a short note and [[Try again]].',
+            'Each row has [[Add line]] (AI suggestions) or [[Ignore]]. The estimate never changes without your click; Add line puts the line at the end (or into that option) without touching what you typed. When you click [[Share]] with important findings you never looked at, the Share window shows “N things to check”; sending is never blocked.',
+        ],
+        steps: ['Open the estimate and click [[Review estimate]] under the total.', 'Fix the lines, click [[Add line]] on a suggestion or [[Ignore]] it.', 'Click [[Save]], then [[Share]].'],
+        limits: ['The checks: every plan. The AI check: Premium + AI, one AI request each time it runs.'],
+    },
 ];
 
 /** Concepts per help guide (the guides come from helpContent.ts). */
@@ -808,6 +823,7 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     documents: ['document', 'doctypes'],
     estimates: ['estimate', 'sign'],
     'estimate-options': ['options', 'estimate', 'sign'],
+    'estimate-review': ['estimate', 'ai'],
     payments: ['pay', 'paylink', 'markpaid', 'receipt'],
     pipeline: ['pipeline', 'job'],
     'job-costing': ['costing', 'financials'],

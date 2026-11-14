@@ -40,6 +40,8 @@ interface ShareModalProps {
      * document's approval link) once the database serves purchase orders on it (lib/suppliersApi.ts). Off = unchanged.
      */
     supplierConfirm?: boolean;
+    /** a short, non-blocking note shown above the send buttons (e.g. the estimate review's "3 things to check") */
+    topNotice?: React.ReactNode;
 }
 
 const NUMBER_KEYS = ['invoiceNumber', 'estimateNumber', 'workOrderNumber', 'changeOrderNumber', 'poNumber', 'receiptNumber', 'reportNumber', 'warrantyNumber'];
@@ -116,7 +118,7 @@ const isEmailList = (value: string) => {
 
 const ShareModal: React.FC<ShareModalProps> = ({
     isOpen, onClose, data, docType, profile, documentId, publicToken, clients = [], job, hasUnsavedChanges, onDownload, getPdfDataUri,
-    defaultRecipient, recipientName, supplierConfirm = false,
+    defaultRecipient, recipientName, supplierConfirm = false, topNotice,
 }) => {
     const navigate = useNavigate();
     // offline, or a document still waiting in the offline outbox: email, links and messages wait (PDF still works)
@@ -318,6 +320,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                 </div>
 
                 <div className="space-y-5 overflow-y-auto px-5 py-4">
+                    {topNotice}
                     {hasUnsavedChanges && (
                         <p className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
                             <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" /> You have unsaved changes. Email and links use the last saved version; save first to share the latest.

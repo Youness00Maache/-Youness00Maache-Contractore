@@ -204,6 +204,39 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "estimate-review",
+        "title": "Review an estimate before you send it",
+        "summary": "A second look at an estimate: math, missing prices, odd quantities, margin, price book and tax, plus (Premium + AI) items and costs you may have forgotten.",
+        "where": [
+            "Job",
+            "Estimate",
+            "Items"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open the review",
+                "text": "Under the estimate total click [[Review estimate]]. The line next to it already says how many things there are to check."
+            },
+            {
+                "title": "Read the checks",
+                "text": "Each row says what looks wrong and on which line or option: a line without a price, a quantity of 0 or unusually high, decimals on items counted by the piece, a price below your cost or far from your [[Price book]], a margin below your usual, materials without labor, no tax when you usually charge it, a discount bigger than the subtotal, or two options with the same lines."
+            },
+            {
+                "title": "AI check (Premium + AI)",
+                "text": "The AI also looks for missing items (grout and adhesive on a tile job, primer for painting), missing expenses (permits, dump fees, delivery, travel) and risky assumptions. A suggested line gets your price-book price when it is one of your items; otherwise it has no price and you fill it in. If the AI is busy, the checks still show: click [[Try again]]."
+            },
+            {
+                "title": "Fix or ignore",
+                "text": "Fix the line yourself, click [[Add line]] on an AI suggestion (it goes at the end of the estimate, or into that option; nothing you typed changes), or click [[Ignore]]. The estimate never changes without your click. Save when you are done."
+            }
+        ],
+        "tips": [
+            "The checks are free on every plan and work offline. The AI check uses one AI request and runs again only when you ask after the estimate changed ([[Check again]]).",
+            "When you click [[Share]] and important things were never looked at, the Share window shows “3 things to check” with a Review link. It never stops you from sending."
+        ]
+    },
+    {
         "id": "quick-measure",
         "title": "Quick measure",
         "summary": "Measure a room, an area, lengths, a roof or a slab, and put the quantity on an estimate, invoice or change order line.",
