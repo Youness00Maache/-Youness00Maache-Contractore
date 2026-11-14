@@ -1,6 +1,9 @@
 /**
  * Saved suppliers: name, email, phone, account #, address, notes (public.user_settings 'suppliers.list').
  * Opened from Inventory ([[Suppliers]]) and from a purchase order's Vendor section ([[Manage]]). Every plan.
+ * Once the database has the suppliers table (`table` given, roadmap D4) it shows the richer Suppliers screen instead
+ * (SupplierBook.tsx: contact, terms, lead time, preferred, archive, and the Premium catalogue / price-list import);
+ * without `table` it is exactly the old list and editor below.
  */
 import React, { useEffect, useState } from 'react';
 import { ConfirmDialog, Field, InlineError, Modal } from '../viewKit.tsx';
@@ -9,6 +12,8 @@ import { SUPPLIER_LIMITS, isValidEmail, removeSupplier, upsertSupplier, type Sup
 import type { SyncMode } from '../../lib/userData.ts';
 import { syncNote } from './useSuppliers.ts';
 import { errorText } from '../../lib/offline/connection.ts';
+import SupplierBook from './SupplierBook.tsx';
+import type { SuppliersTable } from './useSuppliers.ts';
 
 type DraftSupplier = Pick<Supplier, 'name' | 'email' | 'phone' | 'address' | 'accountNumber' | 'notes'> & { id?: string };
 const EMPTY: DraftSupplier = { name: '', email: '', phone: '', address: '', accountNumber: '', notes: '' };
@@ -20,7 +25,12 @@ const SuppliersModal: React.FC<{
     onSave: (list: Supplier[]) => Promise<SyncMode>;
     /** opens straight on the editor, prefilled (e.g. "Save as supplier" with changes) */
     startWith?: Partial<DraftSupplier> | null;
-}> = ({ open, onClose, suppliers, onSave, startWith }) => {
+    /** the suppliers table (the database has it): show the new Suppliers screen */
+    table?: SuppliersTable | null;
+    /** Premium: the catalogue and price-list import (the new screen only) */
+    paid?: boolean;
+    onUpgrade?: (reason?: string) => void;
+}> = ({ open, onClose, suppliers, onSave, startWith, table, paid = false, onUpgrade }) => {
     const [editing, setEditing] = useState<DraftSupplier | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -73,6 +83,8 @@ const SuppliersModal: React.FC<{
             setBusy(false);
         }
     };
+
+    if (table) return <SupplierBook open={open} onClose={onClose} table={table} paid={paid} onUpgrade={onUpgrade} startWith={startWith} />;
 
     return (
         <>

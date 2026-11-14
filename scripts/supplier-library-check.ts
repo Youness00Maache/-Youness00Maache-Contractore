@@ -24,6 +24,14 @@ import {
 import type { PriceBookLibraryItem, SupplierItemRecord, SupplierRecord } from '../lib/suppliers/types.ts';
 import type { Supplier } from '../lib/suppliers.ts';
 import { WRITE_PATHS } from '../lib/offline/writePathAudit.ts';
+import {
+    NOTABLE_PCT, applySummaryText, cleanSelection, defaultSelection, diffHeadline, isNotableRow, onlyNotableUpdates, reviewSummary, setKind, summaryText,
+    toggleKey, writesForSelection,
+} from '../lib/suppliers/priceListReview.ts';
+import {
+    filterCatalogue, hasLibraryPatch, historyRows, impactSentence, isEmptyTablePlan, isWebUrl, libraryDraftFromItem, libraryPatch, normalizeUrl, prefillPoForm,
+    productHints, reorderPriceFills, rowsToSpecs, specProblem, specsToRows, sparkline, suggestForReorderGroup, suppliersTableDiff, urlProblem,
+} from '../lib/suppliers/libraryView.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
@@ -331,6 +339,219 @@ const book = (id: string, name: string, extra: Partial<PriceBookLibraryItem> = {
     check('no forbidden words', !/kelviq|merchant of record/i.test(all));
     check('pure files import no supabase / react', ['lib/suppliers/libraryLogic.ts', 'lib/suppliers/priceChange.ts', 'lib/suppliers/priceListCsv.ts', 'lib/suppliers/types.ts']
         .every((f) => !/from ['"][^'"]*(supabase|react)['"]/.test(read(f))));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 8. price-list review: ticks, summary, apply plan (phase B)
+// ---------------------------------------------------------------------------------------------------------------
+{
+    const acme = sup('s1', 'Acme');
+    const cat = [
+        item('i1', 's1', 'Stud 2x4', 10, { sku: 'ST-24' }),
+        item('i2', 's1', 'Drywall screws', 20, { sku: 'DS-1' }),
+        item('i3', 's1', 'Nails', 5, { sku: 'NL-1' }),
+        item('i4', 's1', 'Old thing', 9, { sku: 'OLD' }),
+    ];
+    const pb = [book('b1', 'Paint 5 gal', { sku: 'PT-5', cost: 40 })];
+    const parsed = parsePriceList('sku,description,unit,price\nST-24,Stud 2x4,each,10.80\nDS-1,Drywall screws,box,20.50\nNL-1,Nails,box,5\nPT-5,Paint 5 gal,each,38\nNEW-9,Mystery item,each,7\n');
+    const diff = diffPriceList(parsed.rows, { supplierId: acme.id, supplierItems: cat, priceBook: pb });
+    eq('review: kinds', [diff.counts.update, diff.counts.unchanged, diff.counts.add, diff.counts.unmatched], [2, 1, 1, 1]);
+    const def = defaultSelection(diff);
+    eq('review: default ticks = updates + price-book matches, not unmatched', Array.from(def).sort(), ['line:2', 'line:3', 'line:5']);
+    const s0 = reviewSummary(diff, def);
+    eq('review: summary', [s0.updates, s0.adds, s0.newItems, s0.writes, s0.up, s0.down, s0.notable], [2, 1, 0, 3, 2, 0, 1]);
+    check('review: a 8% rise is notable, 2.5% is not', diff.changes.filter((c) => isNotableRow(c)).map((c) => c.row.sku).join() === 'ST-24');
+    eq('review: notable threshold', NOTABLE_PCT, 5);
+    const w0 = writesForSelection(diff, def);
+    eq('review: writes match the summary', [w0.updates.length, w0.inserts.length], [s0.updates, s0.adds + s0.newItems]);
+    check('review: update patch carries the new price', w0.updates.some((u) => u.id === 'i1' && u.patch.unitPrice === 10.8));
+    check('review: add is linked to the price-book item', w0.inserts.length === 1 && w0.inserts[0].savedItemId === 'b1');
+    // untick one, tick the unmatched row
+    let sel = toggleKey(def, 'line:3');
+    check('review: toggle off', !sel.has('line:3') && def.has('line:3'), Array.from(sel));
+    sel = toggleKey(sel, 'line:6');
+    const s1 = reviewSummary(diff, sel);
+    eq('review: unmatched ticked by hand adds a new item', [s1.updates, s1.adds, s1.newItems, s1.writes], [1, 1, 1, 3]);
+    const w1 = writesForSelection(diff, sel);
+    check('review: new item has no price-book link', w1.inserts.some((i) => i.name === 'Mystery item' && !i.savedItemId));
+    eq('review: unticked rows are not written', w1.updates.map((u) => u.id), ['i1']);
+    // groups
+    eq('review: untick all updates', reviewSummary(diff, setKind(def, diff, 'update', false)).updates, 0);
+    eq('review: tick all unmatched', reviewSummary(diff, setKind(new Set(), diff, 'unmatched', true)).newItems, 1);
+    check('review: unchanged rows can never be ticked', reviewSummary(diff, setKind(new Set(), diff, 'unchanged', true)).writes === 0);
+    eq('review: only big changes', Array.from(onlyNotableUpdates(def, diff)).sort(), ['line:2', 'line:5']);
+    eq('review: stale / unchanged keys dropped', Array.from(cleanSelection(diff, new Set(['line:4', 'line:99', 'line:2']))), ['line:2']);
+    check('review: nothing ticked = nothing written', (() => { const w = writesForSelection(diff, new Set()); return !w.inserts.length && !w.updates.length; })());
+    check('review: input sets are not mutated', def.size === 3);
+    eq('review: headline', diffHeadline(diff), '2 prices changed, 1 match with your price book, 1 row not matched, 1 unchanged');
+    eq('review: empty headline', diffHeadline(diffPriceList([], { supplierId: 's1', supplierItems: [], priceBook: [] })), 'Nothing to import');
+    eq('review: summary text', summaryText(s0), '2 price updates, 1 item linked to your price book');
+    eq('review: nothing ticked text', summaryText(reviewSummary(diff, new Set())), 'Nothing ticked');
+    eq('apply text', applySummaryText({ inserted: 2, updated: 1, failed: [] }), '1 price updated and 2 items added.');
+    eq('apply text with failures', applySummaryText({ inserted: 0, updated: 3, failed: [{ id: 'x', error: 'e' }] }), '3 prices updated. 1 item could not be updated.');
+    eq('apply text nothing', applySummaryText({ inserted: 0, updated: 0, failed: [] }), 'Nothing was changed.');
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 9. library view helpers (phase B)
+// ---------------------------------------------------------------------------------------------------------------
+{
+    const h = (...p: number[]) => p.map((price, i) => ({ price, at: `2026-0${i + 1}-01T00:00:00Z` }));
+    const a = item('a', 's1', 'Alpha stud', 10, { sku: 'AL-1', priceHistory: h(10, 10.2, 12) });
+    const b = item('b', 's1', 'Beta screw', 5, { sku: 'BE-2', priceHistory: h(5) });
+    const c = item('c', 's1', 'Gamma nail', 3, { sku: 'GA-3', notes: 'special order', priceHistory: h(4, 3) });
+    const all = [c, b, a];
+    eq('catalogue: A-Z', filterCatalogue(all, '').map((i) => i.id), ['a', 'b', 'c']);
+    eq('catalogue: search sku / name / notes', [filterCatalogue(all, 'be-2').length, filterCatalogue(all, 'GAMMA').length, filterCatalogue(all, 'special').length, filterCatalogue(all, 'zzz').length], [1, 1, 1, 0]);
+    eq('catalogue: price-changed filter keeps notable changes only', filterCatalogue(all, '', { changedOnly: true }).map((i) => i.id), ['a', 'c']);
+    const rows = historyRows(a.priceHistory, 8);
+    eq('history: newest first', rows.map((r) => r.price), [12, 10.2, 10]);
+    eq('history: change vs the one before', rows.map((r) => r.change.flag), ['up', 'up', 'new']);
+    eq('history: capped', historyRows(h(1, 2, 3, 4, 5), 2).length, 2);
+    check('sparkline: none for one price', sparkline(b.priceHistory) === null);
+    const sp = sparkline(a.priceHistory);
+    check('sparkline: points oldest -> newest', !!sp && sp.points.split(' ').length === 3 && sp.trend === 'up', sp);
+    check('sparkline: falling price', sparkline(c.priceHistory)?.trend === 'down');
+    check('sparkline: flat line stays inside the box', (() => { const f = sparkline(h(5, 5, 5)); return !!f && f.trend === 'flat' && f.last.y === 10; })());
+
+    // specs + link
+    eq('specs: object -> rows', specsToRows({ Size: '3/4 in', Color: 'Red' }), [{ key: 'Size', value: '3/4 in' }, { key: 'Color', value: 'Red' }]);
+    eq('specs: rows -> object (blank rows dropped, trimmed)', rowsToSpecs([{ key: ' Size ', value: ' 3/4  in ' }, { key: '', value: 'x' }, { key: 'Empty', value: '' }]), { Size: '3/4 in' });
+    eq('specs: none left = null', rowsToSpecs([{ key: '', value: '' }]), null);
+    check('specs: round trip is stable', JSON.stringify(rowsToSpecs(specsToRows({ A: '1', B: '2' }))) === JSON.stringify({ A: '1', B: '2' }));
+    check('specs: duplicate label is a problem', !!specProblem([{ key: 'Size', value: '1' }, { key: 'size', value: '2' }]) && specProblem([{ key: 'Size', value: '1' }]) === null);
+    eq('specs: at most 30', Object.keys(rowsToSpecs(Array.from({ length: 40 }, (_, i) => ({ key: `k${i}`, value: 'v' }))) || {}).length, 30);
+    eq('url: adds https', normalizeUrl('homedepot.com/p/123'), 'https://homedepot.com/p/123');
+    eq('url: keeps a scheme', normalizeUrl('http://a.com/x'), 'http://a.com/x');
+    check('url: valid / invalid', isWebUrl('example.com/item') && isWebUrl('https://a.co') && !isWebUrl('not a link') && !isWebUrl('javascript:alert(1)') && !isWebUrl('ftp://a.com/x'));
+    check('url: problem text only when wrong', urlProblem('') === null && urlProblem('example.com') === null && !!urlProblem('hello there'));
+
+    // library patch: only what changed
+    const start = libraryDraftFromItem({ url: 'https://a.com', specs: { Size: '1' }, supplier_id: 'sup-1' });
+    eq('draft from item', [start.url, start.specs.length, start.supplierId], ['https://a.com', 1, 'sup-1']);
+    eq('draft from an item without the columns', libraryDraftFromItem({ name: 'x' }), { url: '', specs: [], supplierId: null });
+    check('patch: nothing changed = empty', !hasLibraryPatch(libraryPatch(start, { ...start })));
+    eq('patch: url only', libraryPatch(start, { ...start, url: 'b.com/x' }), { url: 'https://b.com/x' });
+    eq('patch: clearing the url writes null', libraryPatch(start, { ...start, url: '  ' }), { url: null });
+    eq('patch: specs only', libraryPatch(start, { ...start, specs: [{ key: 'Size', value: '2' }] }), { specs: { Size: '2' } });
+    eq('patch: all specs removed writes null', libraryPatch(start, { ...start, specs: [] }), { specs: null });
+    eq('patch: supplier', libraryPatch(start, { ...start, supplierId: null }), { supplierId: null });
+    check('patch: a blank spec row is not a change', !hasLibraryPatch(libraryPatch(start, { ...start, specs: [...start.specs, { key: '', value: '' }] })));
+    check('patch maps to the 3 new columns only', Object.keys(priceBookPatchToRow(libraryPatch(start, { url: 'x.com/a', specs: [], supplierId: null }))).sort().join() === 'specs,supplier_id,url');
+
+    // product hints
+    const s2 = sup('s2', 'Bulk Co');
+    const s1 = sup('s1', 'Acme');
+    const stud = book('p1', 'Stud 2x4', { sku: 'ST-24', cost: 10, rate: 15, markup: 50 });
+    const offers = [item('o1', 's1', 'Stud 2x4', 10.5, { sku: 'ST-24' }), item('o2', 's2', 'Stud 2x4', 8.4, { sku: 'ST-24' })];
+    const hint = productHints(stud, 's1', offers, [s1, s2]);
+    eq('hints: cheapest first', hint.offers.map((o) => o.supplier.name), ['Bulk Co', 'Acme']);
+    check('hints: cheapest + saving', hint.cheapest?.supplier.id === 's2' && hint.savingPerUnit === 1.6);
+    check('hints: preferred offer', hint.preferred?.supplier.id === 's1');
+    check('hints: margin impact uses the preferred supplier price', hint.impact?.offer.supplier.id === 's1' && hint.impact.impact.newCost === 10.5);
+    check('hints: impact sentence', /Acme charges \$10\.50, your cost is \$10\.00 \(\+5%\)/.test(impactSentence(hint.impact!)), impactSentence(hint.impact!));
+    check('hints: no preferred -> the cheapest is the basis', productHints(stud, null, offers, [s1, s2]).impact?.offer.supplier.id === 's2');
+    check('hints: same cost = no impact line', productHints({ ...stud, cost: 10.5 }, 's1', offers, [s1, s2]).impact === null);
+    check('hints: nothing known', (() => { const n = productHints(book('zz', 'Unknown thing'), null, offers, [s1, s2]); return !n.cheapest && !n.offers.length && n.impact === null; })());
+    check('hints: archived supplier left out', productHints(stud, null, offers, [s1, sup('s2', 'Bulk Co', { archived: true })]).cheapest?.supplier.id === 's1');
+    check('hints: price above what you charge is flagged', /more than you charge/.test(impactSentence(productHints({ ...stud, cost: 5, rate: 6 }, 's1', [item('o9', 's1', 'Stud 2x4', 9, { sku: 'ST-24' })], [s1]).impact!)));
+
+    // the old-style list the PO / reorder screens edit -> table writes
+    const r1 = sup('r1', 'Acme', { email: 'a@acme.com', notes: 'x'.repeat(500), contactName: 'Pat', paymentTerms: 'Net 30', leadTimeDays: 3 });
+    const r2 = sup('r2', 'Bulk Co', { email: 'b@bulk.com' });
+    const gone = sup('r3', 'Old Co', { archived: true, email: 'old@co.com' });
+    const records = [r1, r2, gone];
+    const same = [recordToLegacy(r1), recordToLegacy(r2)];
+    check('table diff: nothing changed = no writes (a long note is not cut)', isEmptyTablePlan(suppliersTableDiff(records, same)));
+    const edited = suppliersTableDiff(records, [{ ...recordToLegacy(r1), phone: '555-1234' }, recordToLegacy(r2)]);
+    eq('table diff: only the changed field is sent', edited.update, [{ id: 'r1', input: { phone: '555-1234' } }]);
+    const removed = suppliersTableDiff(records, [recordToLegacy(r1)]);
+    eq('table diff: a removed supplier is archived, never deleted', [removed.archive, removed.create.length], [['r2'], 0]);
+    const added = suppliersTableDiff(records, [...same, { id: 's_new', name: 'Fresh', email: 'f@x.com', phone: '', address: '', accountNumber: 'A1', notes: '', updatedAt: '2026-02-02T00:00:00Z' }]);
+    eq('table diff: a new supplier is created without a legacy key', added.create, [{ name: 'Fresh', email: 'f@x.com', phone: '', address: '', accountNumber: 'A1', notes: '' }]);
+    const back = suppliersTableDiff(records, [...same, { id: 's_x', name: 'old co', email: 'new@co.com', phone: '', address: '', accountNumber: '', notes: '', updatedAt: '2026-02-02T00:00:00Z' }]);
+    check('table diff: an archived supplier saved again comes back', back.create.length === 0 && back.update.length === 1 && back.update[0].id === 'r3' && back.update[0].input.archived === false && back.update[0].input.email === 'new@co.com', back);
+
+    // reorder suggestions + supplier prices
+    const lines = [
+        { itemId: 'inv1', name: 'Stud 2x4', sku: 'ST-24', unit: 'each', unitCost: 10 },
+        { itemId: 'inv2', name: 'Unknown bolt', sku: '', unit: 'each', unitCost: 1 },
+    ];
+    const ctx = { priceBook: [{ ...stud, supplierId: 's1' }], suppliers: [s1, s2], supplierItems: offers };
+    const sug = suggestForReorderGroup(lines, ctx);
+    check('reorder: preferred supplier of the price-book item', sug?.supplier.id === 's1' && sug.reason === 'preferred' && sug.lines === 1 && sug.total === 2, sug);
+    check('reorder: cheapest when no preferred', suggestForReorderGroup(lines, { ...ctx, priceBook: [stud] })?.supplier.id === 's2');
+    check('reorder: no suggestion when nothing is known', suggestForReorderGroup([lines[1]], ctx) === null);
+    const fills = reorderPriceFills(lines, offers, 's2');
+    check('reorder: supplier price for a matching line only', fills.size === 1 && fills.get('inv1')?.price === 8.4 && !fills.has('inv2'), Array.from(fills.entries()));
+
+    // manual purchase order
+    const po = [
+        { description: 'Stud 2x4', quantity: 10, rate: 0 },
+        { description: 'Custom thing', quantity: 1, rate: 3, unit: '' },
+        { description: 'Stud 2x4', quantity: 4, rate: 11, unit: 'ea' },
+    ];
+    const cat2 = [item('o1', 's1', 'Stud 2x4', 10.5, { sku: 'ST-24', unit: 'each' })];
+    const out = prefillPoForm(po, cat2, 's1');
+    eq('PO: price + unit filled where empty, sku in the description', [out.lines[0].rate, out.lines[0].unit, out.lines[0].description], [10.5, 'each', 'Stud 2x4 (SKU ST-24)']);
+    check('PO: a line with no match is unchanged', JSON.stringify(out.lines[1]) === JSON.stringify(po[1]));
+    check('PO: a typed price and unit are kept', out.lines[2].rate === 11 && out.lines[2].unit === 'ea');
+    eq('PO: filled count', out.filled, 2);
+    check('PO: no internal fields leak into the lines', out.lines.every((l) => !('supplierItemId' in l) && !('sku' in l)));
+    check('PO: another supplier changes nothing', prefillPoForm(po, cat2, 's2').filled === 0);
+    check('PO: sku already in the description is not repeated', prefillPoForm([{ description: 'Stud ST-24', quantity: 1, rate: 0 }], cat2, 's1').lines[0].description === 'Stud ST-24');
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 10. screens (phase B): wiring, gating, old behaviour kept
+// ---------------------------------------------------------------------------------------------------------------
+{
+    const fileOk = (f: string) => { try { return read(f).length > 200; } catch { return false; } };
+    const screens = ['components/suppliers/SupplierBook.tsx', 'components/suppliers/SupplierCatalogue.tsx', 'components/suppliers/PriceListImport.tsx',
+        'components/suppliers/ProductLibrarySection.tsx', 'components/suppliers/supplierUi.tsx', 'components/suppliers/supplierHooks.ts', 'components/suppliers/libraryCache.ts'];
+    check('new screens exist', screens.every(fileOk));
+    const code = [...screens, 'components/suppliers/useSuppliers.ts', 'lib/suppliers/libraryView.ts', 'lib/suppliers/priceListReview.ts'].map(read).join('\n');
+    check('new files: no forbidden words', !/kelviq|merchant of record/i.test(code));
+    check('pure phase B files import no supabase / react', ['lib/suppliers/libraryView.ts', 'lib/suppliers/priceListReview.ts'].every((f) => !/from ['"][^'"]*(supabase|react)['"]/.test(read(f))));
+    check('screens never talk to the database directly (all through suppliersDb)', screens.every((f) => !/supabase\.(from|rpc|storage)|from ['"][^'"]*lib\/supabase/.test(read(f))));
+    check('screens use the app\'s offline sentence', read('components/suppliers/supplierUi.tsx').includes('NEEDS_CONNECTION') && read('components/suppliers/SupplierBook.tsx').includes('OfflineLine') && read('components/suppliers/PriceListImport.tsx').includes('OfflineLine') && read('components/suppliers/ProductLibrarySection.tsx').includes('OfflineLine'));
+
+    const modal = read('components/suppliers/SuppliersModal.tsx');
+    check('SuppliersModal: new screen only with the table', /if \(table\) return <SupplierBook/.test(modal));
+    check('SuppliersModal: old list + editor still there', ['upsertSupplier', 'removeSupplier', 'Remove supplier', 'Add supplier', 'Save supplier', 'confirmDelete'].every((s) => modal.includes(s)));
+    const hook = read('components/suppliers/useSuppliers.ts');
+    check('useSuppliers: old list stays the fallback', hook.includes('loadSuppliers()') && hook.includes('saveSuppliers(next)') && hook.includes("feature === 'ready'"));
+    check('useSuppliers: table writes need a connection', hook.includes('NEEDS_CONNECTION') && hook.includes('isBrowserOffline'));
+    check('useSuppliers: a removed supplier is archived', hook.includes('archiveSupplier') && !/deleteSupplier\b/.test(hook));
+
+    const book2 = read('components/suppliers/SupplierBook.tsx');
+    check('Premium: catalogue + price list behind the plan', book2.includes('paid ? (') && (book2.match(/PremiumPrompt/g) || []).length >= 3 && book2.includes('onUpgrade'));
+    check('library cache is per user and cleared by every write', read('components/suppliers/libraryCache.ts').includes('cache.uid === uid') && ['SupplierCatalogue', 'PriceListImport', 'useSuppliers'].every((f) => read(`components/suppliers/${f}.${f === 'useSuppliers' ? 'ts' : 'tsx'}`).includes('invalidateSupplierLibrary()')));
+    check('details, list, preferred star, archive are not gated', book2.includes('togglePreferred') && book2.includes('Archive this supplier') && !/paid &&[^\n]*togglePreferred/.test(book2));
+    check('suppliers are archived, never deleted', book2.includes('table.archive') && !/deleteSupplier\(/.test(book2));
+    const imp = read('components/suppliers/PriceListImport.tsx');
+    check('import: review before apply, only ticked rows, apply needs a click', imp.includes('writesForSelection') && imp.includes('applyPriceListWrites') && imp.includes('Apply ') && imp.includes('onClick={() => void apply()}') && imp.includes('summary.writes === 0'));
+    check('import: spreadsheet files are refused with a hint', imp.includes('as a CSV file first'));
+    const lib2 = read('components/suppliers/ProductLibrarySection.tsx');
+    check('product section: hidden until the database has it, free url + specs, Premium hints', lib2.includes("ready !== 'ready'") && lib2.includes('premiumOn') && lib2.includes('PremiumNote') && lib2.includes('Specs'));
+
+    const details = read('components/PriceBookItemDetails.tsx');
+    check('price book editor: product section + only changed fields saved', details.includes('<ProductLibrarySection') && details.includes('libraryPatch(libInitial, lib)') && details.includes('...(hasLibraryPatch(library)'));
+    check('price book editor: old fields untouched', ['pb-name', 'pb-sku', 'pb-cost', 'pb-markup', 'pb-price', 'Photos', 'Components'].every((s) => details.includes(s)));
+    const view = read('components/PriceBookView.tsx');
+    check('price book view: library fields written after the item, failure reported', view.includes('updatePriceBookLibraryFields(saved.id, draft.library)') && view.includes('libraryError'));
+    check('price book view: payload still has no new columns', !/payload = \{[^}]*(supplier_id|specs|url)/s.test(view));
+
+    const reorder = read('components/suppliers/ReorderModal.tsx');
+    check('reorder: suggestions only with the table + Premium; Use button', reorder.includes('catalogueOn = !!supplierRecords && paid') && reorder.includes('Use {sg.supplier.name}') && reorder.includes('supplierRecords = null'));
+    const inv = read('components/InventoryView.tsx');
+    check('inventory passes the table, plan and upgrade', inv.includes('table={suppliersTable}') && inv.includes('supplierRecords={suppliersTable ? suppliersTable.records : null}') && inv.includes('<ReorderModal') && inv.includes('<LowStockStrip'));
+    const poForm = read('components/PurchaseOrderForm.tsx');
+    check('purchase order: catalogue fill only with the table + Premium, on pick or by a link', poForm.includes('catalogueFill = suppliersTable !== null && paid') && poForm.includes('void fillFromCatalogue(s)') && poForm.includes('Fill unit, price and SKU from'));
+    check('purchase order: old pick / save-vendor flow kept', poForm.includes('SavedSupplierPicker') && poForm.includes('saveVendor') && poForm.includes('sendToSupplier'));
+
+    const help = read('components/help/helpContent.ts');
+    check('help: catalogue, price list import, product link and specs', ['Supplier catalogue (Premium)', 'Import a price list (Premium)', 'Product link and specs', '[[Create reorder POs]]', '[[Record delivery]]'].every((s) => help.includes(s)));
 }
 
 console.log(`supplier-library-check: ${passed} passed, ${failed} failed`);

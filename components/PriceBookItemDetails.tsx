@@ -4,8 +4,16 @@ import { ImageIcon, PlusIcon, SearchIcon, StarIcon } from './Icons.tsx';
 import { Field, IMAGE_ACCEPT, InlineError, LayersIcon, Modal, NumberInput, XIcon, friendlyError, money } from './viewKit.tsx';
 import { PRICE_BOOK_DEFAULT_MARKUP, kitPriceIsManual as partsPriceIsManual, markupFromPrice, marginFromPrice, priceBookKitTotals, priceFromMarkup, type KitComponent } from '../utils/stockMath.ts';
 import { roundMoney, toNumber } from '../utils/money.ts';
+import ProductLibrarySection from './suppliers/ProductLibrarySection.tsx';
+import { hasLibraryPatch, libraryDraftFromItem, libraryPatch, specProblem, urlProblem, type LibraryDraft } from '../lib/suppliers/libraryView.ts';
+import type { PriceBookLibraryPatch } from '../lib/suppliers/types.ts';
 
-export type PriceBookDraft = Omit<Partial<SavedItem>, 'assembly_items'> & { unit?: string; assembly_items?: KitComponent[] };
+export type PriceBookDraft = Omit<Partial<SavedItem>, 'assembly_items'> & {
+  unit?: string;
+  assembly_items?: KitComponent[];
+  /** product link / specs / preferred supplier the user changed (roadmap D4); the screen writes them after the item itself */
+  library?: PriceBookLibraryPatch;
+};
 
 interface PriceBookItemDetailsProps {
   isOpen: boolean;
@@ -18,6 +26,8 @@ interface PriceBookItemDetailsProps {
   allItems: SavedItem[];
   onUploadImage?: (file: File) => Promise<string>;
   isPremium: boolean;
+  /** opens the upgrade prompt (Premium supplier hints) */
+  onUpgrade?: (reason?: string) => void;
 }
 
 const TYPES: { value: NonNullable<SavedItem['type']>; label: string }[] = [
@@ -63,7 +73,7 @@ const fromItem = (item: NonNullable<PriceBookItemDetailsProps['item']>): PriceBo
 const kitPriceIsManual = (item: PriceBookItemDetailsProps['item'] | undefined, byId: Map<string, SavedItem>): boolean =>
   !!item?.id && !!item.is_assembly && partsPriceIsManual({ rate: item.rate, assembly_items: item.assembly_items as KitComponent[] | undefined }, byId);
 
-const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onClose, onSave, item, categories, allItems, onUploadImage, isPremium }) => {
+const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onClose, onSave, item, categories, allItems, onUploadImage, isPremium, onUpgrade }) => {
   // All hooks run on every render (the early return is at the end: VIEW-029).
   const [form, setForm] = useState<PriceBookDraft>(() => (item?.id ? fromItem(item) : blankDraft(item)));
   const [saving, setSaving] = useState(false);
@@ -71,6 +81,9 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
   const [error, setError] = useState<string | null>(null);
   const [componentSearch, setComponentSearch] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  // product link, specs, preferred supplier (shown once the database has them): what the form started with and what it has now
+  const [lib, setLib] = useState<LibraryDraft>(() => libraryDraftFromItem(item));
+  const [libInitial, setLibInitial] = useState<LibraryDraft>(() => libraryDraftFromItem(item));
   const fileRef = useRef<HTMLInputElement>(null);
   const isEdit = !!item?.id;
   const byId = useMemo(() => new Map(allItems.map((i) => [i.id, i])), [allItems]);
@@ -84,6 +97,9 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
     if (!isOpen) return;
     setForm(item?.id ? fromItem(item) : blankDraft(item));
     setPriceTouched(kitPriceIsManual(item, byId));
+    const l = libraryDraftFromItem(item);
+    setLib(l);
+    setLibInitial(l);
     setError(null);
     setComponentSearch('');
   }, [isOpen, item]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -170,6 +186,9 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
     if (toNumber(form.rate) < 0 || toNumber(form.unit_cost) < 0) { setError('Prices cannot be negative.'); return; }
     // new kits only: an old kit without components (original app) can still be edited and saved
     if (isKit && !components.length && !isEdit) { setError('Add at least one component to the kit.'); return; }
+    const libraryProblem = urlProblem(lib.url) || specProblem(lib.specs);
+    if (libraryProblem) { setError(libraryProblem); return; }
+    const library = libraryPatch(libInitial, lib);
     setSaving(true);
     setError(null);
     try {
@@ -185,6 +204,7 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
         markup: Math.round(toNumber(form.markup) * 10) / 10,
         type: isKit ? 'bundle' : form.type,
         assembly_items: isKit ? components.filter((c) => toNumber(c.quantity) > 0) : [],
+        ...(hasLibraryPatch(library) ? { library } : {}),
       });
     } catch (e) {
       setError(friendlyError(e, 'Could not save the item.'));
@@ -342,6 +362,22 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
             <div><div className="text-xs text-muted-foreground">Markup</div><div className="font-bold">{markupFromPrice(form.unit_cost, form.rate) === null ? '—' : `${markupFromPrice(form.unit_cost, form.rate)}%`}</div></div>
           </div>
         </section>
+
+        {/* Product link, specs, preferred supplier + cheapest-supplier hints (only when the database has them) */}
+        <ProductLibrarySection
+          itemId={item?.id}
+          name={form.name || ''}
+          sku={form.sku || ''}
+          cost={toNumber(form.unit_cost)}
+          rate={toNumber(form.rate)}
+          markup={form.markup === undefined || form.markup === null ? null : toNumber(form.markup)}
+          isKit={isKit}
+          value={lib}
+          onChange={setLib}
+          paid={isPremium}
+          onUpgrade={onUpgrade}
+          onUseCost={onCost}
+        />
 
         {/* Photos */}
         <section className="space-y-3">

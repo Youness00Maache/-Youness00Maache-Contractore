@@ -2842,6 +2842,7 @@ const App: React.FC = () => {
                     onBack={navigateToDashboard}
                     savedItems={savedItems}
                     isPremium={paid}
+                    onUpgrade={openUpgrade}
                     onDataChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadSavedItems(uid).catch(() => undefined); }}
                     openAddModal={(view as any).openAddModal}
                     prefillData={(view as any).prefillData}

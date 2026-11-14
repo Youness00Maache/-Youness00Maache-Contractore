@@ -3,6 +3,9 @@
  * own reorder quantity, else enough to reach twice its alert level, minus what is already on order) and its unit cost
  * (the item's cost, else the price book). One Draft purchase order per supplier, filed under a job (documents need
  * one: a "Shop stock" job by default). Free users see the list and an upgrade button.
+ * With the suppliers table (`supplierRecords`, roadmap D4, Premium): a group with no saved supplier gets a suggestion
+ * (the price-book item's preferred supplier, else the cheapest in the catalogues) with a [Use] button, and a line
+ * whose supplier has it in the catalogue shows that supplier's price and orders at it. Without the table: unchanged.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import type { FormData as FormDataType, InventoryItem, Job, SavedItem, UserProfile } from '../../types.ts';
@@ -11,6 +14,10 @@ import { cx } from '../commsKit.tsx';
 import { StarIcon } from '../Icons.tsx';
 import { onOrderByItem, planReorder, type ParsedReorder, type ReorderGroup, type ReorderLine, type Supplier } from '../../lib/suppliers.ts';
 import { ReorderCreateError, createReorderPurchaseOrders, saveReorder, type OpenPurchaseOrder, type ReorderOrderInput } from '../../lib/suppliersApi.ts';
+import { listPriceBookLibrary } from '../../lib/suppliers/suppliersDb.ts';
+import { loadSupplierLibrary } from './libraryCache.ts';
+import { reorderPriceFills, suggestForReorderGroup, suggestionReasonText, type GroupSuggestion, type PriceFill, type ReorderLineLike } from '../../lib/suppliers/libraryView.ts';
+import type { PriceBookLibraryItem, SupplierItemRecord, SupplierRecord } from '../../lib/suppliers/types.ts';
 import { todayISO } from '../forms/formUtils.ts';
 import { errorText } from '../../lib/offline/connection.ts';
 
@@ -22,6 +29,8 @@ const ReorderModal: React.FC<{
     onClose: () => void;
     items: InventoryItem[];
     suppliers: Supplier[];
+    /** the suppliers table rows (the database has it); null = the old list only: no suggestions, no catalogue prices */
+    supplierRecords?: SupplierRecord[] | null;
     reorder: ParsedReorder;
     openOrders: OpenPurchaseOrder[];
     priceBook?: SavedItem[];
@@ -34,7 +43,7 @@ const ReorderModal: React.FC<{
     onCreated: (docs: FormDataType[], job: Job) => void;
     onOpenDocument?: (doc: FormDataType) => void;
     onManageSuppliers: () => void;
-}> = ({ onClose, items, suppliers, reorder, openOrders, priceBook, jobs, userId, profile, paid, onUpgrade, onAddJob, onCreated, onOpenDocument, onManageSuppliers }) => {
+}> = ({ onClose, items, suppliers, supplierRecords = null, reorder, openOrders, priceBook, jobs, userId, profile, paid, onUpgrade, onAddJob, onCreated, onOpenDocument, onManageSuppliers }) => {
     const onOrder = useMemo(() => onOrderByItem(openOrders, items), [openOrders, items]);
     const groups = useMemo(
         () => planReorder({ items, suppliers, reorderQty: reorder.qty, onOrder, priceBook }),
@@ -62,19 +71,50 @@ const ReorderModal: React.FC<{
 
     const supplierFor = (g: ReorderGroup): Supplier | null => g.supplier || suppliers.find((s) => s.id === assign[g.key]) || null;
 
+    // suppliers table + Premium: the catalogues and the price book, for suggestions and the supplier's own prices
+    const catalogueOn = !!supplierRecords && paid;
+    const [lib, setLib] = useState<{ items: SupplierItemRecord[]; book: PriceBookLibraryItem[] } | null>(null);
+    useEffect(() => {
+        if (!catalogueOn || !userId) return;
+        let alive = true;
+        Promise.all([loadSupplierLibrary(userId), listPriceBookLibrary()]).then(([l, b]) => { if (alive) setLib({ items: l.items, book: b }); }).catch(() => undefined);
+        return () => { alive = false; };
+    }, [catalogueOn, userId]);
+    const toLike = (l: ReorderLine): ReorderLineLike => ({ itemId: l.itemId, name: l.name, sku: l.sku, unit: l.unit, unitCost: l.unitCost, supplierText: l.supplierText });
+    const suggestions = useMemo(() => {
+        const out = new Map<string, GroupSuggestion>();
+        if (!lib || !supplierRecords) return out;
+        for (const g of groups) {
+            if (g.supplier) continue;
+            const sg = suggestForReorderGroup(g.lines.map(toLike), { priceBook: lib.book, suppliers: supplierRecords, supplierItems: lib.items });
+            if (sg) out.set(g.key, sg);
+        }
+        return out;
+    }, [groups, lib, supplierRecords]); // eslint-disable-line react-hooks/exhaustive-deps
+    /** the supplier's catalogue price for each line (item id) of a group that has a supplier */
+    const fills = useMemo(() => {
+        const out = new Map<string, PriceFill>();
+        if (!lib) return out;
+        for (const g of groups) {
+            const s = supplierFor(g);
+            if (s) reorderPriceFills(g.lines.map(toLike), lib.items, s.id).forEach((v, k) => out.set(k, v));
+        }
+        return out;
+    }, [groups, assign, suppliers, lib]); // eslint-disable-line react-hooks/exhaustive-deps
+
     /** One order per resolved supplier (a group assigned to a saved supplier joins that supplier's order). */
     const orders = useMemo<ReorderOrderInput[]>(() => {
         const map = new Map<string, ReorderOrderInput>();
         for (const g of groups) {
             const s = supplierFor(g);
-            const chosen: ReorderLine[] = g.lines.filter((l) => picked[l.itemId]).map((l) => ({ ...l, qty: q3(Math.max(0, qty[l.itemId] ?? l.qty)) })).filter((l) => l.qty > 0);
+            const chosen: ReorderLine[] = g.lines.filter((l) => picked[l.itemId]).map((l) => ({ ...l, qty: q3(Math.max(0, qty[l.itemId] ?? l.qty)), unitCost: fills.get(l.itemId)?.price ?? l.unitCost })).filter((l) => l.qty > 0);
             if (!chosen.length) continue;
             const key = s ? s.id : g.key;
             const prev = map.get(key);
             map.set(key, prev ? { ...prev, lines: [...prev.lines, ...chosen] } : { group: { supplier: s, vendorName: s ? s.name : g.vendorName }, lines: chosen });
         }
         return Array.from(map.values());
-    }, [groups, picked, qty, assign, suppliers]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [groups, picked, qty, assign, suppliers, fills]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const total = orders.reduce((s, o) => s + o.lines.reduce((t, l) => t + l.qty * l.unitCost, 0), 0);
     const missingEmail = orders.filter((o) => !o.group.supplier?.email).length;
@@ -194,6 +234,16 @@ const ReorderModal: React.FC<{
                                     <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => setPicked((p) => ({ ...p, ...Object.fromEntries(g.lines.map((l) => [l.itemId, !allOn])) }))}>{allOn ? 'None' : 'All'}</button>
                                 </div>
                             </div>
+                            {suggestions.get(g.key) && !assign[g.key] && (() => {
+                                const sg = suggestions.get(g.key) as GroupSuggestion;
+                                return (
+                                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-primary/5 px-3 py-1.5 text-xs">
+                                        <span className="min-w-0"><span className="text-muted-foreground">Suggested:</span> <span className="font-semibold">{sg.supplier.name}</span>
+                                            <span className="text-muted-foreground"> · {suggestionReasonText(sg.reason)}{sg.lines < sg.total ? ` · for ${sg.lines} of ${sg.total} items` : ''}</span></span>
+                                        <button type="button" className="font-semibold text-primary hover:underline" onClick={() => setAssign((a) => ({ ...a, [g.key]: sg.supplier.id }))}>Use {sg.supplier.name}</button>
+                                    </p>
+                                );
+                            })()}
                             <ul className="divide-y divide-border/70">
                                 {g.lines.map((l) => (
                                     <li key={l.itemId} className={cx('flex items-center gap-3 px-3 py-2', !picked[l.itemId] && 'opacity-60')}>
@@ -203,7 +253,9 @@ const ReorderModal: React.FC<{
                                             <p className={cx('truncate text-xs', l.stock <= 0 ? 'text-destructive' : 'text-muted-foreground')}>
                                                 {l.stock} {l.unit || 'in stock'} · alert at {l.threshold}
                                                 {l.onOrder > 0 ? ` · ${l.onOrder} on order (${l.onOrderPos.join(', ')})` : ''}
-                                                {l.unitCost > 0 ? ` · ${money(l.unitCost)}${l.costSource === 'price book' ? ' (price book)' : ''}` : ' · no cost yet'}
+                                                {fills.get(l.itemId)
+                                                    ? ` · ${s?.name || 'supplier'} price ${money(fills.get(l.itemId)!.price)}${l.unitCost > 0 && Math.abs(l.unitCost - fills.get(l.itemId)!.price) >= 0.005 ? ` (was ${money(l.unitCost)})` : ''}`
+                                                    : l.unitCost > 0 ? ` · ${money(l.unitCost)}${l.costSource === 'price book' ? ' (price book)' : ''}` : ' · no cost yet'}
                                             </p>
                                         </div>
                                         <label className="sr-only" htmlFor={`ro-${l.itemId}`}>Quantity to order</label>
