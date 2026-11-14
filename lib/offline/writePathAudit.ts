@@ -89,7 +89,11 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/suppliersApi.ts', match: "from('documents').insert(record)", what: 'purchase orders (reorder)', offline: 'needs_connection' },
     { file: 'lib/suppliersApi.ts', match: "from('documents').update({ data }).eq('id', doc.id)", what: 'purchase order update', offline: 'needs_connection' },
     { file: 'lib/suppliersApi.ts', match: '.update({ data: { ...base, [RECEIPT_KEY]: receipt } })', what: 'receive a purchase order', offline: 'needs_connection' },
-    { file: 'lib/suppliersApi.ts', match: "rpc('adjust_inventory', { p_item_id: m.itemId", what: 'receive a purchase order (stock)', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: "rpc('adjust_inventory', { p_item_id: m.itemId", what: 'receive a purchase order / record a delivery (stock)', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: "update({ data: claimData }).eq('id', documentId)", what: 'record a delivery (claim, compare-and-set)', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: "update({ data: next }).eq('id', documentId)", what: 'record a delivery (finish, compare-and-set)', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: 'storage.from(PO_FILES_BUCKET).upload(path, file', what: 'supplier invoice file upload (purchase order)', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: 'storage.from(PO_FILES_BUCKET).remove([path])', what: 'replaced / removed supplier invoice file', offline: 'background' },
 
     // ------------------------------------------------------------------------------------------- job photos
     { file: 'components/photos/photosApi.ts', match: "from('job_photos').insert(row).select", what: 'add photo (offline: kept on this device → outbox)', offline: 'queue' },

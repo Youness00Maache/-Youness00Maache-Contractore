@@ -79,6 +79,23 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   Not redeployed: helpGuides.generated.ts (help text now mentions photos/settings offline) -> next ai-assistant deploy.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
+# >>> ROADMAP N2 (helper branch worktree-agent-a7ef3645c5ed44c0c, not merged / not live): PO lifecycle + budget dashboard <<<
+- lib/poLifecycle.ts (pure, data shapes documented there): statuses Draft/Sent/Confirmed/Partially delivered/Delivered/
+  Invoiced/Paid/Cancelled (old Received = Delivered, kept as saved); deliveries in data.internalDeliveries {rev, list};
+  supplier invoice #/amount/date (feed Invoiced), paidDate, file in document-assets/<uid>/purchase-orders/<doc>/.
+- Record delivery (components/suppliers/RecordDeliveryDialog.tsx, lib/suppliersApi.ts recordDelivery): per-line qty
+  (default = remaining), adds ONLY that delivery's stock once per delivery id (claim = compare-and-set on rev; history
+  notes "[po:<id>] [dlv:<id>]" recover a delivery lost by a stale form save). Older half-way "Mark received" still
+  finishes the old way. Notifications: one per finished delivery.
+- Costing (lib/costing.ts + JobCostingPanel): spent vs ordered (committed), remaining, original/revised budget,
+  expected final cost/profit, per-kind overruns. Spent + ordered = the old "actual", so % used/alerts/projection keep
+  their numbers; Rejected POs no longer count. Insights/pipeline untouched.
+- TODO after merge (needs the ai-assistant files the other helper owns): help guide 'suppliers' still says [[Mark
+  received]] → mention [[Record delivery]], deliveries, supplier invoice, [[Mark paid]]; job-costing guide: "spent +
+  ordered"; then `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge` and redeploy ai-assistant. The AI PO status
+  enum (documentFields STATUS_OPTIONS.purchaseOrder + ai-assistant documentSchema) still lists the 4 old statuses.
+- Not checked in a browser (needs a signed-in account): the PO form strip / dialog / invoice upload and the panel.
+
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
 **2026-11-14 ~21:10 UTC: NEW BIG TASK = docs/work/COMPETITOR_ROADMAP.md** (46 competitor features: audit done,
 batches N1-N12 need no DB, D1-D13 need the owner's DB OK). Owner pacing for it: pause at 70% of the 5-hour limit,

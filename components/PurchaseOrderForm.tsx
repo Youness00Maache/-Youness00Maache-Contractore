@@ -1,8 +1,8 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { FormType, type PurchaseOrderData, type UserProfile, type Job, type Client, type SavedItem, type InventoryItem, type FormData as FormDataType } from '../types.ts';
 import { generatePurchaseOrderPDF } from '../services/pdfGenerator.ts';
-import { computeDocumentTotals } from '../utils/money.ts';
-import { TruckIcon, FileTextIcon, MapPinIcon, BoxIcon, BriefcaseIcon } from './Icons.tsx';
+import { computeDocumentTotals, toNumber } from '../utils/money.ts';
+import { TruckIcon, FileTextIcon, MapPinIcon, BoxIcon, BriefcaseIcon, ReceiptIcon } from './Icons.tsx';
 import ShareModal from './ShareModal.tsx';
 import ShareButton from './forms/ShareButton.tsx';
 import AIFillButton from './forms/AIFillButton.tsx';
@@ -13,15 +13,22 @@ import LineItemsEditor from './forms/LineItemsEditor.tsx';
 import TotalsPanel from './forms/TotalsPanel.tsx';
 import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
 import { addDaysISO, blankLineItem, isISODate, normalizeLineItems, todayISO } from './forms/formUtils.ts';
-import { SHIP_TO_TYPES, STATUS_OPTIONS } from './forms/documentFields.ts';
+import { SHIP_TO_TYPES } from './forms/documentFields.ts';
 import { isPaidTier, normalizeTier, type PlanTier } from '../lib/plans.ts';
 import { RECEIPT_KEY, findSupplierByName, supplierToVendor, upsertSupplier, vendorSaveState, vendorToSupplierInput, withAccountNumberNote, type Supplier } from '../lib/suppliers.ts';
-import type { ReceiveResult } from '../lib/suppliersApi.ts';
+import {
+    DELIVERIES_KEY, SUPPLIER_INVOICE_FILE_KEY, parseSupplierInvoiceFile, poStatusOptions, statusAfterSupplierInvoice, supplierInvoiceFileProblem,
+    withStatusDates,
+} from '../lib/poLifecycle.ts';
+import type { DeliveryResult, ReceiveResult } from '../lib/suppliersApi.ts';
 import { OrderStatusStrip, SaveVendorLine, SavedSupplierPicker } from './suppliers/PurchaseOrderSupplier.tsx';
+import { DeliveriesLog, SupplierInvoiceFields, type SupplierInvoicePatch } from './suppliers/PurchaseOrderLifecycle.tsx';
 import { syncNote, useSuppliers } from './suppliers/useSuppliers.ts';
+import { errorText } from '../lib/offline/connection.ts';
 // dialogs load when opened
 const SuppliersModal = lazy(() => import('./suppliers/SuppliersModal.tsx'));
 const ReceiveOrderDialog = lazy(() => import('./suppliers/ReceiveOrderDialog.tsx'));
+const RecordDeliveryDialog = lazy(() => import('./suppliers/RecordDeliveryDialog.tsx'));
 
 interface Props {
     job: Job;
@@ -179,6 +186,126 @@ const PurchaseOrderForm: React.FC<Props> = ({
         }
     };
 
+    // ---- deliveries, supplier invoice, paid (roadmap N2, lib/poLifecycle.ts) ----
+    const [deliverOpen, setDeliverOpen] = useState<{ deliveryId?: string } | null>(null);
+    const [invoiceNote, setInvoiceNote] = useState<string | null>(null);
+    const [fileBusy, setFileBusy] = useState(false);
+    const [pendingInvoiceFile, setPendingInvoiceFile] = useState<File | null>(null);
+
+    /** Saves first (the lines on the server are what gets delivered), then opens Record delivery. */
+    const startDelivery = async (deliveryId?: string) => {
+        setStripBusy(true);
+        try {
+            if ((await form.ensureSaved()) === 'saved') setDeliverOpen({ deliveryId });
+        } finally {
+            setStripBusy(false);
+        }
+    };
+
+    const handleDelivered = (result: DeliveryResult) => {
+        setDeliverOpen(null);
+        const saved = (result.doc.data || {}) as unknown as Record<string, unknown>;
+        if (saved[DELIVERIES_KEY]) {
+            // the claim may have given id-less lines an id: the form keeps the saved lines (it was saved just before)
+            form.replaceSilently(prev => ({
+                ...prev,
+                status: (saved.status as PurchaseOrderData['status']) || prev.status,
+                [DELIVERIES_KEY]: saved[DELIVERIES_KEY],
+                lineItems: Array.isArray(saved.lineItems) ? normalizeLineItems(saved.lineItems, false) : prev.lineItems,
+            } as PurchaseOrderData));
+        }
+        onDocumentUpdated?.(result.doc);
+        if (result.added.length) onInventoryChanged?.();
+        const n = result.added.length;
+        const message = result.saveWarning
+            || (result.status === 'already' ? 'This delivery was already recorded. Nothing was added twice.'
+                : result.status === 'partial' ? `${n} item${n === 1 ? '' : 's'} added to stock; ${result.failed.length} could not be added. Use Finish delivery to try again.`
+                    : `Delivery recorded${n ? `: ${n} item${n === 1 ? '' : 's'} added to stock` : ''}.${result.unmatched.length ? ` ${result.unmatched.length} line${result.unmatched.length === 1 ? ' is' : 's are'} tracked on the order only.` : ''}`);
+        form.setFeedback({ tone: result.status === 'partial' || result.saveWarning ? 'error' : 'success', message });
+    };
+
+    const hasInvoice = (x: { supplierInvoiceNumber?: unknown; supplierInvoiceAmount?: unknown }) =>
+        Boolean(String(x.supplierInvoiceNumber || '').trim()) || toNumber(x.supplierInvoiceAmount) > 0;
+
+    /** The supplier's invoice number / amount "feed" Invoiced: the first time one is entered, the status follows. */
+    const changeInvoice = (patch: SupplierInvoicePatch) => {
+        update(prev => {
+            const next = { ...prev, ...patch } as PurchaseOrderData;
+            if (!hasInvoice(prev) && hasInvoice(next)) {
+                const status = statusAfterSupplierInvoice(prev.status, next);
+                if (status !== prev.status) {
+                    setInvoiceNote('Status set to Invoiced.');
+                    return { ...next, status: status as PurchaseOrderData['status'] };
+                }
+            }
+            return next;
+        });
+    };
+
+    const changeStatus = (status: string) => {
+        update(prev => withStatusDates(prev as unknown as Record<string, unknown>, status, todayISO()) as unknown as PurchaseOrderData);
+    };
+
+    const markPaid = async () => {
+        changeStatus('Paid');
+        await form.save();
+    };
+
+    /** Attach: the order is saved first (the file goes in its folder), then uploaded and the order saved with it. */
+    const attachInvoiceFile = async (file: File) => {
+        const problem = supplierInvoiceFileProblem(file);
+        if (problem) { setInvoiceNote(problem); return; }
+        setInvoiceNote(null);
+        setFileBusy(true);
+        if ((await form.ensureSaved()) !== 'saved') { setFileBusy(false); return; }
+        setPendingInvoiceFile(file);
+    };
+
+    useEffect(() => {
+        if (!pendingInvoiceFile || !savedId) return;
+        const file = pendingInvoiceFile;
+        setPendingInvoiceFile(null);
+        let alive = true;
+        (async () => {
+            try {
+                const api = await import('../lib/suppliersApi.ts');
+                const meta = await api.uploadSupplierInvoiceFile(savedId, file);
+                const old = parseSupplierInvoiceFile(form.data as unknown as Record<string, unknown>)?.path;
+                update(prev => ({ ...prev, [SUPPLIER_INVOICE_FILE_KEY]: meta } as PurchaseOrderData));
+                const ok = await form.save();
+                if (ok && old && old !== meta.path) void api.removeSupplierInvoiceFile(old);
+                if (alive) setInvoiceNote(ok ? 'Invoice attached.' : 'The file is uploaded; save the order to keep it.');
+            } catch (e) {
+                if (alive) setInvoiceNote(errorText(e, 'The file could not be attached.'));
+            } finally {
+                if (alive) setFileBusy(false);
+            }
+        })();
+        return () => { alive = false; };
+    }, [pendingInvoiceFile, savedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const openInvoiceFile = async (path: string) => {
+        // open the tab first (pop-up blockers), then point it at the 1-hour signed link
+        const w = window.open('', '_blank');
+        try {
+            const api = await import('../lib/suppliersApi.ts');
+            const url = await api.supplierInvoiceFileUrl(path);
+            if (w) { w.opener = null; w.location.href = url; } else window.open(url, '_blank', 'noopener');
+        } catch (e) {
+            w?.close();
+            setInvoiceNote(errorText(e, 'The file could not be opened.'));
+        }
+    };
+
+    const removeInvoiceFile = async () => {
+        const old = parseSupplierInvoiceFile(d as unknown as Record<string, unknown>)?.path;
+        update(prev => ({ ...prev, [SUPPLIER_INVOICE_FILE_KEY]: null } as PurchaseOrderData));
+        if (await form.save()) {
+            if (old) void import('../lib/suppliersApi.ts').then(api => api.removeSupplierInvoiceFile(old));
+            setInvoiceNote('Invoice file removed.');
+        }
+    };
+
     const handleReceived = (result: ReceiveResult) => {
         setReceiveOpen(false);
         const saved = (result.doc.data || {}) as unknown as Record<string, unknown>;
@@ -230,18 +357,28 @@ const PurchaseOrderForm: React.FC<Props> = ({
                 </>
             )}
         >
-            <OrderStatusStrip data={d as unknown as Record<string, unknown>} paid={paid} onSend={sendToSupplier} onReceive={startReceive} busy={stripBusy || form.saving} />
+            <OrderStatusStrip
+                data={d as unknown as Record<string, unknown>}
+                paid={paid}
+                onSend={sendToSupplier}
+                onReceive={startReceive}
+                onDeliver={startDelivery}
+                onMarkPaid={markPaid}
+                today={todayISO()}
+                busy={stripBusy || form.saving}
+            />
 
             <FormSection title="Order details" icon={FileTextIcon}>
                 <FieldGrid>
                     <TextField label="PO #" value={d.poNumber} onChange={v => update({ poNumber: v })} />
-                    <SelectField label="Status" value={d.status} options={STATUS_OPTIONS.purchaseOrder} onChange={v => update({ status: v as PurchaseOrderData['status'] })} />
+                    <SelectField label="Status" value={d.status} options={poStatusOptions(d.status)} onChange={changeStatus} />
                     <DateField label="Order date" value={d.date} onChange={v => update({ date: v })} />
                     <DateField
                         label="Required by"
                         value={d.deliveryDate}
                         onChange={v => update({ deliveryDate: v })}
                         error={d.deliveryDate && d.date && d.deliveryDate < d.date ? 'Before the order date.' : undefined}
+                        hint="Also the expected delivery: a late order is flagged above."
                     />
                     <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Lumber order – Home Depot" fieldClassName="sm:col-span-2" />
                 </FieldGrid>
@@ -302,6 +439,23 @@ const PurchaseOrderForm: React.FC<Props> = ({
                 <TextAreaField label="Notes to vendor" value={d.notes} onChange={v => update({ notes: v })} rows={3} placeholder="Substitutions allowed? Invoice to…" />
             </FormSection>
 
+            <FormSection
+                title="Deliveries & supplier invoice"
+                description="What arrived so far, and the supplier’s bill. Not printed on the order."
+                icon={ReceiptIcon}
+            >
+                <DeliveriesLog data={d as unknown as Record<string, unknown>} onFinish={id => startDelivery(id)} busy={stripBusy || form.saving} />
+                <SupplierInvoiceFields
+                    data={d as unknown as Record<string, unknown>}
+                    onChange={changeInvoice}
+                    onAttach={attachInvoiceFile}
+                    onOpenFile={openInvoiceFile}
+                    onRemoveFile={removeInvoiceFile}
+                    fileBusy={fileBusy || form.saving}
+                    note={invoiceNote}
+                />
+            </FormSection>
+
             <CompanySection data={d} onChange={patch => update(patch)} onUploadImage={onUploadImage} title="Ordered by" />
 
             <SignatureSection value={d.signatureUrl} onChange={url => update({ signatureUrl: url })} profile={profile} title="Authorized signature" />
@@ -337,6 +491,17 @@ const PurchaseOrderForm: React.FC<Props> = ({
                         poLabel={[d.poNumber || 'Purchase order', d.vendorName].filter(Boolean).join(' · ')}
                         onClose={() => setReceiveOpen(false)}
                         onReceived={handleReceived}
+                    />
+                </Suspense>
+            )}
+            {deliverOpen && savedId && (
+                <Suspense fallback={null}>
+                    <RecordDeliveryDialog
+                        documentId={savedId}
+                        deliveryId={deliverOpen.deliveryId}
+                        poLabel={[d.poNumber || 'Purchase order', d.vendorName].filter(Boolean).join(' · ')}
+                        onClose={() => setDeliverOpen(null)}
+                        onRecorded={handleDelivered}
                     />
                 </Suspense>
             )}

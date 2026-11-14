@@ -13,7 +13,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    classifyBudgetLine, classifyExpense, classifyPurchaseLine, classifyText, costingStatus, parsePercent, priceBookTypes,
+    classifyBudgetLine, classifyExpense, classifyPurchaseLine, classifyText, costingStatus, overrunText, parsePercent, priceBookTypes,
     progressFromInvoices, resolveProgress, summarizeJobCosting, type CostingDoc,
 } from '../lib/costing.ts';
 import {
@@ -119,11 +119,15 @@ const RATE = 40;
     eq('budget split: labor / materials / expenses / other / not split', [row('labor').budget, row('materials').budget, row('expenses').budget, row('other').budget, c.unsplitBudget], [2800, 3000, null, 250, 500]);
     eq('kinds + not split add up to the budget', c.rows.reduce((s, r) => s + (r.budget ?? 0), 0) + c.unsplitBudget, c.budget);
     eq('labor actual = time sheets × labor rate (OT 1.5×)', row('labor').actual, 8 * 40 + 2 * 60 + 8 * 40 + 6 * 40);
-    eq('materials = material logs + Material expense logs + PO material lines', [row('materials').actual, row('materials').sources], [440, [{ label: 'Material logs', amount: 210 }, { label: 'Expense logs', amount: 200 }, { label: 'Purchase orders', amount: 30 }]]);
+    // roadmap N2: the Sent PO (nothing delivered yet) is COMMITTED, not spent; spent + ordered = the old "actual"
+    eq('materials: spent = material logs + Material expense logs; the Sent PO material line is ordered', [row('materials').actual, row('materials').sources, row('materials').committed], [410, [{ label: 'Material logs', amount: 210 }, { label: 'Expense logs', amount: 200 }], 30]);
     eq('expenses = fuel + parking', row('expenses').actual, 75);
-    eq('subs & other = dumpster rental + subcontractor PO line', row('other').actual, 1550);
-    eq('purchase orders: sent only, line already on a material log counted once', c.purchaseOrders, { amount: 1230, count: 1, skippedLines: 1 });
-    eq('actual = profit costs + purchase orders', c.actual, c.profitCosts + c.purchaseOrders.amount);
+    eq('subs & other: dumpster rental spent + subcontractor PO line ordered', [row('other').actual, row('other').committed], [350, 1200]);
+    eq('purchase orders: Sent = committed, Draft / Cancelled = nothing, line already on a material log counted once', c.purchaseOrders, { amount: 0, committed: 1230, count: 0, committedCount: 1, skippedLines: 1 });
+    eq('actual = profit costs + purchase orders (delivered part)', c.actual, c.profitCosts + c.purchaseOrders.amount);
+    eq('spent + ordered = the old actual (profit costs + sent POs)', c.actual + c.committed, 3065);
+    eq('remaining = revised budget − spent − ordered', c.remaining, 6550 - 3065);
+    eq('original budget = the first accepted estimate; change order on top', [c.original?.amount, c.original?.id, c.budgetChanges], [6350, 'est1', 200]);
     eq('profit part of actual = Job financials costs (one profit definition)', c.profitCosts, money.costs);
     near('% used', c.usedPct, (3065 / 6550) * 100);
     near('labor % used', row('labor').usedPct, (1000 / 2800) * 100);
@@ -157,6 +161,99 @@ const RATE = 40;
     // Insights (utils/analyticsMath.ts) costs = Job financials costs on the same documents: purchase orders stay out of profit
     const ins = computeAnalytics(DOCS as unknown as AnalyticsDoc[], '2026-11-01', '2026-11-30', { laborRate: RATE, todayYMD: '2026-11-14' });
     eq('Insights costs = Job financials costs = costing profit part', [ins.costs, money.costs], [c.profitCosts, c.profitCosts]);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 2b. roadmap N2: purchase orders split into actual (delivered / invoiced) vs committed (still expected)
+// ---------------------------------------------------------------------------------------------------------------
+{
+    const est = doc('e1', 'Estimate', {
+        status: 'Accepted', issueDate: '2026-10-01', estimateNumber: 'EST-2026-10-001',
+        lineItems: [{ description: 'Labor - install', quantity: 1, rate: 4000 } as any, { description: 'Materials', quantity: 1, rate: 3000 } as any],
+    });
+    const later = doc('e2', 'Estimate', { status: 'Accepted', issueDate: '2026-10-20', estimateNumber: 'EST-2026-10-002', lineItems: [{ description: 'Labor', quantity: 1, rate: 500 } as any] });
+    const co = doc('co', 'Change Order', { status: 'Approved', lineItems: [{ description: 'Extra materials', quantity: 1, rate: 300 } as any] });
+    const line = (id: string, description: string, quantity: number, rate: number) => ({ id, description, quantity, rate }) as any;
+    const dlv = (id: string, lines: Array<[string, number]>, state = 'done') => ({
+        id, date: '2026-11-05', note: '', at: C, claimedAt: C, state, items: [], applied: [],
+        lines: lines.map(([lineId, qty], index) => ({ lineId, index, description: '', qty })),
+    });
+    const deliveries = (...list: any[]) => ({ v: 1, rev: 'r1', list });
+    const sum = (docs: CostingDoc[], pct: number | null = null) => summarizeJobCosting(docs, { laborRate: 0, manualPercent: pct });
+
+    // partial delivery: 4 of 10 arrived → $400 spent, $600 ordered, never both
+    const partial = doc('p1', 'Purchase Order', {
+        status: 'Partially delivered', lineItems: [line('a', 'Lumber', 10, 100)], internalDeliveries: deliveries(dlv('dlv_aaaaaa', [['a', 4]])),
+    });
+    let s = sum([est, partial]);
+    eq('partially delivered: delivered quantity is spent, the rest ordered', [s.actual, s.committed], [400, 600]);
+    eq('partially delivered: spent + ordered = the PO total (not double counted)', s.actual + s.committed, 1000);
+    eq('partially delivered: PO counts', [s.purchaseOrders.count, s.purchaseOrders.committedCount], [1, 1]);
+    // the light row from the database carries the deliveries as JSON text in some drivers
+    eq('deliveries read from a JSON string too', sum([est, { ...partial, internalDeliveries: JSON.stringify(partial.internalDeliveries) }]).actual, 400);
+    // two deliveries on the same line add up; more than ordered is capped
+    s = sum([est, { ...partial, internalDeliveries: deliveries(dlv('dlv_aaaaaa', [['a', 4]]), dlv('dlv_bbbbbb', [['a', 9]])) }]);
+    eq('two deliveries add up, capped at the ordered quantity', [s.actual, s.committed], [1000, 0]);
+    // a delivery still being added (receiving) already counts as delivered
+    eq('a delivery being added counts as delivered', sum([est, { ...partial, internalDeliveries: deliveries(dlv('dlv_aaaaaa', [['a', 4]], 'receiving')) }]).actual, 400);
+
+    // statuses
+    const po = (status: string, extra: Partial<CostingDoc> = {}) => doc(`po-${status}`, 'Purchase Order', { status, lineItems: [line('a', 'Lumber', 10, 100)], ...extra });
+    eq('Sent: all committed', [sum([est, po('Sent')]).actual, sum([est, po('Sent')]).committed], [0, 1000]);
+    eq('Confirmed: all committed', sum([est, po('Confirmed')]).committed, 1000);
+    eq('Accepted (supplier confirm link, older wording): committed', sum([est, po('Accepted')]).committed, 1000);
+    eq('Delivered: all spent', [sum([est, po('Delivered')]).actual, sum([est, po('Delivered')]).committed], [1000, 0]);
+    eq('older Received: all spent, exactly like before', [sum([est, po('Received')]).actual, sum([est, po('Received')]).committed], [1000, 0]);
+    eq('older Received through Mark received (receipt done): all spent', sum([est, po('Sent', { internalStockReceipt: { state: 'done', items: [], applied: [] } })]).actual, 1000);
+    eq('Invoiced with the supplier amount: the invoice is the cost', [sum([est, po('Invoiced', { supplierInvoiceAmount: 1100 })]).actual, sum([est, po('Invoiced', { supplierInvoiceAmount: 1100 })]).committed], [1100, 0]);
+    eq('Paid without an amount: the PO total (with tax)', sum([est, po('Paid', { taxRate: 10 })]).actual, 1100);
+    eq('Invoiced before any delivery: spent, nothing committed', sum([est, po('Invoiced')]).committed, 0);
+    eq('Draft: nothing', [sum([est, po('Draft')]).actual, sum([est, po('Draft')]).committed], [0, 0]);
+    eq('Rejected (supplier can’t fill it): nothing committed', sum([est, po('Rejected')]).committed, 0);
+    eq('Cancelled after a partial delivery: only what arrived is spent', [
+        sum([est, po('Cancelled', { internalDeliveries: deliveries(dlv('dlv_cccccc', [['a', 3]])) })]).actual,
+        sum([est, po('Cancelled', { internalDeliveries: deliveries(dlv('dlv_cccccc', [['a', 3]])) })]).committed,
+    ], [300, 0]);
+    eq('Invoiced order with no prices: the invoice is a materials cost', sum([est, doc('np', 'Purchase Order', { status: 'Invoiced', supplierInvoiceAmount: 250, lineItems: [line('a', 'Lumber', 10, 0)] })]).rows.find(r => r.id === 'materials')?.actual, 250);
+
+    // budgets: original = first accepted estimate (by date), revised = + later estimate + approved change orders
+    s = sum([later, co, est, partial]);
+    eq('original budget = the earliest accepted estimate (its number)', [s.original?.amount, s.original?.label], [7000, 'EST-2026-10-001']);
+    eq('revised budget and the change', [s.budget, s.budgetChanges], [7800, 800]);
+    eq('remaining = revised − spent − ordered', s.remaining, 7800 - 400 - 600);
+    eq('no accepted estimate → no original budget', sum([partial]).original, null);
+
+    // per-kind overrun: Materials $2,000 spent + $1,400 ordered vs $3,000 budget → $400 over
+    const spentMat = doc('ml', 'Material Log', { items: [{ name: 'Drywall', quantity: 100, unitCost: 20 } as any] });
+    const orderedMat = doc('po-m', 'Purchase Order', { status: 'Confirmed', lineItems: [line('a', 'Tile', 14, 100)] });
+    s = sum([est, spentMat, orderedMat]);
+    const mat = s.rows.find(r => r.id === 'materials')!;
+    eq('materials row: budget, spent, ordered, over', [mat.budget, mat.actual, mat.committed, mat.over], [3000, 2000, 1400, 400]);
+    near('materials % used = (spent + ordered) ÷ budget', mat.usedPct, (3400 / 3000) * 100);
+    eq('overrun list', s.overruns, [{ id: 'materials', label: 'Materials', spentOrOrdered: 3400, budget: 3000, over: 400 }]);
+    eq('overrun sentence', overrunText(s.overruns[0]), 'Materials: $3,400 spent or ordered vs $3,000 budget, $400 over');
+    eq('labor under its budget is not flagged', s.rows.find(r => r.id === 'labor')?.over, null);
+    eq('a kind without a budget is never "over"', sum([est, doc('x', 'Expense Log', { category: 'Fuel', amount: 50 })]).overruns, []);
+    eq('less than $1 over is not flagged (rounding)', sum([est, doc('ml2', 'Material Log', { items: [{ name: 'x', quantity: 1, unitCost: 3000.4 } as any] })]).overruns, []);
+
+    // alerts and the projection read spent + ordered (as before N2, when a sent PO counted as actual)
+    const overByOrders = costingStatus({ budget: 1000, actual: 600, committed: 500, usedPct: 110, progress: { percent: 50, source: 'manual' }, projection: null });
+    eq('over budget counting what is ordered', [overByOrders.kind, overByOrders.detail], ['over', 'Spent and ordered costs are $100 above the budget ($500 still on order).']);
+    eq('older callers without committed still work', costingStatus({ budget: 1000, actual: 600, usedPct: 60, progress: { percent: 70, source: 'manual' }, projection: { finalCost: 857, profit: 143, margin: 14.3 } }).kind, 'ok');
+    s = sum([est, partial], 50);
+    near('expected final cost = (spent + ordered) ÷ % complete', s.projection?.finalCost, 2000, 0.01);
+    near('expected profit + margin', s.projection?.margin, ((7000 - 2000) / 7000) * 100, 0.01);
+    near('expected final cost is never below spent + ordered', sum([est, partial], 100).projection?.finalCost, 1000, 0.01);
+
+    // Insights and the profit definition never read purchase orders: unchanged by deliveries
+    const withPos = [est, spentMat, partial, orderedMat];
+    const insA = computeAnalytics(withPos as unknown as AnalyticsDoc[], '2026-10-01', '2026-11-30', { laborRate: 0, todayYMD: '2026-11-14' });
+    const insB = computeAnalytics([est, spentMat] as unknown as AnalyticsDoc[], '2026-10-01', '2026-11-30', { laborRate: 0, todayYMD: '2026-11-14' });
+    eq('Insights costs ignore purchase orders (same with or without them)', insA.costs, insB.costs);
+    eq('Job financials profit ignores purchase orders', summarizeJobMoney(withPos, { laborRate: 0 }).costs, summarizeJobMoney([est, spentMat], { laborRate: 0 }).costs);
+    check('costing selects the PO lifecycle paths', ['internalDeliveries:data->internalDeliveries', 'internalStockReceipt:data->internalStockReceipt', 'supplierInvoiceAmount:data->>supplierInvoiceAmount', 'estimateNumber:data->>estimateNumber'].every(p => read('lib/costingApi.ts').includes(p)));
+    const panel = read('components/costing/JobCostingPanel.tsx');
+    check('panel: original / revised, spent + ordered, remaining, expected final cost + profit, overruns', ['Original', 'revised', 'ordered', 'Remaining', 'Expected final cost', 'Expected profit', 'overrunText('].every(t => panel.includes(t)));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -57,7 +57,7 @@ const DUE_SELECT = [
 const ORDER_SELECT = [
     'id', 'user_id', 'job_id', 'type', 'created_at', 'poNumber:data->>poNumber', 'title:data->>title', 'status:data->>status',
     'vendorName:data->>vendorName', 'receiptState:data->internalStockReceipt->>state', 'receiptDoneAt:data->internalStockReceipt->>doneAt',
-    'receiptItems:data->internalStockReceipt->items',
+    'receiptItems:data->internalStockReceipt->items', 'deliveries:data->internalDeliveries->list',
 ].join(', ');
 
 /** Documents a client acted on in the window: signed, declined or "I've paid" (any type). */

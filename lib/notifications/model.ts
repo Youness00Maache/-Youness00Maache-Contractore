@@ -266,7 +266,19 @@ export interface DocInput {
     receiptState?: string | null;
     receiptDoneAt?: string | null;
     receiptItemCount?: number | null;
+    /** purchase orders: finished deliveries (data.internalDeliveries.list, lib/poLifecycle.ts) */
+    deliveries?: Array<{ id: string; doneAt: string; itemCount: number }> | null;
 }
+
+/** Finished deliveries of a purchase order (Record delivery): id, when, how many items went into stock. */
+const deliveriesOf = (raw: unknown): DocInput['deliveries'] => {
+    let list: unknown = raw;
+    if (typeof raw === 'string') { try { list = JSON.parse(raw); } catch { list = null; } }
+    if (!Array.isArray(list)) return null;
+    return list
+        .filter((x: any) => x && typeof x === 'object' && x.state === 'done' && !x.recovered && typeof x.id === 'string')
+        .map((x: any) => ({ id: str(x.id), doneAt: str(x.doneAt), itemCount: Array.isArray(x.items) ? x.items.length : 0 }));
+};
 
 const NUMBER_KEYS = ['invoiceNumber', 'estimateNumber', 'changeOrderNumber', 'poNumber', 'receiptNumber', 'workOrderNumber', 'reportNumber', 'warrantyNumber'] as const;
 
@@ -307,6 +319,7 @@ export const docInputOf = (row: any): DocInput => {
         receiptState: str(receipt ? receipt.state : row?.receiptState) || null,
         receiptDoneAt: str(receipt ? receipt.doneAt : row?.receiptDoneAt) || null,
         receiptItemCount: Array.isArray(parsedItems) ? parsedItems.length : (typeof row?.receiptItemCount === 'number' ? row.receiptItemCount : null),
+        deliveries: deliveriesOf(d?.internalDeliveries ? d.internalDeliveries.list : row?.deliveries),
     };
 };
 
@@ -441,6 +454,19 @@ export const deriveDocNotifications = (docs: readonly DocInput[], ctx: DeriveCon
                 out.push({
                     id: `po-received:${d.id}:${doneAt}`, kind: 'po_received',
                     text: `${label}${vendor ? ` from ${vendor}` : ''} received${n > 0 ? `: ${plural(n, 'item')} added to stock` : ''}`,
+                    detail: job || undefined, at: ms(doneAt), target,
+                });
+            }
+        }
+        // a delivery recorded on a purchase order (Record delivery finished)
+        if (group === 'po' && d.deliveries?.length) {
+            const vendor = clip(d.vendorName, 40);
+            for (const dl of d.deliveries) {
+                const doneAt = instant(dl.doneAt);
+                if (!doneAt) continue;
+                out.push({
+                    id: `po-delivery:${d.id}:${dl.id}`, kind: 'po_received',
+                    text: `${label}${vendor ? ` from ${vendor}` : ''}: delivery recorded${dl.itemCount > 0 ? `, ${plural(dl.itemCount, 'item')} added to stock` : ''}`,
                     detail: job || undefined, at: ms(doneAt), target,
                 });
             }

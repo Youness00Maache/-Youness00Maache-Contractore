@@ -8,15 +8,28 @@
  *             Split by kind from their lines (price-book type, inventory link, then the words of the line);
  *             a line that mixes labor and materials stays "not split".
  *   Actual  = the costs of the shared profit definition (lib/finance.ts: material logs + expense logs + labor at the
- *             labor rate, overtime 1.5×) + purchase orders that went out (Sent / Received). A purchase-order line for
- *             an item that is also on one of the job's material logs is counted once (in the material log).
- *   % used  = actual ÷ budget.  % complete = the latest progress-billing invoice, else the % typed on the job.
- *   Alert   = costs outrun the work: % used > % complete (or actual > budget).
+ *             labor rate, overtime 1.5×) + purchase orders, but only what has ARRIVED: the delivered quantities, or
+ *             the whole order once Delivered / Received / Invoiced / Paid (an Invoiced / Paid order with the
+ *             supplier's invoice amount costs that amount). A purchase-order line for an item that is also on one of
+ *             the job's material logs is counted once (in the material log).
+ *   Committed = purchase orders still expected (Sent / Confirmed / Partially delivered): the undelivered rest of each
+ *             line. Never counted twice: a line's delivered part is actual, its rest committed (lib/poLifecycle.ts).
+ *   % used  = (actual + committed) ÷ budget ("spent or ordered").  % complete = the latest progress-billing invoice,
+ *             else the % typed on the job.
+ *   Alert   = costs outrun the work: % used > % complete (or spent + ordered > budget).
+ *   Remaining = revised budget − actual − committed.  Original budget = the first accepted estimate (its chosen
+ *             option); revised budget = the budget above (+ approved change orders).
+ *
+ * Roadmap N2 note: before, a Sent purchase order counted whole as "actual". Now the same amount is split into actual
+ * (delivered / invoiced) + committed (still to come), so actual + committed, % used, the alerts and the projection give
+ * the same numbers as before for the same documents; only POs that a supplier can't fill ('Rejected') no longer count.
+ * Insights (utils/analyticsMath.ts) and the pipeline never read purchase orders: their numbers don't change.
  */
 import { lineItemAmount, roundMoney, toNumber, type MoneyLineItem } from '../utils/money.ts';
 import {
     documentTotals, expenseTotal, isAcceptedDoc, isType, laborOf, materialCost, moneyLines, type FinanceDoc,
 } from './finance.ts';
+import { poCostShares } from './poLifecycle.ts';
 
 export type CostCategory = 'labor' | 'materials' | 'expenses' | 'other';
 
@@ -40,6 +53,11 @@ export interface CostingDoc extends FinanceDoc {
     workerName?: string | null;
     notes?: string | null;
     poNumber?: string | null;
+    estimateNumber?: string | null;
+    /** purchase orders (lib/poLifecycle.ts): deliveries, the older one-shot receipt, the supplier's invoice amount */
+    internalDeliveries?: unknown;
+    internalStockReceipt?: unknown;
+    supplierInvoiceAmount?: number | string | null;
     /** T&M invoice: what it billed (lib/tmInvoice.ts TmRecord) */
     tm?: unknown;
     /** billed marker written on time sheets / material logs / expense logs by "Bill time & materials" */
@@ -211,11 +229,25 @@ export interface CostingRow {
     label: string;
     /** share of the budget planned for this kind (null when the estimate has no line of this kind) */
     budget: number | null;
+    /** spent: arrived / logged costs */
     actual: number;
-    /** actual ÷ budget × 100 (null without a budget for this kind) */
+    /** ordered on purchase orders, not delivered yet */
+    committed: number;
+    /** (actual + committed) ÷ budget × 100 (null without a budget for this kind) */
     usedPct: number | null;
+    /** spent or ordered above this kind's budget (null = not over, or no budget for it) */
+    over: number | null;
     /** where the actual comes from, e.g. [['Material logs', 1800], ['Purchase orders', 400]] */
     sources: Array<{ label: string; amount: number }>;
+}
+
+/** A kind whose spent + ordered costs passed its share of the budget. */
+export interface CostingOverrun {
+    id: CostCategory;
+    label: string;
+    spentOrOrdered: number;
+    budget: number;
+    over: number;
 }
 
 export type CostingStatusKind = 'nobudget' | 'unknown' | 'ok' | 'thin' | 'ahead' | 'over';
@@ -228,20 +260,36 @@ export interface CostingStatus {
 }
 
 export interface CostingSummary {
-    /** contract value (lib/finance.ts) */
+    /** contract value (lib/finance.ts) = the revised budget */
     budget: number;
+    /** the first accepted estimate (its chosen option); null without one */
+    original: { amount: number; label: string; id: string } | null;
+    /** revised − original: approved change orders (+ any later accepted estimate) */
+    budgetChanges: number;
     estimateCount: number;
     changeOrderCount: number;
     /** budget that the estimate lines don't split by kind */
     unsplitBudget: number;
+    /** spent: profit costs + what arrived on purchase orders */
     actual: number;
+    /** ordered on purchase orders, not delivered yet */
+    committed: number;
+    /** budget − actual − committed (null without a budget) */
+    remaining: number | null;
     /** the part of `actual` that is in the shared profit costs (material logs + expense logs + labor) */
     profitCosts: number;
-    purchaseOrders: { amount: number; count: number; skippedLines: number };
+    /** amount = the purchase orders' actual part; committed = their still-expected part */
+    purchaseOrders: { amount: number; committed: number; count: number; committedCount: number; skippedLines: number };
+    /** (actual + committed) ÷ budget × 100 */
     usedPct: number | null;
     rows: CostingRow[];
+    /** kinds whose spent + ordered passed their budget */
+    overruns: CostingOverrun[];
     progress: ProgressInfo;
-    /** at the current pace (needs ≥ 10% complete and a budget) */
+    /**
+     * Expected final cost at the current pace (needs ≥ 10% complete and a budget): (actual + committed) ÷ % complete,
+     * never less than what is already spent + ordered; profit and margin against the revised budget.
+     */
     projection: { finalCost: number; profit: number; margin: number } | null;
     status: CostingStatus;
 }
@@ -255,8 +303,15 @@ export const THIN_MARGIN = 10;
 const fmt = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 const pctText = (n: number) => `${Math.round(n)}%`;
 
-/** Status line: over budget, costs ahead of the work, thin margin, on track, or what is missing. */
-export const costingStatus = (s: Pick<CostingSummary, 'budget' | 'actual' | 'usedPct' | 'progress' | 'projection'>): CostingStatus => {
+/** "Materials: $3,400 spent or ordered vs $3,000 budget, $400 over" */
+export const overrunText = (o: Pick<CostingOverrun, 'label' | 'spentOrOrdered' | 'budget' | 'over'>): string =>
+    `${o.label}: ${fmt(o.spentOrOrdered)} spent or ordered vs ${fmt(o.budget)} budget, ${fmt(o.over)} over`;
+
+/**
+ * Status line: over budget, costs ahead of the work, thin margin, on track, or what is missing. "Used" is spent +
+ * ordered (`committed`, optional): the same amount a Sent purchase order counted for before roadmap N2.
+ */
+export const costingStatus = (s: Pick<CostingSummary, 'budget' | 'actual' | 'usedPct' | 'progress' | 'projection'> & { committed?: number }): CostingStatus => {
     if (!(s.budget > 0)) {
         return {
             kind: 'nobudget', tone: 'muted', title: 'No budget yet',
@@ -264,10 +319,13 @@ export const costingStatus = (s: Pick<CostingSummary, 'budget' | 'actual' | 'use
         };
     }
     const used = s.usedPct ?? 0;
-    if (s.actual > s.budget) {
+    const committed = Math.max(0, s.committed ?? 0);
+    if (s.actual + committed > s.budget) {
         return {
             kind: 'over', tone: 'danger', title: 'Over budget',
-            detail: `Costs are ${fmt(s.actual - s.budget)} above the budget (${pctText(used)} used).`,
+            detail: s.actual > s.budget || committed <= 0
+                ? `Costs are ${fmt(s.actual - s.budget)} above the budget (${pctText(used)} used).`
+                : `Spent and ordered costs are ${fmt(s.actual + committed - s.budget)} above the budget (${fmt(committed)} still on order).`,
         };
     }
     const done = s.progress.percent;
@@ -317,6 +375,8 @@ export const summarizeJobCosting = (
     const planned: Record<CostCategory, number> = { labor: 0, materials: 0, expenses: 0, other: 0 };
     const hasPlanned: Record<CostCategory, boolean> = { labor: false, materials: false, expenses: false, other: false };
     let unsplit = 0, budget = 0, estimateCount = 0, changeOrderCount = 0;
+    let original: CostingSummary['original'] = null;
+    let originalKey = '';
     for (const d of docs) {
         const isEstimate = isType(d, 'estimate');
         if (!isEstimate && !isType(d, 'change order')) continue;
@@ -324,6 +384,14 @@ export const summarizeJobCosting = (
         if (isEstimate) estimateCount++; else changeOrderCount++;
         const total = documentTotals(d).total;
         budget += total;
+        if (isEstimate) {
+            // the first accepted estimate (by its date, then when it was created) is the original budget
+            const key = `${dayOf(d) || '9999'}|${str(d.createdAt)}`;
+            if (!original || key < originalKey) {
+                original = { amount: roundMoney(total), label: str(d.estimateNumber) || str(d.title) || 'Estimate', id: str(d.id) };
+                originalKey = key;
+            }
+        }
         // an estimate with options: the lines of the option that counts (lib/estimateOptions.ts)
         const lines = moneyLines(d) as LineLike[];
         const amounts = lines.map(li => lineItemAmount(li));
@@ -369,33 +437,49 @@ export const summarizeJobCosting = (
             profitCosts += cost;
         }
     }
-    let poAmount = 0, poCount = 0, skippedLines = 0;
+    // purchase orders: the arrived part is actual, the still-expected part committed (lib/poLifecycle.ts poCostShares)
+    const committedBy: Record<CostCategory, number> = { labor: 0, materials: 0, expenses: 0, other: 0 };
+    let poAmount = 0, poCommitted = 0, poCount = 0, poCommittedCount = 0, skippedLines = 0;
     for (const d of docs) {
         if (norm(d.type) !== 'purchase order') continue;
-        const status = norm(d.status);
-        if (!status || status === 'draft' || isCancelled(status)) continue;
+        const shares = poCostShares(d as unknown as Record<string, unknown>);
         const lines = (Array.isArray(d.lineItems) ? d.lineItems : []) as LineLike[];
         const totals = documentTotals({ ...d, isProgressBilling: false, amountPaid: 0 });
-        const factor = totals.subtotal > 0 ? totals.total / totals.subtotal : 1;
-        let counted = false;
-        for (const li of lines) {
+        // tax / shipping spread over the lines; an Invoiced / Paid order with the supplier's amount costs that amount
+        const factor = shares.invoiceAmount !== null
+            ? (totals.subtotal > 0 ? shares.invoiceAmount / totals.subtotal : 0)
+            : totals.subtotal > 0 ? totals.total / totals.subtotal : 1;
+        let counted = false, committedHere = false;
+        lines.forEach((li, i) => {
+            const share = shares.lines[i] || { actualShare: 0, committedShare: 0 };
+            if (!(share.actualShare > 0) && !(share.committedShare > 0)) return;
             const amount = lineItemAmount(li) * factor;
-            if (!amount) continue;
+            if (!amount) return;
             const name = norm(li.description ?? li.name);
             const inv = str(li.inventoryItemId ?? li.item_id);
-            if ((name && loggedNames.has(name)) || (inv && loggedItems.has(inv))) { skippedLines++; continue; }
-            add(classifyPurchaseLine(li, types), 'Purchase orders', amount);
-            poAmount += amount;
+            if ((name && loggedNames.has(name)) || (inv && loggedItems.has(inv))) { skippedLines++; return; }
+            const kind = classifyPurchaseLine(li, types);
+            const spent = amount * share.actualShare;
+            const ordered = amount * share.committedShare;
+            if (spent) { add(kind, 'Purchase orders', spent); poAmount += spent; counted = true; }
+            if (ordered) { committedBy[kind] += ordered; poCommitted += ordered; committedHere = true; }
+        });
+        // the supplier billed an order without prices: its invoice is a materials cost
+        if (shares.invoiceAmount !== null && !(totals.subtotal > 0)) {
+            add('materials', 'Purchase orders', shares.invoiceAmount);
+            poAmount += shares.invoiceAmount;
             counted = true;
         }
         if (counted) poCount++;
+        if (committedHere) poCommittedCount++;
     }
 
     const rows: CostingRow[] = COST_CATEGORIES.map(({ id, label }) => {
         const src = Array.from(sources[id].entries()).map(([l, a]) => ({ label: l, amount: roundMoney(a) })).filter(x => x.amount !== 0);
         const actual = roundMoney(src.reduce((s, x) => s + x.amount, 0));
+        const committed = roundMoney(committedBy[id]);
         const rowBudget = hasPlanned[id] ? roundMoney(planned[id]) : null;
-        return { id, label, budget: rowBudget, actual, usedPct: rowBudget && rowBudget > 0 ? pct(actual, rowBudget) : null, sources: src };
+        return { id, label, budget: rowBudget, actual, committed, usedPct: rowBudget && rowBudget > 0 ? pct(actual + committed, rowBudget) : null, over: null, sources: src };
     });
     // rounding: the kinds + "not split" add up to the budget exactly
     let unsplitBudget = roundMoney(unsplit);
@@ -407,24 +491,40 @@ export const summarizeJobCosting = (
             const biggest = rows.filter(r => r.budget !== null).sort((a, b) => Math.abs(b.budget as number) - Math.abs(a.budget as number))[0];
             if (biggest) {
                 biggest.budget = roundMoney((biggest.budget as number) + drift);
-                biggest.usedPct = biggest.budget > 0 ? pct(biggest.actual, biggest.budget) : null;
+                biggest.usedPct = biggest.budget > 0 ? pct(biggest.actual + biggest.committed, biggest.budget) : null;
             }
+        }
+    }
+    // overrun per kind: spent + ordered above that kind's share of the budget (≥ $1, so rounding never flags)
+    const overruns: CostingOverrun[] = [];
+    for (const r of rows) {
+        if (r.budget === null || !(r.budget > 0)) continue;
+        const spentOrOrdered = roundMoney(r.actual + r.committed);
+        const over = roundMoney(spentOrOrdered - r.budget);
+        if (over >= 1) {
+            r.over = over;
+            overruns.push({ id: r.id, label: r.label, spentOrOrdered, budget: r.budget, over });
         }
     }
 
     const actual = roundMoney(rows.reduce((s, r) => s + r.actual, 0));
-    const usedPct = budget > 0 ? pct(actual, budget) : null;
+    const committed = roundMoney(rows.reduce((s, r) => s + r.committed, 0));
+    const used = roundMoney(actual + committed);
+    const usedPct = budget > 0 ? pct(used, budget) : null;
     const progress = resolveProgress(docs, options.manualPercent);
     let projection: CostingSummary['projection'] = null;
-    if (budget > 0 && progress.percent !== null && progress.percent >= ALERT_MIN_COMPLETE && actual > 0) {
-        const finalCost = roundMoney(actual / (progress.percent / 100));
+    if (budget > 0 && progress.percent !== null && progress.percent >= ALERT_MIN_COMPLETE && used > 0) {
+        const finalCost = roundMoney(Math.max(used, used / (progress.percent / 100)));
         const profit = roundMoney(budget - finalCost);
         projection = { finalCost, profit, margin: (profit / budget) * 100 };
     }
     const summary: CostingSummary = {
-        budget, estimateCount, changeOrderCount, unsplitBudget, actual, profitCosts: roundMoney(profitCosts),
-        purchaseOrders: { amount: roundMoney(poAmount), count: poCount, skippedLines },
-        usedPct, rows, progress, projection,
+        budget, original, budgetChanges: original ? roundMoney(budget - original.amount) : 0,
+        estimateCount, changeOrderCount, unsplitBudget, actual, committed,
+        remaining: budget > 0 ? roundMoney(budget - actual - committed) : null,
+        profitCosts: roundMoney(profitCosts),
+        purchaseOrders: { amount: roundMoney(poAmount), committed: roundMoney(poCommitted), count: poCount, committedCount: poCommittedCount, skippedLines },
+        usedPct, rows, overruns, progress, projection,
         status: { kind: 'nobudget', tone: 'muted', title: '', detail: '' },
     };
     summary.status = costingStatus(summary);

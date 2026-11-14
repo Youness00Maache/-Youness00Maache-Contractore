@@ -355,6 +355,10 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
         payments: _payments, paidAt: _paidAt, reviewRequestedAt: _review,
         // a copy of a purchase order starts un-received (lib/suppliers.ts RECEIPT_KEY) and is not a reorder record
         internalStockReceipt: _stockReceipt, internalReorder: _reorder,
+        // ... with no deliveries, and the supplier's invoice / payment belong to the original (lib/poLifecycle.ts)
+        internalDeliveries: _deliveries, internalSupplierInvoiceFile: _invoiceFile,
+        supplierInvoiceNumber: _supplierInvoiceNumber, supplierInvoiceAmount: _supplierInvoiceAmount,
+        supplierInvoiceDate: _supplierInvoiceDate, paidDate: _paidDate,
         // the client's pick of a good/better/best option belongs to the original's signature
         clientOptionChoice: _optionChoice,
         [LIGHTWEIGHT_DOCUMENT_FLAG]: _flag,

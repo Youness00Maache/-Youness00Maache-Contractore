@@ -39,6 +39,11 @@ export const COSTING_COLUMNS = [
     'invoiceNumber:data->>invoiceNumber',
     'invoiceId:data->>invoiceId',
     'poNumber:data->>poNumber',
+    'estimateNumber:data->>estimateNumber',
+    // purchase orders: what arrived (actual) vs what is still expected (committed), lib/poLifecycle.ts
+    'internalDeliveries:data->internalDeliveries',
+    'internalStockReceipt:data->internalStockReceipt',
+    'supplierInvoiceAmount:data->>supplierInvoiceAmount',
     'description:data->>description',
     'title:data->>title',
     'clientSignedAt:data->>clientSignedAt',
