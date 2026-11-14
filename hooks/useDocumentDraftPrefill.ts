@@ -13,19 +13,26 @@
  * - Values are coerced: numbers never NaN, dates local YYYY-MM-DD, enums matched case-insensitively,
  *   HTML converted to plain text for plain-text fields and sanitized for rich fields, line items get ids.
  * - Blank values never overwrite existing values. `signatureRequested: false` clears the signature.
+ * - Estimate `estimateOptions` (the assistant's good / better / best draft, saved format of lib/estimateOptions.ts):
+ *   opened like a saved estimate (unpackOptionsForEdit): option lines get their internal costs back from
+ *   `estimateOptionsInternal` (never from the option lines themselves), lineItems mirror the option that counts. An AI
+ *   draft never carries the client's choice or an applied option.
  */
 import { useEffect, useRef, useState } from 'react';
-import { FormType } from '../types.ts';
+import { FormType, type LineItem } from '../types.ts';
 import { roundMoney } from '../utils/money.ts';
 import { resolveTemplateId as resolveStyleDescription } from '../src/utils/aiTemplateUtils.ts';
 import { isTemplateId, LEGACY_TEMPLATE_MAP, TEMPLATE_KEYWORDS, resolveTemplateId as resolveDesignId } from '../utils/templates/registry.ts';
 import {
     clamp, hashValue, htmlToPlainText, looksLikeHtml, matchOption, normalizeDateValue, normalizeHexColor,
-    normalizeImageUrl, normalizeLineItems, normalizeLinkUrl, normalizeMaterialItems, plainTextToHtml,
+    normalizeImageUrl, normalizeLineItem, normalizeLineItems, normalizeLinkUrl, normalizeMaterialItems, plainTextToHtml,
     sanitizeEditorHtml, toBool, toNumberOrNull, toSingleLine,
 } from '../components/forms/formUtils.ts';
 import { getAliases, getFieldSpecs, RECURRENCE_FREQUENCIES, type FieldSpec } from '../components/forms/documentFields.ts';
 import { isDraftConsumed as isStoredDraftConsumed, markDraftConsumed as markStoredDraftConsumed } from '../src/ai/draftStore.ts';
+import {
+    OPTION_DESCRIPTION_MAX, OPTION_MAX, OPTION_MIN, OPTION_NAME_MAX, defaultOptionName, readOptionSet, unpackOptionsForEdit, type OptionSet,
+} from '../lib/estimateOptions.ts';
 
 /** Meta / control keys that are never copied into document data. */
 const CONTROL_KEYS = new Set([
@@ -34,7 +41,7 @@ const CONTROL_KEYS = new Set([
     'secondary_color', 'signatureRequested', 'deductInventory', 'inventoryDeductedAt', 'showPaymentLink',
     'paymentLinkRequested', 'document_type', 'documentType', 'formType', 'missing_fields', 'partial_draft',
     'clientSignatureUrl', 'clientSignedAt', 'clientSignedBy', 'clientSignerName', 'public_token', 'id',
-    'createdAt', 'created_at', 'viewedByProvider', '__lightweight', 'clientOptionChoice',
+    'createdAt', 'created_at', 'viewedByProvider', '__lightweight', 'clientOptionChoice', 'estimateOptionsInternal',
 ]);
 
 const VOLATILE_KEYS = new Set(['ai_open_mode', 'auto_submit', 'start_page', '__autoSave']);
@@ -68,6 +75,52 @@ export const getDraftKey = (formType: FormType, prefill: unknown): string | null
 
 export const isAutoSaveDraft = (prefill: unknown): boolean =>
     isPlainObject(prefill) && (prefill.__autoSave === true || prefill.auto_submit === true);
+
+/**
+ * The assistant's options (Estimate): 2–4 options with lines, Recommended kept when valid. Lines keep only what the
+ * client may see (id, description, quantity, rate, unit); internal costs come separately (estimateOptionsInternal).
+ * The client's choice and an applied option are never taken from an AI draft.
+ */
+const coerceOptionSet = (value: unknown): OptionSet | undefined => {
+    const set = readOptionSet({ estimateOptions: value });
+    if (!set) return undefined;
+    const usedIds = new Set<string>();
+    const clean = (lines: LineItem[]): LineItem[] => lines.map(li => {
+        const r = li as unknown as Record<string, unknown>;
+        const pick = (keys: string[]) => keys.map(k => r[k]).find(v => v !== undefined && v !== null && v !== '');
+        const row: Record<string, unknown> = {
+            id: r.id,
+            description: pick(['description', 'name', 'item', 'title']),
+            quantity: pick(['quantity', 'qty']),
+            rate: pick(['rate', 'price', 'unitPrice', 'unit_price', 'amount']),
+        };
+        if (typeof r.unit === 'string') row.unit = r.unit;
+        return normalizeLineItem(row, usedIds);
+    }).filter((x): x is LineItem => Boolean(x && x.description));
+    const options = set.options
+        .map((o, i) => ({ id: o.id, name: toSingleLine(o.name).slice(0, OPTION_NAME_MAX) || defaultOptionName(i), ...(toSingleLine(o.description ?? '') ? { description: toSingleLine(o.description ?? '').slice(0, OPTION_DESCRIPTION_MAX) } : {}), lineItems: clean(o.lineItems) }))
+        .filter(o => o.lineItems.length)
+        .slice(0, OPTION_MAX);
+    if (options.length < OPTION_MIN) return undefined;
+    return {
+        version: 1,
+        kind: 'estimate',
+        options,
+        sharedLineItems: clean(set.sharedLineItems),
+        ...(options.some(o => o.id === set.recommendedId) ? { recommendedId: set.recommendedId } : {}),
+    };
+};
+
+/** { [lineId]: { unitCost } } from an AI draft: only non-negative numeric costs. */
+const coerceOptionCosts = (value: unknown): Record<string, Record<string, unknown>> => {
+    const out: Record<string, Record<string, unknown>> = {};
+    if (!isPlainObject(value)) return out;
+    for (const [id, v] of Object.entries(value)) {
+        const cost = isPlainObject(v) ? toNumberOrNull(v.unitCost ?? v.unit_cost) : null;
+        if (id && cost !== null && cost >= 0) out[id] = { unitCost: roundMoney(cost) };
+    }
+    return out;
+};
 
 const coerceTags = (v: unknown): string[] | null => {
     const list = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : null;
@@ -149,6 +202,8 @@ const coerceField = (spec: FieldSpec, value: unknown, prev: Record<string, unkno
             return isPlainObject(value) && Object.keys(value).length ? value : undefined;
         case 'tags':
             return coerceTags(value) ?? undefined;
+        case 'estimateOptions':
+            return coerceOptionSet(value);
         case 'recurrence': {
             if (!isPlainObject(value)) return undefined;
             const prevRec = isPlainObject(prev[key]) ? (prev[key] as Record<string, unknown>) : {};
@@ -221,6 +276,16 @@ export function mergeDraftIntoForm<T extends object>(formType: FormType, prev: T
     if (specs.signatureUrl && !('signatureUrl' in updates)) {
         const requested = toBool(prefill.signatureRequested);
         if (requested === false) { updates.signatureUrl = ''; appliedKeys.push('signatureUrl'); used.add('signatureRequested'); }
+    }
+    if (updates.estimateOptions) {
+        // opened like a saved options estimate: internal costs back on the lines, lineItems = the option that counts
+        const opened = unpackOptionsForEdit(
+            { ...prevRecord, ...updates, estimateOptionsInternal: coerceOptionCosts(prefill.estimateOptionsInternal) },
+            lines => normalizeLineItems(lines),
+        ) as Record<string, unknown>;
+        updates.estimateOptions = opened.estimateOptions;
+        updates.lineItems = opened.lineItems;
+        if (!appliedKeys.includes('lineItems')) appliedKeys.push('lineItems');
     }
     if (formType === FormType.ExpenseLog && !('lineItems' in updates) && typeof prefill.item === 'string' && prefill.item.trim()) {
         const amount = (updates.amount as number | undefined) ?? 0;

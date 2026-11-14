@@ -194,7 +194,8 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ],
         "tips": [
             "Until the client chooses, invoices, the job budget, the pipeline and Insights use the Recommended option (or the lowest total when none is Recommended).",
-            "[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged."
+            "[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged.",
+            "The AI assistant can draft them: in [[AI Command]] or a job’s [[AI Assistant]], ask for example “good / better / best estimate for a 12 × 14 deck” with each option’s lines and prices. The estimate opens with the options filled in (prices you did not give stay empty); nothing is saved until you click [[Save]]."
         ]
     },
     {
@@ -366,7 +367,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             },
             {
                 "title": "Ask",
-                "text": "Type or dictate what you need, for example “draft an estimate for a 12 × 14 deck”. Type @ to pick a client and # to pick a document. You can attach up to 3 photos."
+                "text": "Type or dictate what you need, for example “draft an estimate for a 12 × 14 deck” or “good / better / best options for a new roof”. Type @ to pick a client and # to pick a document. You can attach up to 3 photos."
             },
             {
                 "title": "Review before anything happens",

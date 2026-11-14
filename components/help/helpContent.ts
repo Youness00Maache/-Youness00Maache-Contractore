@@ -123,7 +123,11 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Send it', text: 'The PDF lists every option with its lines and total, marks the Recommended one and asks the client to choose one. On the approval link or in the portal the client taps an option, then signs with [[Approve & sign]].' },
       { title: 'Apply the choice', text: 'The estimate shows which option the client chose. Click [[Apply chosen option]]: the estimate becomes that option with one total, ready for [[Convert to invoice]]. If the client told you by phone, pick it under Client told you?.' },
     ],
-    tips: ['Until the client chooses, invoices, the job budget, the pipeline and Insights use the Recommended option (or the lowest total when none is Recommended).', '[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged.'],
+    tips: [
+      'Until the client chooses, invoices, the job budget, the pipeline and Insights use the Recommended option (or the lowest total when none is Recommended).',
+      '[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged.',
+      'The AI assistant can draft them: in [[AI Command]] or a job’s [[AI Assistant]], ask for example “good / better / best estimate for a 12 × 14 deck” with each option’s lines and prices. The estimate opens with the options filled in (prices you did not give stay empty); nothing is saved until you click [[Save]].',
+    ],
   },
   {
     id: 'quick-measure',
@@ -200,7 +204,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     appPath: '/dashboard',
     steps: [
       { title: 'Open it', text: 'Click [[AI Command]] on the dashboard (on a phone, the sparkle button), or [[AI Assistant]] on a job page to work on that job.' },
-      { title: 'Ask', text: 'Type or dictate what you need, for example “draft an estimate for a 12 × 14 deck”. Type @ to pick a client and # to pick a document. You can attach up to 3 photos.' },
+      { title: 'Ask', text: 'Type or dictate what you need, for example “draft an estimate for a 12 × 14 deck” or “good / better / best options for a new roof”. Type @ to pick a client and # to pick a document. You can attach up to 3 photos.' },
       { title: 'Review before anything happens', text: 'The assistant proposes; nothing is created or sent until you click. Drafts show [[Open & edit]], [[Save]] and [[Discard]]. Other proposals show [[Review & create]], [[Review & add]] or a send button. Multi-step plans offer [[Do it all]].' },
       { title: 'Keep your chats', text: '[[Past chats]] reopens earlier conversations; [[New chat]] starts fresh.' },
       { title: 'Fill one form', text: 'Inside a document, [[AI fill]] fills just that form from your description.' },

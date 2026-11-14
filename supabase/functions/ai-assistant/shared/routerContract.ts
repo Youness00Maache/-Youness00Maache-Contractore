@@ -12,6 +12,7 @@ import {
     resolveDocKey, toLocalYmd, toNumberOrUndefined, toPlainText, type DocKey, type NormalizeOptions,
 } from './documentSchema.ts';
 import { HOW_TO_DO_ACTIONS, KNOWN_LABELS, NAV_ROUTES, scoreKnowledge, type HowToDoAction } from './knowledge.ts';
+import { draftEstimateOptions, type ModelEstimateOption } from './estimateOptionsDraft.ts';
 
 export const ROUTER_ACTIONS = [
     'CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY',
@@ -306,7 +307,13 @@ export interface ModelOutput {
     reply_text: string;
     document_type?: string | null;
     fields?: Array<{ key: string; value: string }>;
-    line_items?: Array<{ description: string; quantity?: number; rate?: number; unit_cost?: number | null; supplier?: string | null }>;
+    line_items?: Array<{
+        description: string; quantity?: number; rate?: number; unit_cost?: number | null; supplier?: string | null;
+        /** Estimate with options: the option this line belongs to ("ALL" or empty = in every option). */
+        option?: string | null;
+    }>;
+    /** Estimate with good / better / best options (dashboard and job scope): 2–4 options; lines say their option. */
+    estimate_options?: ModelEstimateOption[] | null;
     missing_fields?: string[];
     job_id?: string | null;
     client_ids?: string[];
@@ -335,6 +342,8 @@ export interface ModelPlanStep {
     document_type?: string | null;
     fields?: Array<{ key: string; value: string }>;
     line_items?: ModelOutput['line_items'];
+    /** Estimate step with good / better / best options (same shape as the single action). */
+    estimate_options?: ModelEstimateOption[] | null;
     /** ref of a CREATE_JOB step of this plan, or job_id of an existing job (CONTEXT DATA). */
     job_ref?: string | null;
     job_id?: string | null;
@@ -354,20 +363,39 @@ export interface ModelPlanStep {
  * `compact` is the fallback the edge function sends when a model rejects the schema as too complex
  * (400 INVALID_ARGUMENT): no field-key enum, no document-type enum inside plan steps. Everything it
  * no longer constrains is still validated by `buildProposal`.
+ *
+ * Estimate options (dashboard / job scope): `estimate_options` [{name, description, recommended}] plus an `option` on
+ * each line item, flat on purpose (option → lines → line inside a plan step would nest deeper than 6 levels).
  */
 export const RESPONSE_SCHEMA_TYPES = ['STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY', 'OBJECT', 'NULL'] as const;
+/** Scopes where the assistant drafts good / better / best estimate options (the form fill keeps one total). */
+export const scopeHasEstimateOptions = (scope: RouterScope): boolean => scope !== 'form';
 export function buildResponseSchema(scope: RouterScope, options: { compact?: boolean } = {}): Record<string, unknown> {
     const compact = options.compact === true;
+    const withOptions = scopeHasEstimateOptions(scope);
     const S = (extra: Record<string, unknown> = {}) => ({ type: 'STRING', ...extra });
     const N = (extra: Record<string, unknown> = {}) => ({ type: 'NUMBER', ...extra });
     const lineItems = {
         type: 'ARRAY',
         items: {
             type: 'OBJECT',
-            properties: { description: S(), quantity: N(), rate: N(), unit_cost: N({ nullable: true }), supplier: S({ nullable: true }) },
+            properties: {
+                description: S(), quantity: N(), rate: N(), unit_cost: N({ nullable: true }), supplier: S({ nullable: true }),
+                ...(withOptions ? { option: S({ nullable: true }) } : {}),
+            },
             required: ['description'],
         },
     };
+    const estimateOptions = withOptions ? {
+        estimate_options: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: { name: S(), description: S({ nullable: true }), recommended: { type: 'BOOLEAN', nullable: true } },
+                required: ['name'],
+            },
+        },
+    } : {};
     const entity = {
         type: 'OBJECT',
         nullable: true,
@@ -391,6 +419,7 @@ export function buildResponseSchema(scope: RouterScope, options: { compact?: boo
                     document_type: compact ? S({ nullable: true }) : S({ enum: [...DOC_TYPES], nullable: true }),
                     fields: { type: 'ARRAY', items: { type: 'OBJECT', properties: { key: S(), value: S() }, required: ['key', 'value'] } },
                     line_items: lineItems,
+                    ...estimateOptions,
                     job_ref: S({ nullable: true }),
                     job_id: S({ nullable: true }),
                     client_ref: S({ nullable: true }),
@@ -419,6 +448,7 @@ export function buildResponseSchema(scope: RouterScope, options: { compact?: boo
                 items: { type: 'OBJECT', properties: { key: compact ? S() : S({ enum: ALL_FIELD_KEYS }), value: S() }, required: ['key', 'value'] },
             },
             line_items: lineItems,
+            ...estimateOptions,
             missing_fields: { type: 'ARRAY', items: S() },
             job_id: S({ nullable: true }),
             client_ids: { type: 'ARRAY', items: S() },
@@ -726,6 +756,23 @@ function fieldsToObject(output: ModelOutput, docType: DocKey): Record<string, un
     return obj;
 }
 
+/**
+ * Good / better / best (estimateOptionsDraft.ts): an estimate answer with 2–4 options gets `estimateOptions` (+ the
+ * internal costs in `estimateOptionsInternal`) in its prefill, and `lineItems` becomes the Recommended option + the
+ * shared lines. Any other answer (other types, the form fill, fewer than 2 usable options) is left exactly as it was.
+ * Returns what was left out, for the reply or the plan card.
+ */
+function applyEstimateOptions(prefill: Record<string, unknown>, docType: DocKey, source: unknown, scope: RouterScope, ctx: BuildProposalContext): string[] {
+    if (docType !== 'ESTIMATE' || !scopeHasEstimateOptions(scope)) return [];
+    const draft = draftEstimateOptions(source as Parameters<typeof draftEstimateOptions>[0], { newId: ctx.normalize?.newId });
+    if (!draft) return [];
+    prefill.lineItems = draft.lineItems;
+    prefill.estimateOptions = draft.estimateOptions;
+    if (Object.keys(draft.estimateOptionsInternal).length) prefill.estimateOptionsInternal = draft.estimateOptionsInternal;
+    else delete prefill.estimateOptionsInternal;
+    return draft.notes;
+}
+
 export type EntityAction = 'CREATE_CLIENT' | 'CREATE_JOB' | 'ADD_INVENTORY' | 'ADD_PRICE_BOOK_ITEM';
 
 /**
@@ -816,6 +863,7 @@ function stepAsOutput(step: ModelPlanStep, action: PlanStepAction, reply: unknow
         document_type: step.document_type ?? null,
         fields: step.fields,
         line_items: step.line_items,
+        ...(step.estimate_options ? { estimate_options: step.estimate_options } : {}),
         job_id: step.job_id ?? null,
         client_ids: typeof step.client_id === 'string' ? [step.client_id] : [],
         entity: step.entity ?? null,
@@ -936,6 +984,8 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
                 if (!docType) { skip(index, 'the document type was missing'); continue; }
                 const normalizeOpts: NormalizeOptions = { ...(ctx.normalize || {}), today: c.today, userText: sample ? undefined : userText };
                 const prefill = normalizePrefill(docType, fieldsToObject(raw as unknown as ModelOutput, docType), normalizeOpts);
+                // An estimate step may carry good / better / best options like the single draft.
+                for (const note of applyEstimateOptions(prefill, docType, raw, req.scope, ctx)) notes.push(`Step ${index + 1}: ${note}`);
                 const step: PlanStep = {
                     id, action_type: action, ref: makeRef(raw.ref, `doc_${steps.length + 1}`), document_type: docType, prefill,
                     missing_fields: getMissingAskFields(docType, prefill),
@@ -1052,6 +1102,8 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
             : {};
         const fresh = normalizePrefill(docType, fieldsToObject(output, docType), normalizeOpts);
         const prefill = mergeDraft(pending, sample ? dropSampleGuesses(docType, fresh, userText) : fresh);
+        // Good / better / best estimate (dashboard / job): the options, and lineItems = the Recommended option.
+        const optionNotes = applyEstimateOptions(prefill, docType, output, req.scope, ctx);
         if (sample) proposal.sample_data = true;
         const schema = getSchema(docType);
         const modelMissing = Array.isArray(output.missing_fields)
@@ -1070,6 +1122,7 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
             proposal.missing_fields = missing;
             proposal.reply_text = (action === 'GATHER_INFO' ? '' : replyRaw) || defaultReply.GENERATE_DOCUMENT!;
         }
+        if (optionNotes.length) proposal.reply_text = [proposal.reply_text, ...optionNotes].join(' ');
         const resolvedJob = req.scope !== 'dashboard' && c.active_job_id && jobIds.has(c.active_job_id) ? c.active_job_id : jobId;
         proposal.job_id = resolvedJob || null;
         proposal.client_ids = uniqueValid([...(output.client_ids || []), ...mentionClientIds], clientIds, 1);

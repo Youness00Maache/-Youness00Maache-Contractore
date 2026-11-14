@@ -23,7 +23,8 @@ export type FieldKind =
     | 'template'    // template id or a style description
     | 'visual'      // ai_visual_data object
     | 'tags'        // string[]
-    | 'recurrence'; // invoice recurrence object
+    | 'recurrence'  // invoice recurrence object
+    | 'estimateOptions'; // good / better / best OptionSet (lib/estimateOptions.ts), Estimate only
 
 export interface FieldSpec {
     kind: FieldKind;
@@ -83,6 +84,8 @@ export const DOCUMENT_FIELDS: Record<DocumentFormType, Record<string, FieldSpec>
         status: { kind: 'enum', options: STATUS_OPTIONS.estimate },
         lineItems: { kind: 'lineItems' }, discount: money, taxRate: { kind: 'percent' }, notes: multiline, terms: multiline,
         ai_visual_data: { kind: 'visual' },
+        // the assistant's good / better / best draft (its internal costs come in estimateOptionsInternal, see the merge)
+        estimateOptions: { kind: 'estimateOptions' },
     },
     [FormType.WorkOrder]: {
         ...COMPANY, ...STYLE,

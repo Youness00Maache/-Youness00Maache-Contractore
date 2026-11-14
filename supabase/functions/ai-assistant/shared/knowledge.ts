@@ -106,7 +106,7 @@ const FEATURES: KnowledgeEntry[] = [
         keywords: ['what can you do', 'what is this app', 'features', 'help me'],
         facts: [
             'ContractorDocs is paperwork for contractors: jobs, clients and 12 document types (Invoice, Estimate, Change Order, Purchase Order, Receipt, Work Order, Daily Job Report, Time Sheet, Material Log, Expense Log, Warranty, Note) with PDF designs, a client portal with e-signatures and a Pay now link, Gmail sending, automatic reminders, a request-a-quote link, job photos, inventory with QR labels, a price book, a profit calculator, a calendar, Insights and a community forum.',
-            'The assistant can: create clients and jobs; draft any of the 12 documents (also many at once in one plan); prepare emails with documents attached (sent from your Gmail only after you press Send); write an email; add inventory or price book items; change stock; change a job status; duplicate a job; open any screen or Settings section; answer questions about your documents (paid? what is on it?) and explain how any feature works, step by step.',
+            'The assistant can: create clients and jobs; draft any of the 12 documents (also many at once in one plan), including estimates with good / better / best options the client picks from; prepare emails with documents attached (sent from your Gmail only after you press Send); write an email; add inventory or price book items; change stock; change a job status; duplicate a job; open any screen or Settings section; answer questions about your documents (paid? what is on it?) and explain how any feature works, step by step.',
             'Nothing is created, saved or sent until you click the button on the card the assistant shows.',
         ],
         steps: ['Type or dictate what you need in [[AI Command]] (dashboard) or [[AI Assistant]] (job page).', 'Type @ to pick a client and # to pick a document.', 'Check the card and click its button: [[Open & edit]], [[Save]], [[Review & create]], [[Review & add]], [[Do it all]] or a send button.'],
@@ -668,7 +668,7 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     jobs: ['job'],
     documents: ['document', 'doctypes'],
     estimates: ['estimate', 'sign'],
-    'estimate-options': ['estimate', 'sign'],
+    'estimate-options': ['options', 'estimate', 'sign'],
     payments: ['pay', 'paylink', 'markpaid', 'receipt'],
     pipeline: ['pipeline', 'job'],
     'job-costing': ['costing', 'financials'],
@@ -686,7 +686,7 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
 };
 
 const GUIDE_DO_ACTIONS: Partial<Record<string, HowToDoAction>> = {
-    jobs: 'CREATE_JOB', documents: 'GENERATE_DOCUMENT', estimates: 'GENERATE_DOCUMENT', clients: 'CREATE_CLIENT',
+    jobs: 'CREATE_JOB', documents: 'GENERATE_DOCUMENT', estimates: 'GENERATE_DOCUMENT', 'estimate-options': 'GENERATE_DOCUMENT', clients: 'CREATE_CLIENT',
     inventory: 'ADD_INVENTORY', pricebook: 'ADD_PRICE_BOOK_ITEM', messages: 'PREPARE_EMAIL_BATCH',
 };
 
@@ -722,6 +722,7 @@ export function entryLabels(e: KnowledgeEntry): string[] {
 const LEXICON: Record<string, { w?: number; t: string }> = {
     invoice: { w: 1, t: 'invoice|bill$|bills$|factura|facture|rechnung|fattur|fatura|发票|請求書|インボイス|청구서|인보이스|счет|инвойс' },
     estimate: { w: 1, t: 'estimate|quote$|quotes$|quotation|bid$|presupuest|cotiza|devis|kostenvoranschlag|angebot|preventiv|orcamento|报价|估价|見積|견적|смет|коммерческ' },
+    options: { w: 3, t: 'good.{0,4}better|better.{0,4}best|tiered pric|price options|pricing options|price levels|options on (?:an|the|my|one) estimate|bueno.{0,4}mejor|opciones de precio|bon.{0,4}meilleur|options de prix|formules de prix|gut.{0,4}besser|preisoptionen|buono.{0,4}migliore|bom.{0,4}melhor|opcoes de preco|好中差|三档|松竹梅|вариант.{0,6}цен' },
     client: { w: 1, t: 'client|customer|cliente|kunde|kunden|客户|顾客|顧客|クライアント|お客|고객|клиент|заказчик' },
     job: { w: 1, t: 'job$|jobs$|project|proyecto|trabajo|obra$|chantier|projet|auftrag|baustelle|lavoro|progetto|cantiere|trabalho|projeto|工作|项目|工程|現場|案件|プロジェクト|작업|프로젝트|공사|работ|проект|объект' },
     pay: { t: 'pay$|paid$|payment|pagar|pago$|pagos$|cobrar|paiement|payer|zahlung|bezahl|pagament|pagare|付款|支付|收款|支払|入金|결제|지불|оплат|плат' },

@@ -7,7 +7,8 @@
  *   2. `finalizeDraft`   – the assistant's normalization + job / client / company context
  *   3. `mergeDraftIntoForm` – the exact merge a form applies to `prefillData`
  *   4. the next number of the form's series (PREFIX-YYYY-MM-NNN, unique against existing numbers)
- *   5. the form's own `prepare` (sanitized report/note HTML, expense total, payment link)
+ *   5. the form's own `prepare` (sanitized report/note HTML, expense total, payment link, estimate options saved
+ *      client-safe with lineItems mirroring the option that counts)
  *   6. status Draft (plans never create sent/paid documents) and `isAiGenerated`.
  * Totals are not stored: the forms, PDFs and lists compute them from the line items (utils/money.ts).
  *
@@ -24,6 +25,7 @@ import {
 } from '../../components/forms/formUtils.ts';
 import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME } from '../../components/forms/useDocumentForm.ts';
 import { computeDocumentTotals, roundMoney, toNumber } from '../../utils/money.ts';
+import { packOptionsForSave } from '../../lib/estimateOptions.ts';
 
 export interface PlanDocumentContext {
     /** The job the document is filed under (its client fields are the defaults). */
@@ -160,7 +162,7 @@ export function buildPlanDocument(docType: DocKey, rawPrefill: Record<string, un
     }
 
     const base = makeDocumentDefaults(formType, job, ctx.profile, today);
-    const data = { ...mergeDraftIntoForm(formType, base, prefill).data } as Record<string, unknown>;
+    let data = { ...mergeDraftIntoForm(formType, base, prefill).data } as Record<string, unknown>;
 
     // Number: the form's series, unique against every known number (a model number that is taken is replaced).
     const cfg = DOC_NUMBER_CONFIG[formType];
@@ -179,6 +181,8 @@ export function buildPlanDocument(docType: DocKey, rawPrefill: Record<string, un
         if (sub > 0) data.amount = roundMoney(sub + toNumber(data.tax));
     }
     if (formType === FormType.Invoice && data.paypalLink) data.paypalLink = normalizeLinkUrl(data.paypalLink) || data.paypalLink;
+    // EstimateForm's prepare: good / better / best option lines saved without internal costs (estimateOptionsInternal)
+    if (formType === FormType.Estimate) data = packOptionsForSave(data);
 
     if (DRAFT_STATUS_TYPES.has(formType)) data.status = 'Draft';
     data.isAiGenerated = true;

@@ -8,6 +8,7 @@
  *  3. legacy/generic names (aliases) land in the right field; control keys and unknown keys are dropped
  *  4. plain-text fields never receive HTML; rich fields are sanitized; numbers are never NaN; dates are local
  *  5. drafts are keyed for exactly-once application (__draftId or content hash)
+ *  6. the assistant's good / better / best estimate options open like a saved options estimate
  * plus document numbering, dates, line-item normalization and receipt OCR parsing.
  */
 import { readFileSync } from 'node:fs';
@@ -24,6 +25,7 @@ import {
 } from '../components/forms/signedLock.ts';
 import { changeOrderStatus, computeContractValue, isApprovedChangeOrder } from '../components/forms/contractValue.ts';
 import { fillEmailPlaceholders, senderIdentity } from '../utils/emailTemplates.ts';
+import { optionsActive, packOptionsForSave, readOptionSet } from '../lib/estimateOptions.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 let passed = 0;
@@ -40,7 +42,7 @@ const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 /** Fields from types.ts that an AI draft may fill, per type (client signatures, inventory flags and legacy fields excluded on purpose). */
 const TYPES_TS_FIELDS: Record<DocumentFormType, string[]> = {
     [FormType.Invoice]: ['invoiceNumber', 'issueDate', 'dueDate', 'lineItems', 'taxRate', 'discount', 'shipping', 'amountPaid', 'notes', 'paypalLink', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'title', 'isProgressBilling', 'recurrence', 'ai_visual_data', 'templateId', 'themeColors'],
-    [FormType.Estimate]: ['title', 'estimateNumber', 'issueDate', 'expiryDate', 'lineItems', 'taxRate', 'discount', 'terms', 'notes', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors'],
+    [FormType.Estimate]: ['title', 'estimateNumber', 'issueDate', 'expiryDate', 'lineItems', 'taxRate', 'discount', 'terms', 'notes', 'status', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'ai_visual_data', 'templateId', 'themeColors', 'estimateOptions'],
     [FormType.WorkOrder]: ['title', 'workOrderNumber', 'date', 'status', 'assignedTo', 'description', 'materialsUsed', 'hours', 'cost', 'terms', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'signatureUrl', 'logoUrl', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.DailyJobReport]: ['title', 'reportNumber', 'date', 'weather', 'temperature', 'crewSize', 'laborHours', 'logoUrl', 'signatureUrl', 'content', 'projectName', 'clientName', 'projectAddress', 'tags', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'ai_visual_data', 'templateId', 'themeColors'],
     [FormType.TimeSheet]: ['title', 'workerName', 'date', 'hoursWorked', 'overtimeHours', 'notes', 'companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'clientName', 'clientAddress', 'logoUrl', 'signatureUrl', 'status', 'templateId', 'themeColors'],
@@ -116,6 +118,22 @@ const sampleFor = (field: string, spec: FieldSpec): { input: unknown; expect: (v
         case 'visual': return { input: { metrics: [{ label: 'Hours', value: 8 }] }, expect: v => eq(v, { metrics: [{ label: 'Hours', value: 8 }] }) };
         case 'tags': return { input: 'framing, inspection, framing', expect: v => eq(v, ['framing', 'inspection']) };
         case 'recurrence': return { input: { enabled: 'true', frequency: 'quarterly', nextRunDate: '2027-01-15' }, expect: v => (v as any)?.enabled === true && (v as any)?.frequency === 'Quarterly' && (v as any)?.nextRunDate === '2027-01-15' };
+        // the Recommended option's lines are the generic line-item sample (lineItems mirror it); the client's choice is dropped
+        case 'estimateOptions': return {
+            input: {
+                version: 1, kind: 'estimate', recommendedId: 'opt-b', appliedId: 'opt-a', choice: { optionId: 'opt-a', by: 'client' },
+                options: [
+                    { id: 'opt-a', name: ' Good ', lineItems: [{ id: 'a1', description: 'Basic patch', quantity: 1, rate: 30 }] },
+                    { id: 'opt-b', name: 'Better', description: '<b>Most</b> popular', lineItems: [{ description: '<b>Drywall</b> patch', quantity: '2', rate: '45.5', unitCost: '20' }, { name: 'Labor', qty: 3, price: '$80' }] },
+                ],
+                sharedLineItems: [],
+            },
+            expect: v => {
+                const set = v as any;
+                return set?.options?.length === 2 && set.recommendedId === 'opt-b' && !set.choice && !set.appliedId && set.options[0].name === 'Good'
+                    && set.options[1].description === 'Most popular' && set.options[1].lineItems[0].unitCost === undefined && set.options[1].lineItems[1].rate === 80;
+            },
+        };
         default: return { input: undefined, expect: () => false };
     }
 };
@@ -249,6 +267,43 @@ const merge = (type: FormType, prefill: Record<string, unknown>, prev: Record<st
     const afterA = merge(FormType.Invoice, { clientName: 'A Corp', paypalLink: 'https://pay.me/a', ai_visual_data: { metrics: [] , progress_percentage: 10 } }, defaults);
     const afterB = merge(FormType.Invoice, { clientName: 'B Corp' }, defaults);
     check('second draft starts from defaults (no leak)', afterA.paypalLink && !afterB.paypalLink && !afterB.ai_visual_data && afterB.clientName === 'B Corp');
+}
+
+// ---------------------------------------------------------------------------
+// 4b. the assistant's good / better / best estimate (saved format: client-safe option lines + estimateOptionsInternal)
+// ---------------------------------------------------------------------------
+{
+    const draft = {
+        __draftId: 'opts-1', title: 'Deck', lineItems: [{ id: 'b1', description: 'Cedar decking', quantity: 168, rate: 18, unitCost: 11 }],
+        estimateOptions: {
+            version: 1, kind: 'estimate', recommendedId: 'opt-b',
+            options: [
+                { id: 'opt-a', name: 'Good', description: 'Pine', lineItems: [{ id: 'a1', description: 'Pine decking', quantity: 168, rate: 12 }] },
+                { id: 'opt-b', name: 'Better', lineItems: [{ id: 'b1', description: 'Cedar decking', quantity: 168, rate: 18 }] },
+                { id: 'opt-c', name: 'Best', lineItems: [{ id: 'c1', description: 'Composite decking', quantity: 168, rate: 26, unitCost: 999, supplier: 'X' }] },
+            ],
+            sharedLineItems: [{ id: 's1', description: 'Permit', quantity: 1, rate: 150 }],
+        },
+        estimateOptionsInternal: { a1: { unitCost: 7 }, b1: { unitCost: '11' }, s1: { unitCost: 150 }, c1: { unitCost: -5 }, evil: 'x' },
+    };
+    const r = mergeDraftIntoForm(FormType.Estimate, { lineItems: [{ id: 'x', description: 'old', quantity: 1, rate: 1 }], taxRate: 5 }, draft);
+    const d = r.data as any;
+    const set = readOptionSet(d)!;
+    check('options draft: Options mode on, 3 options, Recommended kept', optionsActive(d) && set.options.length === 3 && set.recommendedId === 'opt-b', set);
+    check('options draft: lineItems = Recommended option + shared lines', eq(d.lineItems.map((l: any) => [l.id, l.description, l.unitCost]), [['b1', 'Cedar decking', 11], ['s1', 'Permit', 150]]), d.lineItems);
+    check('options draft: internal costs back on the option lines (valid numbers only)', eq(set.options.map(o => o.lineItems.map(l => l.unitCost ?? null)), [[7], [11], [null]]) && set.sharedLineItems[0].unitCost === 150, set.options.map(o => o.lineItems));
+    check('options draft: costs / suppliers written on an option line are ignored', !('supplier' in set.options[2].lineItems[0]) && set.options[2].lineItems[0].unitCost === undefined);
+    check('options draft: estimateOptionsInternal is consumed, never stored loose', !('estimateOptionsInternal' in d) && !r.ignoredKeys.includes('estimateOptionsInternal'));
+    check('options draft: applied keys and AI flag', r.appliedKeys.includes('estimateOptions') && r.appliedKeys.includes('lineItems') && d.isAiGenerated === true && d.taxRate === 5);
+    const saved = packOptionsForSave(d) as any;
+    check('options draft saved: option lines client-safe, costs in estimateOptionsInternal', saved.estimateOptions.options.every((o: any) => o.lineItems.every((l: any) => !('unitCost' in l))) && saved.estimateOptionsInternal.a1?.unitCost === 7 && saved.estimateOptionsInternal.s1?.unitCost === 150, saved.estimateOptionsInternal);
+    const one = merge(FormType.Estimate, { estimateOptions: { version: 1, kind: 'estimate', options: [{ id: 'o', name: 'Only', lineItems: [{ id: 'l', description: 'x', quantity: 1, rate: 1 }] }], sharedLineItems: [] }, lineItems: [{ description: 'Door', rate: 450 }] });
+    check('options draft: fewer than 2 options → ignored, the normal lines apply', !one.estimateOptions && one.lineItems?.[0]?.description === 'Door', one);
+    const emptyOpt = merge(FormType.Estimate, { estimateOptions: { version: 1, kind: 'estimate', options: [{ id: 'o1', name: 'A', lineItems: [{ id: 'l1', description: 'x', quantity: 1, rate: 1 }] }, { id: 'o2', name: 'B', lineItems: [{ id: 'l2', description: '', quantity: 1, rate: 0 }] }], sharedLineItems: [] } });
+    check('options draft: an option without real lines does not count', !emptyOpt.estimateOptions, emptyOpt.estimateOptions);
+    const inv = mergeDraftIntoForm(FormType.Invoice, {}, { estimateOptions: draft.estimateOptions, estimateOptionsInternal: draft.estimateOptionsInternal });
+    check('options draft: other document types ignore estimate options', !('estimateOptions' in inv.data) && !('estimateOptionsInternal' in inv.data) && inv.ignoredKeys.includes('estimateOptions'));
+    check('options draft: a plain estimate prefill is unchanged (no options key)', !('estimateOptions' in merge(FormType.Estimate, { lineItems: [{ description: 'Door', rate: 450 }] })));
 }
 
 // ---------------------------------------------------------------------------

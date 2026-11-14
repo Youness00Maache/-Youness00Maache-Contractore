@@ -191,6 +191,71 @@ function extractFields(docType: DocKey, text: string, today: string): { fields: 
     };
 }
 
+// ───────────────────────────── good / better / best estimate options ─────────────────────────────
+
+/** "good/better/best", "3 options", "basic and premium" … in English, Spanish, French, German, Italian, Portuguese. */
+const OPTIONS_REQUEST_RE = new RegExp([
+    'good\\s*[,/&-]?\\s*(?:and\\s+)?better\\s*[,/&-]?\\s*(?:and\\s+|&\\s*)?best',
+    '(?:2|3|4|two|three|four|dos|tres|cuatro|deux|trois|quatre|zwei|drei|vier|due|tre|quattro|duas|tres|quatro)\\s+(?:pricing\\s+|price\\s+)?(?:options|opciones|opcoes|optionen|opzioni|choices|tiers|price\\s+levels|niveles|niveaux|formules|versions|versiones|varianten|pakete)',
+    '(?:basic|standard|budget|economy)\\s+(?:and|or|&|vs\\.?)\\s+(?:premium|deluxe|luxury|pro)\\b(?:\\s+(?:version|option|package)s?)?',
+    'basic[oa]s?\\s+(?:y|o)\\s+premium',
+    'bueno\\s*,?\\s*mejor\\s+y\\s+optimo',
+    '(?:de\\s+base|basique|essentiel(?:le)?)\\s+(?:et|ou)\\s+(?:premium|luxe|confort)',
+    'bon\\s*,?\\s*meilleur\\s+(?:et|,)\\s+excellent',
+    'gut\\s*,?\\s*besser\\s*(?:und|,)\\s*(?:am\\s+)?best(?:en|e)?',
+].map(s => `\\b${s}`).join('|'), 'i');
+
+/** Option labels a user types before an option's lines ("Better: …"), longest first. */
+const OPTION_LABELS = [
+    'option [a-d1-4]', 'opci[oó]n [a-d1-4]', 'formule [a-d1-4]',
+    'mid-range', 'midrange', 'good', 'better', 'best', 'basic', 'standard', 'premium', 'deluxe', 'luxury', 'economy', 'budget', 'essential',
+    'bueno', 'mejor', '[oó]ptimo', 'b[aá]sic[oa]', 'est[aá]ndar', 'econ[oó]mic[oa]', 'lujo',
+    'bon', 'meilleur', 'excellent', 'essentiel(?:le)?', 'de base', 'confort', 'luxe',
+    'gut', 'besser', 'beste', 'basis', 'komfort',
+];
+const SHARED_LABELS = [
+    'in every option', 'every option', 'all options', 'included in all', 'in all options', 'shared', 'all',
+    'en todas las opciones', 'todas las opciones', 'en todas', 'todas', 'dans toutes les options', 'toutes les options', 'dans toutes', 'toutes',
+    'in allen optionen', 'in allen', 'alle',
+];
+const LABEL_RE = new RegExp(`(?:^|[\\s.;,(])(${[...SHARED_LABELS, ...OPTION_LABELS].sort((a, b) => b.length - a.length).join('|')})\\s*(?:\\((?:recommended|recomendad[oa]|recommand[ée]e?|empfohlen)\\))?\\s*:`, 'gi');
+const RECOMMENDED_RE = /\((?:recommended|recomendad[oa]|recommand[ée]e?|empfohlen)\)/i;
+const fold = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '');
+
+export function isEstimateOptionsRequest(text: string): boolean {
+    return OPTIONS_REQUEST_RE.test(fold(text || ''));
+}
+
+/**
+ * Options the user wrote out ("good/better/best. Good: 200 sq ft pine decking at 12. Better: … All options: 1 permit at
+ * 150"): estimate_options + line items tagged with their option ("ALL" = in every option). Null when the message does
+ * not ask for options or names fewer than 2 options with priced lines (the normal single estimate then applies).
+ */
+export function extractEstimateOptions(text: string): Pick<ModelOutput, 'estimate_options' | 'line_items'> | null {
+    if (!isEstimateOptionsRequest(text)) return null;
+    const labels = Array.from(text.matchAll(LABEL_RE)).map(m => ({
+        label: m[1], start: (m.index || 0) + m[0].length, at: m.index || 0, recommended: RECOMMENDED_RE.test(m[0]),
+    }));
+    const names: string[] = [];
+    const recommended = new Set<string>();
+    const lines: NonNullable<ModelOutput['line_items']> = [];
+    labels.forEach((l, i) => {
+        const segment = text.slice(l.start, i + 1 < labels.length ? labels[i + 1].at : text.length);
+        const shared = SHARED_LABELS.includes(fold(l.label));
+        const name = shared ? 'ALL' : l.label.charAt(0).toUpperCase() + l.label.slice(1);
+        const rows = parseLineItemsText(segment.replace(/^\s*[-–]\s*/, ''));
+        if (!rows.length) return;
+        if (!shared && !names.some(n => n.toLowerCase() === name.toLowerCase())) names.push(name);
+        if (!shared && l.recommended) recommended.add(name.toLowerCase());
+        for (const r of rows) lines.push({ description: r.description, quantity: r.quantity, rate: r.rate, unit_cost: null, supplier: null, option: name });
+    });
+    if (names.length < 2) return null;
+    return {
+        estimate_options: names.map(name => ({ name, description: null, recommended: recommended.has(name.toLowerCase()) || null })),
+        line_items: lines,
+    };
+}
+
 /** Every document type named in the text, in the order they appear (each type once). */
 export function detectDocTypesInText(text: string): DocKey[] {
     const found: Array<[number, DocKey]> = [];
@@ -321,15 +386,18 @@ function mockPlan(req: RouterRequest, today: string): ModelOutput | null {
     const perClient = clientRefs.length > 1 && /\b(?:each|every|both|per)\s+(?:of\s+the\s+|of\s+them\b|client|customer)/i.test(text);
     const owners: Array<{ ref: string; name: string } | null> = perClient ? clientRefs : [clientRefs.length === 1 ? clientRefs[0] : null];
     let index = 0;
+    const options = !sample && docTypes.includes('ESTIMATE') ? extractEstimateOptions(text) : null;
     for (const owner of owners) {
         for (const docType of docTypes) {
             const content = sample ? sampleDocument(docType, index, owner?.name) : extractFields(docType, text, today);
+            const withOptions = docType === 'ESTIMATE' ? options : null;
             steps.push({
                 action_type: 'GENERATE_DOCUMENT',
                 ref: `doc_${++index}`,
                 document_type: docType,
                 fields: content.fields || [],
-                line_items: content.line_items || [],
+                line_items: (withOptions ? withOptions.line_items : content.line_items) || [],
+                ...(withOptions ? { estimate_options: withOptions.estimate_options } : {}),
                 job_ref: jobWanted ? 'job1' : null,
                 client_ref: owner?.ref || null,
             });
@@ -365,6 +433,8 @@ function mockHowTo(req: RouterRequest): ModelOutput | null {
     if (!QUESTION_RE.test(text) && !SETUP_RE.test(text)) return null;
     // A question that names a concrete record to create ("can you create a client named Sam?") is a request to do it.
     if (/\b(?:named|called)\s+[A-Z]/.test(text)) return null;
+    // So is a good / better / best estimate with its options written out.
+    if (extractEstimateOptions(text)) return null;
     const top = scoreKnowledge(text)[0];
     if (!top || top.score < 3) return null;
     const e = top.entry;
@@ -425,13 +495,26 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
     const plan = mockPlan(req, today);
     if (plan) return plan;
 
-    // 4) Continue a pending draft (answer to a gather question).
+    // 4) Continue a pending draft (answer to a gather question). Options written out are always an estimate.
     const pendingType = c.pending_draft ? resolveDocKey(c.pending_draft.document_type) : null;
-    const docType = detectDocTypeFromText(text) || (pendingType && !/\b(open|go to|show)\b/i.test(t) ? pendingType : null);
+    const options = extractEstimateOptions(text);
+    const docType = detectDocTypeFromText(text) || (options ? 'ESTIMATE' : null) || (pendingType && !/\b(open|go to|show)\b/i.test(t) ? pendingType : null);
     const wantsDoc = docType && (/\b(create|make|write|draft|generate|new|start|prepare|fill|log|record|add)\b/i.test(t) || docType === pendingType || text.length > 25);
     if (docType && wantsDoc) {
         const extracted = extractFields(docType, text, today);
         const jobs = findByName(text, c.jobs);
+        if (docType === 'ESTIMATE' && options) {
+            const names = (options.estimate_options || []).map(o => String(o.name));
+            return {
+                action_type: 'GENERATE_DOCUMENT',
+                reply_text: `Here is your estimate draft with ${names.length} options: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}.`,
+                document_type: docType,
+                fields: extracted.fields,
+                ...options,
+                job_id: jobs.length === 1 ? jobs[0].id : null,
+                client_ids: mentionClients.slice(0, 1),
+            };
+        }
         return {
             action_type: 'GENERATE_DOCUMENT',
             reply_text: `Here is your ${DOC_LABELS[docType].toLowerCase()} draft.`,

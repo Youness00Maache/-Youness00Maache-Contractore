@@ -3,8 +3,9 @@
  * user or account data goes into the user turn inside a clearly delimited, untrusted block.
  */
 import { DOC_LABELS, DOC_TYPES, getSchema, resolveDocKey, type DocKey, type FieldSpec } from './documentSchema.ts';
-import { APP_ROUTES, isSampleRequest, PLAN_MAX_STEPS, SCOPE_ACTIONS, type RouterRequest } from './routerContract.ts';
+import { APP_ROUTES, isSampleRequest, PLAN_MAX_STEPS, SCOPE_ACTIONS, scopeHasEstimateOptions, type RouterRequest } from './routerContract.ts';
 import { buildKnowledgeBlock, HOW_TO_DO_ACTIONS } from './knowledge.ts';
+import { DRAFT_OPTION_MAX, DRAFT_OPTION_MIN } from './estimateOptionsDraft.ts';
 
 const ACTION_HELP: Record<string, string> = {
     CHAT: 'answer a question or ask ONE short clarifying question (reply_text only).',
@@ -21,7 +22,7 @@ const ACTION_HELP: Record<string, string> = {
     DUPLICATE_JOB: 'job_id (from context) of the job to copy.',
     NAVIGATE_TO: `open a screen or Settings section: route, one of ${APP_ROUTES.join(', ')}; or job_id (from context) to open that job; or document_ids (one id from context) to open that document.`,
     HOW_TO: `the user asks HOW to do something in the app, WHERE something is, or WHETHER the app can do it: reply_text = the direct answer; how_to_steps = the exact steps from PRODUCT KNOWLEDGE (real button names in [[ ]]); route = the screen or section for "Take me there"; do_action (one of ${HOW_TO_DO_ACTIONS.join(', ')}) when you could do it for the user, with its payload when the user gave details (e.g. entity.name).`,
-    RUN_PLAN: `the user asks for TWO OR MORE things in one message (e.g. a job + clients + documents): plan_steps = every step, in order (max ${PLAN_MAX_STEPS}). Each step = {action_type, ref, …the payload of that single action}. Steps that create something get a short unique ref ("client_michael", "job1"); later steps point to them with job_ref / client_ref, or to existing records with job_id / client_id from CONTEXT DATA. GENERATE_DOCUMENT step: document_type + fields + line_items + job_ref|job_id + client_ref|client_id. The app saves documents of a plan as Drafts.`,
+    RUN_PLAN: `the user asks for TWO OR MORE things in one message (e.g. a job + clients + documents): plan_steps = every step, in order (max ${PLAN_MAX_STEPS}). Each step = {action_type, ref, …the payload of that single action}. Steps that create something get a short unique ref ("client_michael", "job1"); later steps point to them with job_ref / client_ref, or to existing records with job_id / client_id from CONTEXT DATA. GENERATE_DOCUMENT step: document_type + fields + line_items + job_ref|job_id + client_ref|client_id (an estimate with options also gets estimate_options, rule 22). The app saves documents of a plan as Drafts.`,
 };
 
 function describeField(key: string, spec: FieldSpec): string {
@@ -80,6 +81,14 @@ export function buildSystemPrompt(req: RouterRequest): string {
 19. Mention plan limits or prices only when the question is about them or a limit blocks what the user wants.
 20. If PRODUCT KNOWLEDGE does not describe it, the app cannot do it: say so plainly in one sentence and point to the closest real feature from the knowledge. Never invent features, buttons, menus, settings, integrations, routes or limits.
 21. When the user asks you to DO it ("create…", "add…", "open…", "take me to…", "do it for me"), use the action itself (CREATE_CLIENT, CREATE_JOB, GENERATE_DOCUMENT, RUN_PLAN, NAVIGATE_TO, …), not HOW_TO.` : '';
+    // Good / better / best estimate options: dashboard and job assistant only (the form fill keeps one total).
+    const optionRules = scopeHasEstimateOptions(scope) ? `
+22. Estimate OPTIONS: only when the user asks for choices on ONE estimate ("good/better/best", "3 options", "basic and premium versions", "two price levels", "a cheaper and a better version", in any language), draft ONE estimate (document_type ESTIMATE) with ${DRAFT_OPTION_MIN} to ${DRAFT_OPTION_MAX} options; the client picks one when signing:
+   - estimate_options = [{name, description, recommended}]: name short (the user's names, else Good / Better / Best in the user's language); description = one short sentence for the client saying what this option includes or changes; recommended = true on exactly ONE option (the one the user prefers, else the second one).
+   - line_items: every line has option = the name of its option. A line that belongs to every option (permit, cleanup, haul-away) is written ONCE with option "ALL". Every option needs at least one line of its own.
+   - Prices follow rule 3: copy the user's prices; when the user gave no price for a line, leave rate out (the user fills it in). Never invent prices or price differences (exception: rule 15).
+   - Names and descriptions are printed for the client: never mention costs, margins, markups or suppliers in them (unit_cost stays on the line).
+   - Without such a request never send estimate_options or option: a normal estimate has one list of line_items.` : '';
     return `You are the ContractorDocs assistant for construction contractors. Today is ${today} (the user's local date).
 ${scopeLine}${sampleNow}
 
@@ -101,7 +110,7 @@ HARD RULES:
 10. reply_text: one or two short, friendly sentences in the user's language. Use plain text.
 11. A pending_draft in the context is the document the user is completing: return the COMPLETE document again (pending values plus the new ones).
 12. Questions about existing documents ("is the invoice paid?", "what's on the estimate?", "what is still owed?"): answer with CHAT from the document's summary in CONTEXT DATA (status, total, paid, balance_due, due_date, signed_by, items; more_items = lines not listed). Name the document by its label. A status "Paid" or balance_due 0 with a total means paid; a balance_due above 0 means money is still owed. Only state what the summary shows: if a document has no summary or the fact is not in it, say you can't see it and suggest opening the document. Never guess amounts or statuses.${planRules}${sampleRule}
-16. "Fill all the boxes" / "every field": fill every field of the field list (document) or every entity key (client, job) you have a value for; never stop at the name.${howToRules}
+16. "Fill all the boxes" / "every field": fill every field of the field list (document) or every entity key (client, job) you have a value for; never stop at the name.${howToRules}${optionRules}
 
 DOCUMENT FIELDS (exact keys):
 ${buildFieldGuide(formType)}${knowledge ? `

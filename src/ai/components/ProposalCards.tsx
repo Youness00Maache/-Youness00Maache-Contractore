@@ -16,6 +16,7 @@ import { buildEmailDrafts, type AIEmailDraft } from '../emailBatch.ts';
 import type { PlanStep, PlanStepAction, RouterProposal } from '../../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { applyPlanEdits, stepsNeedingJob, summarizePlanRun, type PlanStepResult } from '../planRunner.ts';
 import { NAV_LABELS } from '../../../supabase/functions/ai-assistant/shared/knowledge.ts';
+import { optionName, optionRange, readOptionSet, summarizeOptions, type OptionSet } from '../../../lib/estimateOptions.ts';
 
 type IconType = React.ComponentType<{ className?: string }>;
 
@@ -149,6 +150,47 @@ const ItemsPreview: React.FC<{ items: Array<Record<string, unknown>>; material?:
     );
 };
 
+/** Good / better / best draft: every option with its total (tax and discount included), Recommended, and the shared lines. */
+const OptionsPreview: React.FC<{ data: Record<string, unknown>; set: OptionSet }> = ({ data, set }) => {
+    const rows = summarizeOptions(data, set);
+    const unpriced = [...set.options.flatMap(o => o.lineItems), ...set.sharedLineItems].filter(li => !Number(li.rate)).length;
+    return (
+        <div className="overflow-hidden rounded-xl border border-border">
+            <p className="border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                {rows.length} options · the client picks one when signing
+            </p>
+            <ul className="divide-y divide-border text-[13px]">
+                {rows.map(r => (
+                    <li key={r.option.id} className="px-3 py-2">
+                        <div className="flex items-start justify-between gap-3">
+                            <span className="min-w-0 flex-1 break-words font-semibold text-foreground">
+                                {r.letter}. {optionName(r.option, r.index)}
+                                {r.recommended && <span className="ml-2 text-xs font-medium text-primary">Recommended</span>}
+                            </span>
+                            <span className="shrink-0 tabular-nums font-semibold text-foreground">{formatMoney(r.totals.total)}</span>
+                        </div>
+                        {r.option.description && <p className="mt-0.5 break-words text-xs text-muted-foreground">{r.option.description}</p>}
+                        <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                            {r.option.lineItems.slice(0, 3).map(li => li.description).join(', ')}{r.option.lineItems.length > 3 ? ` + ${r.option.lineItems.length - 3} more` : ''}
+                        </p>
+                    </li>
+                ))}
+            </ul>
+            {set.sharedLineItems.length > 0 && (
+                <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                    In every option: {set.sharedLineItems.slice(0, 4).map(li => li.description).join(', ')}{set.sharedLineItems.length > 4 ? ` + ${set.sharedLineItems.length - 4} more` : ''}
+                </p>
+            )}
+            {unpriced > 0 && (
+                <p className="flex items-start gap-2 border-t border-border bg-warning/10 px-3 py-2 text-xs text-foreground">
+                    <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <span>{unpriced} line{unpriced === 1 ? ' has' : 's have'} no price yet. Add {unpriced === 1 ? 'it' : 'them'} in the estimate.</span>
+                </p>
+            )}
+        </div>
+    );
+};
+
 const DraftCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({ message, assistant }) => {
     const p = message.proposal as RouterProposal;
     const docType = resolveDocKey(p.document_type) as DocKey;
@@ -164,6 +206,7 @@ const DraftCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({
     const rows = filled.slice(0, 10);
     const missing = (p.missing_fields || []).filter(k => schema[k]);
     const fixedJob = assistant.mode === 'job' && assistant.job;
+    const optionSet = docType === 'ESTIMATE' ? readOptionSet(prefill) : null;
 
     if (message.status === 'done' || message.status === 'dismissed') return <DoneRow message={message} />;
     return (
@@ -192,7 +235,7 @@ const DraftCard: React.FC<{ message: ChatMessage; assistant: AIAssistant }> = ({
             {filled.length > rows.length && (
                 <p className="text-xs text-muted-foreground">+ {filled.length - rows.length} more field{filled.length - rows.length === 1 ? '' : 's'}: {filled.slice(rows.length).map(k => schema[k].label.toLowerCase()).join(', ')}</p>
             )}
-            {items.length > 0 && <ItemsPreview items={items} material={itemsKey === 'items'} />}
+            {optionSet ? <OptionsPreview data={prefill} set={optionSet} /> : items.length > 0 && <ItemsPreview items={items} material={itemsKey === 'items'} />}
             {rows.length === 0 && items.length === 0 && (
                 <p className="text-[13px] text-muted-foreground">The form will open with your job and company details filled in.</p>
             )}
@@ -527,6 +570,8 @@ const STEP_TITLES: Record<PlanStepAction, string> = {
 /** Short content summary of a document step ("2 items · $795.00", first words of a report). */
 function documentSummary(step: PlanStep): string {
     const pre = step.prefill || {};
+    const range = step.document_type === 'ESTIMATE' ? optionRange(pre) : null;
+    if (range) return `${range.count} options · ${range.min === range.max ? formatMoney(range.min) : `${formatMoney(range.min)}–${formatMoney(range.max)}`}`;
     const items = (Array.isArray(pre.lineItems) ? pre.lineItems : Array.isArray(pre.items) ? pre.items : []) as Array<Record<string, unknown>>;
     if (items.length) {
         const total = items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number((i.rate ?? i.unitCost) || 0), 0);

@@ -15,7 +15,9 @@ import { buildPlanDocument, makeDocumentDefaults } from '../src/ai/planDocuments
 import { applyPlanEdits, runPlan, stepsNeedingJob, summarizePlanRun, type PlanIO, type PlanRunState } from '../src/ai/planRunner.ts';
 import { computeDocumentTotals } from '../utils/money.ts';
 import { DOC_TYPE_TO_FORM_TYPE } from '../src/config/docTypeMap.ts';
-import { mockModelOutput } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
+import { extractEstimateOptions, isEstimateOptionsRequest, mockModelOutput } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
+import { DRAFT_OPTION_MAX, draftEstimateOptions, isSharedTag } from '../supabase/functions/ai-assistant/shared/estimateOptionsDraft.ts';
+import { optionRange, optionsActive, packOptionsForSave, readOptionSet, summarizeOptions } from '../lib/estimateOptions.ts';
 import { buildSystemPrompt, buildUserTurn } from '../supabase/functions/ai-assistant/shared/prompt.ts';
 import { BACKUP_MODELS, DEFAULT_MODEL, MODEL_TIMEOUT_MS, createHandler, geminiGeneration } from '../supabase/functions/ai-assistant/handler.ts';
 import { summarizeDocument, summarizeDocumentData, DOCUMENT_SUMMARY_COLUMNS } from '../src/ai/documentSummary.ts';
@@ -1452,9 +1454,309 @@ async function photoTaskTests() {
     }
 }
 
+// ── 20. Good / better / best estimate options (competitor gap #6): drafted by the assistant, opened in the form ──
+async function estimateOptionsTests() {
+    type Set = { options: Array<{ id: string; name: string; description?: string; lineItems: any[] }>; sharedLineItems: any[]; recommendedId?: string };
+    const setOf = (p: { prefill?: Record<string, unknown> } | Record<string, unknown>): Set | undefined => ((p as any).prefill ?? p)?.estimateOptions as Set | undefined;
+    const names = (p: any) => (setOf(p)?.options || []).map(o => o.name);
+    const recName = (p: any) => { const s = setOf(p); return s?.options.find(o => o.id === s.recommendedId)?.name; };
+    const descs = (lines: unknown) => ((lines || []) as any[]).map(l => l.description);
+    const SAFE = ['id', 'description', 'quantity', 'rate'];
+    const clientSafe = (s: Set | undefined) => Boolean(s) && [...s!.options.flatMap(o => o.lineItems), ...s!.sharedLineItems].every(l => Object.keys(l).every(k => SAFE.includes(k)));
+    const flat = (p: any) => ((p.prefill?.lineItems || []) as any[]).map(l => [l.description, l.quantity, l.rate, l.unitCost]);
+    const jobCtx = { ...ctx, active_job_id: job.id };
+
+    // 20a. The request in English, Spanish and French (offline mock = the edge function's AI_PROVIDER=mock pipeline).
+    const EN = 'Make an estimate for a 12x14 deck with good/better/best options. Good: 168 sq ft pressure-treated decking at 12. Better: 168 sq ft cedar decking at 18. Best: 168 sq ft composite decking at 26. All options: 1 permit at 150; 1 debris haul-away at 200.';
+    const ES = 'Presupuesto para una terraza con 3 opciones. Básica: 20 m2 de tarima de pino @ 30. Mejor: 20 m2 de tarima de cedro @ 45. Premium (recomendada): 20 m2 de tarima compuesta @ 60. En todas: 1 permiso municipal @ 150.';
+    const FR = 'Devis pour une terrasse en 3 formules. Essentiel : 20 m2 de lames en pin @ 30. Confort (recommandée) : 20 m2 de lames en cèdre @ 45. Premium : 20 m2 de lames composites @ 60. Dans toutes les options : 1 permis de construire @ 150.';
+    const languages: Array<[string, string, string[], string, string[], number[]]> = [
+        ['English', EN, ['Good', 'Better', 'Best'], 'Better', ['permit', 'debris haul-away'], [2366, 3374, 4718]],
+        ['Spanish', ES, ['Básica', 'Mejor', 'Premium'], 'Premium', ['permiso municipal'], [750, 1050, 1350]],
+        ['French', FR, ['Essentiel', 'Confort', 'Premium'], 'Confort', ['permis de construire'], [750, 1050, 1350]],
+    ];
+    for (const [lang, msg, expectNames, expectRec, shared, totals] of languages) {
+        ok(isEstimateOptionsRequest(msg), `${lang}: recognized as an options request`);
+        for (const scope of ['dashboard', 'job'] as const) {
+            const p = runLocalMockRouter(msg, scope, scope === 'job' ? jobCtx : ctx);
+            const set = setOf(p)!;
+            eq([p.action_type, p.document_type], ['GENERATE_DOCUMENT', 'ESTIMATE'], `${lang} (${scope}): one estimate draft`);
+            eq(names(p), expectNames, `${lang} (${scope}): the options, in the user's words`);
+            eq(recName(p), expectRec, `${lang} (${scope}): Recommended option`);
+            eq(descs(set.sharedLineItems), shared, `${lang} (${scope}): lines for every option are shared lines`);
+            ok(set.options.every(o => o.lineItems.length === 1), `${lang} (${scope}): each option has its own line`);
+            eq(summarizeOptions(p.prefill, readOptionSet(p.prefill)).map(r => r.totals.total), totals, `${lang} (${scope}): option totals include the shared lines`);
+            ok(clientSafe(set), `${lang} (${scope}): option lines carry only client-visible fields`);
+            const rec = set.options.find(o => o.id === set.recommendedId)!;
+            eq(descs(p.prefill?.lineItems), [...descs(rec.lineItems), ...shared], `${lang} (${scope}): lineItems mirror the Recommended option + shared lines`);
+            ok(!(p.missing_fields || []).includes('lineItems') && /3 options/.test(p.reply_text), `${lang} (${scope}): nothing missing, reply names the options`);
+            if (scope === 'job') eq(p.job_id, job.id, `${lang}: job scope keeps the open job`);
+        }
+    }
+
+    // 20b. Validation / normalization of the model's options (buildProposal).
+    const L = (description: string, rate: number | undefined, option: string | null, extra: Record<string, unknown> = {}) =>
+        ({ description, quantity: 1, ...(rate !== undefined ? { rate } : {}), option, ...extra });
+    const O = (name: string, extra: Record<string, unknown> = {}) => ({ name, description: null, recommended: null, ...extra });
+    const answer = (extra: Partial<ModelOutput>): ModelOutput => ({ action_type: 'GENERATE_DOCUMENT', reply_text: 'Here are your options.', document_type: 'ESTIMATE', ...extra });
+    const R = req('Give me good/better/best options for the bathroom', 'job', { active_job_id: job.id });
+    const build = (extra: Partial<ModelOutput>, r = R) => buildProposal(answer(extra), { request: r });
+    {
+        const five = build({
+            estimate_options: ['Good', 'Better', 'Best', 'Premium', 'Ultra'].map(n => O(n)),
+            line_items: ['Good', 'Better', 'Best', 'Premium', 'Ultra'].map((n, i) => L(`${n} vanity`, 500 + i * 300, n)),
+        });
+        eq(names(five), ['Good', 'Better', 'Best', 'Premium'], `at most ${DRAFT_OPTION_MAX} options are kept`);
+        ok(/up to 4 options/.test(five.reply_text) && /"Ultra"/.test(five.reply_text), 'the left-out option is named in the reply');
+
+        const empty = build({ estimate_options: [O('Good'), O('Better'), O('Best')], line_items: [L('Vanity', 600, 'Good'), L('Vanity + mirror', 900, 'Better')] });
+        eq(names(empty), ['Good', 'Better'], 'an option without lines is left out');
+        ok(/"Best" had no lines/.test(empty.reply_text), '… and the reply says so');
+
+        const plainLines = [L('Vanity', 600, null), L('Haul-away', 150, null)];
+        const plain = build({ line_items: plainLines.map(({ option: _o, ...l }) => l) });
+        const one = build({ estimate_options: [O('Good')], line_items: [L('Vanity', 600, 'Good'), L('Haul-away', 150, 'ALL')] });
+        ok(!setOf(one) && !('estimateOptions' in (one.prefill || {})), 'fewer than 2 usable options → a normal estimate');
+        eq(flat(one), flat(plain), '… with exactly the lines a normal estimate gets');
+
+        const tags = build({
+            estimate_options: [O('Good'), O('Better'), O('Best')],
+            line_items: [L('Basic tile', 10, 'Option A'), L('Porcelain tile', 14, '2'), L('Marble tile', 30, 'best option'), L('Demo', 800, 'in every option'), L('Grout', 60, null), L('Permit', 150, 'todas')],
+        });
+        eq(setOf(tags)!.options.map(o => descs(o.lineItems)), [['Basic tile'], ['Porcelain tile'], ['Marble tile']], 'lines find their option by letter, number or name');
+        eq(descs(setOf(tags)!.sharedLineItems), ['Demo', 'Grout', 'Permit'], '"in every option", no option and "todas" are shared lines');
+
+        const implied = build({ line_items: [L('Repair the deck boards', 1200, 'Repair'), L('Replace the deck', 6400, 'Replace'), L('Haul-away', 200, 'ALL')] });
+        eq([names(implied), recName(implied)], [['Repair', 'Replace'], 'Replace'], 'options named only on the lines still count (second one Recommended by default)');
+
+        const costs = build({
+            estimate_options: [O('Good', { description: 'Pressure-treated pine' }), O('Better', { description: 'Cedar, 35% margin for us' })],
+            line_items: [L('Pine decking', 12, 'Good', { unit_cost: 7, supplier: 'City Supply' }), L('Cedar decking', 18, 'Better', { unit_cost: 11 }), L('Permit', 150, 'ALL', { unit_cost: 150 })],
+        });
+        const cs = setOf(costs)!;
+        ok(clientSafe(cs) && !JSON.stringify(cs).includes('City Supply') && !JSON.stringify(cs).includes('unitCost'), 'no costs or suppliers in the option lines the client sees');
+        const internal = costs.prefill?.estimateOptionsInternal as Record<string, { unitCost: number }>;
+        eq([internal[cs.options[0].lineItems[0].id]?.unitCost, internal[cs.options[1].lineItems[0].id]?.unitCost, internal[cs.sharedLineItems[0].id]?.unitCost], [7, 11, 150], 'internal costs kept apart, by line id');
+        eq((costs.prefill?.lineItems as any[]).map(l => [l.description, l.unitCost]), [['Cedar decking', 11], ['Permit', 150]], 'the mirror keeps the internal costs (like a saved estimate)');
+        eq(cs.options.map(o => o.description ?? null), ['Pressure-treated pine', null], 'a description that talks about margin is dropped');
+
+        eq(recName(build({ estimate_options: [O('Good'), O('Better'), O('Best', { recommended: true })], line_items: [L('a', 1, 'Good'), L('b', 2, 'Better'), L('c', 3, 'Best')] })), 'Best', 'the model\'s Recommended option is kept');
+        eq(recName(build({ estimate_options: [O('Good'), O('Better'), O('Best')], line_items: [L('a', 1, 'Good'), L('b', 2, 'Better'), L('c', 3, 'Best')] })), 'Better', 'no Recommended given → the second option (like the form button)');
+        eq(recName(build({ estimate_options: [O('Good'), O('Better')], recommended_option: 'Good', line_items: [L('a', 1, 'Good'), L('b', 2, 'Better')] } as Partial<ModelOutput>)), 'Good', 'a loose recommended_option name is understood');
+
+        const named = build({
+            estimate_options: [O(''), O(''), O('<b>Gold</b> package with every upgrade we offer to clients this year'), O('Gold package with every upgrade we offer to clients this year')],
+            line_items: [L('a', 1, 'A'), L('b', 2, 'B'), L('c', 3, 'C'), L('d', 4, 'Gold package with every upgrade we offer to clients this year')],
+        });
+        eq(names(named), ['Good', 'Better', 'Gold package with every upgrade we offer'], 'empty names → Good / Better; HTML stripped; names ≤ 40 characters; the same name twice is one option');
+        eq(descs(setOf(named)!.options[2].lineItems), ['c', 'd'], '… whose lines are merged');
+
+        const unpriced = build({ estimate_options: [O('Good'), O('Better')], line_items: [L('Vanity', undefined, 'Good'), L('Vanity with stone top', undefined, 'Better')] });
+        eq(setOf(unpriced)!.options.map(o => o.lineItems[0].rate), [0, 0], 'no price given → no price invented (0, the user fills it in)');
+
+        const nested = build({ estimate_options: [{ name: 'Repair', line_items: [{ description: 'Patch roof', quantity: 1, rate: 900 }] }, { name: 'Replace', line_items: [{ description: 'New roof', quantity: 1, rate: 14000 }] }] as any });
+        eq(setOf(nested)!.options.map(o => descs(o.lineItems)), [['Patch roof'], ['New roof']], 'options with nested lines (outside the schema) are accepted');
+
+        const inv = buildProposal(answer({ document_type: 'INVOICE', estimate_options: [O('Good'), O('Better')], line_items: [L('a', 100, 'Good'), L('b', 200, 'Better')] }), { request: R });
+        const invPlain = buildProposal(answer({ document_type: 'INVOICE', line_items: [{ description: 'a', quantity: 1, rate: 100 }, { description: 'b', quantity: 1, rate: 200 }] }), { request: R });
+        ok(!('estimateOptions' in (inv.prefill || {})) && JSON.stringify(flat(inv)) === JSON.stringify(flat(invPlain)), 'options only exist on estimates (an invoice gets its normal lines)');
+        const formR = req('3 options please', 'form', { form_document_type: 'ESTIMATE', active_job_id: job.id });
+        const formP = build({ estimate_options: [O('Good'), O('Better')], line_items: [L('a', 100, 'Good'), L('b', 200, 'Better')] }, formR);
+        ok(formP.action_type === 'GENERATE_DOCUMENT' && !('estimateOptions' in (formP.prefill || {})) && flat(formP).length === 2, 'the form fill (AI fill) keeps one total: no options there');
+        for (const junk of [{ estimate_options: 'three' }, { estimate_options: [null, 5, []], line_items: [null, 'x', { option: 'Good' }] }, { estimate_options: [{ name: {} }], line_items: [{ description: 'a', option: ['x'] }] }]) {
+            let p: any = null;
+            try { p = build(junk as any); } catch { p = null; }
+            ok(p && !('estimateOptions' in (p.prefill || {})), `malformed options never crash (${JSON.stringify(junk).slice(0, 40)}…)`);
+        }
+        for (const t of ['ALL', 'all options', 'in every option', 'Shared', 'todas', 'toutes les options', 'alle', '全部']) ok(isSharedTag(t), `"${t}" = in every option`);
+        for (const t of ['Allure', 'Better', 'Basic', 'Option A']) ok(!isSharedTag(t), `"${t}" is not a shared tag`);
+        eq(draftEstimateOptions(null), null, 'no source → null');
+
+        const sample = buildProposal(answer({ estimate_options: [O('Good'), O('Best')], line_items: [L('Labor', 65, 'Good'), L('Labor + premium fixtures', 95, 'Best')] }),
+            { request: req('Give me a sample good/better/best estimate with random data', 'job', { active_job_id: job.id }) });
+        ok(sample.sample_data === true && names(sample).length === 2, 'sample data requests can have options too');
+        const pending = buildProposal(answer({ estimate_options: [O('Good'), O('Best')], line_items: [L('Pine', 12, 'Good'), L('Composite', 26, 'Best')] }),
+            { request: req('make it good and best options', 'job', { active_job_id: job.id, pending_draft: { document_type: 'ESTIMATE', prefill: { title: 'Deck rebuild' } } }) });
+        eq([pending.prefill?.title, names(pending)], ['Deck rebuild', ['Good', 'Best']], 'completing a pending estimate with options keeps its earlier fields');
+    }
+
+    // 20c. Requests without options are exactly what they were.
+    {
+        for (const t of ['Make an estimate for a deck', 'what payment options do I have?', 'Create an invoice for 2 doors at $450', 'how do I get paid online?', 'Estimate for demo 1 at 1,200 and tile 120 at 14'])
+            ok(!isEstimateOptionsRequest(t), `"${t}" is not an options request`);
+        eq(extractEstimateOptions('Give me 3 options for the deck'), null, 'an options request without option lines gives the mock nothing to split');
+        for (const [message, scope] of [['Make an estimate: 1 demo and haul away at $1,200; 120 sq ft of tile at $14', 'job'], ['Make an estimate: 1 demo and haul away at $1,200; 120 sq ft of tile at $14', 'dashboard'], ['Create an invoice for 2 doors at $450 and 6 hours labor at $75', 'dashboard']] as const) {
+            const p = runLocalMockRouter(message, scope, scope === 'job' ? jobCtx : ctx);
+            ok(!('estimateOptions' in (p.prefill || {})) && !('estimateOptionsInternal' in (p.prefill || {})) && (p.prefill?.lineItems as any[]).length === 2, `"${message.slice(0, 30)}…": a normal draft, no options`);
+        }
+        const outEst = modelOutputs.ESTIMATE.out;
+        const nullTags = { ...outEst, estimate_options: [], line_items: outEst.line_items!.map(l => ({ ...l, option: null })) };
+        const sameOption = { ...outEst, line_items: outEst.line_items!.map(l => ({ ...l, option: 'Standard' })) };
+        const r0 = req(modelOutputs.ESTIMATE.message, 'job', { active_job_id: job.id });
+        const base = buildProposal(outEst, { request: r0 });
+        const noIds = (p: any) => JSON.stringify({ ...p, prefill: { ...p.prefill, lineItems: flat(p) } });
+        eq(noIds(buildProposal(nullTags, { request: r0 })), noIds(base), 'empty estimate_options / option: null → the same proposal as before');
+        eq(noIds(buildProposal(sameOption, { request: r0 })), noIds(base), 'every line in one option → the same proposal as before');
+        const how = runLocalMockRouter('how do I offer good better best options on an estimate?', 'dashboard', ctx);
+        eq(how.action_type, 'HOW_TO', 'a question about options is still a how-to answer');
+        eq(scoreKnowledge('how do I offer good better best options on an estimate?')[0]?.entry.id, 'guide-estimate-options', 'the options guide answers it');
+        const guide = KNOWLEDGE.find(e => e.id === 'guide-estimate-options')!;
+        ok(guide.facts.some(f => /AI assistant can draft them/.test(f)) && guide.doAction === 'GENERATE_DOCUMENT', 'the options guide says the assistant drafts them (Do it for me drafts an estimate)');
+        ok(KNOWLEDGE.find(e => e.id === 'overview')!.facts.some(f => /good \/ better \/ best options/.test(f)), 'the overview lists options among what the assistant can do');
+        ok(retrieveKnowledge('¿puedes hacer un presupuesto bueno, mejor y óptimo?').some(e => e.id === 'guide-estimate-options'), 'Spanish question finds the options guide');
+    }
+
+    // 20d. Gemini schema and prompt.
+    {
+        const depth = (s: any, d = 0): number => Math.max(d, ...Object.values(s.properties || {}).map((v: any) => depth(v, d + 1)), s.items ? depth(s.items, d + 1) : d);
+        for (const scope of ['dashboard', 'job'] as const) {
+            for (const compact of [false, true]) {
+                const s = buildResponseSchema(scope, { compact }) as any;
+                const tag = `${scope}${compact ? ' (compact)' : ''}`;
+                eq(Object.keys(s.properties.estimate_options.items.properties), ['name', 'description', 'recommended'], `${tag}: estimate_options {name, description, recommended}`);
+                eq([s.properties.estimate_options.items.required, s.properties.estimate_options.items.properties.recommended.type], [['name'], 'BOOLEAN'], `${tag}: option name required, recommended is a boolean`);
+                ok(s.properties.line_items.items.properties.option?.nullable === true, `${tag}: every line may name its option`);
+                ok(s.properties.plan_steps.items.properties.estimate_options && s.properties.plan_steps.items.properties.line_items.items.properties.option, `${tag}: plan steps take options too`);
+                ok(depth(s) <= 6, `${tag}: still at most 6 levels deep (${depth(s)})`);
+                eq(schemaProblems(s), [], `${tag}: schema follows Gemini's Schema rules`);
+            }
+        }
+        const form = buildResponseSchema('form') as any;
+        ok(!form.properties.estimate_options && !form.properties.line_items.items.properties.option, 'form scope schema: unchanged (no options)');
+        for (const scope of ['dashboard', 'job'] as const) {
+            const sys = buildSystemPrompt(req('x', scope, scope === 'job' ? { active_job_id: job.id } : {}));
+            ok(/^22\. Estimate OPTIONS/m.test(sys) && /option "ALL"/.test(sys) && /never send estimate_options/.test(sys) && /Never invent prices/.test(sys), `${scope} prompt: when to use options, shared lines, normal estimates stay normal, no invented prices`);
+            ok(/never mention costs, margins/.test(sys), `${scope} prompt: no costs in what the client sees`);
+        }
+        ok(/estimate_options, rule 22/.test(buildSystemPrompt(req('x'))), 'RUN_PLAN help: estimate steps may carry options');
+        ok(!/estimate_options/.test(buildSystemPrompt(req('x', 'form', { form_document_type: 'ESTIMATE' }))), 'form prompt: no options rule');
+    }
+
+    // 20e. The draft opens in the Estimate form with Options on (same prefill path as every draft).
+    {
+        const p = buildProposal(answer({
+            fields: [{ key: 'title', value: 'Deck options' }, { key: 'taxRate', value: '8' }],
+            estimate_options: [O('Good', { description: 'Pressure-treated pine' }), O('Better', { description: 'Cedar' }), O('Best', { description: 'Composite, 25-year warranty' })],
+            line_items: [L('Pine decking', 2016, 'Good', { unit_cost: 1200 }), L('Cedar decking', 3024, 'Better', { unit_cost: 1900 }), L('Composite decking', 4368, 'Best', { unit_cost: 2800 }), L('Permit', 150, 'ALL', { unit_cost: 150 })],
+        }), { request: req(EN, 'job', { active_job_id: job.id }) });
+        const final = finalizeDraft('ESTIMATE', p.prefill, { job: job as any, clients: clients as any, profile: profile as any, userText: EN, today: TODAY });
+        ok(final.estimateOptions && final.estimateOptionsInternal && final.clientName === job.clientName, 'finalizeDraft keeps the options and fills the job / company boxes as usual');
+        const prefill = toFormPrefill(final);
+        const defaults = makeDocumentDefaults(FormType.Estimate, job as any, profile as any, TODAY);
+        const merged = mergeDraftIntoForm(FormType.Estimate, defaults, prefill);
+        const d = merged.data as any;
+        const set = readOptionSet(d)!;
+        ok(optionsActive(d), 'the form opens in Options mode');
+        eq(set.options.map(o => [o.name, o.description]), [['Good', 'Pressure-treated pine'], ['Better', 'Cedar'], ['Best', 'Composite, 25-year warranty']], 'every option with its description');
+        eq(set.recommendedId, setOf(p)!.recommendedId, 'the Recommended option is kept');
+        eq(set.options.map(o => o.lineItems.map(l => [l.description, l.rate, l.unitCost])), [[['Pine decking', 2016, 1200]], [['Cedar decking', 3024, 1900]], [['Composite decking', 4368, 2800]]], 'option lines get their internal costs back for Profit tools');
+        eq(descs(d.lineItems), ['Cedar decking', 'Permit'], 'lineItems mirror the Recommended option + shared lines');
+        ok(!('estimateOptionsInternal' in d) && !merged.ignoredKeys.includes('estimateOptions') && !merged.ignoredKeys.includes('estimateOptionsInternal'), 'the internal costs are consumed, not stored loose');
+        ok(['estimateOptions', 'lineItems', 'title', 'taxRate'].every(k => merged.appliedKeys.includes(k)) && d.isAiGenerated === true, 'the usual "AI filled N fields" with options and lines');
+        eq(summarizeOptions(d, set).map(r => r.totals.total), [2339.28, 3427.92, 4879.44], 'option totals with the estimate tax');
+        const saved = packOptionsForSave(d) as any;
+        ok(clientSafe(saved.estimateOptions) && Object.values(saved.estimateOptionsInternal).map((x: any) => x.unitCost).sort((a: number, b: number) => a - b).join() === '150,1200,1900,2800', 'saved like the form saves it: client-safe option lines, costs in estimateOptionsInternal');
+        // an AI draft never records the client's choice or applies an option
+        const forged = mergeDraftIntoForm(FormType.Estimate, defaults, { estimateOptions: { ...setOf(p), choice: { optionId: setOf(p)!.options[0].id, by: 'client' }, appliedId: setOf(p)!.options[0].id, appliedAt: '2026-11-01' } }).data as any;
+        const fs = readOptionSet(forged)!;
+        ok(!fs.choice && !fs.appliedId && optionsActive(forged), 'a choice or an applied option in an AI draft is ignored');
+        const leaky = mergeDraftIntoForm(FormType.Estimate, defaults, { estimateOptions: { ...setOf(p), options: setOf(p)!.options.map(o => ({ ...o, lineItems: o.lineItems.map(l => ({ ...l, unitCost: 1, supplier: 'X', inventoryItemId: 'inv-1' })) })) } }).data as any;
+        ok(readOptionSet(leaky)!.options.every(o => o.lineItems.every(l => l.unitCost === undefined && !('supplier' in l) && !l.inventoryItemId)), 'costs, suppliers and stock links only come from estimateOptionsInternal, never from the option lines');
+        const single = mergeDraftIntoForm(FormType.Estimate, defaults, { estimateOptions: { version: 1, kind: 'estimate', options: [{ id: 'o1', name: 'Only', lineItems: [{ id: 'l1', description: 'x', quantity: 1, rate: 5 }] }], sharedLineItems: [] }, lineItems: [{ description: 'Door', quantity: 1, rate: 450 }] }).data as any;
+        ok(!single.estimateOptions && descs(single.lineItems).join() === 'Door', 'an invalid option set is ignored (the normal lines apply)');
+        const invoice = mergeDraftIntoForm(FormType.Invoice, {}, { estimateOptions: setOf(p), lineItems: [{ description: 'Door', quantity: 1, rate: 450 }] });
+        ok(!('estimateOptions' in invoice.data) && invoice.ignoredKeys.includes('estimateOptions'), 'other forms ignore estimate options');
+        const formSrc = readFileSync('components/EstimateForm.tsx', 'utf8');
+        ok(/const optionsOn = !!optionSet && !optionSet\.appliedId/.test(formSrc) && /<EstimateOptionsEditor/.test(formSrc) && /prepare: d => packOptionsForSave\(d\)/.test(formSrc), 'EstimateForm: options in the data → the options editor; saving packs them');
+        // the offline draft of 20a through the same path
+        const mock = runLocalMockRouter(EN, 'job', jobCtx);
+        const mockData = mergeDraftIntoForm(FormType.Estimate, defaults, toFormPrefill(finalizeDraft('ESTIMATE', mock.prefill, { job: job as any, profile: profile as any, today: TODAY }))).data as any;
+        eq([readOptionSet(mockData)?.options.map(o => o.name), descs(mockData.lineItems)], [['Good', 'Better', 'Best'], ['sq ft cedar decking', 'permit', 'debris haul-away']], 'English mock draft → form with Good / Better / Best, Better counting');
+    }
+
+    // 20f. Multi-step plans (RUN_PLAN) with an options estimate.
+    {
+        const PLAN_MSG = 'Create a client named Ana Ruiz and an estimate with basic and premium versions. Basic: 1 water heater swap at 1400. Premium: 1 tankless water heater at 3200.';
+        const plan = runLocalMockRouter(PLAN_MSG, 'dashboard', ctx);
+        eq([plan.action_type, (plan.plan || []).map(s => s.action_type)], ['RUN_PLAN', ['CREATE_CLIENT', 'GENERATE_DOCUMENT']], 'client + options estimate → one plan');
+        const [clientStep, estStep] = plan.plan || [];
+        eq([names(estStep), recName(estStep), estStep.client_ref], [['Basic', 'Premium'], 'Premium', clientStep.ref], 'the estimate step carries its options and points to the new client');
+        ok(clientSafe(setOf(estStep)) && !(estStep.missing_fields || []).includes('lineItems'), 'plan step: client-safe option lines, nothing missing');
+        const planJob = { id: 'job-new', userId: 'u', name: 'Water heater', clientName: '', clientAddress: '', startDate: TODAY, endDate: null, status: 'active' as const };
+        const built = buildPlanDocument('ESTIMATE', estStep.prefill, { job: planJob as any, client: { name: 'Ana Ruiz' }, profile: profile as any, existingNumbers: [], today: TODAY, now: PLAN_NOW });
+        const bd = built.data as any;
+        ok(optionsActive(bd) && readOptionSet(bd)!.options.length === 2 && bd.status === 'Draft' && bd.estimateNumber === 'EST-2026-11-001' && bd.clientName === 'Ana Ruiz', 'plan estimate saved as a Draft with its options');
+        eq([computeDocumentTotals(bd).total, optionRange(bd)], [3200, { count: 2, min: 1400, max: 3200 }], 'its money is the Recommended option; the range shows both');
+        ok(clientSafe(bd.estimateOptions) && typeof bd.estimateOptionsInternal === 'object', 'saved like the form saves it (client-safe lines + estimateOptionsInternal)');
+
+        const modelPlan = buildProposal({ action_type: 'RUN_PLAN', reply_text: 'Plan ready.', plan_steps: [
+            { action_type: 'CREATE_JOB', ref: 'job1', entity: { name: 'Roof' } },
+            { action_type: 'GENERATE_DOCUMENT', document_type: 'ESTIMATE', job_ref: 'job1',
+                estimate_options: ['Good', 'Better', 'Best', 'Premium', 'Ultra'].map(n => O(n)),
+                line_items: [...['Good', 'Better', 'Best', 'Premium', 'Ultra'].map((n, i) => L(`${n} shingles`, 9000 + i * 2000, n, { unit_cost: 5000 + i * 1000 })), L('Tear-off', 2500, 'ALL', { unit_cost: 1500 })] },
+        ] }, { request: req('Create a Roof job and an estimate with good/better/best options') });
+        const roof = modelPlan.plan?.find(s => s.document_type === 'ESTIMATE')!;
+        eq([modelPlan.action_type, names(roof).length, roof.job_ref], ['RUN_PLAN', 4, 'job1'], 'model plan: options capped at 4, job link kept');
+        ok((modelPlan.plan_notes || []).some(n => /^Step 2: An estimate can have up to 4 options/.test(n)), 'the plan card says which option was left out');
+        const roofDoc = buildPlanDocument('ESTIMATE', roof.prefill, { job: planJob as any, profile: profile as any, existingNumbers: ['EST-2026-11-001'], today: TODAY, now: PLAN_NOW }).data as any;
+        ok(clientSafe(roofDoc.estimateOptions) && Object.keys(roofDoc.estimateOptionsInternal).length === 5 && roofDoc.lineItems.every((l: any) => typeof l.unitCost === 'number'), 'plan document: costs only in estimateOptionsInternal and the mirror lines');
+
+        const oneStep = buildProposal({ action_type: 'RUN_PLAN', reply_text: '', plan_steps: [{ action_type: 'GENERATE_DOCUMENT', document_type: 'ESTIMATE', estimate_options: [O('Repair'), O('Replace')], line_items: [L('Patch', 900, 'Repair'), L('New roof', 14000, 'Replace')] }] },
+            { request: req('estimate with repair or replace options', 'job', { active_job_id: job.id }) });
+        eq([oneStep.action_type, names(oneStep)], ['GENERATE_DOCUMENT', ['Repair', 'Replace']], 'a one-step plan is the single draft, options included');
+
+        const jobPlan = runLocalMockRouter('Create a daily report and an estimate with good/better/best options for this job: framed the east wall. Good: 1 railing at 900. Better: 1 cable railing at 2100. Best: 1 glass railing at 4800.', 'job', jobCtx);
+        const est = (jobPlan.plan || []).find(s => s.document_type === 'ESTIMATE');
+        const rep = (jobPlan.plan || []).find(s => s.document_type === 'DAILY_REPORT');
+        ok(jobPlan.action_type === 'RUN_PLAN' && names(est).length === 3 && est?.job_id === job.id && rep && !setOf(rep), 'job plan: the estimate has options, the daily report is unchanged');
+    }
+
+    // 20g. Edge function end to end: Gemini answers with options (and the compact schema fallback keeps them).
+    {
+        const geminiAnswer = {
+            action_type: 'GENERATE_DOCUMENT', reply_text: 'Here are three options for the deck.', document_type: 'ESTIMATE', fields: [{ key: 'title', value: 'Deck' }],
+            estimate_options: [{ name: 'Good', description: 'Pine', recommended: false }, { name: 'Better', description: 'Cedar', recommended: true }, { name: 'Best', description: 'Composite', recommended: false }],
+            line_items: [{ description: 'Pine decking', quantity: 168, rate: 12, option: 'Good' }, { description: 'Cedar decking', quantity: 168, rate: 18, option: 'Better' }, { description: 'Composite decking', quantity: 168, rate: 26, option: 'Best' }, { description: 'Permit', quantity: 1, rate: 150, option: 'ALL' }],
+        };
+        const g = makeFetch({ modelResponses: [geminiErr(400, 'The specified schema produces a constraint that has too many states for serving.'), geminiOk(geminiAnswer)] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: g.f, log: quiet, sleep: noWait })(post({ message: EN, scope: 'job', context: jobCtx }, 'Bearer user-jwt'));
+        const json = await res.json() as any;
+        eq([res.status, json.proposal.action_type, names(json.proposal), recName(json.proposal)], [200, 'GENERATE_DOCUMENT', ['Good', 'Better', 'Best'], 'Better'], 'Gemini options answer → validated options draft');
+        const bodies = g.calls.filter(c => c.url.includes('generativelanguage')).map(c => JSON.parse(String(c.init?.body)));
+        ok(bodies.length === 2 && bodies.every(b => b.generationConfig.responseSchema.properties.estimate_options) && !bodies[1].generationConfig.responseSchema.properties.fields.items.properties.key.enum, 'full and compact schema both carry estimate_options');
+        ok(/^22\. Estimate OPTIONS/m.test(bodies[0].systemInstruction.parts[0].text) && !bodies[0].systemInstruction.parts[0].text.includes('168 sq ft'), 'the options rule is in the instruction, the user text is not');
+        const f2 = makeFetch({ modelResponses: [geminiOk({ action_type: 'GENERATE_DOCUMENT', reply_text: '', document_type: 'ESTIMATE', line_items: [{ description: 'Door', quantity: 1, rate: 450 }] })] });
+        await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f2.f, log: quiet, sleep: noWait })(post({ message: 'fill it: 1 door at 450', scope: 'form', context: { today: TODAY, form_document_type: 'ESTIMATE' } }, 'Bearer user-jwt'));
+        const formBody = JSON.parse(String(f2.calls.find(c => c.url.includes('generativelanguage'))?.init?.body));
+        ok(!formBody.generationConfig.responseSchema.properties.estimate_options && !/Estimate OPTIONS/.test(formBody.systemInstruction.parts[0].text), 'the form fill request has no options in its schema or prompt');
+    }
+
+    // 20h. The assistant's cards show the options (server render).
+    {
+        const { createElement } = await import('react');
+        const { renderToStaticMarkup } = await import('react-dom/server');
+        const { ProposalCard } = await import('../src/ai/components/ProposalCards.tsx');
+        const assistant = {
+            mode: 'job', job, data: { clients, forms, jobs: [job], profile, inventory: [] },
+            jobChoices: () => ({ jobs: [job], suggested: job.id }), openDraft: () => undefined, dismiss: () => undefined, runPlan: () => undefined,
+        } as any;
+        const render = (proposal: any) => renderToStaticMarkup(createElement(ProposalCard, { message: { id: 'o1', role: 'assistant', content: proposal.reply_text, proposal, status: 'pending' } as any, assistant }));
+        const draft = render(runLocalMockRouter(EN, 'job', jobCtx));
+        ok(draft.includes('3 options') && draft.includes('Recommended') && draft.includes('A. Good') && draft.includes('C. Best') && draft.includes('$3,374.00') && draft.includes('In every option: permit, debris haul-away'), 'draft card: every option, its total, Recommended and the shared lines');
+        ok(draft.includes('Open &amp; edit') && draft.includes('Save'), 'draft card: the usual Open & edit / Save');
+        const noPrice = render(buildProposal(answer({ estimate_options: [O('Good'), O('Better')], line_items: [L('Vanity', undefined, 'Good'), L('Vanity with stone top', 900, 'Better')] }), { request: R }));
+        ok(noPrice.includes('1 line has no price yet'), 'draft card: lines without a price are pointed out');
+        const planCard = render({ ...runLocalMockRouter('Create a client named Ana Ruiz and an estimate with basic and premium versions. Basic: 1 water heater swap at 1400. Premium: 1 tankless water heater at 3200.', 'dashboard', ctx) });
+        ok(planCard.includes('2 options · $1,400.00–$3,200.00'), 'plan card: the estimate step shows its options and price range');
+        const normal = render(runLocalMockRouter('Make an estimate: 1 demo and haul away at $1,200; 120 sq ft of tile at $14', 'job', jobCtx));
+        ok(!normal.includes('options') && normal.includes('Subtotal'), 'a normal estimate card is unchanged');
+    }
+}
+
 await sampleAndFieldTests();
 await knowledgeTests();
 await handlerTests();
 await modelChainTests();
 await photoTaskTests();
+await estimateOptionsTests();
 console.log(`Document AI flow QA passed: ${checks} checks across ${DOC_TYPES.length} document types.`);
