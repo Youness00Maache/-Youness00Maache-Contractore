@@ -461,6 +461,11 @@ begin
   if not exists (select 1 from public.jobs j where j.id = new.job_id and j.user_id = new.user_id) then
     raise exception 'Job not found' using errcode = 'P0002';
   end if;
+  -- the time sheet a punch was billed on is one of the account's own documents
+  if new.timesheet_id is not null
+     and not exists (select 1 from public.documents d where d.id = new.timesheet_id and d.user_id = new.user_id) then
+    raise exception 'Time sheet not found' using errcode = 'P0002';
+  end if;
   return new;
 end;
 $$;

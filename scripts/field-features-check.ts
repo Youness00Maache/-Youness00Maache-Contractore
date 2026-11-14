@@ -434,6 +434,11 @@ const plan = (over: Partial<ServicePlan> = {}): ServicePlan => ({
         const c = readMigration(f).replace(/--.*$/gm, '');
         ok(`${f}: OLD is only read in UPDATE branches`, !/tg_op = 'INSERT' or [^;]*old\./i.test(c) && !/tg_op = 'UPDATE' and [^;]*old\./i.test(c));
     }
+    // every function body opens with "as $$" (a missing one makes the whole file fail in the SQL editor)
+    for (const f of ['20261115000100_crew_clock_in.sql', '20261115000200_punch_lists.sql', '20261115000300_papers_vault.sql', '20261115000400_service_plans.sql']) {
+        const c = readMigration(f).replace(/\r\n/g, '\n');
+        ok(`${f}: every function body starts with "as $$"`, !/set search_path = ''\n(declare|begin)\b/.test(c));
+    }
 }
 {
     // the assistant finds the new features (retrieval) and every new screen is a real route

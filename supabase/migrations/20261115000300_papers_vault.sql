@@ -86,6 +86,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
+as $$
 declare
   v_job_changed boolean := true;
 begin
