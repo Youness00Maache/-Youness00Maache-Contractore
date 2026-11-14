@@ -936,8 +936,17 @@ async function modelChainTests() {
     }
     // Unreadable output from the first model → the next model gets a chance.
     {
-        const r = await run({}, [{ status: 200, body: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"action_type":"RUN_PLAN","reply_text":"Here' }] } }] } }, geminiOk(answer)]);
-        eq([r.res.status, r.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.6-flash']], 'cut-off JSON → next model');
+        // A cut-off answer (MAX_TOKENS, e.g. a long multi-step plan) → the same fast model once more with the compact
+        // schema and no thinking; cut off again → the next model.
+        const cut = { status: 200, body: { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"action_type":"RUN_PLAN","reply_text":"Here' }] } }] } };
+        const r = await run({}, [cut, geminiOk(answer)]);
+        eq([r.res.status, r.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite']], 'cut-off JSON → same model again');
+        ok(r.sent[1].generationConfig.thinkingConfig === undefined
+            && r.sent[1].generationConfig.responseSchema.properties.fields.items.properties.key.enum === undefined, 'the retry uses the compact schema and no thinking');
+        const twice = await run({}, [cut, cut, geminiOk(answer)]);
+        eq([twice.res.status, twice.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.6-flash']], 'cut off twice → next model');
+        const garbage = await run({}, [{ status: 200, body: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'not json at all' }] } }] } }, geminiOk(answer)]);
+        eq([garbage.res.status, garbage.names], [200, ['gemini-3.5-flash-lite', 'gemini-3.6-flash']], 'non-JSON answer (not cut off) → next model');
     }
     // Usage: only answers the user receives are metered, and never twice.
     {

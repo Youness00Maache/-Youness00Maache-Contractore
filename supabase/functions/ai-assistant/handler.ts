@@ -332,8 +332,19 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
                         .join('');
                     const parsed = parseModelJson(text);
                     if (parsed) return { output: parsed, model };
-                    // Cut off (MAX_TOKENS) or not JSON: the next model may do better.
-                    log('unparseable model output', model, finish, text.slice(0, 200));
+                    const usage = data?.usageMetadata || {};
+                    log('unparseable model output', model, finish,
+                        `chars=${text.length} out=${usage.candidatesTokenCount ?? '?'} thoughts=${usage.thoughtsTokenCount ?? '?'} compact=${opts.compact} thinking=${opts.thinking}`,
+                        text.slice(0, 160), '…', JSON.stringify(text.slice(-120)));
+                    // Cut off (MAX_TOKENS), e.g. a long multi-step plan (2026-11-14: client + job + 3 documents ran
+                    // out on gemini-3.5-flash-lite): ask the SAME fast model once more with the compact schema and no
+                    // thinking before handing over to a slower model.
+                    if (/MAX_TOKENS/.test(finish) && (!opts.compact || opts.thinking)) {
+                        opts.compact = true;
+                        opts.thinking = false;
+                        continue;
+                    }
+                    // Not JSON: the next model may do better.
                     failures.push('bad_output');
                     continue models;
                 }

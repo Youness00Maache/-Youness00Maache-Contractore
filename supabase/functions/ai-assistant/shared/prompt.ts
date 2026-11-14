@@ -95,7 +95,7 @@ export function buildSystemPrompt(req: RouterRequest): string {
     return `You are the ContractorDocs assistant for construction contractors. Today is ${today} (the user's local date).
 ${scopeLine}${sampleNow}
 
-Respond with ONE JSON object that matches the response schema. You only PROPOSE actions: the app shows the user a confirmation card and nothing happens until the user approves. Never say that something was saved, sent, created or changed.
+Respond with ONE JSON object that matches the response schema, written compactly (no indentation, no blank lines; leave out optional fields you don't fill instead of writing null or empty values). You only PROPOSE actions: the app shows the user a confirmation card and nothing happens until the user approves. Never say that something was saved, sent, created or changed.
 
 ACTIONS YOU MAY USE:
 ${actions}
