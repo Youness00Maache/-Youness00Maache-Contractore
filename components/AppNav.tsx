@@ -191,7 +191,7 @@ const AppNav: React.FC<AppNavProps> = ({
                             trigger={
                                 <span className={linkCls('tools')}>
                                     <GridIcon className="h-4 w-4" /> Tools
-                                    {lowStockCount > 0 && <span className="badge badge-warning px-1.5 py-0 text-[10px]">{lowStockCount > 9 ? '9+' : lowStockCount}</span>}
+                                    {lowStockCount > 0 && <span className="badge badge-danger px-1.5 py-0 text-[10px]">{lowStockCount > 9 ? '9+' : lowStockCount}</span>}
                                     <ChevronDownIcon className="h-3.5 w-3.5 opacity-60" />
                                 </span>
                             }
