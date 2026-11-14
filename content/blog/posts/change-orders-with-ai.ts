@@ -118,7 +118,7 @@ Keep every change order with the job, numbered in order. On the next invoice, li
 
 ## What it costs
 
-The AI assistant is on every ContractorDocs plan: 15 requests a month on Free, 60 on Premium ($5 a month) and 600 on Premium + AI ($10 a month). Change orders, approval links and e-signatures are included on every plan. See the [AI invoice and change order generator](/features#ai-assistant) for what else it drafts, or the [features page](/features#ai-assistant).`,
+The AI assistant is on every ContractorDocs plan: 15 requests a month on Free, 60 on Premium ($5 a month) and 600 on Premium + AI ($10 a month). Change orders, approval links and e-signatures are included on every plan. See the [AI invoice and change order generator](/ai-invoice-generator) for what else it drafts, or the [features page](/features#ai-assistant).`,
   faq: [
     {
       q: 'Can AI write a construction change order?',
@@ -144,7 +144,7 @@ The AI assistant is on every ContractorDocs plan: 15 requests a month on Free, 6
   cta: {
     heading: 'Write your next change order before the work starts',
     text: 'Describe the change, check the draft and send it for a signature on the client’s phone, all from the job site.',
-    href: '/features#ai-assistant',
+    href: '/ai-invoice-generator',
     label: 'See what the AI drafts',
   },
 };

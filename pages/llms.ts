@@ -7,6 +7,8 @@ import { PLANS, FREE_LIMITS, PAID_AI_LIMITS } from '../lib/plans.ts';
 import { BLOG_POSTS } from '../content/blog/registry.ts';
 import type { BlogPostContent } from '../content/blog/types.ts';
 import { STATIC_MARKETING_ROUTES } from './routes.ts';
+import { LANDING_PAGES, landingPagesOf } from '../content/landing/registry.ts';
+import type { LandingContent } from '../content/landing/types.ts';
 
 const abs = (p: string) => (p === '/' ? `${SITE.url}/` : `${SITE.url}${p}`);
 const strip = (s: string) => s.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*|\*/g, '');
@@ -55,6 +57,15 @@ export function buildLlmsTxt(): string {
     '## Key pages',
     ...KEY_PAGES.map(([p, l]) => `- [${l}](${abs(p)})`),
     '',
+    '## AI generators',
+    ...landingPagesOf('ai').map((p) => `- [${p.label}](${abs(p.path)}): ${p.description}`),
+    '',
+    '## For your trade',
+    ...landingPagesOf('trade').map((p) => `- [${p.label}](${abs(p.path)}): ${p.description}`),
+    '',
+    '## Comparisons',
+    ...landingPagesOf('compare').map((p) => `- [${p.label}](${abs(p.path)}): ${p.description}`),
+    '',
     '## Guides',
     ...BLOG_POSTS.map((p) => `- [${p.title}](${abs(`/blog/${p.slug}`)}): ${p.description}`),
     '',
@@ -65,7 +76,34 @@ export function buildLlmsTxt(): string {
   ].join('\n');
 }
 
-export function buildLlmsFullTxt(posts: Map<string, BlogPostContent>): string {
+const landingFacts = (c: LandingContent): string[] => {
+  if (c.kind === 'compare') {
+    return [
+      `Facts as of ${c.asOf} (ContractorDocs vs ${c.competitor}):`,
+      ...c.rows.map((r) => `- ${r.topic}: ContractorDocs: ${strip(r.us)}. ${c.competitor}: ${strip(r.them)}.`),
+      `When ${c.competitor} is the better fit:`,
+      ...c.pickThem.map((t) => `- ${strip(t)}`),
+      'When ContractorDocs is the better fit:',
+      ...c.pickUs.map((t) => `- ${strip(t)}`),
+      'Sources:',
+      ...c.sources.map((src) => `- ${src.label}: ${src.url}`),
+    ];
+  }
+  if (c.kind === 'ai') {
+    return [
+      'What the AI does:',
+      ...c.can.map((x) => `- ${x.title}: ${strip(x.text)}`),
+      'Limits:',
+      ...c.limits.map((x) => `- ${strip(x)}`),
+    ];
+  }
+  return [
+    `Documents ${c.trade} send most:`,
+    ...c.documents.map((d) => `- ${d.name}: ${strip(d.use)}`),
+  ];
+};
+
+export function buildLlmsFullTxt(posts: Map<string, BlogPostContent>, landing: Map<string, LandingContent> = new Map()): string {
   const out: string[] = [
     ...intro(),
     '',
@@ -73,9 +111,16 @@ export function buildLlmsFullTxt(posts: Map<string, BlogPostContent>): string {
     ...[...HOME_FAQ, ...PRICING_FAQ].flatMap((f) => [`### ${f.q}`, strip(f.a), '']),
     '## Pages',
     ...STATIC_MARKETING_ROUTES.map((p) => `- ${abs(p)}`),
+    ...LANDING_PAGES.map((p) => `- ${abs(p.path)}`),
     '',
-    '## Guides',
+    '## AI generators, trade pages and comparisons',
   ];
+  for (const meta of LANDING_PAGES) {
+    const c = landing.get(meta.key);
+    out.push('', `### ${meta.title}`, `URL: ${abs(meta.path)}`, `Updated: ${meta.updated}`, meta.description);
+    if (c) out.push('', strip(c.answer), '', ...landingFacts(c));
+  }
+  out.push('', '## Guides');
   for (const meta of BLOG_POSTS) {
     const c = posts.get(meta.slug);
     out.push('', `### ${meta.title}`, `URL: ${abs(`/blog/${meta.slug}`)}`, `Updated: ${meta.updated || meta.date}`, meta.description);

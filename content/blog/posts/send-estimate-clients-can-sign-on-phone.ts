@@ -111,7 +111,7 @@ Whatever tool you use, check that the signed estimate keeps these details togeth
 - **No clear next step.** Tell the client what happens after they sign.
 - **The estimate expired.** Send a fresh one with current prices rather than signing an old number.
 
-If you want to try it on your next quote, you can create the estimate with the [free estimate generator](/estimate-generator), or describe the job to the [AI estimate generator](/features#ai-assistant) and send the approval link from ContractorDocs.`,
+If you want to try it on your next quote, you can create the estimate with the [free estimate generator](/estimate-generator), or describe the job to the [AI estimate generator](/ai-estimate-generator) and send the approval link from ContractorDocs.`,
   faq: [
     {
       q: 'Can a client sign an estimate on their phone without an app?',

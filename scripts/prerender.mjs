@@ -66,7 +66,8 @@ for (const route of routes) {
 }
 
 // 3) sitemap.xml (absolute https://www.contractordocs.app URLs).
-const priority = (r) => (r === '/' ? '1.0' : ['/pricing', '/features', '/templates', '/invoice-generator', '/estimate-generator'].includes(r) ? '0.9' : r.startsWith('/blog/') ? '0.7' : r === '/blog' ? '0.8' : '0.5');
+const isLanding = (r) => /^\/(for|compare)\/|^\/ai-(estimate|invoice)-generator$/.test(r);
+const priority = (r) => (r === '/' ? '1.0' : ['/pricing', '/features', '/templates', '/invoice-generator', '/estimate-generator'].includes(r) ? '0.9' : isLanding(r) || r === '/blog' ? '0.8' : r.startsWith('/blog/') ? '0.7' : '0.5');
 const urls = written
   .map(({ route, lastmod }) => {
     const loc = route === '/' ? `${site.url}/` : `${site.url}${route}`;

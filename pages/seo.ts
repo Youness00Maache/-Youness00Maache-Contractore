@@ -5,6 +5,8 @@
 import { SITE, HOME_FAQ, PRICING_FAQ, type FaqItem } from '../content/site.ts';
 import { BLOG_POSTS, getPostMeta } from '../content/blog/registry.ts';
 import type { BlogPostContent } from '../content/blog/types.ts';
+import { getLandingMeta, landingCrumb } from '../content/landing/registry.ts';
+import type { LandingContent } from '../content/landing/types.ts';
 import { PLANS } from '../lib/plans.ts';
 import { normalizePath } from './routes.ts';
 import { GENERATOR_FAQ } from './GeneratorPage.tsx';
@@ -210,7 +212,7 @@ export const NOT_FOUND_SEO = (path: string): PageSeo => ({
 });
 
 /** SEO for a marketing path, or null when the path is not a known marketing page. */
-export function getPageSeo(pathname: string, post?: BlogPostContent | null): PageSeo | null {
+export function getPageSeo(pathname: string, post?: BlogPostContent | null, landing?: LandingContent | null): PageSeo | null {
   const path = normalizePath(pathname);
   const def = STATIC[path];
   if (def) {
@@ -218,6 +220,25 @@ export function getPageSeo(pathname: string, post?: BlogPostContent | null): Pag
     if (def.crumb) jsonLd.push(breadcrumbs([{ name: 'Home', path: '/' }, { name: def.crumb, path }]));
     if (def.extra) jsonLd.push(...def.extra(path));
     return { path, title: def.title, description: def.description, canonical: abs(path), ogType: 'website', jsonLd, lastmod: SITE.lastUpdated };
+  }
+  const lp = getLandingMeta(path);
+  if (lp) {
+    const body = landing && landing.key === lp.key ? landing : null;
+    const jsonLd: Record<string, unknown>[] = [
+      { ...webPage(path, lp.title, lp.description), dateModified: lp.updated, ...(body ? { abstract: stripMd(body.answer) } : {}) },
+      breadcrumbs([{ name: 'Home', path: '/' }, { name: landingCrumb(lp), path }]),
+    ];
+    if (body?.faq.length) jsonLd.push(faqPage(path, body.faq));
+    if (lp.kind !== 'trade') jsonLd.push(softwareApp());
+    if (body?.kind === 'ai') {
+      jsonLd.push({
+        '@type': 'HowTo',
+        '@id': `${abs(path)}#howto`,
+        name: body.h1,
+        step: body.steps.map((st, i) => ({ '@type': 'HowToStep', position: i + 1, name: st.title, text: stripMd(st.text) })),
+      });
+    }
+    return { path, title: lp.title, description: lp.description, canonical: abs(path), ogType: 'website', jsonLd, lastmod: lp.updated };
   }
   const m = path.match(/^\/blog\/([a-z0-9-]+)$/);
   const meta = m ? getPostMeta(m[1]) : undefined;

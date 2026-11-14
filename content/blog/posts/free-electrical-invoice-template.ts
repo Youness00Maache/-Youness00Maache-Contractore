@@ -108,9 +108,9 @@ The free generator is fine for an occasional invoice. When you're sending severa
 - **Price book:** save your common tasks and parts (receptacle swap, GFCI, 20 A breaker, EV charger circuit) with your prices, and pick them onto any invoice.
 - **Pay now link:** paste your own PayPal, Square or Stripe payment link once. Clients get a Pay now button in the portal and the email, and a Scan to pay code on the PDF. When they pay, **Mark as paid** records it and creates the receipt.
 - **Reminders:** unpaid invoice reminders go out from your own Gmail on the due date and 7 and 14 days after, and stop when the invoice is paid.
-- **AI drafting:** describe the job ("replaced two kitchen GFCIs, 1.5 hours, service call") and the assistant drafts the invoice with your price book prices for you to review. See the [AI invoice generator](/features#ai-assistant).
+- **AI drafting:** describe the job ("replaced two kitchen GFCIs, 1.5 hours, service call") and the assistant drafts the invoice with your price book prices for you to review. See the [AI invoice generator](/ai-invoice-generator).
 
-For estimates, change orders and work orders for electrical jobs, see our [page for electricians](/templates).`,
+For estimates, change orders and work orders for electrical jobs, see our [page for electricians](/for/electricians).`,
   faq: [
     {
       q: 'Do electricians have to put their license number on invoices?',
