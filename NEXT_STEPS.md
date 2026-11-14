@@ -210,6 +210,15 @@ columns / user_settings; does not touch template files). Templates helper ab3e48
 Owner click-test after sign-in: Photos › Write client update / AI walkthrough; Inventory › Suppliers / Create reorder
 POs; a PO › Send to supplier / Mark received.
 **06:30:** Started offline field drafts (#14) helper affb2a5fd1f3baea4 (no DB changes; local outbox in IndexedDB).
+**07:05:** Offline field drafts (#14) DONE + committed (435824f; offline-drafts-check 145, all suites pass). Field docs
+create/edit offline; estimates/invoices drafted offline with a provisional number; per-user IndexedDB outbox
+(`contractordocs_outbox`); sync on start/reconnect/Sync now; logout guard. Pending: redeploy ai-assistant with the next
+change (only one help tip changed). Owner OK (ask when back): public/sw.js service worker (production, signed-in users
+only; network-first pages, cache-first hashed assets; the old app had an sw.js that was never registered); forms
+preloaded on job pages; price book + inventory now cached on the device (cleared on logout).
+Templates helper ab3e480c0eebe3ce2 FINISHED (native page renderer: PDF = preview; 30 old designs re-matched to 25ae5cc;
+empty-box + --pdfdiff QA). Static templates-qa 63,838 pass; full browser run with --pdfdiff running, then commit.
+Next: good/better/best (#6).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
