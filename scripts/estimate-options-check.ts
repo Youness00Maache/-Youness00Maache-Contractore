@@ -36,7 +36,7 @@ import { ALL_TEMPLATE_IDS } from '../utils/templates/registry.ts';
 import { normalizeLineItems } from '../components/forms/formUtils.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (p: string) => readFileSync(join(root, p), 'utf8');
+const read = (p: string) => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, '\n');
 let passed = 0;
 const failures: string[] = [];
 const check = (name: string, ok: unknown, detail?: unknown) => {
