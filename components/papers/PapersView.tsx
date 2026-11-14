@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Client, FormData as FormDataType, Job, UserProfile } from '../../types.ts';
 import { isPaidTier, normalizeTier } from '../../lib/plans.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 import {
     PAPER_KINDS, PAPER_REMINDER_OFFSETS, blankPaper, defaultPaperTitle, expiryPhrase, expiryState, nextPaperStep, paperFileProblem, paperKindShort,
     paperProblems, papersSummary, sendPaperEmail, sortPapers, type CompanyPaper, type ExpiryState, type PaperKind,
@@ -96,7 +97,7 @@ const PapersView: React.FC<PapersViewProps> = ({ userId, profile, plan, jobs, cl
 
     const startAdd = (kind: PaperKind = 'coi') => {
         if (!paid) { onUpgrade('The papers vault (insurance, licenses, permits with expiry reminders) is part of Premium.'); return; }
-        if (!isOnline) { toast.error("You're offline, this needs a connection."); return; }
+        if (!isOnline) { toast.error(NEEDS_CONNECTION); return; }
         setEditing({ paper: blankPaper(newId(), kind), mode: 'create' });
     };
 

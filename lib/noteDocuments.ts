@@ -9,6 +9,7 @@ import { isMissingColumnError } from './account.ts';
 import { mapDocumentRow, primeDocumentCache } from './documents.ts';
 import type { FormData as FormDataType, Job, UserProfile } from '../types.ts';
 import { buildPlanDocument } from '../src/ai/planDocuments.ts';
+import { NEEDS_CONNECTION } from './offline/connection.ts';
 
 export interface SavedNote {
     id: string;
@@ -27,7 +28,7 @@ export const saveJobNote = async (input: {
     /** extra keys kept on the document data (e.g. lienWaiver: { … } so the waiver can be told apart) */
     extra?: Record<string, unknown>;
 }): Promise<SavedNote> => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error("You're offline, this needs a connection.");
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(NEEDS_CONNECTION);
     const built = buildPlanDocument('NOTE', { title: input.title, content: input.content, tags: input.tags || [] }, { job: input.job, profile: input.profile, today: input.today });
     const data: Record<string, unknown> = { ...built.data, title: input.title, tags: input.tags || [], isAiGenerated: false, ...(input.extra || {}) };
     const row: Record<string, unknown> = { id: crypto.randomUUID(), user_id: input.userId, job_id: input.job.id, type: built.formType, data };

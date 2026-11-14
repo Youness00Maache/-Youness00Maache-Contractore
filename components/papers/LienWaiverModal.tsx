@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { Client, FormData as FormDataType, Job, UserProfile } from '../../types.ts';
 import { supabase } from '../../lib/supabase.ts';
 import { mapDocumentRow, DOCUMENT_DETAIL_COLUMNS } from '../../lib/documents.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 import {
     WAIVER_TAG, buildLienWaiverHtml, lienWaiverTitle, waiverCheck, waiverInvoices, waiverPrefill,
     type LienWaiverFields, type WaiverInvoice, type WaiverScope, type WaiverType,
@@ -80,7 +81,7 @@ const LienWaiverModal: React.FC<LienWaiverModalProps> = ({ userId, profile, jobs
 
     const create = async () => {
         if (!final || !job) return;
-        if (!isOnline) { setError("You're offline, this needs a connection."); return; }
+        if (!isOnline) { setError(NEEDS_CONNECTION); return; }
         if (check.problems.length) { setError(check.problems[0]); return; }
         setBusy(true);
         setError('');

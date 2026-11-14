@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Client, FormData as FormDataType, Job, UserProfile } from '../../types.ts';
 import { isPaidTier, normalizeTier } from '../../lib/plans.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 import {
     BILLING_OPTIONS, FREQUENCY_PRESETS, annualValue, frequencyLabel, planProblems, priceLabel, upcomingVisitDates, visitInvoicePreview,
     type IntervalUnit, type PlanBilling, type ServicePlan, type ServiceVisit, type VisitStatus,
@@ -98,7 +99,7 @@ const ServicePlansView: React.FC<ServicePlansViewProps> = ({ userId, profile, pl
 
     const startNew = () => {
         if (!paid) { onUpgrade('Service plans (maintenance visits that schedule themselves) are part of Premium.'); return; }
-        if (!isOnline) { toast.error("You're offline, this needs a connection."); return; }
+        if (!isOnline) { toast.error(NEEDS_CONNECTION); return; }
         setEditing({ plan: blankPlan(today), kind: 'create' });
     };
 

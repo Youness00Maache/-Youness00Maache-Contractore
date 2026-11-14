@@ -2558,7 +2558,7 @@ const App: React.FC = () => {
                 ) : undefined}
                 punchLabel={(() => { const p = punchState.map.get(job.id); return p && p.total ? `${p.closed}/${p.total}` : undefined; })()}
                 toolsSlot={(
-                    <button type="button" onClick={() => (isOnline ? setLienWaiverJobId(job.id) : toast.error("You're offline, this needs a connection."))} className="btn btn-outline h-10" title="Lien waiver from this job's invoice and payment">
+                    <button type="button" onClick={() => (isOnline ? setLienWaiverJobId(job.id) : toast.error(NEEDS_CONNECTION))} className="btn btn-outline h-10" title="Lien waiver from this job's invoice and payment">
                         <FileTextIcon className="h-4 w-4" /> <span className="hidden sm:inline">Lien waiver</span><span className="sm:hidden">Waiver</span>
                     </button>
                 )}

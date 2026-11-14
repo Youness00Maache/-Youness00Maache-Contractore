@@ -10,12 +10,13 @@ import { isMissingColumnError } from '../../lib/account.ts';
 import { mapDocumentRow, primeDocumentCache } from '../../lib/documents.ts';
 import { buildPlanDocument } from '../../src/ai/planDocuments.ts';
 import type { FormData as FormDataType, Job, UserProfile } from '../../types.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 import {
     PLAN_COLUMNS, VISIT_COLUMNS, mapPlanRow, mapVisitRow, planRowOf, recurringInvoiceFields,
     type PlanStatus, type ServicePlan, type ServiceVisit, type VisitStatus,
 } from '../../lib/servicePlans.ts';
 
-const needOnline = () => { if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error("You're offline, this needs a connection."); };
+const needOnline = () => { if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(NEEDS_CONNECTION); };
 
 /** null = service plans aren't in the database yet. */
 export const listPlans = async (): Promise<ServicePlan[] | null> => {

@@ -11,6 +11,7 @@ import { offlineEntityQueue, offlineEntityQueueFor } from '../../lib/offline/off
 import { isNetworkError } from '../../lib/offline/outboxModel.ts';
 import { isMissingBackendError } from '../requests/requestLogic.ts';
 import { PUNCH_COLUMNS, mapPunchRow, progressByJob, punchRowOf, type PunchItem, type PunchProgress } from '../../lib/punchList.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 
 export { PUNCH_SYNCED_EVENT } from '../../lib/punchList.ts';
 
@@ -92,13 +93,13 @@ export const savePunchItem = async (userId: string, item: PunchItem, kind: 'crea
 
 export const deletePunchItems = async (ids: string[]): Promise<void> => {
     if (!ids.length) return;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error("You're offline, this needs a connection.");
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(NEEDS_CONNECTION);
     const { error } = await supabase.from('punch_items').delete().in('id', ids);
     if (error) throw error;
 };
 
 export const setPunchShared = async (userId: string, jobId: string, shared: boolean): Promise<void> => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error("You're offline, this needs a connection.");
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(NEEDS_CONNECTION);
     const { error } = await supabase.from('punch_lists').upsert({ job_id: jobId, user_id: userId, shared_in_portal: shared }, { onConflict: 'job_id' });
     if (error) throw error;
 };

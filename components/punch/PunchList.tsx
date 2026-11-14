@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FormType, type Client, type Job, type UserProfile } from '../../types.ts';
 import type { OutboxItem } from '../../lib/offline/outboxModel.ts';
 import { applyEntityOverlay } from '../../lib/offline/outboxModel.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 import {
     PUNCH_SYNCED_EVENT, applyPunchStatus, buildPunchListHtml, filterPunchItems, groupByArea, knownAreas, mapPunchRow, nextPosition, parseQuickAdd,
     progressLabel, punchProgress, punchRowOf, punchStatusLabel, sortPunchItems, toggleTarget,
@@ -224,7 +225,7 @@ const PunchList: React.FC<PunchListProps> = ({ job, userId, profile, client, isO
     };
 
     const toggleShared = async () => {
-        if (!isOnline) { toast.error("You're offline, this needs a connection."); return; }
+        if (!isOnline) { toast.error(NEEDS_CONNECTION); return; }
         const next = !shared;
         setBusy('share');
         try {
@@ -254,7 +255,7 @@ const PunchList: React.FC<PunchListProps> = ({ job, userId, profile, client, isO
 
     // ---------------------------------------------------------------- photo on an item
     const attachPhoto = async (item: PunchItem, side: 'before' | 'after', file: File) => {
-        if (!isOnline) { toast.error("You're offline, this needs a connection."); return; }
+        if (!isOnline) { toast.error(NEEDS_CONNECTION); return; }
         setBusy(item.id);
         try {
             const { preparePhoto, addJobPhoto } = await import('../photos/photosApi.ts');
@@ -280,7 +281,7 @@ const PunchList: React.FC<PunchListProps> = ({ job, userId, profile, client, isO
 
     // ---------------------------------------------------------------- PDF / Note
     const download = async () => {
-        if (!isOnline) { toast.error("You're offline, this needs a connection."); return; }
+        if (!isOnline) { toast.error(NEEDS_CONNECTION); return; }
         if (!items.length) { toast.info('Add items first.'); return; }
         setReport('Preparing…');
         try {
@@ -313,7 +314,7 @@ const PunchList: React.FC<PunchListProps> = ({ job, userId, profile, client, isO
     };
 
     const saveAsNote = async () => {
-        if (!isOnline) { toast.error("You're offline, this needs a connection."); return; }
+        if (!isOnline) { toast.error(NEEDS_CONNECTION); return; }
         if (!items.length) { toast.info('Add items first.'); return; }
         setBusy('note');
         try {

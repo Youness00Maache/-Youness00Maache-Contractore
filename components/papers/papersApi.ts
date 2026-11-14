@@ -6,11 +6,12 @@
 import { supabase } from '../../lib/supabase.ts';
 import { isMissingBackendError } from '../requests/requestLogic.ts';
 import { PAPER_COLUMNS, mapPaperRow, paperFilePath, paperRowOf, type CompanyPaper } from '../../lib/papers.ts';
+import { NEEDS_CONNECTION } from '../../lib/offline/connection.ts';
 
 export const PAPERS_BUCKET = 'document-assets';
 
 const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
-const needOnline = () => { if (offline()) throw new Error("You're offline, this needs a connection."); };
+const needOnline = () => { if (offline()) throw new Error(NEEDS_CONNECTION); };
 
 /** Every paper of the user (archived ones left out). null = the vault isn't in the database yet. */
 export const listPapers = async (): Promise<CompanyPaper[] | null> => {
