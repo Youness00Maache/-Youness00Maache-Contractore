@@ -382,7 +382,8 @@ const PACKED = packOptionsForSave(EST) as any;
 // 8. draft SQL + wiring
 // ---------------------------------------------------------------------------------------------------------------
 {
-    const sql = read('docs/work/DRAFT_estimate_options_choice.sql');
+    // (a Windows checkout with core.autocrlf gives the file CRLF line ends; the checks below match "\n")
+    const sql = read('docs/work/DRAFT_estimate_options_choice.sql').replace(/\r\n/g, '\n');
     check('draft SQL: functions only (no table change)', !/\b(create|alter|drop)\s+table\b/i.test(sql) && !/\bupdate\s+public\.documents\s+set\b(?![^;]*where id = v_doc\.id)/i.test(sql));
     check('draft SQL: both signing functions', sql.includes('function public.sign_document_option_via_portal(\n  p_key text, p_doc_id uuid, p_option_id text, p_signature text, p_signer_name text default null)')
         && sql.includes('function public.approve_document_option_by_token(\n  doc_token uuid, p_option_id text, p_signature text, p_signer_name text default null)'));
@@ -411,7 +412,7 @@ const PACKED = packOptionsForSave(EST) as any;
     check('emails / texts / lists say "3 options from $…" before a choice', read('components/ShareModal.tsx').includes("'[Total Amount]': totalText") && read('components/DocumentCard.tsx').includes('documentTotalTextOf(d)'));
     check('help guide + AI knowledge (sync-knowledge)', read('components/help/helpContent.ts').includes("id: 'estimate-options'") && read('components/help/helpContent.ts').includes('[[Apply chosen option]]')
         && read('supabase/functions/ai-assistant/shared/helpGuides.generated.ts').includes('"id": "estimate-options"'));
-    check('pagination keeps an option with its totals', read('utils/templates/paginate.ts').includes("block.classList.contains('cd-opt-sum') ? pullOptionWith(block)"));
+    check('pagination keeps an option with its totals', read('utils/templates/paginate.ts').includes("block.classList.contains('cd-opt-sum') ? keepWithRows(block, 'cd-opt', true)"));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
