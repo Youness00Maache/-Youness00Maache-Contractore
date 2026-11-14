@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'e-signatures-for-contractors',
+  answer:
+    'Yes. In the US, the federal ESIGN Act and state laws based on UETA generally give electronic signatures the same legal effect as ink for most business documents, including estimates, contracts and change orders. What makes one hold up is evidence: clear intent to sign, consent to sign electronically, an unchanged signed copy and a record of who signed and when.',
   takeaways: [
     'In the US, the federal ESIGN Act and state laws based on UETA generally give electronic signatures the same effect as ink for most business documents.',
     'What makes an e-signature hold up is evidence: clear intent to sign, agreement to do business electronically, an unchanged signed copy and a record of who signed and when.',

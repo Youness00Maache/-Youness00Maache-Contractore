@@ -38,7 +38,7 @@ import * as LegacyA from '../utils/templates/documentHtmlTemplates.ts';
 import * as LegacyB from '../utils/templates/allNewTemplates.ts';
 import { adaptTemplateForContentDocument } from '../utils/templates/templateAdapters.ts';
 import {
-  ALL_TEMPLATE_IDS, CORE_TEMPLATE_IDS, NEW_TEMPLATE_IDS, PREMIUM_TEMPLATE_IDS, STANDARD_TEMPLATE_IDS, getTemplateMeta,
+  ALL_TEMPLATE_IDS, BASIC_TEMPLATE_IDS, PREMIUM_TEMPLATE_IDS, RETIRED_TEMPLATE_MAP, getTemplateMeta,
 } from '../utils/templates/registry.ts';
 import { THEMES } from '../utils/templates/themes.ts';
 import { modelFieldChecks, renderFieldChecks } from './templates-fields.ts';
@@ -187,22 +187,28 @@ const unitChecks = () => {
   const paid = renderDocument(FormType.Invoice, { ...ref, status: 'Paid' }, SAMPLE_PROFILE, SAMPLE_JOB);
   check(paid.model.totals.some((t) => t.kind === 'balance' && t.value === '$0.00'), 'paid invoice must show a $0.00 balance');
 
-  // every design is registered, has a theme and renders as itself; the original Standard/Premium ids are designs again
+  // every design is registered, has a theme, a tier and renders as itself (Basic: Classic + the 10 original Standard designs)
   const registered = new Set<string>(TEMPLATES.map((t) => t.id));
   check(TEMPLATES.length === ALL_TEMPLATE_IDS.length, `expected ${ALL_TEMPLATE_IDS.length} registered designs, found ${TEMPLATES.length}`);
   check(new Set(TEMPLATES.map((t) => t.name.toLowerCase())).size === TEMPLATES.length, 'design names must be unique');
-  check(NEW_TEMPLATE_IDS.length + CORE_TEMPLATE_IDS.length >= 2 * 13, 'at least 26 designs besides the restored originals');
+  check(PREMIUM_TEMPLATE_IDS.length >= 14 && BASIC_TEMPLATE_IDS.length === 11, `11 Basic and at least 14 Premium designs (${BASIC_TEMPLATE_IDS.length} / ${PREMIUM_TEMPLATE_IDS.length})`);
   for (const id of ALL_TEMPLATE_IDS) {
     check(registered.has(id), `design ${id} is not registered`);
     check(THEMES[id]?.id === id, `design ${id} has no theme`);
     check(resolveTemplateId(id) === id, `id ${id} must resolve to itself`);
     const meta = getTemplateMeta(id);
-    const want = (STANDARD_TEMPLATE_IDS as readonly string[]).includes(id) ? 'standard'
-      : (PREMIUM_TEMPLATE_IDS as readonly string[]).includes(id) ? 'premium'
-        : (NEW_TEMPLATE_IDS as readonly string[]).includes(id) ? 'new' : 'featured';
-    check(meta.collection === want, `design ${id} must be in collection ${want} (is ${meta.collection})`);
+    const want = (BASIC_TEMPLATE_IDS as readonly string[]).includes(id) ? 'basic' : 'premium';
+    check(meta.tier === want, `design ${id} must be ${want} (is ${meta.tier})`);
+    check(want === 'basic' || (!!THEMES[id]?.layout && !!meta.descriptor), `Premium design ${id} must be customizable and have a picker descriptor`);
+    check(want === 'premium' || !THEMES[id]?.layout, `Basic design ${id} must not take customization (its look stays unchanged)`);
     const r = renderDocument(FormType.Invoice, { ...SAMPLE_DOCUMENTS.invoice, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
     check(r.templateId === id && r.html.includes(`cd-t-${id} `), `documents saved with ${id} must render the ${id} design (got ${r.templateId})`);
+  }
+  // backward compatibility: every retired design id renders with its replacement (a Premium design)
+  for (const [old, mapped] of Object.entries(RETIRED_TEMPLATE_MAP)) {
+    check((PREMIUM_TEMPLATE_IDS as readonly string[]).includes(mapped), `retired ${old} must map to a Premium design (maps to ${mapped})`);
+    const r = renderDocument(FormType.Invoice, { ...SAMPLE_DOCUMENTS.invoice, templateId: old }, SAMPLE_PROFILE, SAMPLE_JOB);
+    check(r.templateId === mapped && r.html.includes(`cd-t-${mapped} `), `documents saved with retired ${old} must render ${mapped} (got ${r.templateId})`);
   }
   // backward compatibility: aliases (display names, spellings) still resolve
   for (const [legacy, mapped] of Object.entries(LEGACY_TEMPLATE_MAP)) {
@@ -211,7 +217,7 @@ const unitChecks = () => {
     check(r.templateId === mapped, `legacy id ${legacy} renders with ${mapped}`);
   }
   check(resolveTemplateId(undefined) === 'classic' && resolveTemplateId('no-such-template') === 'classic', 'unknown ids fall back to classic');
-  check(resolveTemplateId('Template_Neon') === 'template_neon' && resolveTemplateId('modern-blue') === 'modern_blue' && resolveTemplateId('Neon Cyberpunk') === 'template_neon', 'ids match case- and spacing-insensitively');
+  check(resolveTemplateId('Template_Neon') === 'slate' && resolveTemplateId('modern-blue') === 'modern_blue' && resolveTemplateId('Neon Cyberpunk') === 'slate' && resolveTemplateId('Classic Trade') === 'classic_trade', 'ids match case- and spacing-insensitively');
 
   // legacy template functions (still imported by older code paths)
   const labels = { date: 'Date', dateValue: '2026-01-05', id: 'Invoice #', idValue: 'INV-1' };
@@ -229,7 +235,8 @@ const unitChecks = () => {
   for (const [name, fn] of legacyFns) {
     const html = (fn as any)({ ...ref, invoiceNumber: 'INV-1', clientName: 'Bob', signatureUrl: SAMPLE_DOCUMENTS.invoice.signatureUrl }, SAMPLE_PROFILE, 'INVOICE', labels);
     check(typeof html === 'string' && html.includes('$203.00') && html.includes(SAMPLE_DOCUMENTS.invoice.signatureUrl), `legacy ${name} must render correct totals and the signature`);
-    check(LEGACY_FN_IDS[name] && html.includes(`cd-t-${LEGACY_FN_IDS[name]} `), `legacy ${name} must render its original design ${LEGACY_FN_IDS[name]}`);
+    const now = resolveTemplateId(LEGACY_FN_IDS[name]);
+    check(LEGACY_FN_IDS[name] && html.includes(`cd-t-${now} `), `legacy ${name} must render the design that replaced ${LEGACY_FN_IDS[name]} (${now})`);
     const report = adaptTemplateForContentDocument(fn as any, { reportNumber: 'DR-1', date: '2026-01-05', content: '<p>CONTENT_MARKER</p>', projectName: 'P' }, SAMPLE_PROFILE, 'DAILY REPORT', labels);
     check((report.match(/CONTENT_MARKER/g) || []).length === 1, `legacy adapter ${name} must render daily report content exactly once`);
   }
@@ -575,7 +582,7 @@ const browserStage = async () => {
       writeFileSync(blank, '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
       const pdfDir = join(OUT, 'pdf');
       mkdirSync(pdfDir, { recursive: true });
-      const pdfCases: Array<[string, DocKind, string]> = (ONLY_TEMPLATES || ['classic', 'construction', 'coastal', 'bold', 'executive']).flatMap((t) =>
+      const pdfCases: Array<[string, DocKind, string]> = (ONLY_TEMPLATES || ['classic', 'bold', 'modern_contractor', 'corporate', 'heritage']).flatMap((t) =>
         (ONLY_KINDS || ['invoice', 'dailyReport']).map((k) => [t, k, 'long'] as [string, DocKind, string]));
       for (const [template, kind, variant] of pdfCases) {
         await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });

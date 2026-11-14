@@ -21,6 +21,7 @@ import {
 } from './viewKit.tsx';
 import HelpButton from './help/HelpButton.tsx';
 import { checkoutMoves, kitBuildable, kitCost, kitEditPatch, kitOwnStock, lowStockThreshold, parseInventoryCode, stockStatus, stockValue, trackedComponents, type StockStatus } from '../utils/stockMath.ts';
+import { OPEN_INVENTORY_ITEM_EVENT } from '../lib/notifications/intents.ts';
 import { todayYMD } from '../utils/localDates.ts';
 import { toNumber } from '../utils/money.ts';
 
@@ -553,6 +554,19 @@ const InventoryView: React.FC<InventoryViewProps> = ({
     try { window.history.replaceState(window.history.state, document.title, window.location.pathname); } catch { /* ignore */ }
     findItem(id).then((it) => (it ? setSheetId(it.id) : notify('error', 'That item no longer exists.')));
   }, [loading, findItem, notify]);
+
+  // the notification bell opens an item while this screen is already open (lib/notifications/intents.ts)
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = parseInventoryCode(String((e as CustomEvent<string>).detail || ''));
+      if (!id) return;
+      deepLinkDone.current = true;
+      try { window.history.replaceState(window.history.state, document.title, window.location.pathname); } catch { /* ignore */ }
+      findItem(id).then((it) => (it ? setSheetId(it.id) : notify('error', 'That item no longer exists.')));
+    };
+    window.addEventListener(OPEN_INVENTORY_ITEM_EVENT, on);
+    return () => window.removeEventListener(OPEN_INVENTORY_ITEM_EVENT, on);
+  }, [findItem, notify]);
 
   const handleScan = async (text: string) => {
     setScanOpen(false);

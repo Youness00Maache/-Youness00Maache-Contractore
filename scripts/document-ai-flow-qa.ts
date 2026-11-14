@@ -1230,7 +1230,7 @@ async function knowledgeTests() {
     ok(KNOWN_LABELS.size > 120, `the knowledge names the real controls (${KNOWN_LABELS.size} labels)`);
     ok(!labelInSource('Request approval') && !KNOWN_LABELS.has('Request approval'), 'old labels are gone (Request approval → Get approval)');
     for (const topic of ['pipeline-board', 'job-costing-tm', 'export-data', 'pay-link', 'mark-paid', 'reminders-detail', 'quote-requests', 'photos-detail', 'portal', 'approval-signature', 'temporary-clients', 'gmail',
-        'inventory-qr', 'pricebook-items', 'designs', 'calculator-modes', 'recurring-invoices', 'signed-lock', 'convert-estimate', 'data-sync', 'tutorials', 'plans-billing']) {
+        'inventory-qr', 'pricebook-items', 'designs', 'calculator-modes', 'recurring-invoices', 'signed-lock', 'convert-estimate', 'data-sync', 'tutorials', 'plans-billing', 'notifications']) {
         ok(KNOWLEDGE.some(e => e.id === topic), `knowledge covers ${topic}`);
     }
     eq(KNOWLEDGE.filter(e => e.id.startsWith('guide-')).length, HELP_GUIDES.length, 'all help guides are in the knowledge');
@@ -1252,6 +1252,8 @@ async function knowledgeTests() {
         ['switch the profit calculator to advanced', 'calculator-modes'],
         ['how do I import my clients from excel', 'clients-import-export'],
         ['where do new quote requests show up?', 'quote-requests'],
+        ['how do notifications work? what does the bell show', 'notifications'],
+        ['tell me when a client signs', 'notifications'],
         ['¿Cómo envío un recordatorio de pago?', 'reminders-detail'],
         ['comment envoyer un devis pour signature ?', 'approval-signature'],
         ['Wie drucke ich QR-Etiketten für mein Lager?', 'inventory-qr'],
@@ -1351,7 +1353,7 @@ async function knowledgeTests() {
     eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', document_ids: ['evil'], job_id: 'evil' }, { request: req('open it') }).action_type, 'CHAT', 'foreign ids never navigate');
     eq(buildProposal({ action_type: 'OPEN_BILLING', reply_text: '' }, { request: req('billing') }).route, '/settings#billing', 'legacy alias → Plan & billing');
     for (const [q, r] of [['open my payment settings', '/settings#payments'], ['open the reminder settings', '/settings#reminders'], ['show the tutorials', '/tutorials'], ['open my billing', '/settings#billing'],
-        ['open the pipeline', '/pipeline'], ['open export my data', '/settings#data']] as const) {
+        ['open the pipeline', '/pipeline'], ['open export my data', '/settings#data'], ['open my notification settings', '/settings#notifications']] as const) {
         eq(runLocalMockRouter(q, 'dashboard', ctx).route, r, `"${q}" → ${r}`);
     }
 

@@ -249,6 +249,15 @@ export function getPageSeo(pathname: string, post?: BlogPostContent | null): Pag
       organization(),
     ];
     if (post?.faq?.length) jsonLd.push(faqPage(path, post.faq));
+    if (post?.howTo?.steps?.length) {
+      jsonLd.push({
+        '@type': 'HowTo',
+        '@id': `${abs(path)}#howto`,
+        name: post.howTo.name,
+        ...(post.howTo.totalTime ? { totalTime: post.howTo.totalTime } : {}),
+        step: post.howTo.steps.map((s, i) => ({ '@type': 'HowToStep', position: i + 1, name: s.name, text: stripMd(s.text) })),
+      });
+    }
     return {
       path,
       title,

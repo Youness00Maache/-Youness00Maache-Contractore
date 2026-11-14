@@ -11,6 +11,9 @@
  *   saved suppliers            → public.user_settings 'suppliers.list' (lib/suppliers.ts SuppliersSetting)
  *   reorder qty per item + job → public.user_settings 'inventory.reorder' (lib/suppliers.ts ReorderSetting)
  *   Quick measure units        → public.user_settings 'measure.units' (lib/measure.ts; recent measurements stay on the device)
+ *   notifications read/removed → public.user_settings 'notifications.state' (lib/notifications/model.ts, bounded)
+ *   notification types / quiet → public.user_settings 'notifications.prefs' (pop-ups on/off stay on the device)
+ *   default document design    → public.user_settings 'documents.design' (lib/designAccess.ts; picker + Settings)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -355,6 +358,46 @@ export async function loadMeasureUnits(): Promise<MeasureSystem | null> {
 export const saveMeasureUnits = (system: MeasureSystem): Promise<SyncMode> =>
     saveJsonSetting(MEASURE_UNITS_SETTING, measureUnitsLocalKey, { system, updatedAt: new Date().toISOString() });
 
+// ------------------------------------------------------------------------- default design
+// Raw storage only: lib/designAccess.ts validates the value and applies the plan rules (normalizeDesignDefault,
+// loadUserDesignDefault, saveUserDesignDefault). Not imported here: it pulls in the design registry, which this
+// login-time module doesn't need. Same key string as DESIGN_DEFAULT_SETTING (template-gating-check.ts checks it).
+export const DESIGN_DEFAULT_KEY = 'documents.design';
+const designDefaultLocalKey = (uid: string) => `cd.documents.design:${uid}`;
+
+/** This device's copy of the default design (raw JSON; instant, used when a new document opens). */
+export function readDesignDefaultRaw(uid: string | null = activeUserId): unknown {
+    if (!uid) return null;
+    const raw = browserStore.getItem(designDefaultLocalKey(uid));
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+}
+
+/** The account's default design (every device), else this device's copy (raw JSON; null = never chosen). */
+export const loadDesignDefaultRaw = (): Promise<unknown> => loadJsonSetting(DESIGN_DEFAULT_KEY, designDefaultLocalKey);
+
+/** Saves an already validated default design (device copy + account). */
+export const saveDesignDefaultRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(DESIGN_DEFAULT_KEY, designDefaultLocalKey, value);
+
+// -------------------------------------------------------------------------- notifications
+/**
+ * Raw account value of a small setting the caller merges itself (the notification bell: lib/notifications/store.ts).
+ * mode 'account' = read from the account (value null = none saved); anything else = can't read it now.
+ */
+export async function readAccountSetting(key: string): Promise<{ mode: SyncMode; value: unknown }> {
+    const uid = activeUserId || await signedInUserId();
+    if (!uid) return { mode: 'failed', value: null };
+    if (offline()) return { mode: 'offline', value: null };
+    return readSetting(settingsRemote, uid, key);
+}
+
+/** Writes a small setting to the account (the caller keeps its own device copy). */
+export async function writeAccountSetting(key: string, value: unknown): Promise<SyncMode> {
+    const uid = activeUserId || await signedInUserId();
+    if (!uid) return 'failed';
+    return saveSetting(browserStore, settingsRemote, uid, key, value);
+}
+
 // -------------------------------------------------------------------------------- login
 const syncedUsers = new Set<string>();
 
@@ -377,5 +420,6 @@ export async function syncUserDataAfterLogin(uid: string): Promise<void> {
         loadProfitCalcs(browserStore, profitRemote, uid),
         syncProfileValues(browserStore, profileRemote, uid),
         syncLabelSheet(browserStore, settingsRemote, uid),
+        loadDesignDefaultRaw(), // refreshes the device copy new documents read
     ]);
 }

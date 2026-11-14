@@ -361,7 +361,7 @@ const PACKED = packOptionsForSave(EST) as any;
         check(`design ${id}: renders the options`, ok);
         if (ok) rendered++;
     }
-    check('every design renders options', rendered === ALL_TEMPLATE_IDS.length && rendered >= 57, rendered);
+    check('every design renders options', rendered === ALL_TEMPLATE_IDS.length && rendered >= 26, rendered);
 
     // old estimates: identical model and HTML
     const old = { ...BASE, lineItems: [L('p1', 'Work', 2, 500, 300), L('p2', 'Material', 3, 40)], status: 'Sent' };

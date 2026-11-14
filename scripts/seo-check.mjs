@@ -103,6 +103,21 @@ for (const route of ROUTES) {
     : ['/invoice-generator', '/estimate-generator'].includes(route) ? ['FAQPage', 'BreadcrumbList']
     : ['BreadcrumbList'];
   for (const t of need) if (!types.has(t)) fail(`${where}: JSON-LD missing ${t}`);
+  // FAQ JSON-LD must match the FAQ visible on the page; blog posts lead with a short answer box.
+  const bodyText = textOf(body);
+  for (const b of ldBlocks) {
+    try {
+      for (const node of JSON.parse(b[1])['@graph'] || []) {
+        if (node['@type'] !== 'FAQPage') continue;
+        for (const q of node.mainEntity || []) {
+          if (!bodyText.includes(q.name)) fail(`${where}: FAQ JSON-LD question not visible: "${q.name}"`);
+          const a = String(q.acceptedAnswer?.text || '').slice(0, 80);
+          if (a && !bodyText.includes(a)) fail(`${where}: FAQ JSON-LD answer not visible for "${q.name}"`);
+        }
+      }
+    } catch { /* invalid JSON-LD is reported above */ }
+  }
+  if (route.startsWith('/blog/') && !/data-answer=""/.test(body)) fail(`${where}: short answer box missing`);
 
   // Internal links resolve
   for (const m of body.matchAll(/href="(\/[^"#?]*)/g)) {
@@ -160,6 +175,34 @@ else {
   for (const route of ROUTES) {
     if (route === '/') continue;
     for (const d of disallows) if (!d.includes('*') && route.startsWith(d)) fail(`robots: ${d} blocks public page ${route}`);
+  }
+}
+
+// ---------------------------------------------------------------- robots.txt: explicit AI crawler groups
+{
+  const robots = fs.existsSync(robotsPath) ? read(robotsPath) : '';
+  const groups = robots.split(/\n\s*\n/).map((g) => g.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')));
+  const agentsOf = (g) => g.filter((l) => /^User-agent:/i.test(l)).map((l) => l.split(':')[1].trim());
+  const rulesOf = (g) => g.filter((l) => /^Disallow:/i.test(l)).map((l) => l.slice(9).trim()).sort().join('|');
+  const star = groups.find((g) => agentsOf(g).includes('*'));
+  for (const bot of ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-User', 'Claude-SearchBot', 'PerplexityBot', 'Perplexity-User', 'Google-Extended', 'Applebot-Extended', 'Bingbot', 'CCBot']) {
+    const g = groups.find((x) => agentsOf(x).includes(bot));
+    if (!g) { fail(`robots: no group for ${bot}`); continue; }
+    if (!g.includes('Allow: /')) fail(`robots: ${bot} group does not allow /`);
+    if (star && rulesOf(g) !== rulesOf(star)) fail(`robots: ${bot} group disallows differ from User-agent: *`);
+  }
+}
+
+// ---------------------------------------------------------------- llms.txt / llms-full.txt
+for (const f of ['llms.txt', 'llms-full.txt']) {
+  const p = path.join(DIST, f);
+  if (!fs.existsSync(p)) { fail(`dist/${f} missing`); continue; }
+  const txt = read(p);
+  if (!txt.startsWith('# ContractorDocs')) fail(`${f}: must start with "# ContractorDocs"`);
+  if (!/\$\d/.test(txt)) fail(`${f}: no plan prices`);
+  for (const route of ROUTES.filter((r) => f === 'llms-full.txt' || r.startsWith('/blog/') || r === '/pricing')) {
+    const url = route === '/' ? `${SITE}/` : `${SITE}${route}`;
+    if (!txt.includes(url)) fail(`${f}: missing ${url}`);
   }
 }
 

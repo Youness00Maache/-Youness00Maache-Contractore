@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'contractor-paperwork-checklist',
+  answer:
+    'A contractor needs a written estimate and contract before the job, a deposit invoice and purchase orders to start, signed change orders, daily reports and time sheets during the work, and a final invoice, lien waivers where required, a warranty letter and a receipt at closeout. Keep them in one folder per job so you can find any of them in seconds.',
   takeaways: [
     'Every job moves through the same phases, and each phase has its own documents.',
     'Settle the estimate, contract and deposit before you order materials or schedule a crew.',

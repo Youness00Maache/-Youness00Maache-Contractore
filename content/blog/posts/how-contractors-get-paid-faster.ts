@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'how-contractors-get-paid-faster',
+  answer:
+    'Contractors get paid faster by setting up payment before the job starts: a deposit sized to up-front costs, progress payments tied to milestones the client can see, a calendar due date on every invoice and late-fee terms in the signed contract. Then send invoices the same day and follow up on a fixed schedule so reminders feel routine, not personal.',
   takeaways: [
     'Most slow payments are set up before the job starts, in the contract and payment terms.',
     'Size the deposit to your up-front costs, within whatever limits your state sets.',

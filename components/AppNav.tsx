@@ -11,6 +11,7 @@ import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
 import { HelpCircleIcon } from './help/HelpText.tsx';
 import { PipelineIcon } from './pipeline/PipelineIcon.tsx';
+import NotificationBell from './notifications/NotificationBell.tsx';
 
 export type NavDestination =
     | 'dashboard' | 'clients' | 'communication' | 'inventory' | 'pricebook' | 'calendar'
@@ -226,6 +227,8 @@ const AppNav: React.FC<AppNavProps> = ({
                                 <StarIcon className="h-3.5 w-3.5" /> Upgrade
                             </button>
                         )}
+                        {/* notifications (phones and computers): client signatures, payments, low stock, community… */}
+                        <NotificationBell />
                         {accountMenu}
                     </div>
                 </div>

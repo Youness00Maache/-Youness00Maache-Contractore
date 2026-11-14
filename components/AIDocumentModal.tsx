@@ -5,7 +5,7 @@ import AIVoiceInput from './AIVoiceInput.tsx';
 import { useContractorAI, type AIGeneratedDocument } from '../src/hooks/useContractorAI.ts';
 import { resolveFormType, resolveMasterDocumentType } from '../src/config/docTypeMap.ts';
 import { DOC_LABELS, getSchema, toPlainText, type DocKey, type FieldSpec } from '../src/config/documentFieldRequirements.ts';
-import { dispatchUpgradeEvent } from '../src/ai/events.ts';
+import { dispatchUpgradeEvent, isAiLimitCode } from '../src/ai/events.ts';
 import { formatMoney } from '../utils/money.ts';
 
 interface AIDocumentModalProps {
@@ -218,7 +218,7 @@ export const AIDocumentModal: React.FC<AIDocumentModalProps> = ({ jobId, formTyp
                                             <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                                             <div className="min-w-0">
                                                 {error}
-                                                {errorCode === 'PLAN_LIMIT' && (
+                                                {isAiLimitCode(errorCode) && (
                                                     <button type="button" onClick={() => dispatchUpgradeEvent(error)} className="ml-2 inline-flex items-center gap-1 font-semibold text-primary">
                                                         <StarIcon className="h-3.5 w-3.5" /> See plans
                                                     </button>

@@ -25,6 +25,8 @@ import {
     addDaysISO, blankLineItem, blankMaterialItem, DOC_NUMBER_CONFIG, nextDocumentNumber, normalizeLinkUrl, sanitizeEditorHtml, todayISO,
 } from '../../components/forms/formUtils.ts';
 import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME } from '../../components/forms/useDocumentForm.ts';
+import { applyDesignDefault, designPlan } from '../../lib/designAccess.ts';
+import { currentDesignDefault } from '../../lib/designDefaults.ts';
 import { computeDocumentTotals, roundMoney, toNumber } from '../../utils/money.ts';
 import { packOptionsForSave } from '../../lib/estimateOptions.ts';
 import { linkDraftToPriceBook, type PriceBookSource } from './priceBookContext.ts';
@@ -165,7 +167,8 @@ export function buildPlanDocument(docType: DocKey, rawPrefill: Record<string, un
         if (schema.clientAddress && ctx.client.address) prefill.clientAddress = ctx.client.address;
     }
 
-    const base = makeDocumentDefaults(formType, job, ctx.profile, today);
+    // the user's default design, like a document created in the form (Free plan: Basic designs only)
+    const base = applyDesignDefault(makeDocumentDefaults(formType, job, ctx.profile, today), currentDesignDefault(), designPlan());
     let data = { ...mergeDraftIntoForm(formType, base, prefill).data } as Record<string, unknown>;
 
     // Number: the form's series, unique against every known number (a model number that is taken is replaced).

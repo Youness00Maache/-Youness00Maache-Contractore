@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'work-order-template',
+  answer:
+    'A contractor work order tells the crew exactly what to do, where and when, and then records the work performed, hours, materials and a completion signature. An estimate proposes the work to the client, a work order directs it in the field and an invoice asks for payment, so turn completed work orders into invoices within a day.',
   takeaways: [
     'An estimate proposes the work to the client, a work order directs the work in the field, and an invoice asks for payment.',
     'Write the scope as specific tasks a crew can follow without calling the office.',

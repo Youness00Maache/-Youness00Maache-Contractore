@@ -22,4 +22,41 @@ Disallow: /qa-ai-documents
 Disallow: /*?portal=
 Disallow: /*?approval_token=
 
+# Search engines and AI assistants: welcome on the marketing pages, guides and /llms.txt; the signed-in app stays private.
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-User
+User-agent: Claude-SearchBot
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Bingbot
+User-agent: CCBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+Disallow: /app.html
+Disallow: /auth/
+Disallow: /update-password
+Disallow: /dashboard
+Disallow: /jobs
+Disallow: /clients
+Disallow: /communication
+Disallow: /inventory
+Disallow: /pricebook
+Disallow: /calculator
+Disallow: /analytics
+Disallow: /calendar
+Disallow: /forum
+Disallow: /settings
+Disallow: /profile
+Disallow: /gmail-callback
+Disallow: /billing/
+Disallow: /qa-ai-documents
+Disallow: /*?portal=
+Disallow: /*?approval_token=
+
 Sitemap: https://www.contractordocs.app/sitemap.xml

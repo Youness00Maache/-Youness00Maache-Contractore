@@ -12,6 +12,9 @@
  * plus document numbering, dates, line-item normalization and receipt OCR parsing.
  */
 import { readFileSync } from 'node:fs';
+import { setDesignPlan } from '../lib/designPlan.ts';
+// AI drafts may pick Premium designs only on paid plans (lib/designAccess.ts; Free is covered by template-gating-check.ts)
+setDesignPlan('premium');
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { FormType } from '../types.ts';
@@ -114,7 +117,7 @@ const sampleFor = (field: string, spec: FieldSpec): { input: unknown; expect: (v
         case 'colors': return { input: { primary: '#0a0', secondary: 'navy' }, expect: v => eq(v, { primary: '#00aa00', secondary: '#1e3a8a' }) };
         case 'url': return { input: 'paypal.me/acme', expect: v => v === 'https://paypal.me/acme' };
         case 'image': return { input: PNG, expect: v => v === PNG };
-        case 'template': return { input: 'construction', expect: v => v === 'construction' };
+        case 'template': return { input: 'construction', expect: v => v === 'bold_block' };
         case 'visual': return { input: { metrics: [{ label: 'Hours', value: 8 }] }, expect: v => eq(v, { metrics: [{ label: 'Hours', value: 8 }] }) };
         case 'tags': return { input: 'framing, inspection, framing', expect: v => eq(v, ['framing', 'inspection']) };
         case 'recurrence': return { input: { enabled: 'true', frequency: 'quarterly', nextRunDate: '2027-01-15' }, expect: v => (v as any)?.enabled === true && (v as any)?.frequency === 'Quarterly' && (v as any)?.nextRunDate === '2027-01-15' };
@@ -233,9 +236,9 @@ const merge = (type: FormType, prefill: Record<string, unknown>, prev: Record<st
     check('template style description → current design id', typeof est.templateId === 'string' && est.templateId !== 'standard', est.templateId);
     // the original designs are restored under their own ids: a pre-2026-11 id is kept and renders that design
     const legacyTpl = merge(FormType.Invoice, { templateId: 'template_html_2' });
-    check('legacy template id → its restored design', legacyTpl.templateId === 'template_html_2', legacyTpl.templateId);
+    check('legacy template id → the design that replaced it', legacyTpl.templateId === 'corporate', legacyTpl.templateId);
     const aliasTpl = merge(FormType.Invoice, { templateId: 'Neon Cyberpunk' });
-    check('template display name → design id', aliasTpl.templateId === 'template_neon', aliasTpl.templateId);
+    check('template display name → design id', aliasTpl.templateId === 'slate', aliasTpl.templateId);
 }
 {
     const prev = { clientName: 'Existing', taxRate: 5, notes: 'keep', lineItems: [{ id: 'a', description: 'x', quantity: 1, rate: 1 }], signatureUrl: PNG };

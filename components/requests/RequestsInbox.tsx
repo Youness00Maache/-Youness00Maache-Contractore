@@ -4,13 +4,14 @@
  * database has the feature (migration 20261113000400), so the dashboard is unchanged before that.
  * Refreshes when the tab gets focus and every 3 minutes while visible.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Segmented } from '../viewKit.tsx';
 import { ChevronRightIcon } from '../Icons.tsx';
 import { relativeTime, requestSnippet, sourceLabel, type QuoteRequest } from './requestLogic.ts';
 import { flushStorageCleanup, listQuoteRequests } from './requestsApi.ts';
 import RequestDetailModal, { type RequestActionsProps } from './RequestDetailModal.tsx';
 import RequestLinkSettings from './RequestLinkSettings.tsx';
+import { OPEN_REQUEST_EVENT, takePendingQuoteRequest } from '../../lib/notifications/intents.ts';
 
 export interface RequestsInboxProps extends RequestActionsProps {
     companyName?: string;
@@ -89,6 +90,30 @@ const RequestsInbox: React.FC<RequestsInboxProps> = ({ companyName, logoUrl, pho
             window.removeEventListener('focus', onVisible);
         };
     }, [load]);
+
+    // a notification asked to open a request (lib/notifications/intents.ts): opened once the list has it; given up
+    // when a fresh load doesn't have it either
+    const [wanted, setWanted] = useState<{ id: string; seen: QuoteRequest[] | null | undefined } | null>(null);
+    const itemsRef = useRef(items);
+    itemsRef.current = items;
+    useEffect(() => {
+        const pending = takePendingQuoteRequest();
+        if (pending) setWanted({ id: pending, seen: undefined });
+        const on = (e: Event) => {
+            const id = (e as CustomEvent<string>).detail;
+            takePendingQuoteRequest();
+            if (!id) return;
+            setWanted({ id, seen: itemsRef.current });
+            void load();
+        };
+        window.addEventListener(OPEN_REQUEST_EVENT, on);
+        return () => window.removeEventListener(OPEN_REQUEST_EVENT, on);
+    }, [load]);
+    useEffect(() => {
+        if (!wanted || !items) return;
+        if (items.some(r => r.id === wanted.id)) { setShowAll(false); setOpenId(wanted.id); setWanted(null); }
+        else if (items !== wanted.seen) setWanted(null);
+    }, [wanted, items]);
 
     const list = items || [];
     const fresh = useMemo(() => list.filter(r => r.status === 'new'), [list]);

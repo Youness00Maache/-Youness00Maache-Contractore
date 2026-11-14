@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useMemo, useRef, useState } from 'react';
-import type { Client, FormType, Job, UserProfile, AIVisualData } from '../../types.ts';
+import type { Client, FormType, Job, UserProfile, AIVisualData, DocumentDesignOptions } from '../../types.ts';
 import { cn } from '../../lib/utils.ts';
 import { BriefcaseIcon, UserIcon, PaletteIcon, PenIcon, SparklesIcon, GlobeIcon, CopyIcon, CheckIcon, CheckCircleIcon, UploadImageIcon, TrashIcon } from '../Icons.tsx';
 import TemplateSelector from '../TemplateSelector.tsx';
@@ -10,6 +10,8 @@ import { FormSection, FieldGrid, SelectField, TextField } from './Fields.tsx';
 import { Spinner } from './Spinner.tsx';
 import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME } from './useDocumentForm.ts';
 import { approvalUrl, copyToClipboard, ensureApprovalToken } from '../../utils/clientLinks.ts';
+import { designDefaultFromDocument, designPlan } from '../../lib/designAccess.ts';
+import { currentDesignDefault, saveDesignDefault } from '../../lib/designDefaults.ts';
 
 // ---------------------------------------------------------------------------
 // Logo
@@ -186,7 +188,7 @@ export const DocumentDesignContext = createContext<DocumentDesignContextValue | 
 export const TemplateSection: React.FC<{
     templateId?: string;
     themeColors?: { primary: string; secondary: string };
-    onChange: (patch: { templateId?: string; themeColors?: { primary: string; secondary: string } }) => void;
+    onChange: (patch: { templateId?: string; themeColors?: { primary: string; secondary: string }; designOptions?: DocumentDesignOptions }) => void;
     /** Document type of the form; falls back to DocumentDesignContext, then Invoice. */
     documentType?: FormType | string;
     /** The form's current data (the full-size preview shows it instead of sample data). */
@@ -197,8 +199,21 @@ export const TemplateSection: React.FC<{
     const ctx = useContext(DocumentDesignContext);
     const type = documentType ?? ctx?.formType;
     const doc = (data ?? ctx?.data) as Record<string, any> | null | undefined;
+    const who = (profile ?? ctx?.profile ?? null) as (Partial<UserProfile> & { plan?: string }) | null;
+    const plan = who?.plan ?? designPlan();
+    // the design the document opened with: a Free user may keep it even when it is Premium (lib/designAccess.ts)
+    const baseline = useRef(templateId || DEFAULT_TEMPLATE_ID).current;
+    const [defaultId, setDefaultId] = useState(() => currentDesignDefault()?.templateId ?? DEFAULT_TEMPLATE_ID);
+    const makeDefault = async () => {
+        const value = designDefaultFromDocument({ ...(doc || {}), templateId: templateId || DEFAULT_TEMPLATE_ID, themeColors });
+        const r = await saveDesignDefault(value, plan);
+        if (r === 'locked') return 'Premium designs need the Premium plan.';
+        if (r === 'failed') return 'Could not save the default. Try again.';
+        setDefaultId(value?.templateId ?? DEFAULT_TEMPLATE_ID);
+        return r === 'account' ? 'Saved: new documents will use this design.' : 'Saved on this device: new documents will use this design.';
+    };
     return (
-        <FormSection title="Design" description="Pick a template and colors for the PDF." icon={PaletteIcon}>
+        <FormSection title="Design" description="Pick a design for the PDF, then its colors and layout." icon={PaletteIcon}>
             <TemplateSelector
                 selectedTemplateId={templateId || DEFAULT_TEMPLATE_ID}
                 onSelectTemplate={id => onChange({ templateId: id })}
@@ -206,8 +221,14 @@ export const TemplateSection: React.FC<{
                 onColorsChange={colors => onChange({ themeColors: colors })}
                 documentType={type}
                 previewData={doc && typeof doc === 'object' ? doc : null}
-                profile={profile ?? ctx?.profile ?? null}
+                profile={who}
                 job={job ?? ctx?.job ?? null}
+                plan={plan}
+                baselineTemplateId={baseline}
+                designOptions={doc && typeof doc === 'object' ? (doc.designOptions as DocumentDesignOptions | undefined) ?? null : null}
+                onDesignOptionsChange={o => onChange({ designOptions: o ?? undefined })}
+                defaultTemplateId={defaultId}
+                onMakeDefault={makeDefault}
             />
         </FormSection>
     );

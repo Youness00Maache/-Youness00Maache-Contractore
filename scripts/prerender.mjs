@@ -78,6 +78,11 @@ fs.writeFileSync(
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`,
 );
 
+// 3b) llms.txt + llms-full.txt for AI assistants (same data as the pages).
+const llms = await ssr.llms();
+fs.writeFileSync(path.join(DIST, 'llms.txt'), llms.short);
+fs.writeFileSync(path.join(DIST, 'llms-full.txt'), llms.full);
+
 // 4) CSP: every inline <script> that executes must be allow-listed by hash in vercel.json.
 const inlineScripts = [...appShell.matchAll(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/ld\+json")[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 const hashes = inlineScripts.map((s) => `'sha256-${crypto.createHash('sha256').update(s, 'utf8').digest('base64')}'`);

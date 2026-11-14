@@ -23,6 +23,7 @@ import { FormType, type LineItem } from '../types.ts';
 import { roundMoney } from '../utils/money.ts';
 import { resolveTemplateId as resolveStyleDescription } from '../src/utils/aiTemplateUtils.ts';
 import { isTemplateId, LEGACY_TEMPLATE_MAP, TEMPLATE_KEYWORDS, resolveTemplateId as resolveDesignId } from '../utils/templates/registry.ts';
+import { canUseDesign, designPlan } from '../lib/designAccess.ts';
 import {
     clamp, hashValue, htmlToPlainText, looksLikeHtml, matchOption, normalizeDateValue, normalizeHexColor,
     normalizeImageUrl, normalizeLineItem, normalizeLineItems, normalizeLinkUrl, normalizeMaterialItems, plainTextToHtml,
@@ -204,12 +205,14 @@ const coerceField = (spec: FieldSpec, value: unknown, prev: Record<string, unkno
         case 'template': {
             // current design ids, legacy ids and single style keywords map through the template registry;
             // free-text descriptions ("modern clean, premium") go through the AI style resolver first
+            // (a Premium design is only applied for paid plans: on Free the document keeps its Basic design)
             if (typeof value !== 'string' || !value.trim()) return undefined;
             const raw = value.trim();
             const lower = raw.toLowerCase();
-            if (isTemplateId(raw) || isTemplateId(lower) || LEGACY_TEMPLATE_MAP[lower] || TEMPLATE_KEYWORDS[lower]) return resolveDesignId(raw);
+            const allowed = (id: string | undefined) => (id && canUseDesign(designPlan(), id) ? id : undefined);
+            if (isTemplateId(raw) || isTemplateId(lower) || LEGACY_TEMPLATE_MAP[lower] || TEMPLATE_KEYWORDS[lower]) return allowed(resolveDesignId(raw));
             const legacy = resolveStyleDescription(raw);
-            return legacy && legacy !== 'standard' ? resolveDesignId(legacy) : undefined;
+            return legacy && legacy !== 'standard' ? allowed(resolveDesignId(legacy)) : undefined;
         }
         case 'visual':
             return isPlainObject(value) && Object.keys(value).length ? value : undefined;

@@ -2,6 +2,8 @@
 // Deployed with verify_jwt = false (Kelviq has no Supabase JWT); every request must carry a valid
 // Kelviq signature instead. Business logic + idempotency live in SQL: public.apply_kelviq_event(jsonb)
 // records the event in billing_events (unique by event id) and updates the profile in ONE transaction.
+// AI credit packs (and refund.*) go to public.apply_ai_credit_event(jsonb) instead (route.ts;
+// docs/work/DRAFT_ai_credits.sql); subscription events are handled exactly as before.
 //
 // Responses: 401 bad/missing signature or stale timestamp (Kelviq does not retry 4xx),
 //            400 malformed JSON, 200 processed / duplicate / test / ignored / unmatched,
@@ -9,6 +11,7 @@
 import { serviceClient } from '../_shared/auth.ts';
 import { json } from '../_shared/cors.ts';
 import { verifyKelviqSignature } from '../_shared/kelviq.ts';
+import { applyKelviqWebhookEvent } from './route.ts';
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -42,9 +45,13 @@ Deno.serve(async (req) => {
   // The event id must match the signed webhook-id header (dedupe key).
   if (!event.id) event.id = req.headers.get('webhook-id');
 
-  const { data, error } = await serviceClient().rpc('apply_kelviq_event', { p_event: event });
+  const admin = serviceClient();
+  const { fn, data, error } = await applyKelviqWebhookEvent(event, async (name, args) => {
+    const r = await admin.rpc(name, args);
+    return { data: r.data, error: r.error ? { message: r.error.message, code: r.error.code } : null };
+  });
   if (error) {
-    console.error('[kelviq-webhook] apply_kelviq_event failed', event.type, event.id, error.message);
+    console.error(`[kelviq-webhook] ${fn} failed`, event.type, event.id, error.message);
     return json(null, { error: 'Processing failed' }, 500);
   }
   const result = data as { status?: string; user_id?: string; detail?: string } | null;

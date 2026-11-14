@@ -581,7 +581,8 @@ export interface PlanStep {
 export interface RouterResponseMeta {
     provider: 'gemini' | 'mock' | 'local';
     model?: string;
-    usage?: { used: number; limit: number; tier: string };
+    /** `paid_with: 'credits'` + `credits` (balance left) when the plan allowance was used up and an AI credit paid. */
+    usage?: { used: number; limit: number; tier: string; paid_with?: 'credits'; credits?: number };
 }
 
 export interface RouterResponse { ok: true; proposal: RouterProposal; meta: RouterResponseMeta }

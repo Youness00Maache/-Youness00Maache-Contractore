@@ -11,6 +11,8 @@ import { getPrerenderRoutes, normalizePath } from './routes.ts';
 import { loadPost } from './blogLoader.ts';
 import { SITE } from '../content/site.ts';
 import { BLOG_POSTS } from '../content/blog/registry.ts';
+import { buildLlmsTxt, buildLlmsFullTxt } from './llms.ts';
+import type { BlogPostContent } from '../content/blog/types.ts';
 
 export interface RenderResult {
   path: string;
@@ -40,3 +42,13 @@ export const site = SITE;
 
 /** Plain data for scripts (sitemap / checks). */
 export const blogPosts = () => BLOG_POSTS.map((p) => ({ slug: p.slug, title: p.title, date: p.date, updated: p.updated || p.date }));
+
+/** /llms.txt and /llms-full.txt text (written to dist/ by scripts/prerender.mjs). */
+export async function llms(): Promise<{ short: string; full: string }> {
+  const posts = new Map<string, BlogPostContent>();
+  for (const p of BLOG_POSTS) {
+    const c = await loadPost(p.slug);
+    if (c) posts.set(p.slug, c);
+  }
+  return { short: buildLlmsTxt(), full: buildLlmsFullTxt(posts) };
+}

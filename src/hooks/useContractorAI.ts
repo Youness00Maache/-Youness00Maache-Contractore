@@ -11,7 +11,7 @@ import { resolveFormType, resolveMasterDocumentType } from '../config/docTypeMap
 import { normalizePrefill, toLocalYmd, type DocKey } from '../config/documentFieldRequirements.ts';
 import { inferTemplateIdFromIntent } from '../utils/aiTemplateUtils.ts';
 import { isSampleRequest, type RouterResponse } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
-import { dispatchUpgradeEvent } from '../ai/events.ts';
+import { dispatchUpgradeEvent, isAiLimitCode } from '../ai/events.ts';
 
 export { TEMPLATE_STYLE_MAP, resolveTemplateId, RICH_TEXT_FIELDS, extractRichTextField } from '../utils/aiTemplateUtils.ts';
 
@@ -79,7 +79,7 @@ export const useContractorAI = () => {
                 } else {
                     message = 'You appear to be offline, or the AI service is unreachable. Please try again.';
                 }
-                if (code === 'PLAN_LIMIT') dispatchUpgradeEvent(message);
+                if (isAiLimitCode(code)) dispatchUpgradeEvent(message);
                 setErrorCode(code);
                 throw new Error(message);
             }

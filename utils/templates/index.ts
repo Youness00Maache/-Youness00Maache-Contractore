@@ -10,9 +10,9 @@ export { renderDocument, renderDocumentHtml, pickUserColors, buildPalette, type 
 export { paginateDocument } from './paginate.ts';
 export { buildDocumentModel, docKindFromType, DOC_KINDS, DOC_TITLES, KIND_TO_FORM_TYPE, type DocKind, type DocModel } from './model.ts';
 export {
-  TEMPLATES, FONTS, FONT_OPTIONS, PAPER, LEGACY_TEMPLATE_MAP, TEMPLATE_KEYWORDS, DEFAULT_TEMPLATE_ID, COLLECTIONS, ALL_TEMPLATE_IDS,
-  resolveTemplateId, getTemplateMeta, isTemplateId, pickUserFont, pickPaperSize, googleFontsHref,
-  type TemplateId, type TemplateMeta, type FontKey, type PaperSize, type TemplateCollection,
+  TEMPLATES, FONTS, FONT_OPTIONS, PAPER, LEGACY_TEMPLATE_MAP, RETIRED_TEMPLATE_MAP, TEMPLATE_KEYWORDS, DEFAULT_TEMPLATE_ID, DESIGN_GROUPS, BASIC_TEMPLATE_IDS, PREMIUM_TEMPLATE_IDS, ALL_TEMPLATE_IDS,
+  resolveTemplateId, getTemplateMeta, isTemplateId, isPremiumDesign, pickUserFont, pickPaperSize, googleFontsHref,
+  type TemplateId, type TemplateMeta, type FontKey, type PaperSize, type TemplateCollection, type DesignTier,
 } from './registry.ts';
 export { renderVisualsHtml, renderWidgetHtml } from './widgets.ts';
 export { SAMPLE_DOCUMENTS, SAMPLE_PROFILE, SAMPLE_JOB, SAMPLE_LOGO, SAMPLE_SIGNATURE, getSampleDocument } from './sampleData.ts';

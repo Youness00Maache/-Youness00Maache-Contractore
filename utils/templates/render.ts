@@ -13,6 +13,7 @@ import {
 } from './registry.ts';
 import { baseCss, defaultCompose, defaultParts, footerHtml, runHead, type Palette, type RenderCtx } from './blocks.ts';
 import { THEMES } from './themes.ts';
+import { FONT_PAIRS, resolveDesignOptions, type DesignOptions, type HideKey } from './designOptions.ts';
 
 export interface RenderOptions extends ModelOptions {
   /** Template to use; defaults to data.templateId (legacy ids are mapped). */
@@ -29,6 +30,8 @@ export interface RenderOptions extends ModelOptions {
   colors?: { primary?: string; secondary?: string } | null;
   /** Override font (FontKey or 'template'). */
   font?: string | null;
+  /** Override the Premium design customization (picker previews); defaults to data.designOptions. */
+  designOptions?: DesignOptions | null;
 }
 
 export interface RenderResult {
@@ -91,6 +94,29 @@ const fontKeys = (templateId: TemplateId, userFont: FontKey | null): { head: Fon
   return userFont ? { head: userFont, body: userFont } : { head: meta.headFont, body: meta.bodyFont };
 };
 
+const IMG_TAG = /<img\b[^>]*>/gi;
+const textLeft = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&nbsp;|\s/g, '') !== '';
+const withoutImages = (html: string) => html.replace(IMG_TAG, '').replace(/<(figure|p|div)\b[^>]*>\s*(<figcaption>[^<]*<\/figcaption>)?\s*<\/\1>/gi, '');
+
+/** Leaves the sections a user hid (Premium customization) out of the model. */
+const hideSections = (m: DocModel, hide: Set<HideKey>): DocModel => {
+  if (!hide.size) return m;
+  const out: DocModel = { ...m };
+  if (hide.has('signatures')) out.signatures = [];
+  if (hide.has('payment')) { out.paymentLink = null; out.financing = null; }
+  const drop = new Set<string>([...(hide.has('terms') ? ['terms', 'conditions'] : []), ...(hide.has('notes') ? ['notes'] : [])]);
+  if (drop.size) out.after = out.after.filter((s) => !drop.has(s.id));
+  if (hide.has('photos')) {
+    const strip = (list: DocModel['after']) => list
+      .map((s) => ({ ...s, html: withoutImages(s.html) }))
+      .filter((s) => textLeft(s.html) || s.id === 'report' || s.id === 'content');
+    out.before = strip(out.before);
+    out.after = strip(out.after);
+    out.visualsHtml = out.visualsHtml.replace(/<div class="cd-widget" data-widget="BeforeAfterGrid">[\s\S]*?<\/figure><\/div><\/div>/g, '').replace(IMG_TAG, '');
+  }
+  return out;
+};
+
 export const renderDocument = (
   type: unknown,
   data: unknown,
@@ -104,13 +130,15 @@ export const renderDocument = (
   const meta = getTemplateMeta(templateId);
   const paper = opts.paper || pickPaperSize(d);
   const page = { width: PAPER[paper].width, height: PAPER[paper].height };
-  const model = buildDocumentModel(type, d, profile, job, opts);
+  // Premium designs are customizable (header, table, logo, density, fonts, sections); Basic designs never change
+  const o = theme.layout ? resolveDesignOptions(opts.designOptions !== undefined ? opts.designOptions : d.designOptions, theme.layout) : null;
+  const model = o ? hideSections(buildDocumentModel(type, d, profile, job, opts), o.hide) : buildDocumentModel(type, d, profile, job, opts);
   const palette = buildPalette(templateId, pickUserColors(d, opts.colors), theme.ink);
   const userFont = opts.font !== undefined && opts.font !== null ? pickUserFont({ fontFamily: opts.font }) : pickUserFont(d);
-  const keys = fontKeys(templateId, userFont);
+  const keys = o?.fonts ? { head: FONT_PAIRS[o.fonts].head, body: FONT_PAIRS[o.fonts].body } : fontKeys(templateId, userFont);
   const fonts = Array.from(new Set([keys.head, keys.body, ...(meta.extraFonts || [])]));
   const fontHref = googleFontsHref(fonts);
-  const ctx: RenderCtx = { m: model, meta, c: palette, paper, page };
+  const ctx: RenderCtx = { m: model, meta, c: palette, paper, page, o };
 
   const parts = defaultParts(ctx, theme);
   const blocks = (theme.compose ? theme.compose(ctx, parts) : defaultCompose(parts)).filter(Boolean).join('');
@@ -118,7 +146,8 @@ export const renderDocument = (
   const chrome = theme.chrome ? theme.chrome(ctx) : '';
   const footer = theme.footer ? theme.footer(ctx) : footerHtml(model);
 
-  const root = `<div class="cd-root cd-t-${templateId} cd-k-${model.kind} cd-stack" data-template="${templateId}" data-paper="${paper}" data-page-height="${page.height}" data-page-width="${page.width}">`
+  const optCls = o ? ` cd-pro cd-o-h-${o.header} cd-o-t-${o.table} cd-o-l-${o.logoSize} cd-o-d-${o.density}${o.fonts ? ' cd-o-f' : ''}` : '';
+  const root = `<div class="cd-root cd-t-${templateId} cd-k-${model.kind}${optCls} cd-stack" data-template="${templateId}" data-paper="${paper}" data-page-height="${page.height}" data-page-width="${page.width}">`
     + `<div class="cd-page cd-first cd-last"><div class="cd-chrome">${chrome}</div><div class="cd-body">${runHead(model)}${blocks}</div>${footer}</div></div>`;
 
   const link = !opts.noFontLink && fontHref ? `<link rel="stylesheet" href="${esc(fontHref)}">` : '';

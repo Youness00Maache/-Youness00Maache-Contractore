@@ -157,6 +157,12 @@ const PostBody: React.FC<{ meta: BlogPostMeta; content: BlogPostContent }> = ({ 
     <>
       <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="min-w-0 max-w-[46rem]">
+          {content.answer ? (
+            <section aria-label="Short answer" data-answer="" className="mb-6 rounded-2xl border-l-4 border-brand-600 bg-card p-5 shadow-soft sm:p-6">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-brand-700">Short answer</h2>
+              <p className="mt-2 text-[17px] leading-8 text-foreground">{renderInline(content.answer, 'answer')}</p>
+            </section>
+          ) : null}
           <aside aria-label="Key takeaways" className="mb-10 rounded-2xl border border-brand-100 bg-brand-50/60 p-5 sm:p-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-brand-700">Key takeaways</h2>
             <ul className="mt-3 space-y-2.5">

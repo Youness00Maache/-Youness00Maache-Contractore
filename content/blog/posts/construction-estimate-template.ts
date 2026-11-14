@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'construction-estimate-template',
+  answer:
+    'To price a construction job without guessing, build every estimate in the same order: scope and takeoff, labor at a burdened rate, materials with waste, subcontractors, equipment, overhead, contingency and profit. Then add exclusions, allowances and a validity date so the number still holds after the client signs.',
   takeaways: [
     'Price every job in the same order: scope, labor, materials, subs, equipment, overhead, contingency, profit.',
     'Put labor on the estimate at a burdened rate that includes payroll costs, insurance and non-billable time, not at the bare wage.',

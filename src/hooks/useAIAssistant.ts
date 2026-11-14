@@ -40,7 +40,7 @@ import { DOCUMENT_SUMMARY_COLUMNS, summarizeDocument } from '../ai/documentSumma
 import { useMasterAIRouter, resolveJobForDocumentRequest, type ChatMessage } from './useMasterAIRouter.ts';
 import { imagesToHtml, toRouterImages, type PendingImage } from '../ai/attachments.ts';
 import { toEmailBatchItems, type AIEmailDraft } from '../ai/emailBatch.ts';
-import { AI_UPGRADE_EVENT as AI_UPGRADE_EVENT_NAME, dispatchUpgradeEvent } from '../ai/events.ts';
+import { AI_UPGRADE_EVENT as AI_UPGRADE_EVENT_NAME, dispatchUpgradeEvent, isAiLimitCode } from '../ai/events.ts';
 import { linkDraftToPriceBook, priceBookForRequest, type PriceBookSource } from '../ai/priceBookContext.ts';
 
 export interface AIAssistantDeps {
@@ -108,7 +108,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
     // everything dispatches AI_UPGRADE_EVENT and this listener calls CORE's onUpgrade.
     useEffect(() => {
         const err = chat.error;
-        if (err?.code === 'PLAN_LIMIT') dispatchUpgradeEvent(err.message);
+        if (isAiLimitCode(err?.code)) dispatchUpgradeEvent(err!.message);
     }, [chat.error]);
     useEffect(() => {
         const onEvent = (e: Event) => {

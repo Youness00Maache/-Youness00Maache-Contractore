@@ -40,6 +40,8 @@ export const PAID_AI_LIMITS = {
  * Feature lists describe what each plan really gets (owner decision 2026-11-13: the pricing matches the app, no new
  * locks). Everything except price book photos works on Free; paid plans remove the monthly limits, add photos on price book items (the only
  * feature the original app reserved for Premium) and raise the AI allowance.
+ * Owner decision 2026-11-14: Premium PDF designs and their customization are paid-plan features (lib/designAccess.ts);
+ * Free keeps the Basic designs (the original app's Standard designs + Classic).
  */
 export const PLANS: Record<PlanTier, PlanDefinition> = {
   free: {
@@ -51,7 +53,7 @@ export const PLANS: Record<PlanTier, PlanDefinition> = {
     features: [
       `${FREE_LIMITS.jobs} new jobs and ${FREE_LIMITS.clients} new clients per month`,
       `${FREE_LIMITS.docs} new documents per job each month`,
-      'All 12 document types & every PDF design',
+      'All 12 document types & the Basic PDF designs',
       'Client portal, approvals & e-signatures',
       'Inventory, price book & job profit tracking',
       `${FREE_LIMITS.emails} Gmail emails & ${FREE_LIMITS.ai} AI assistant requests per month`,
@@ -69,6 +71,7 @@ export const PLANS: Record<PlanTier, PlanDefinition> = {
       'Everything in Free, without the monthly limits',
       'Unlimited jobs, clients & documents',
       'Unlimited Gmail sending with PDF attachments',
+      'All Premium PDF designs, with fonts, layout and sections you can customize',
       'Photos on price book items',
       `${PAID_AI_LIMITS.premium} AI assistant requests per month`,
     ],

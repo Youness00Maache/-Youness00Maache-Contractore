@@ -20,9 +20,11 @@ import { Toggle } from './forms/Fields.tsx';
 import RequestLinkSettings from './requests/RequestLinkSettings.tsx';
 import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
 import DataExportSection from './export/DataExportSection.tsx';
+import { AICreditsRow } from './billing/AICredits.tsx';
+import NotificationSettingsCard from './notifications/NotificationSettingsCard.tsx';
 
 type ThemeName = 'light' | 'dark' | 'blue';
-export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'data' | 'account';
+export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'notifications' | 'data' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
@@ -61,6 +63,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'appearance', label: 'Appearance' },
     { id: 'billing', label: 'Plan & billing' },
     { id: 'reminders', label: 'Reminders' },
+    { id: 'notifications', label: 'Notifications' },
     { id: 'data', label: 'Your data' },
     { id: 'account', label: 'Account' },
 ];
@@ -153,7 +156,10 @@ const Settings: React.FC<SettingsProps> = ({
     }, [initialProfile?.id, (initialProfile as any)?.defaultSignatureUrl]);
 
     useEffect(() => {
-        const target = initialSection || (mode === 'profile' ? 'profile' : null);
+        // a #section in the address (e.g. /settings#notifications from the bell) when the app didn't pass one
+        const fromHash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
+        const hashSection = SECTIONS.some(s => s.id === fromHash) ? (fromHash as SettingsSection) : null;
+        const target = initialSection || hashSection || (mode === 'profile' ? 'profile' : null);
         if (!target) return;
         const t = setTimeout(() => document.getElementById(`settings-${target}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
         return () => clearTimeout(t);
@@ -615,10 +621,15 @@ const Settings: React.FC<SettingsProps> = ({
                         {usage && !usage.fromServer && (
                             <p className="mt-2 text-xs text-muted-foreground">Usage counted from the data loaded on this device.</p>
                         )}
+                        {/* AI credit top-ups: renders nothing until the server enables them (components/billing/AICredits.tsx) */}
+                        <AICreditsRow />
                     </Section>
 
                     {/* Reminders & follow-ups (components/reminders; the card's id is settings-reminders) */}
                     <ReminderSettingsCard onUpgradeClick={onUpgradeClick} />
+
+                    {/* Notifications: the bell's types, quiet mode, browser pop-ups (components/notifications; id settings-notifications) */}
+                    <NotificationSettingsCard />
 
                     {/* Your data: export everything + bookkeeper CSV, on every plan (components/export; id settings-data) */}
                     <DataExportSection profile={initialProfile} onUpgradeClick={onUpgradeClick} />

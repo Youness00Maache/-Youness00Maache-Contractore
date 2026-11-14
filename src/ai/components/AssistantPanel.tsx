@@ -6,6 +6,8 @@ import AIChatMentionInput from '../../../components/AIChatMentionInput.tsx';
 import type { AIAssistant } from '../../hooks/useAIAssistant.ts';
 import type { AIConversation } from '../../hooks/useMasterAIRouter.ts';
 import { LabelText, ProposalCard } from './ProposalCards.tsx';
+import { isAiLimitCode } from '../events.ts';
+import { BuyCreditsButton } from '../../../components/billing/AICredits.tsx';
 
 const DASHBOARD_SUGGESTIONS = [
     'Draft today’s daily report: ',
@@ -202,13 +204,17 @@ export const AssistantPanel: React.FC<{ assistant: AIAssistant }> = ({ assistant
 
                         {chat.isProcessing && <TypingDots />}
 
-                        {err?.code === 'PLAN_LIMIT' && (
+                        {isAiLimitCode(err?.code) && (
                             <div className="rounded-2xl border border-warning/40 bg-warning/10 p-4">
                                 <p className="text-sm font-semibold">You have reached this month’s AI limit</p>
-                                <p className="mt-1 text-[13px] text-muted-foreground">{err.message}</p>
-                                <button type="button" onClick={assistant.upgrade} className="mt-3 inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground">
-                                    <StarIcon className="h-4 w-4" /> See plans
-                                </button>
+                                <p className="mt-1 text-[13px] text-muted-foreground">{err!.message}</p>
+                                <div className="mt-3 flex flex-wrap items-start gap-2">
+                                    <button type="button" onClick={assistant.upgrade} className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground">
+                                        <StarIcon className="h-4 w-4" /> See plans
+                                    </button>
+                                    {/* AI credits on and used up: buy a pack right here */}
+                                    {err!.code === 'CREDITS_EMPTY' && <BuyCreditsButton />}
+                                </div>
                             </div>
                         )}
                         <div ref={endRef} />

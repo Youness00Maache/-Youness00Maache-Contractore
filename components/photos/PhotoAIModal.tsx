@@ -191,7 +191,8 @@ const PhotoAIModal: React.FC<PhotoAIModalProps> = ({
             if (ctrl.signal.aborted) return;
             const code = String((e as { code?: string })?.code || '');
             const message = e instanceof Error ? e.message : 'The AI could not answer. Please try again.';
-            if (code === 'PLAN_REQUIRED' || (code === 'PLAN_LIMIT' && !canUseAiPhotos(plan))) { onClose(); onUpgrade(message); return; }
+            // CREDITS_EMPTY (AI credits on): the upgrade window also offers the credit packs
+            if (code === 'PLAN_REQUIRED' || code === 'CREDITS_EMPTY' || (code === 'PLAN_LIMIT' && !canUseAiPhotos(plan))) { onClose(); onUpgrade(message); return; }
             setError(message);
             setStep('compose');
         } finally {

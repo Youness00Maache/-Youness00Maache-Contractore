@@ -388,7 +388,8 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ],
         "tips": [
             "When it drafts an estimate, invoice or change order, the assistant uses your [[Price book]]: a line that is one of your items gets its price, unit and kit parts, as if you picked it yourself (a price you type still wins). It never makes up prices for other lines. Only item names, units, client prices, short descriptions and kit parts are sent, never your costs or margins.",
-            "Every plan includes AI: 15 requests a month on Free, 60 on Premium, 600 on Premium + AI."
+            "Every plan includes AI: 15 requests a month on Free, 60 on Premium, 600 on Premium + AI.",
+            "AI credits (only when your Plan & billing shows an AI credits line): when the month’s requests run out, buy a one-time pack from $5 (100 credits; 1 credit = 1 request; they never expire) with [[Buy credits]] or [[Buy more credits]], and turn on [[Automatic top-up]] if you like."
         ]
     },
     {
@@ -761,6 +762,39 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         "tips": []
     },
     {
+        "id": "notifications",
+        "title": "Notifications (the bell)",
+        "summary": "One list of what happened while you were busy: signatures, payments, overdue invoices, low stock, quote requests and Community replies.",
+        "where": [
+            "Top bar",
+            "Bell"
+        ],
+        "appPath": "/settings#notifications",
+        "steps": [
+            {
+                "title": "Open the bell",
+                "text": "Click the bell at the top, next to your avatar (on a phone too). The red number is how many you haven’t read; the list is split into Today and Earlier."
+            },
+            {
+                "title": "What shows up",
+                "text": "A client signs, approves or declines a document (and the option they chose), a client taps “I’ve paid”, an invoice becomes overdue, an estimate expires within 3 days, a new quote request, an item runs low or out of stock, a supplier confirms or can’t fill a purchase order or an order is received, likes, comments and replies in the Community, reminder emails sent or not sent, Gmail that needs reconnecting, a document saved offline that couldn’t sync, and plan limits."
+            },
+            {
+                "title": "Open or clear",
+                "text": "Tap a notification to open the document, item, post or request. The × removes one from the list; [[Mark all read]] clears the count."
+            },
+            {
+                "title": "Choose what you get",
+                "text": "At the bottom of the list, [[Notification settings]] opens Settings › Notifications: switch each type on or off, turn on Quiet mode (no pop-ups, a dot instead of a number), or Pop-up notifications on this device (off by default; your browser asks for permission)."
+            }
+        ],
+        "tips": [
+            "Read and removed notifications follow your account to every device. Nothing is emailed.",
+            "The list checks for news every few minutes while the app is open, and right away when you open the bell.",
+            "The Clients, Tools and Community badges still work as before."
+        ]
+    },
+    {
         "id": "settings",
         "title": "Settings, plan and billing",
         "summary": "Your company details, signature, look, plan and account.",
@@ -796,7 +830,8 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             }
         ],
         "tips": [
-            "Premium is $5/month and Premium + AI $10/month. Yearly billing saves two months."
+            "Premium is $5/month and Premium + AI $10/month. Yearly billing saves two months.",
+            "Where AI credits are offered, Plan & billing also has an AI credits line: your balance, [[Buy credits]] ($5, $10, $20 or $50) and [[Automatic top-up]]."
         ]
     }
 ];

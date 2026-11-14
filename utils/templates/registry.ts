@@ -1,36 +1,48 @@
 /**
  * Template registry: the list of document designs, their default palettes and fonts, the user-selectable
- * fonts, and the mapping from every template id that was ever saved in a document to a design.
+ * fonts, plan tiers, and the mapping from every template id that was ever saved in a document to a design.
  *
- * Designs: 13 "Featured" designs (themes.ts) + the original 10 Standard and 20 Premium designs, restored under
- * their original ids, + new designs. Design modules (designs/*.ts) export `{ meta, theme }` pairs.
+ * Designs (2026-11-14):
+ *   Basic   (free on every plan)  Classic (themes.ts) + the 10 original Standard designs (designs/standard.ts)
+ *   Premium (paid plans)          the Premium designs (designs/premium.ts, engine designs/pro.ts), customizable
+ * Every id a document was ever saved with keeps rendering: retired designs map to their replacement
+ * (RETIRED_TEMPLATE_MAP), display names and other spellings through LEGACY_TEMPLATE_MAP.
  */
 import { DESIGN_LIST } from './designs/index.ts';
 
-/** The 13 designs of the 2026-11 rebuild ("Featured"). */
-export const CORE_TEMPLATE_IDS = [
-  'classic', 'modern', 'corporate', 'spectrum', 'statement', 'executive', 'ledger',
-  'serif_band', 'bold_header', 'friendly', 'boutique', 'construction', 'coastal',
-] as const;
 /** The 10 original "Standard" designs (pre-2026-11 jsPDF designs), restored under their original ids. */
 export const STANDARD_TEMPLATE_IDS = [
   'standard', 'professional', 'elegant', 'warm', 'retro', 'modern_blue', 'tech', 'industrial', 'minimal', 'bold',
 ] as const;
-/** The 20 original "Premium" designs (pre-2026-11 HTML designs), restored under their original ids. */
+/** The Premium designs (2026-11-14 redesign; corporate, executive and heritage kept their ids). */
 export const PREMIUM_TEMPLATE_IDS = [
-  'template_html', 'template_html_2', 'template_html_2_new', 'template_html_3', 'template_html_4',
-  'template_neon', 'template_luxury', 'template_nature', 'template_geometric', 'template_pastel',
-  'template_vintage', 'template_blueprint', 'template_memphis', 'template_crimson', 'template_watercolor',
-  'template_swiss', 'template_space', 'template_retro', 'template_pop', 'template_serif',
-] as const;
-/** New original designs. */
-export const NEW_TEMPLATE_IDS = [
-  'atelier', 'sidebar', 'site_plan', 'timber', 'colorblock', 'paper_minimal', 'service_ticket',
-  'heritage', 'nordic', 'metro', 'split', 'greenbar', 'voltage', 'meadow',
+  'classic_trade', 'modern_contractor', 'field_ready', 'executive', 'corporate', 'craftsman', 'blueprint_pro', 'slate',
+  'proposal', 'letterhead', 'minimal_line', 'bold_block', 'heritage', 'studio', 'work_ticket',
 ] as const;
 
-export const ALL_TEMPLATE_IDS = [...CORE_TEMPLATE_IDS, ...STANDARD_TEMPLATE_IDS, ...PREMIUM_TEMPLATE_IDS, ...NEW_TEMPLATE_IDS] as const;
+export const ALL_TEMPLATE_IDS = ['classic', ...STANDARD_TEMPLATE_IDS, ...PREMIUM_TEMPLATE_IDS] as const;
 export type TemplateId = typeof ALL_TEMPLATE_IDS[number];
+
+/**
+ * Design ids that are no longer designs of their own → the Premium design that replaced them (owner feedback
+ * 2026-11-14: professional looks instead of neon, memphis, pastel...). Keep this table forever: documents saved
+ * with these ids render (and download) with the replacement.
+ */
+export const RETIRED_TEMPLATE_MAP: Record<string, TemplateId> = {
+  // the 20 original Premium designs (old app, pre-2026-11)
+  template_html: 'minimal_line', template_html_2: 'corporate', template_html_2_new: 'modern_contractor', template_html_3: 'studio',
+  template_html_4: 'modern_contractor', template_neon: 'slate', template_luxury: 'executive', template_nature: 'craftsman',
+  template_geometric: 'slate', template_pastel: 'proposal', template_vintage: 'heritage', template_blueprint: 'blueprint_pro',
+  template_memphis: 'bold_block', template_crimson: 'classic_trade', template_watercolor: 'proposal', template_swiss: 'studio',
+  template_space: 'slate', template_retro: 'field_ready', template_pop: 'bold_block', template_serif: 'classic_trade',
+  // the 2026-11 "Featured" designs (never released)
+  modern: 'minimal_line', spectrum: 'modern_contractor', statement: 'bold_block', ledger: 'heritage', serif_band: 'classic_trade',
+  bold_header: 'modern_contractor', friendly: 'craftsman', boutique: 'executive', construction: 'bold_block', coastal: 'proposal',
+  // the 2026-11 "New" designs (never released)
+  atelier: 'executive', sidebar: 'corporate', site_plan: 'blueprint_pro', timber: 'craftsman', colorblock: 'bold_block',
+  paper_minimal: 'minimal_line', service_ticket: 'work_ticket', nordic: 'minimal_line', metro: 'modern_contractor', split: 'bold_block',
+  greenbar: 'field_ready', voltage: 'slate', meadow: 'craftsman',
+};
 
 export type FontKey =
   | 'inter' | 'helvetica' | 'montserrat' | 'poppins' | 'oswald' | 'roboto' | 'league-spartan' | 'josefin'
@@ -124,16 +136,21 @@ export const FONT_OPTIONS: Array<{ id: 'template' | FontKey; label: string }> = 
   { id: 'space-mono', label: 'Space Mono (typewriter)' },
 ];
 
-/**
- * Picker groups. Every design is available on every plan: the 2026-11 rebuild has no premium gating for
- * designs ("Premium" is the name of the original collection, as in the original app).
- */
+/** Origin of a design module ('featured' = Classic, 'standard' = original Standard, 'new' = Premium engine); the picker groups by `tier`. */
 export type TemplateCollection = 'featured' | 'new' | 'standard' | 'premium';
-export const COLLECTIONS: Array<{ id: TemplateCollection; label: string; description: string }> = [
-  { id: 'featured', label: 'Featured', description: 'Modern, print-ready designs.' },
-  { id: 'new', label: 'New', description: 'The newest designs, including looks made for the trades.' },
-  { id: 'standard', label: 'Standard', description: 'The original Standard designs.' },
-  { id: 'premium', label: 'Premium', description: 'The original Premium designs.' },
+
+/**
+ * Plan tiers of the designs (owner decision 2026-11-14): Basic designs are free on every plan; Premium designs need
+ * a paid plan (Premium or Premium + AI) to be chosen. Documents that already use a Premium design keep it on every
+ * plan (lib/designAccess.ts).
+ */
+export type DesignTier = 'basic' | 'premium';
+/** The Basic designs: the original app's 10 Standard designs + Classic (the default of new documents). */
+export const BASIC_TEMPLATE_IDS = ['classic', ...STANDARD_TEMPLATE_IDS] as const;
+const BASIC_SET = new Set<string>(BASIC_TEMPLATE_IDS);
+export const DESIGN_GROUPS: Array<{ id: DesignTier; label: string; description: string }> = [
+  { id: 'basic', label: 'Basic', description: 'Free on every plan.' },
+  { id: 'premium', label: 'Premium', description: 'Included in Premium and Premium + AI. Professional layouts you can customize.' },
 ];
 
 export interface TemplateMeta {
@@ -148,135 +165,101 @@ export interface TemplateMeta {
   headFont: FontKey;
   bodyFont: FontKey;
   tags: string[];
-  /** Picker group ('featured' when omitted). */
+  /** Design module origin ('featured' when omitted). */
   collection?: TemplateCollection;
+  /** Plan tier (set by the registry: Basic or Premium). */
+  tier?: DesignTier;
+  /** Short picker descriptor, e.g. "Bold header band · sans". */
+  descriptor?: string;
   /** Extra fonts the design uses in its own CSS; loaded together with the head/body fonts. */
   extraFonts?: FontKey[];
 }
 
-const CORE_TEMPLATES: TemplateMeta[] = [
-  { id: 'classic', name: 'Classic Professional', description: 'Balanced, conventional business layout with a crisp accent bar. Safe for any client.', accent: '#1f3a5f', secondary: '#c9a227', paper: '#ffffff', headFont: 'inter', bodyFont: 'inter', tags: ['default', 'professional', 'clean'] },
-  { id: 'modern', name: 'Modern Minimal', description: 'Oversized title, hairline frame and generous white space. Studio-quality minimalism.', accent: '#111111', secondary: '#8b8bd8', paper: '#fffdf8', headFont: 'inter', bodyFont: 'inter', tags: ['minimal', 'modern', 'swiss'] },
-  { id: 'corporate', name: 'Corporate Blue', description: 'Centered brand, label chips and a confident blue table with warm hairlines.', accent: '#2d4a9a', secondary: '#ee8a5e', paper: '#ffffff', headFont: 'fraunces', bodyFont: 'lora', tags: ['corporate', 'blue', 'friendly'] },
-  { id: 'spectrum', name: 'Spectrum Edge', description: 'A soft gradient edge and bold uppercase type. Creative but still all business.', accent: '#111111', secondary: '#f29a6b', paper: '#ffffff', headFont: 'inter', bodyFont: 'inter', tags: ['gradient', 'creative', 'modern'] },
-  { id: 'statement', name: 'Bold Statement', description: 'Heavy display title, black grid table and soft color glows in the corners.', accent: '#111111', secondary: '#f2994a', paper: '#ffffff', headFont: 'league-spartan', bodyFont: 'josefin', tags: ['bold', 'black', 'creative'] },
-  { id: 'executive', name: 'Executive Slate', description: 'Dark slate brand block, tall condensed headings and a footer contact bar.', accent: '#263238', secondary: '#90a4ae', paper: '#ffffff', headFont: 'oswald', bodyFont: 'roboto', tags: ['dark', 'executive', 'condensed'] },
-  { id: 'ledger', name: 'Ledger', description: 'Typewriter type on warm paper with a ruled grid and a red headline.', accent: '#d21f3c', secondary: '#4a4036', paper: '#efe9da', headFont: 'montserrat', bodyFont: 'space-mono', tags: ['vintage', 'mono', 'paper'] },
-  { id: 'serif_band', name: 'Serif Band', description: 'Refined serif typography under a soft tinted header band.', accent: '#3b5486', secondary: '#b9c4dc', paper: '#ffffff', headFont: 'lora', bodyFont: 'lora', tags: ['serif', 'elegant', 'navy'] },
-  { id: 'bold_header', name: 'Bold Header', description: 'Full-bleed color bands top and bottom with strong geometric type.', accent: '#0b4aa8', secondary: '#ffffff', paper: '#ffffff', headFont: 'montserrat', bodyFont: 'montserrat', tags: ['bold', 'color', 'band'] },
-  { id: 'friendly', name: 'Friendly Rounded', description: 'Rounded type, a soft colored frame and playful floral accents.', accent: '#3e5a2e', secondary: '#f6b8c6', paper: '#ffffff', headFont: 'nunito', bodyFont: 'nunito', tags: ['friendly', 'rounded', 'soft'] },
-  { id: 'boutique', name: 'Boutique', description: 'Muted rose serif with boxed cells and pill totals.', accent: '#a05c5a', secondary: '#e9d3d0', paper: '#ffffff', headFont: 'merriweather', bodyFont: 'source-sans', tags: ['serif', 'boutique', 'warm'] },
-  { id: 'construction', name: 'Construction', description: 'Industrial navy and safety yellow with angled stripes. Built for the trades.', accent: '#1b2a55', secondary: '#f5c400', paper: '#ffffff', headFont: 'poppins', bodyFont: 'poppins', tags: ['construction', 'industrial', 'trades'] },
-  { id: 'coastal', name: 'Coastal Serif', description: 'Warm cream paper, deep teal serif headings and a peach footer band.', accent: '#1f6b6b', secondary: '#f2c3ae', paper: '#efebe1', headFont: 'dm-serif', bodyFont: 'montserrat', tags: ['serif', 'warm', 'elegant'] },
-];
+const CLASSIC: TemplateMeta = {
+  id: 'classic', name: 'Classic Professional', descriptor: 'Accent bar · amount due up top',
+  description: 'Balanced, conventional business layout with a crisp accent bar. Safe for any client.',
+  accent: '#1f3a5f', secondary: '#c9a227', paper: '#ffffff', headFont: 'inter', bodyFont: 'inter', tags: ['default', 'professional', 'clean'],
+};
 
-const COLLECTION_ORDER: Record<TemplateCollection, number> = { featured: 0, new: 1, standard: 2, premium: 3 };
+/** Picker descriptors of the Basic designs (their looks are unchanged). */
+const BASIC_DESCRIPTORS: Partial<Record<TemplateId, string>> = {
+  standard: 'Centered title · double frame', professional: 'Slate table · thin frame', elegant: 'Purple accents · frame',
+  warm: 'Orange accents · frame', retro: 'Typewriter type · frame', modern_blue: 'Blue header band', tech: 'Teal band · typewriter',
+  industrial: 'Amber header band', minimal: 'Grey header band', bold: 'Black header band',
+};
+
+const TIER_ORDER: Record<DesignTier, number> = { basic: 0, premium: 1 };
 const ID_ORDER = new Map<string, number>(ALL_TEMPLATE_IDS.map((id, i) => [id, i]));
+const tierOf = (id: string): DesignTier => (BASIC_SET.has(id) ? 'basic' : 'premium');
 
-/** Every registered design, in picker order (Featured, New, Standard, Premium). */
+/** Every registered design, in picker order (Basic, then Premium). */
 export const TEMPLATES: TemplateMeta[] = [
-  ...CORE_TEMPLATES.map((t) => ({ ...t, collection: 'featured' as const })),
+  { ...CLASSIC, collection: 'featured' as const },
   ...DESIGN_LIST.map((d) => ({ ...d.meta, collection: d.meta.collection || ('featured' as const) })),
 ]
   .filter((t, i, all) => (ID_ORDER.has(t.id) && all.findIndex((x) => x.id === t.id) === i))
-  .sort((a, b) => COLLECTION_ORDER[a.collection || 'featured'] - COLLECTION_ORDER[b.collection || 'featured'] || (ID_ORDER.get(a.id)! - ID_ORDER.get(b.id)!));
+  .map((t) => ({ ...t, tier: tierOf(t.id), descriptor: t.descriptor || BASIC_DESCRIPTORS[t.id] }))
+  .sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || (ID_ORDER.get(a.id)! - ID_ORDER.get(b.id)!));
 
 export const DEFAULT_TEMPLATE_ID: TemplateId = 'classic';
 
 const TEMPLATE_BY_ID = new Map<string, TemplateMeta>(TEMPLATES.map((t) => [t.id, t]));
 
-/**
- * Stored ids that are NOT designs of their own → the design they show. Keep this table forever: documents
- * saved years ago must keep rendering. Every pre-2026-11 id ('standard' … 'bold', 'template_html' …
- * 'template_serif') is a design again, so only aliases (display names, other spellings) are listed here.
- */
-export const LEGACY_TEMPLATE_MAP: Record<string, TemplateId> = {
-  // display names of the original designs (AI output, imports, hand-edited data)
-  'modern single': 'template_html',
-  'high end': 'template_html_2',
-  glassmorphism: 'template_html_2_new',
-  'glassmorphism modern': 'template_html_2_new',
-  'minimalist premium': 'template_html_3',
-  'premium minimalist': 'template_html_3',
-  'gradient border': 'template_html_4',
-  'gradient border premium': 'template_html_4',
-  'neon cyberpunk': 'template_neon',
-  'luxury gold': 'template_luxury',
-  'luxury gold navy': 'template_luxury',
-  'organic nature': 'template_nature',
-  'geometric bold': 'template_geometric',
-  'pastel soft': 'template_pastel',
-  'vintage craft': 'template_vintage',
-  'blueprint tech': 'template_blueprint',
-  'abstract memphis': 'template_memphis',
-  'crimson noir': 'template_crimson',
-  'watercolor artistic': 'template_watercolor',
-  'swiss grid': 'template_swiss',
-  'space odyssey': 'template_space',
-  'retro terminal': 'template_retro',
-  'playful pop': 'template_pop',
-  'elegant serif': 'template_serif',
+/** Display names and other spellings (AI output, imports, hand-edited data) → stored id. */
+const ALIASES: Record<string, string> = {
+  // display names of the original designs
+  'modern single': 'template_html', 'high end': 'template_html_2', glassmorphism: 'template_html_2_new', 'glassmorphism modern': 'template_html_2_new',
+  'minimalist premium': 'template_html_3', 'premium minimalist': 'template_html_3', 'gradient border': 'template_html_4', 'gradient border premium': 'template_html_4',
+  'neon cyberpunk': 'template_neon', 'luxury gold': 'template_luxury', 'luxury gold navy': 'template_luxury', 'organic nature': 'template_nature',
+  'geometric bold': 'template_geometric', 'pastel soft': 'template_pastel', 'vintage craft': 'template_vintage', 'blueprint tech': 'template_blueprint',
+  'abstract memphis': 'template_memphis', 'crimson noir': 'template_crimson', 'watercolor artistic': 'template_watercolor', 'swiss grid': 'template_swiss',
+  'space odyssey': 'template_space', 'retro terminal': 'template_retro', 'playful pop': 'template_pop', 'elegant serif': 'template_serif',
   'modern blue': 'modern_blue',
-  // ids/names the 2026-11 rebuild used for two Featured designs before 'elegant' and 'bold' became original designs again
-  'serif band': 'serif_band',
-  'bold header': 'bold_header',
+  // names of the 2026-11 designs
+  'serif band': 'serif_band', 'bold header': 'bold_header', 'classic professional': 'classic', 'modern minimal': 'modern',
+  'corporate blue': 'corporate', 'executive slate': 'executive', 'timber and trade': 'timber', 'paper minimal': 'paper_minimal',
+  // names of the Premium designs
+  'classic trade': 'classic_trade', 'modern contractor': 'modern_contractor', 'field ready': 'field_ready', 'blueprint pro': 'blueprint_pro',
+  'minimal line': 'minimal_line', 'bold block': 'bold_block', 'studio grid': 'studio', 'work ticket': 'work_ticket',
 };
 
 /**
- * Only used when a design module is missing from a build (never in a complete build): the closest Featured
- * design, so documents keep rendering.
+ * Stored ids that are NOT designs of their own → the design they show (aliases + retired designs). Keep this table
+ * forever: documents saved years ago must keep rendering.
  */
-const MISSING_DESIGN_FALLBACK: Partial<Record<TemplateId, TemplateId>> = {
-  standard: 'classic', professional: 'serif_band', elegant: 'serif_band', warm: 'coastal', retro: 'ledger', modern_blue: 'bold_header',
-  tech: 'modern', industrial: 'construction', minimal: 'modern', bold: 'bold_header',
-  template_html: 'modern', template_html_2: 'executive', template_html_2_new: 'spectrum', template_html_3: 'modern', template_html_4: 'spectrum',
-  template_neon: 'executive', template_luxury: 'serif_band', template_nature: 'friendly', template_geometric: 'bold_header', template_pastel: 'friendly',
-  template_vintage: 'ledger', template_blueprint: 'corporate', template_memphis: 'statement', template_crimson: 'boutique', template_watercolor: 'coastal',
-  template_swiss: 'modern', template_space: 'executive', template_retro: 'ledger', template_pop: 'statement', template_serif: 'serif_band',
-  atelier: 'serif_band', sidebar: 'classic', site_plan: 'construction', timber: 'coastal', colorblock: 'bold_header', paper_minimal: 'modern',
-  service_ticket: 'construction', heritage: 'ledger', nordic: 'modern', metro: 'classic', split: 'bold_header', greenbar: 'ledger',
-  voltage: 'construction', meadow: 'friendly',
-};
+export const LEGACY_TEMPLATE_MAP: Record<string, TemplateId> = Object.fromEntries([
+  ...Object.entries(ALIASES).map(([k, v]) => [k, (RETIRED_TEMPLATE_MAP[v] || v) as TemplateId]),
+  ...Object.entries(RETIRED_TEMPLATE_MAP),
+]);
 
 /** Free-text style words (AI prompts, search) → design. */
 export const TEMPLATE_KEYWORDS: Record<string, TemplateId> = {
-  simple: 'classic', default: 'classic', clean: 'classic',
-  minimalist: 'modern', studio: 'modern',
-  business: 'corporate', blue: 'corporate',
-  creative: 'spectrum', colorful: 'spectrum',
-  black: 'statement', 'bold black': 'statement',
-  dark: 'executive', premium: 'executive',
-  typewriter: 'ledger', paper: 'ledger',
-  serif: 'serif_band', navy: 'serif_band', formal: 'professional',
-  band: 'bold_header', vibrant: 'bold_header',
-  rounded: 'friendly', soft: 'friendly',
-  rose: 'boutique',
-  trades: 'construction', contractor: 'construction', safety: 'construction',
-  cream: 'coastal', teal: 'coastal',
-  // original designs
-  neon: 'template_neon', cyberpunk: 'template_neon', luxury: 'template_luxury', gold: 'template_luxury',
-  nature: 'template_nature', organic: 'template_nature', geometric: 'template_geometric', pastel: 'template_pastel',
-  vintage: 'template_vintage', craft: 'template_vintage', blueprint: 'template_blueprint', memphis: 'template_memphis',
-  crimson: 'template_crimson', noir: 'template_crimson', watercolor: 'template_watercolor', swiss: 'template_swiss', grid: 'template_swiss',
-  space: 'template_space', terminal: 'template_retro', pop: 'template_pop', playful: 'template_pop',
-  glass: 'template_html_2_new', gradient: 'template_html_4',
-  // new designs
-  'site plan': 'site_plan', architect: 'site_plan', carpentry: 'timber', wood: 'timber',
-  'color block': 'colorblock', service: 'service_ticket', 'service ticket': 'service_ticket', hvac: 'service_ticket', plumbing: 'service_ticket',
-  letterpress: 'heritage', scandinavian: 'nordic', dashboard: 'metro', 'green bar': 'greenbar',
-  electric: 'voltage', electrician: 'voltage', landscaping: 'meadow', garden: 'meadow',
+  simple: 'classic', default: 'classic', clean: 'classic', formal: 'professional',
+  minimalist: 'minimal_line', monochrome: 'minimal_line', studio: 'studio', swiss: 'studio', grid: 'studio', architect: 'studio',
+  business: 'corporate', sidebar: 'corporate', blue: 'modern_contractor', band: 'modern_contractor', contractor: 'modern_contractor',
+  colorful: 'modern_contractor', vibrant: 'modern_contractor', glass: 'modern_contractor', gradient: 'modern_contractor', dashboard: 'modern_contractor',
+  block: 'bold_block', black: 'bold_block', 'bold black': 'bold_block', construction: 'bold_block', trades: 'bold_block', safety: 'bold_block',
+  creative: 'bold_block', memphis: 'bold_block', pop: 'bold_block', playful: 'bold_block',
+  dark: 'slate', charcoal: 'slate', electric: 'slate', electrician: 'slate', hvac: 'slate', neon: 'slate', cyberpunk: 'slate', space: 'slate', geometric: 'slate',
+  premium: 'executive', luxury: 'executive', gold: 'executive', refined: 'executive', rose: 'executive',
+  serif: 'classic_trade', traditional: 'classic_trade', navy: 'classic_trade', crimson: 'classic_trade', noir: 'classic_trade',
+  vintage: 'heritage', letterpress: 'heritage', typewriter: 'heritage', paper: 'heritage', craft: 'craftsman',
+  wood: 'craftsman', carpentry: 'craftsman', rustic: 'craftsman', nature: 'craftsman', organic: 'craftsman', landscaping: 'craftsman', garden: 'craftsman',
+  cream: 'craftsman', rounded: 'craftsman', soft: 'proposal',
+  blueprint: 'blueprint_pro', technical: 'blueprint_pro', engineering: 'blueprint_pro', 'site plan': 'blueprint_pro',
+  pastel: 'proposal', watercolor: 'proposal', teal: 'proposal', letter: 'letterhead',
+  service: 'work_ticket', ticket: 'work_ticket', 'service ticket': 'work_ticket', plumbing: 'work_ticket', plumber: 'work_ticket', form: 'work_ticket',
+  legible: 'field_ready', large: 'field_ready', field: 'field_ready', terminal: 'field_ready',
 };
 
 /** true for ids of registered designs. */
 export const isTemplateId = (id: unknown): id is TemplateId => typeof id === 'string' && TEMPLATE_BY_ID.has(id);
 
-const KNOWN_IDS = new Set<string>(ALL_TEMPLATE_IDS);
-
 const registered = (id: string | undefined): TemplateId | null => {
-  if (!id || !KNOWN_IDS.has(id)) return null;
+  if (!id) return null;
   if (TEMPLATE_BY_ID.has(id)) return id as TemplateId;
-  const fb = MISSING_DESIGN_FALLBACK[id as TemplateId];
-  return fb && TEMPLATE_BY_ID.has(fb) ? fb : null;
+  const mapped = RETIRED_TEMPLATE_MAP[id];
+  return mapped && TEMPLATE_BY_ID.has(mapped) ? mapped : null;
 };
 
 /** Any stored/legacy/AI template id → a registered template id (never throws, never returns unknown ids). */
@@ -294,6 +277,9 @@ export const resolveTemplateId = (id?: string | null): TemplateId => {
 };
 
 export const getTemplateMeta = (id?: string | null): TemplateMeta => TEMPLATE_BY_ID.get(resolveTemplateId(id))!;
+
+/** true when the design a stored id shows is a Premium design (needs a paid plan to be chosen). */
+export const isPremiumDesign = (id?: string | null): boolean => getTemplateMeta(id).tier === 'premium';
 
 const isFontKey = (v: unknown): v is FontKey => typeof v === 'string' && v in FONTS;
 

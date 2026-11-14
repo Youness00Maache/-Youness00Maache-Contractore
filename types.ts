@@ -191,6 +191,24 @@ export interface DocumentStyle {
   /** Document font chosen in the template selector */
   fontFamily?: string;
   paperSize?: 'letter' | 'a4';
+  /** Premium design customization (utils/templates/designOptions.ts); absent = the design's own layout */
+  designOptions?: DocumentDesignOptions;
+}
+
+/**
+ * Customization of the Premium designs, saved per document (and as the user's default in user_settings
+ * 'documents.design'). Every field is optional: a missing field means "the design's own choice".
+ */
+export interface DocumentDesignOptions {
+  /** font pairing ('design' = the design's own fonts) */
+  fonts?: 'design' | 'classic' | 'modern' | 'industrial' | 'slab' | 'technical';
+  /** header layout */
+  header?: 'design' | 'left' | 'centered' | 'band';
+  logoSize?: 's' | 'm' | 'l';
+  table?: 'design' | 'lines' | 'striped' | 'boxed';
+  density?: 'comfortable' | 'compact';
+  /** sections left out of the PDF */
+  hide?: Array<'signatures' | 'payment' | 'terms' | 'notes' | 'photos'>;
 }
 
 export interface InvoiceData extends DocumentStyle {

@@ -21,6 +21,9 @@ import {
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
 import { mockModelOutput } from './shared/mockModel.ts';
 import { REQUEST_LIMITS } from './shared/routerContract.ts';
+import {
+    aiCreditsEnabled, chargeRequestBody, classifyChargeResponse, creditsBuyInfo, creditsEmptyMessage, kelviqApiBase, packById,
+} from '../_shared/aiCredits.ts';
 
 export interface RouterEnv { get(name: string): string | undefined }
 export interface HandlerDeps {
@@ -31,6 +34,21 @@ export interface HandlerDeps {
     sleep?: (ms: number) => Promise<void>;
     /** Tests only: shorter model time limits (defaults: MODEL_TIMEOUT_MS, 45 s per attempt, 12 s minimum). */
     modelTimeouts?: { totalMs: number; attemptMs: number; minAttemptMs: number };
+    /**
+     * Keeps background work (an automatic AI-credit top-up after the answer) alive after the response is sent
+     * (Supabase: EdgeRuntime.waitUntil). Without it the work is awaited before answering.
+     */
+    waitUntil?: (task: Promise<unknown>) => void;
+}
+
+/** What admit() allowed: the plan's monthly allowance, or (AI credits on, allowance used up) a purchased credit. */
+interface Admission {
+    tier: 'free' | 'premium' | 'ai';
+    used: number;
+    limit: number;
+    payWith: 'plan' | 'credits';
+    /** Credit balance before this request (payWith = credits). */
+    credits?: number;
 }
 
 /** Monthly AI requests per plan. Keep in sync with lib/plans.ts (FREE_LIMITS.ai, PAID_AI_LIMITS). */
@@ -89,7 +107,8 @@ function retryDelayMs(body: string): number | null {
 }
 
 class HttpError extends Error {
-    constructor(public status: number, public code: string, message: string) { super(message); }
+    /** `extra` is added to the JSON error body (e.g. the AI-credit packs on CREDITS_EMPTY). */
+    constructor(public status: number, public code: string, message: string, public extra?: Record<string, unknown>) { super(message); }
 }
 
 function normalizeTier(tier: unknown): 'free' | 'premium' | 'ai' {
@@ -150,6 +169,8 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
     const supabaseUrl = (env.get('SUPABASE_URL') || '').replace(/\/$/, '');
     const anonKey = env.get('SUPABASE_ANON_KEY') || '';
     const serviceKey = env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    /** AI credit top-ups (secret AI_CREDITS_ENABLED). Off = exactly the old behaviour, no extra calls. */
+    const creditsOn = aiCreditsEnabled(name => env.get(name));
 
     async function getUser(req: Request): Promise<{ id: string }> {
         const auth = req.headers.get('Authorization') || '';
@@ -184,8 +205,10 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         return 'free';
     }
 
-    async function countUsage(userId: string, sinceIso: string): Promise<number> {
-        const url = `${supabaseUrl}/rest/v1/usage_events?select=id&user_id=eq.${encodeURIComponent(userId)}&kind=eq.ai&created_at=gte.${encodeURIComponent(sinceIso)}`;
+    /** `kinds`: usage_events kinds to count (the per-minute rate limit also counts requests paid with AI credits). */
+    async function countUsage(userId: string, sinceIso: string, kinds: string[] = ['ai']): Promise<number> {
+        const kindFilter = kinds.length === 1 ? `kind=eq.${kinds[0]}` : `kind=in.(${kinds.join(',')})`;
+        const url = `${supabaseUrl}/rest/v1/usage_events?select=id&user_id=eq.${encodeURIComponent(userId)}&${kindFilter}&created_at=gte.${encodeURIComponent(sinceIso)}`;
         const res = await fetchWithTimeout(f, url, { method: 'HEAD', headers: { ...restHeaders(), Prefer: 'count=exact' } }, 8000).catch(() => null);
         const range = res?.headers.get('content-range') || '';
         const total = Number(range.split('/')[1]);
@@ -202,23 +225,28 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
      * Prefers the atomic `consume_usage` RPC (locks the profile row, re-checks the limit, updates
      * ai_credits_used). The plain insert is used only when the RPC does not exist: after an RPC
      * timeout or error the RPC may still have counted, and a second insert would count twice.
-     * Throws PLAN_LIMIT when parallel requests crossed the limit.
+     * Throws PLAN_LIMIT when parallel requests crossed the limit (with AI credits on: a credit is spent instead,
+     * CREDITS_EMPTY when there is none). A request admitted on credits spends one credit (spend_ai_credit).
+     * Returns the credit balance after a credit was spent.
      */
-    async function recordUsage(userId: string): Promise<void> {
+    async function recordUsage(userId: string, admission: Admission): Promise<{ credits?: number }> {
+        if (admission.payWith === 'credits') return spendCredit(userId, admission);
         const rpc = await fetchWithTimeout(f, `${supabaseUrl}/rest/v1/rpc/consume_usage`, {
             method: 'POST',
             headers: { ...restHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ p_user_id: userId, p_kind: 'ai', p_count: 1 }),
         }, 8000).catch(() => null);
-        if (rpc?.ok) return;
+        if (rpc?.ok) return {};
         const text = rpc ? await rpc.text().catch(() => '') : '';
         if (/PLAN_LIMIT/.test(text)) {
+            // parallel requests used the last plan request: pay this one with a credit when the user has one
+            if (creditsOn) return spendCredit(userId, admission);
             throw new HttpError(402, 'PLAN_LIMIT', 'PLAN_LIMIT: You have used all AI requests included in your plan this month. Upgrade your plan to keep using the assistant.');
         }
         const rpcMissing = Boolean(rpc) && (rpc!.status === 404 || /PGRST202|Could not find the function/i.test(text));
         if (!rpcMissing) {
             log('usage rpc failed (not counted twice)', rpc?.status ?? 'timeout', text.slice(0, 200));
-            return;
+            return {};
         }
         const res = await fetchWithTimeout(f, `${supabaseUrl}/rest/v1/usage_events`, {
             method: 'POST',
@@ -226,6 +254,125 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             body: JSON.stringify({ user_id: userId, kind: 'ai' }),
         }, 8000).catch(() => null);
         if (!res || !res.ok) log('usage insert failed', rpc?.status, text.slice(0, 200), res?.status);
+        return {};
+    }
+
+    // ───────────────────────────── AI credits (only when creditsOn) ─────────────────────────────
+
+    /** Service-role RPC call. `missing` = the function does not exist (the credits SQL is not applied). */
+    async function callRpc(name: string, args: Record<string, unknown>): Promise<{ ok: boolean; status: number; data: any; text: string; missing: boolean }> {
+        const res = await fetchWithTimeout(f, `${supabaseUrl}/rest/v1/rpc/${name}`, {
+            method: 'POST',
+            headers: { ...restHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(args),
+        }, 8000).catch(() => null);
+        if (!res) return { ok: false, status: 0, data: null, text: '', missing: false };
+        const text = await res.text().catch(() => '');
+        let data: any = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+        return { ok: res.ok, status: res.status, data, text, missing: res.status === 404 || /PGRST202|Could not find the function/i.test(text) };
+    }
+
+    /** Purchased credits left; null when the credits SQL is not applied (then the old 402 PLAN_LIMIT applies). */
+    async function creditBalance(userId: string): Promise<number | null> {
+        const r = await callRpc('ai_credit_balance', { p_user_id: userId });
+        if (r.ok) return Math.max(0, Math.floor(Number(r.data) || 0));
+        if (r.missing) {
+            log('AI_CREDITS_ENABLED is on but the AI credits SQL is not applied; using the plan limit only');
+            return null;
+        }
+        log('credit balance failed', r.status || 'timeout', r.text.slice(0, 200));
+        throw new HttpError(503, 'USAGE_UNAVAILABLE', 'The AI assistant is temporarily unavailable. Please try again in a minute.');
+    }
+
+    /** The 402 for "plan allowance and credits used up", with the packs and the automatic top-up state. */
+    async function creditsEmptyError(userId: string, admission: Pick<Admission, 'tier' | 'used' | 'limit'>): Promise<HttpError> {
+        const status = await callRpc('ai_credit_status', { p_user_id: userId });
+        const s = status.ok ? status.data || {} : {};
+        const info = creditsBuyInfo(Math.max(0, Number(s.balance) || 0), {
+            enabled: Boolean(s.settings?.auto_recharge),
+            lastStatus: s.last_recharge?.status ?? null,
+            lastDetail: s.last_recharge?.detail ?? null,
+        });
+        return new HttpError(402, 'CREDITS_EMPTY', creditsEmptyMessage(admission.tier, admission.limit),
+            { limit: admission.limit, used: admission.used, tier: admission.tier, credits: info });
+    }
+
+    /** Spends one credit after a successful answer; starts an automatic top-up when the balance fell below the threshold. */
+    async function spendCredit(userId: string, admission: Admission): Promise<{ credits?: number }> {
+        const r = await callRpc('spend_ai_credit', { p_user_id: userId });
+        if (r.ok) {
+            const balance = Math.max(0, Number(r.data?.balance) || 0);
+            if (r.data?.auto_recharge_due) await background(autoRecharge(userId));
+            return { credits: balance };
+        }
+        if (/CREDITS_EMPTY/.test(r.text)) throw await creditsEmptyError(userId, admission);
+        if (r.missing) {
+            throw new HttpError(402, 'PLAN_LIMIT', 'PLAN_LIMIT: You have used all AI requests included in your plan this month. Upgrade your plan to keep using the assistant.');
+        }
+        // timeout / database error: the RPC may still have spent it; never spend twice
+        log('credit spend failed (not spent twice)', r.status || 'timeout', r.text.slice(0, 200));
+        return {};
+    }
+
+    /** Background work: kept alive with waitUntil when the runtime has it, else awaited. Never throws. */
+    async function background(task: Promise<unknown>): Promise<void> {
+        const safe = task.catch(err => log('background task failed', err instanceof Error ? err.message : String(err)));
+        if (deps.waitUntil) {
+            try { deps.waitUntil(safe); return; } catch { /* fall through: await it */ }
+        }
+        await safe;
+    }
+
+    /**
+     * Automatic top-up: claim (SQL: on, below the threshold, nothing in flight or unclear, under the daily cap) →
+     * Kelviq POST /charges/ (off-session, the card saved at the first purchase) → finish (credits added once by the
+     * charge id; a refused card switches automatic top-up off; no answer = unclear, never retried blindly).
+     * Returns the outcome and the new balance, or null when nothing was charged.
+     */
+    async function autoRecharge(userId: string): Promise<{ status: string; balance: number } | null> {
+        const kelviqKey = env.get('KELVIQ_SERVER_API_KEY') || '';
+        if (!kelviqKey) {
+            log('automatic top-up skipped: KELVIQ_SERVER_API_KEY is not set');
+            return null;
+        }
+        const claim = await callRpc('claim_ai_auto_recharge', { p_user_id: userId });
+        if (!claim.ok || !claim.data?.claimed) return null;
+        const attemptId = String(claim.data.attempt_id || '');
+        const pack = packById(claim.data.pack);
+        let outcome = classifyChargeResponse(400, { detail: 'Unknown credit pack.' });
+        if (pack) {
+            let status: number | null = null;
+            let body: unknown = null;
+            try {
+                const res = await fetchWithTimeout(f, `${kelviqApiBase(env.get('KELVIQ_ENV'))}/charges/`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${kelviqKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+                    body: JSON.stringify(chargeRequestBody(pack, userId)),
+                }, 20_000);
+                status = res.status;
+                const text = await res.text().catch(() => '');
+                try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+            } catch {
+                status = null; // timeout / network: the card MAY have been charged
+            }
+            outcome = classifyChargeResponse(status, body);
+        }
+        const fin = await callRpc('finish_ai_auto_recharge', {
+            p_attempt_id: attemptId,
+            p_status: outcome.status,
+            p_charge_id: outcome.status === 'succeeded' ? outcome.chargeId : null,
+            p_detail: outcome.status === 'succeeded' ? null : outcome.detail,
+            p_amount: outcome.status === 'succeeded' ? outcome.amount : null,
+            p_currency: outcome.status === 'succeeded' ? outcome.currency : null,
+        });
+        log(`automatic top-up ${outcome.status}`, pack?.id || String(claim.data.pack), outcome.status === 'succeeded' ? '' : outcome.detail);
+        if (!fin.ok) {
+            // the attempt stays "pending": it blocks new charges and the Kelviq order webhook credits it later
+            log('automatic top-up finish failed', fin.status || 'timeout', fin.text.slice(0, 200));
+            return null;
+        }
+        return { status: String(fin.data?.status || outcome.status), balance: Math.max(0, Number(fin.data?.balance) || 0) };
     }
 
     /** GEMINI_THINKING_LEVEL (Gemini 3+), else the default. */
@@ -415,8 +562,10 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
     /**
      * Configuration, burst guard, plan and rate limits for one request. Returns the plan facts, or the 402 response
      * to send (monthly limit reached, or a feature of a higher plan when `requiredTier` is set).
+     * Order: the plan's monthly allowance → (AI credits on) a purchased credit, after an automatic top-up when the
+     * balance is empty and it is switched on → 402 CREDITS_EMPTY (credits on) / PLAN_LIMIT (off or SQL missing).
      */
-    async function admit(userId: string, cors: Record<string, string>, requiredTier?: 'ai'): Promise<{ tier: 'free' | 'premium' | 'ai'; used: number; limit: number } | Response> {
+    async function admit(userId: string, cors: Record<string, string>, requiredTier?: 'ai'): Promise<Admission | Response> {
         if (!serviceKey) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured on the server.');
         const nowDate = now();
         if (burstExceeded(userId, nowDate.getTime())) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a few seconds.');
@@ -426,19 +575,35 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         const [tier, used, lastMinute] = await Promise.all([
             getTier(userId),
             countUsage(userId, monthStart),
-            countUsage(userId, minuteAgo),
+            countUsage(userId, minuteAgo, creditsOn ? ['ai', 'ai_credit'] : ['ai']),
         ]);
         const limit = AI_MONTHLY_LIMITS[tier];
         if (requiredTier && tier !== requiredTier) {
             return json({ error: `PLAN_REQUIRED: ${PHOTO_TASK_UPGRADE_MESSAGE}`, code: 'PLAN_REQUIRED', tier, required: requiredTier }, 402, cors);
         }
         if (used >= limit) {
+            if (creditsOn) {
+                if (lastMinute >= perMinute) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a minute.');
+                const credits = await creditBalance(userId);
+                if (credits !== null) {
+                    if (credits > 0) return { tier, used, limit, payWith: 'credits', credits };
+                    const recharge = await autoRecharge(userId);
+                    if (recharge && recharge.balance > 0) return { tier, used, limit, payWith: 'credits', credits: recharge.balance };
+                    const empty = await creditsEmptyError(userId, { tier, used, limit });
+                    return json({ error: empty.message, code: empty.code, ...empty.extra }, 402, cors);
+                }
+            }
             const upgrade = tier === 'ai' ? 'Your allowance resets on the 1st of next month.' : 'Upgrade your plan to keep using the assistant this month.';
             return json({ error: `PLAN_LIMIT: You have used all ${limit} AI requests included in your plan this month. ${upgrade}`, code: 'PLAN_LIMIT', limit, used, tier }, 402, cors);
         }
         if (lastMinute >= perMinute) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a minute.');
-        return { tier, used, limit };
+        return { tier, used, limit, payWith: 'plan' };
     }
+
+    /** meta.usage of a successful answer (`credits` = balance left when the request was paid with a credit). */
+    const usageMeta = (admission: Admission, spent: { credits?: number }) => admission.payWith === 'credits' || spent.credits !== undefined
+        ? { used: admission.used, limit: admission.limit, tier: admission.tier, paid_with: 'credits' as const, ...(spent.credits !== undefined ? { credits: spent.credits } : {}) }
+        : { used: admission.used + 1, limit: admission.limit, tier: admission.tier };
 
     /**
      * "Write client update" / "AI walkthrough" from job photos (Premium + AI). Metered as one AI request, only when
@@ -450,7 +615,6 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         const request = sanitizePhotoTaskRequest(body);
         const admission = await admit(userId, cors, PHOTO_TASK_TIER);
         if (admission instanceof Response) return admission;
-        const { tier, used, limit } = admission;
 
         const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
         const { output, model } = provider === 'mock'
@@ -476,8 +640,8 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             log('client went away before the answer; not metered');
             return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
         }
-        await recordUsage(userId);
-        return json({ ok: true, task: request.task, ...payload, meta: { provider, model, usage: { used: used + 1, limit, tier } } }, 200, cors);
+        const spent = await recordUsage(userId, admission);
+        return json({ ok: true, task: request.task, ...payload, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
     }
 
     return async function handle(req: Request): Promise<Response> {
@@ -498,7 +662,6 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
 
             const admission = await admit(user.id, cors);
             if (admission instanceof Response) return admission;
-            const { tier, used, limit } = admission;
 
             const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
             let { output, model } = provider === 'mock'
@@ -523,11 +686,11 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
                 log('client went away before the answer; not metered');
                 return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
             }
-            await recordUsage(user.id);
-            const response: RouterResponse = { ok: true, proposal, meta: { provider, model, usage: { used: used + 1, limit, tier } } };
+            const spent = await recordUsage(user.id, admission);
+            const response: RouterResponse = { ok: true, proposal, meta: { provider, model, usage: usageMeta(admission, spent) } };
             return json(response, 200, cors);
         } catch (err) {
-            if (err instanceof HttpError) return json({ error: err.message, code: err.code }, err.status, cors);
+            if (err instanceof HttpError) return json({ error: err.message, code: err.code, ...(err.extra || {}) }, err.status, cors);
             if (err instanceof RouterInputError) return json({ error: err.message, code: err.code }, err.status, cors);
             log('unexpected error', err instanceof Error ? err.stack || err.message : String(err));
             return json({ error: 'The AI assistant hit an unexpected error. Please try again.', code: 'INTERNAL' }, 500, cors);

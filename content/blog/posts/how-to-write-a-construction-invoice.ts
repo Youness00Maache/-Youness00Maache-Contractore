@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'how-to-write-a-construction-invoice',
+  answer:
+    'A construction invoice should show your business details, a unique invoice number and date, the client and job address, line items that match the estimate, each signed change order, tax, deposits and prior payments, any retainage, the balance due and a calendar due date with how to pay. Send it the same day you finish the work or reach the milestone.',
   takeaways: [
     'Put a calendar due date on every invoice, not just “Net 30”.',
     'Use the same line-item wording as your estimate and list each signed change order on its own line.',

@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'material-log-job-costing',
+  answer:
+    'A material log records what each job actually received, used, returned or transferred, with quantities logged on site and unit costs added from the PO, supplier invoice or price book. Compared against the estimate with the same cost codes, it shows what the job really cost before small material leaks eat the profit.',
   takeaways: [
     'A material log records what the job received, used, returned or transferred, which is not the same as what you ordered or were billed for.',
     'Log quantities on site at delivery; fill in unit prices later from the PO, supplier invoice or price book.',

@@ -4,13 +4,15 @@
  * Exit code 1 when any post fails.
  */
 import { BLOG_POSTS } from '../content/blog/registry.ts';
+import { LANDING_PAGES } from '../content/landing/registry.ts';
 import { pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const STATIC_LINKS = new Set([
   '/', '/features', '/pricing', '/templates', '/invoice-generator', '/estimate-generator', '/about', '/contact',
-  '/security', '/privacy', '/terms', '/blog', '/auth/signup', '/auth/login',
+  '/security', '/privacy', '/terms', '/blog', '/auth/signup', '/auth/login', '/help',
+  ...LANDING_PAGES.map((p) => p.path),
 ]);
 const FEATURE_ANCHORS = new Set(['documents', 'ai-assistant', 'client-portal', 'gmail', 'inventory', 'profit-tracking', 'mobile']);
 const slugs = new Set(BLOG_POSTS.map((p) => p.slug));
@@ -62,6 +64,13 @@ async function lint(slug: string): Promise<string[]> {
   if (productLinks.length < 2) errors.push(`only ${productLinks.length} links to product pages (min 2)`);
   if (!Array.isArray(post?.faq) || post.faq.length < 4) errors.push('faq needs at least 4 entries');
   if (!Array.isArray(post?.takeaways) || post.takeaways.length < 3) errors.push('takeaways needs at least 3 entries');
+  const answer: string = post?.answer || '';
+  if (answer.length < 150 || answer.length > 480) errors.push(`answer is ${answer.length} chars (want 150–480: 2–3 sentences)`);
+  if (post?.howTo) {
+    const steps = post.howTo.steps || [];
+    if (steps.length < 3 || steps.length > 10) errors.push(`howTo has ${steps.length} steps (want 3–10)`);
+    for (const s of steps) if (!s.name || !s.text) errors.push('howTo step without name or text');
+  }
   if (!post?.cta?.href || !isValidInternalLink(post.cta.href)) errors.push('cta.href missing or invalid');
   const minutes = Math.max(1, Math.round(words / 230));
   if (Math.abs(minutes - meta.readingTime) > 2) errors.push(`registry readingTime ${meta.readingTime} vs computed ${minutes}`);

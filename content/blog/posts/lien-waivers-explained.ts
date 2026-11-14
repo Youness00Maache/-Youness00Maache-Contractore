@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'lien-waivers-explained',
+  answer:
+    'A lien waiver is a document in which a contractor or supplier gives up some or all of its lien rights in exchange for payment. A conditional waiver takes effect only when you are paid; an unconditional waiver generally takes effect when you sign it, so never sign an unconditional waiver until the payment has cleared, and check whether your state requires specific forms.',
   takeaways: [
     'A conditional waiver takes effect only when you are paid; an unconditional waiver generally takes effect when you sign it.',
     'Never sign an unconditional waiver until the payment has actually cleared.',

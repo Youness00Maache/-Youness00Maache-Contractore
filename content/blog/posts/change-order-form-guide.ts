@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'change-order-form-guide',
+  answer:
+    'A construction change order is a short written agreement, signed before the extra work starts, that describes the change in scope, its price and its effect on the schedule. Price it like a mini-estimate, number it, add it to a running contract total and get the client’s signature first, because extras done on a handshake are the hardest money to collect.',
   takeaways: [
     'Any change to scope, price or schedule after the contract is signed deserves its own written change order, even when the price is zero.',
     'Price the change like a mini-estimate: labor, materials, equipment, subs, markup, plus the days it adds to the schedule.',

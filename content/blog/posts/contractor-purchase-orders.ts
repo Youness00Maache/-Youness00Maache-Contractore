@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'contractor-purchase-orders',
+  answer:
+    'A contractor needs a purchase order for delivered, special-order, quoted or large material purchases: it puts price, quantity, delivery details and the job number in writing before anything ships. Before you pay the supplier, match the PO, the signed delivery ticket and the supplier invoice line by line.',
   takeaways: [
     'A purchase order puts price, quantity, delivery details and the job number in writing before anything ships.',
     'Use POs for delivered, special-order, quoted or large purchases; log small counter buys as receipts instead.',

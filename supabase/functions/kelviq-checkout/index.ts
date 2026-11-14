@@ -2,6 +2,8 @@
 //
 //  POST { tier: 'premium' | 'ai', period: 'MONTHLY' | 'YEARLY', successUrl }  -> { url, sessionId }
 //  POST { action: 'portal' }                                                  -> { url }
+//  POST { action: 'credits_status' | 'credits_checkout' | 'credits_settings' } -> AI credit top-ups (credits.ts;
+//       off until AI_CREDITS_ENABLED=true and docs/work/DRAFT_ai_credits.sql is applied)
 //
 // Errors: { error, code } with 401 UNAUTHORIZED, 400 BAD_REQUEST, 409 ALREADY_SUBSCRIBED,
 //         404 NO_BILLING_ACCOUNT (portal before any purchase), 503 BILLING_NOT_CONFIGURED,
@@ -11,6 +13,7 @@
 import { getUser, serviceClient } from '../_shared/auth.ts';
 import { allowedOrigins, json, preflight } from '../_shared/cors.ts';
 import { KelviqError, kelviqRequest, TIER_TO_PLAN, type ChargePeriod, type PaidTier } from '../_shared/kelviq.ts';
+import { handleCreditsAction, isCreditsAction } from './credits.ts';
 
 const SITE_URL = () => (Deno.env.get('SITE_URL') || 'https://www.contractordocs.app').split(',')[0].trim().replace(/\/$/, '');
 
@@ -70,6 +73,29 @@ Deno.serve(async (req) => {
   const name = displayName(user, profile?.name);
 
   try {
+    // ------------------------------------------------------------ AI credit top-ups (separate from subscriptions)
+    if (isCreditsAction(body.action)) {
+      const result = await handleCreditsAction(body.action, body, {
+        userId: user.id,
+        email,
+        env: (n) => Deno.env.get(n),
+        rpc: async (fn, args) => {
+          const { data, error } = await admin.rpc(fn, args);
+          return { data, error: error ? { message: error.message, code: error.code, details: error.details, hint: error.hint } : null };
+        },
+        kelviq: (method, path, payload) => kelviqRequest(method, path, payload),
+        ensureCustomer: async () => {
+          try {
+            await upsertCustomer(user.id, email, name, true);
+          } catch (e) {
+            console.warn('[kelviq-checkout] could not upsert customer (continuing):', e instanceof KelviqError ? e.status : e);
+          }
+        },
+        returnUrl: safeReturnUrl,
+      });
+      return json(req, result.body, result.status);
+    }
+
     // ------------------------------------------------------------ customer portal
     if (body.action === 'portal') {
       const exists = await upsertCustomer(user.id, email, name, false);

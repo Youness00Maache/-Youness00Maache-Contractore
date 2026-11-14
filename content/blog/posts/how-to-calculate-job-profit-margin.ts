@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'how-to-calculate-job-profit-margin',
+  answer:
+    'Job profit margin is profit divided by the price the client pays; markup is profit divided by your cost. A 25% markup is only a 20% margin, so to hit a target margin divide your cost by (1 − margin) instead of multiplying it by (1 + markup), then track estimated vs. actual costs while the job is running.',
   takeaways: [
     'Markup is profit divided by cost; margin is profit divided by price. A 25% markup is only a 20% margin.',
     'To hit a target margin, divide cost by (1 − margin) instead of multiplying it by (1 + margin).',

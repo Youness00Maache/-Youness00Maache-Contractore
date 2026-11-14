@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'contractor-warranty-letter-template',
+  answer:
+    'A contractor warranty letter should state what your workmanship warranty covers, when it starts, how long it lasts, what it excludes, how the owner makes a claim and whether it transfers to a new owner. Keep it separate from manufacturer warranties on the products, and have an attorney review your standard letter, because warranty rules vary by state.',
   takeaways: [
     'Your workmanship warranty covers how you built it; manufacturer warranties cover the products. Say clearly which is which.',
     'A good warranty letter states coverage, start date, duration, exclusions, the claim process and whether it transfers to a new owner.',

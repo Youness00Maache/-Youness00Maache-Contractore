@@ -53,8 +53,23 @@ export interface BlogCta {
   label: string;
 }
 
+export interface BlogHowTo {
+  /** e.g. "How to create a construction estimate with AI" */
+  name: string;
+  /** ISO 8601 duration, e.g. "PT15M" (optional). */
+  totalTime?: string;
+  /** 3–8 steps; each also appears as a numbered step or H2/H3 in the body. */
+  steps: { name: string; text: string }[];
+}
+
 export interface BlogPostContent {
   slug: string;
+  /**
+   * The short answer: 2–3 plain sentences (about 180–420 characters) that answer the post's main question directly.
+   * Shown first, above the key takeaways, so readers and AI answer engines get the answer without scrolling.
+   * Inline Markdown links/bold allowed.
+   */
+  answer: string;
   /** 3–5 short "key takeaways" shown in a box under the H1. */
   takeaways: string[];
   /** Markdown subset (see top of file). Starts with the intro paragraphs; never contains an H1. */
@@ -62,6 +77,8 @@ export interface BlogPostContent {
   /** 4–6 questions; rendered as an FAQ section and as FAQPage JSON-LD. */
   faq: BlogFaq[];
   cta: BlogCta;
+  /** Step-by-step posts only: emitted as HowTo JSON-LD (the same steps must be visible in the body). */
+  howTo?: BlogHowTo;
 }
 
 export type BlogPost = BlogPostMeta & BlogPostContent;

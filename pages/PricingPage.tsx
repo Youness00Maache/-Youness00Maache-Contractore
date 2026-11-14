@@ -8,7 +8,8 @@ import { PRICE_PROMISE, PRICING_FAQ } from '../content/site.ts';
 
 type Cell = boolean | string;
 // Matches what the app does (owner decision 2026-11-13): everything but price book photos works on Free; paid plans remove the monthly
-// limits, add photos on price book items and raise the AI allowance. Keep in sync with lib/plans.ts.
+// limits, add photos on price book items and raise the AI allowance. Owner decision 2026-11-14: Premium PDF designs are paid
+// (lib/designAccess.ts). Keep in sync with lib/plans.ts.
 const ROWS: { group: string; rows: { label: string; free: Cell; premium: Cell; ai: Cell }[] }[] = [
   {
     group: 'Jobs & documents',
@@ -18,7 +19,8 @@ const ROWS: { group: string; rows: { label: string; free: Cell; premium: Cell; a
       { label: 'New documents per job each month', free: String(FREE_LIMITS.docs), premium: 'Unlimited', ai: 'Unlimited' },
       { label: 'All 12 document types', free: true, premium: true, ai: true },
       { label: 'PDF export with your logo', free: true, premium: true, ai: true },
-      { label: 'Every PDF design, premium styles included', free: true, premium: true, ai: true },
+      { label: 'Basic PDF designs', free: true, premium: true, ai: true },
+      { label: 'Premium PDF designs with customization (fonts, layout, sections)', free: false, premium: true, ai: true },
       { label: 'Export all your data (PDFs + spreadsheets), even after cancelling', free: true, premium: true, ai: true },
       { label: 'Monthly bookkeeper CSV', free: true, premium: true, ai: true },
     ],

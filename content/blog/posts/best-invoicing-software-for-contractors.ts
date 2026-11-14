@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'best-invoicing-software-for-contractors',
+  answer:
+    'The best invoicing software for a small contractor is the one that matches how you work: an accounting suite if your bookkeeper runs everything, a field service platform if you dispatch several crews, or a contractor document app if you mainly need estimates, change orders and invoices that clients can sign and pay. Compare total monthly cost, including per-user fees and payment processing, and test it on a real past job before you commit.',
   takeaways: [
     'Decide what type of tool you need before you compare brands.',
     'Accounting suites, field service platforms, simple invoicing apps and contractor document apps each solve a different problem.',

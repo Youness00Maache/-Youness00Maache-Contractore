@@ -19,7 +19,7 @@ import { HELP_GUIDES_SNAPSHOT, type GuideSnapshot } from './helpGuides.generated
 export const NAV_ROUTES = [
     '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/inventory', '/pricebook', '/calendar', '/analytics',
     '/calculator', '/forum', '/settings', '/settings#profile', '/settings#company', '/settings#payments', '/settings#requests',
-    '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#data', '/settings#account',
+    '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
     '/profile', '/tutorials',
 ] as const;
 export type NavRoute = typeof NAV_ROUTES[number];
@@ -46,6 +46,7 @@ export const NAV_LABELS: Record<NavRoute, string> = {
     '/settings#appearance': 'Settings › Appearance & language',
     '/settings#billing': 'Plan & billing',
     '/settings#reminders': 'Settings › Reminders',
+    '/settings#notifications': 'Settings › Notifications',
     '/settings#data': 'Settings › Your data',
     '/settings#account': 'Settings › Account',
     '/profile': 'Profile',
@@ -72,6 +73,15 @@ export const PLAN_FACTS = {
 const F = PLAN_FACTS.free;
 const P = PLAN_FACTS.premium;
 const A = PLAN_FACTS.ai;
+
+/** AI credit packs (same numbers as ../../_shared/aiCredits.ts AI_CREDIT_PACKS, checked by scripts/ai-credits-check.ts). */
+export const AI_CREDIT_PACK_FACTS = [
+    { id: 'ai-credits-5', price: 5, credits: 100 },
+    { id: 'ai-credits-10', price: 10, credits: 220 },
+    { id: 'ai-credits-20', price: 20, credits: 480 },
+    { id: 'ai-credits-50', price: 50, credits: 1300 },
+] as const;
+const AI_CREDIT_AUTO_MAX_PER_DAY = 3;
 
 // ───────────────────────────── entries ─────────────────────────────
 
@@ -122,7 +132,8 @@ const FEATURES: KnowledgeEntry[] = [
         facts: [
             'Computer: the top bar has [[Dashboard]], [[Clients]], [[Messages]], a [[Tools]] menu ([[Pipeline]], [[Inventory]], [[Price book]], [[Calendar]], [[Insights]], [[Profit calculator]]) and [[Community]]. The avatar (top right) opens the [[Account menu]]: [[Profile]], [[Settings]], [[Plan & billing]], [[Export my data]], [[Upgrade]] (Free plan), [[Help & tutorials]], [[Contact support]], [[Log out]].',
             'Phone: the bottom bar has [[Home]], [[Clients]], a middle button ([[New job]] on the dashboard, [[New doc]] on a job), [[Messages]] and [[More]] (the tools, [[Community]], [[Settings]], [[Billing]]).',
-            'Settings sections, in order: Profile, Company, Payments & reviews, Request-a-quote link, Signature, Appearance & language, Plan & billing, Reminders, Your data, Account.',
+            'Settings sections, in order: Profile, Company, Payments & reviews, Request-a-quote link, Signature, Appearance & language, Plan & billing, Reminders, Notifications, Your data, Account.',
+            'The bell next to the avatar (computer and phone) lists notifications: client signatures, payments reported, overdue invoices, low stock, quote requests, Community replies and more.',
             'Public pages (no login, for your clients): the client portal, the approval page for signing, and your request-a-quote page.',
         ],
     },
@@ -349,7 +360,7 @@ const FEATURES: KnowledgeEntry[] = [
         concepts: ['template', 'company'],
         keywords: ['template', 'design', 'change the look', 'logo', 'colors', 'a4', 'letter', 'font'],
         facts: [
-            'Every document has a Design section: pick a template (tabs All, Featured, New, Standard, Premium; for example Classic Professional, Modern Minimal, Corporate Blue, Construction, Luxury Gold, Blueprint Tech), the [[Accent color]] ([[Template colors]] or a swatch), the [[Secondary color]], the [[Font]] and the [[Paper size]] (US Letter or A4). [[Preview]] shows the PDF. Every design is available on every plan.',
+            'Every document has a Design section: pick a template in two tabs, [[Basic]] (Classic and the 10 standard designs, free on every plan) and [[Premium]] (15 professional designs such as Classic Trade, Modern Contractor, Field Ready, Executive, Corporate, Craftsman, Blueprint Pro, Heritage and Work Ticket; Premium and Premium + AI plans). Premium designs also have [[Customize]]: font pair, header layout, logo size, table style, spacing and which sections show (signature, Pay now & QR, terms, notes, photos). Set the [[Accent color]], [[Font]] and [[Paper size]] (US Letter or A4); [[Preview]] shows the PDF. On Free, Premium designs show a lock and can be previewed; a document that already uses one keeps it.',
             'Your logo, company name, address, phone and website come from [[Settings]] › Company (logo: [[Upload]] or [[Replace]]) and print on every document.',
             'The AI can also set the design when you ask, for example “use the luxury template in navy and gold”.',
         ],
@@ -525,6 +536,22 @@ const FEATURES: KnowledgeEntry[] = [
         limits: ['Free: 30 photos per job and 250 MB in total; Premium 5 GB; Premium + AI 10 GB.'],
     },
     {
+        id: 'notifications',
+        title: 'Notifications: the bell, what it shows and how to change it',
+        where: ['Top bar', 'Bell'],
+        route: '/settings#notifications',
+        concepts: ['notification'],
+        keywords: ['notification', 'notifications', 'bell', 'alert me', 'notify me', 'unread', 'pop-up', 'popup', 'when a client signs', 'tell me when'],
+        facts: [
+            'The bell sits in the top bar next to the avatar, on computers and phones; the red number counts unread notifications. The list (a dropdown on a computer, a full-screen sheet on a phone) is grouped Today / Earlier; each line is one sentence with its time.',
+            'It shows: a client signed, approved or declined a document (and the good/better/best option they chose); a client tapped I’ve paid; an invoice became overdue; an estimate expires within 3 days; a new quote request; an inventory item is low or out of stock; a supplier confirmed or can’t fill a purchase order, or an order was received into stock; likes and comments on your Community posts, likes on your comments and replies in threads you joined; automatic reminder emails sent or not sent; Gmail needs reconnecting; a document saved offline couldn’t sync; a monthly plan limit reached.',
+            'Tap a line to open the document, job, inventory item, Community post or quote request; × removes it; [[Mark all read]] clears the count. Read and removed notifications follow the account to every device; nothing is emailed.',
+            'Settings › Notifications ([[Notification settings]] at the bottom of the list): a switch per type, Quiet mode (no pop-ups, a dot instead of a number) and Pop-up notifications on this device (browser notifications while the app is open in another tab or window; off by default, the browser asks for permission; not available in every browser).',
+            'The list refreshes every few minutes while the app is open and when the bell opens. The Clients, Tools and Community badges keep working as before.',
+        ],
+        steps: ['Click the bell at the top (next to your avatar).', 'Tap a notification to open it, or [[Mark all read]].', 'To choose the types: [[Notification settings]] › switch types on or off.'],
+    },
+    {
         id: 'data-sync',
         title: 'What follows your account across devices (data sync)',
         where: ['Settings'],
@@ -564,6 +591,22 @@ const FEATURES: KnowledgeEntry[] = [
             'Settings › Plan & billing shows this month’s usage (New jobs this month, Emails sent this month, AI requests this month, clients) with [[Upgrade]] or [[Manage billing]] (change plan, payment method, cancel). The upgrade window has a [[Monthly]] / [[Yearly]] switch.',
         ],
         steps: ['Click your avatar (top right) › [[Plan & billing]].', 'Click [[Upgrade]] (or [[Manage billing]] on a paid plan).'],
+    },
+    {
+        id: 'ai-credits',
+        title: 'AI credits: buy more AI requests, automatic top-up',
+        where: ['Account menu', 'Plan & billing', 'AI credits'],
+        route: '/settings#billing',
+        concepts: ['plan', 'ai'],
+        keywords: ['ai credits', 'buy credits', 'more ai requests', 'top up', 'top-up', 'out of ai', 'ai limit', 'auto recharge', 'automatic charging', 'credit pack'],
+        facts: [
+            'ONLY AVAILABLE WHEN SWITCHED ON: AI credits exist only if Settings › Plan & billing shows an "AI credits" line (or the AI limit message offers [[Buy more credits]]). If the user does not see it, say AI credits are not available on their account yet and suggest upgrading instead. Never promise them otherwise.',
+            `When the plan’s monthly AI requests are used up, AI credits keep the assistant working: 1 credit = 1 AI request, used only after the monthly allowance, credits never expire. One-time packs on every plan (Free too): $${AI_CREDIT_PACK_FACTS[0].price} = ${AI_CREDIT_PACK_FACTS[0].credits} credits (the minimum), ${AI_CREDIT_PACK_FACTS.slice(1).map(p => `$${p.price} = ${p.credits.toLocaleString('en-US')}`).join(', ')}. Paid through Kelviq checkout; no subscription.`,
+            `[[Automatic top-up]] (after a first purchase): when fewer than the chosen number of credits are left (10, 20, 50 or 100), the chosen pack is charged to the card used before, at most ${AI_CREDIT_AUTO_MAX_PER_DAY} times a day. A refused card switches it off. Turn it off any time with the same switch.`,
+            `Steady heavy use is cheaper on ${A.name} ($${A.monthlyPrice}/month for ${A.ai} AI requests). AI photo updates and walkthroughs still need ${A.name}; credits only add requests.`,
+        ],
+        steps: ['Click your avatar (top right) › [[Plan & billing]].', 'Under AI credits, pick a pack ($5, $10, $20 or $50) and click [[Buy credits]].', 'Optional: turn on [[Automatic top-up]] and choose when and which pack.'],
+        limits: ['AI credits are only offered when they are switched on for the account.'],
     },
     {
         id: 'account-profile',
@@ -685,6 +728,7 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     calculator: ['calculator'],
     calendar: ['calendar', 'insights'],
     settings: ['settings', 'plan', 'company'],
+    notifications: ['notification', 'settings'],
 };
 
 const GUIDE_DO_ACTIONS: Partial<Record<string, HowToDoAction>> = {
@@ -732,6 +776,7 @@ const LEXICON: Record<string, { w?: number; t: string }> = {
     qr: { w: 3, t: 'qr|scan to pay|二维码|qrコード|qr 코드|qr-код' },
     markpaid: { w: 3, t: 'mark as paid|mark paid|marked paid|record a payment|record payment|deposit|partial payment|part payment|marcar como pagad|deposito|anticipo|acompte|marquer comme pay|anzahlung|als bezahlt|acconto|segna come pagat|sinal$|已付款|定金|定金|入金済|支払済|前金|선금|결제 완료|предоплат|отметить.{0,10}оплач' },
     receipt: { w: 2, t: 'receipt|recibo|recu$|quittung|beleg|ricevut|收据|領収書|영수증|квитанц' },
+    notification: { w: 3, t: 'notification|notify|notif$|bell$|unread|pop-up notif|popup notif|benachrichtig|notifica|通知|お知らせ|уведомлен|оповещен' },
     reminder: { w: 3, t: 'remind|follow-up|follow up|chase|overdue|late payment|recordatorio|rappel|relance|erinnerung|mahnung|promemoria|sollecit|lembrete|cobranca|提醒|催款|リマインダ|督促|알림|리마인더|독촉|напомин' },
     sign: { w: 2, t: 'sign$|signs$|signed|signing|signature|approv|e-sign|esign|firma|firmar|aprobar|aprobaci|signer|approuv|unterschr|genehmig|freigabe|assin|aprova|签名|签字|批准|署名|承認|サイン|서명|승인|подпис|утвержд' },
     portal: { w: 3, t: 'portal|portail|门户|ポータル|포털|портал' },

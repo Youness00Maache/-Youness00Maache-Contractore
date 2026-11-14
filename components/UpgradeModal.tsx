@@ -3,6 +3,7 @@ import { CheckIcon, LockIcon } from './Icons.tsx';
 import { PLANS, isPaidTier, normalizeTier, type BillingPeriod, type PlanTier } from '../lib/plans.ts';
 import { startCheckout, getBillingPortalUrl } from '../lib/billing.ts';
 import { supabase } from '../lib/supabase.ts';
+import { AICreditsStrip } from './billing/AICredits.tsx';
 
 interface UpgradeModalProps {
     isOpen: boolean;
@@ -226,6 +227,9 @@ const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, featureNam
                             );
                         })}
                     </div>
+
+                    {/* AI limit reached: one-time AI credit packs (renders nothing while AI credits are off) */}
+                    <AICreditsStrip reason={featureName} />
 
                     {error && (
                         <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

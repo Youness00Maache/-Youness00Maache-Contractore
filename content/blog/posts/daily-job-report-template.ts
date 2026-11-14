@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'daily-job-report-template',
+  answer:
+    'A construction daily report should record the date, crew and hours, weather, work completed, deliveries, equipment, inspections, delays, visitors, client instructions and photos. Written the same day with times, quantities and names, it becomes the record that protects you in delay claims, change order disputes and payment arguments.',
   takeaways: [
     'A daily job report is your written memory of the job: who was there, what got done, what slowed you down and why.',
     'Record facts with times, quantities and names. Opinions and blame don’t help you in a dispute; specifics do.',

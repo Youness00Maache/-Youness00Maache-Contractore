@@ -40,6 +40,7 @@ import {
     consumePostLoginRedirect, normalizeTheme, isMissingColumnError, usageMonthStart, fetchJobDocumentCount, fetchDocumentUsageByJob,
 } from './lib/account.ts';
 import { isPaidTier, normalizeTier } from './lib/plans.ts';
+import { setDesignPlan } from './lib/designPlan.ts';
 import { getBillingPortalUrl } from './lib/billing.ts';
 import { getTranslations } from './utils/translations.ts';
 import { parseView, type AppView } from './lib/routes.ts';
@@ -111,6 +112,8 @@ const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
 // "Export everything" progress on screens other than Settings (lib/export/exportStore.ts)
 const ExportProgressDock = lazy(() => import('./components/export/ExportProgressDock.tsx'));
+// Notification bell engine (renders nothing; the bell itself is in AppNav): components/notifications
+const NotificationCenter = lazy(() => import('./components/notifications/NotificationCenter.tsx'));
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const JOB_COLUMN_SETS = [
@@ -371,6 +374,8 @@ const App: React.FC = () => {
 
     const plan = profile?.plan ?? 'free';
     const paid = isPaidTier(plan);
+    // forms read the plan when they open/save a design (lib/designAccess.ts); set during render, before any form mounts
+    setDesignPlan(profile ? plan : null);
 
     const openUpgrade = useCallback((reason?: string) => {
         setUpgradeFeature(reason || '');
@@ -2610,6 +2615,25 @@ const App: React.FC = () => {
             {showNav && session && (
                 <Suspense fallback={null}>
                     <ExportProgressDock userId={session.user.id} />
+                </Suspense>
+            )}
+
+            {/* Notifications: reads + read state for the bell in the app bar (client activity, stock, community…) */}
+            {session && profileStatus === 'ready' && !portalKey && !approvalToken && (
+                <Suspense fallback={null}>
+                    <NotificationCenter
+                        userId={session.user.id}
+                        online={isOnline}
+                        forms={forms}
+                        jobs={jobs}
+                        inventory={inventory}
+                        usage={usage}
+                        docUsage={docUsage}
+                        outboxItems={outbox.items}
+                        navigate={navigate}
+                        openOutbox={() => setOutboxOpen(true)}
+                        onForumUnread={setNotificationCount}
+                    />
                 </Suspense>
             )}
 

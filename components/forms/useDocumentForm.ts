@@ -3,6 +3,8 @@ import type { FormType, UserProfile } from '../../types.ts';
 import { supabase } from '../../lib/supabase.ts';
 import { DOC_NUMBER_CONFIG, errorMessage, newId, nextDocumentNumber } from './formUtils.ts';
 import { isDraftConsumed, markDraftConsumed, mergeDraftIntoForm, useDocumentDraftPrefill, type DraftPrefillState } from '../../hooks/useDocumentDraftPrefill.ts';
+import { applyDesignDefault, baselineOf, basicFallbackId, designPlan, enforceDocumentDesign, replacedDesignMessage, type DesignBaseline } from '../../lib/designAccess.ts';
+import { currentDesignDefault } from '../../lib/designDefaults.ts';
 
 /**
  * What a form's `onSave` may return:
@@ -118,7 +120,8 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     const autoNumberRef = useRef<string | null>(null);
 
     const buildNew = useCallback((): T => {
-        const base = optsRef.current.makeDefaults();
+        // new documents start with the user's default design (a Premium default becomes Classic on the Free plan)
+        const base = applyDesignDefault(optsRef.current.makeDefaults(), currentDesignDefault(), designPlan());
         if (numberCfg) {
             if (!autoNumberRef.current) autoNumberRef.current = nextDocumentNumber(numberCfg.prefix, optsRef.current.existingNumbers || []);
             (base as Record<string, unknown>)[numberCfg.field] = autoNumberRef.current;
@@ -136,6 +139,10 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     });
     const dataRef = useRef<T>(data);
     dataRef.current = data;
+    // the design the document opened with (saved document, converted/revised source, or the new default): a Free
+    // user may keep a Premium design it already had, never switch to another one (lib/designAccess.ts)
+    const designBaselineRef = useRef<DesignBaseline | null>(null);
+    if (designBaselineRef.current === null) designBaselineRef.current = baselineOf(data) || {};
     const [lastSaved, setLastSaved] = useState<T | null>(() => (options.initial ? data : null));
     const lastSavedRef = useRef<T | null>(lastSaved);
 
@@ -231,6 +238,12 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     }, [formType, numberCfg, commit]);
 
     // ---- save / download ----
+    /** Plan rules for the design: a Premium design the plan can't use is replaced before a save or a PDF. */
+    const enforceDesign = () => {
+        const design = enforceDocumentDesign(dataRef.current, designPlan(), designBaselineRef.current, basicFallbackId(currentDesignDefault()));
+        if (design.data !== dataRef.current) commit(design.data, dirtyRef.current);
+        return design;
+    };
     const prepared = () => {
         const p = optsRef.current.prepare;
         return p ? p(dataRef.current) : dataRef.current;
@@ -239,6 +252,7 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
     const save = useCallback(async (): Promise<boolean> => {
         // a save already running (auto-save, double click) is shared instead of being dropped
         if (savingRef.current && savePromiseRef.current) return savePromiseRef.current;
+        const design = enforceDesign();
         const before = dataRef.current;
         const payload = prepared();
         const problem = optsRef.current.validate?.(payload) || optsRef.current.guard?.(payload, lastSavedRef.current) || null;
@@ -265,6 +279,7 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
                     setLastSaved(payload);
                     setDirty(stillDirty);
                     setJustSaved(true);
+                    if (design.replaced) setFeedback({ tone: 'info', message: replacedDesignMessage(design) });
                 }
                 return true;
             } catch (e) {
@@ -297,7 +312,9 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         downloadingRef.current = true;
         setDownloading(true);
         try {
+            const design = enforceDesign();
             await optsRef.current.download(prepared());
+            if (design.replaced && mountedRef.current) setFeedback({ tone: 'info', message: replacedDesignMessage(design).replace('was saved', 'was downloaded') });
             return true;
         } catch (e) {
             if (mountedRef.current) setFeedback({ tone: 'error', message: `Could not create the PDF. ${errorMessage(e, '')}`.trim() });

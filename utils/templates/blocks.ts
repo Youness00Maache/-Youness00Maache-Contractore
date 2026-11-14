@@ -12,6 +12,7 @@
  */
 import type { ChoicesModel, DocModel, Section, Signature, TotalLine } from './model.ts';
 import type { PaperSize, TemplateId, TemplateMeta } from './registry.ts';
+import type { DesignLayoutDefaults, ResolvedDesignOptions } from './designOptions.ts';
 
 export interface Palette {
   paper: string;
@@ -40,6 +41,8 @@ export interface RenderCtx {
   c: Palette;
   paper: PaperSize;
   page: { width: number; height: number };
+  /** customization of a Premium design (designOptions.ts); null for designs that are not customizable */
+  o: ResolvedDesignOptions | null;
 }
 
 export interface Parts {
@@ -81,6 +84,8 @@ export interface ThemeDef {
   closingBlock?: boolean;
   /** never put short notes/terms beside the signatures */
   noSignoff?: boolean;
+  /** customizable design (Premium): its own header/table/logo/density, which `data.designOptions` may override */
+  layout?: DesignLayoutDefaults;
 }
 
 /** A design module entry (designs/*.ts): registry metadata + the theme that renders it. */

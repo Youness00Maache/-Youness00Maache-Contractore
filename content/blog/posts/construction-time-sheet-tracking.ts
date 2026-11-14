@@ -2,6 +2,8 @@ import type { BlogPostContent } from '../types.ts';
 
 const post: BlogPostContent = {
   slug: 'construction-time-sheet-tracking',
+  answer:
+    'To track crew hours accurately, record actual start, end and break times every day, per job and per task, and have the foreman approve them before the week closes. A short list of cost codes that matches your estimate lets the same hours feed payroll and show which tasks ran over.',
   takeaways: [
     'Track hours per job and per task, not just per week. Payroll needs totals; job costing needs to know where the hours went.',
     'A short list of cost codes that matches your estimate is enough to see which tasks run over.',
