@@ -16,6 +16,8 @@ export interface WriteHit {
 export const READ_ONLY_RPCS = new Set([
     'get_photo_usage', 'get_my_usage', 'get_portal_data', 'get_portal_photos', 'get_document_by_token', 'get_request_page',
     'get_my_request_page', 'reminders_config',
+    // crew clock-in links and field features: stable functions that only read
+    'crew_links', 'get_portal_punch_list', 'get_portal_credentials', 'get_portal_service_plans',
 ]);
 
 const DB_WRITE = /\.(insert|update|upsert|delete)\(/;

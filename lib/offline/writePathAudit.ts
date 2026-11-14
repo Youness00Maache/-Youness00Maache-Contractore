@@ -37,8 +37,8 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'App.tsx', match: "from('profiles').update({ ...patch", what: 'settings saved offline', offline: 'sync' },
     { file: 'App.tsx', match: 'withoutPaymentColumns(patch)', what: 'settings saved offline (database without payment columns)', offline: 'sync' },
     { file: 'App.tsx', match: "from('reminder_settings').upsert({ ...settingsRow", what: 'reminder settings saved offline', offline: 'sync' },
-    { file: 'App.tsx', match: 'from(table).insert(row)', what: 'client / inventory / price-book item created offline', offline: 'sync' },
-    { file: 'App.tsx', match: 'from(table).update(patch)', what: 'job / client / inventory / price-book edit made offline', offline: 'sync' },
+    { file: 'App.tsx', match: 'from(table).insert(row)', what: 'client / inventory / price-book / punch-list item created offline', offline: 'sync' },
+    { file: 'App.tsx', match: 'from(table).update(patch)', what: 'job / client / inventory / price-book / punch-list edit made offline', offline: 'sync' },
 
     // ------------------------------------------------------------------------------------------- clients
     { file: 'components/ClientDetails.tsx', match: 'update({ notes: withTempTag', what: 'temporary ↔ regular client', offline: 'queue' },
@@ -164,6 +164,55 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'src/hooks/useMasterAIRouter.ts', match: "functions.invoke<RouterResponse>('ai-assistant'", what: 'AI assistant', offline: 'needs_connection' },
     { file: 'src/hooks/useMasterAIRouter.ts', match: "from('ai_chat_history').upsert(", what: 'AI chat history', offline: 'needs_connection' },
     { file: 'src/hooks/useMasterAIRouter.ts', match: "from('ai_chat_history').delete()", what: 'AI chat history', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------------------- crew clock-in (owner)
+    { file: 'lib/crew/crewApi.ts', match: "from('crew_members').insert(memberPayload(input))", what: 'add crew member', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('crew_members').update(memberPayload(input))", what: 'edit crew member', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "rpc('crew_member_link'", what: 'new / turn off a clock-in link', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: 'storage.from(CREW_PHOTOS_BUCKET).remove(paths)', what: 'remove crew member: their punch photos', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('crew_members').delete()", what: 'remove crew member', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: '.upsert({ member_id: memberId, job_id: jobId }', what: 'assign a crew member to a job', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('crew_assignments').delete()", what: 'unassign a crew member from a job', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('crew_job_sites').delete()", what: 'remove a job site pin', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: '.upsert({ job_id: jobId, lat: site.lat', what: 'job site pin (clock-in location)', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('time_punches').insert({", what: 'owner adds a punch (missed clock-out / day)', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('time_punches').update(body)", what: 'edit a punch', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: 'storage.from(CREW_PHOTOS_BUCKET).remove([p.photoPath])', what: 'delete a punch: its photo', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: "from('time_punches').delete()", what: 'delete a punch', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: 'update({ approved_at: at })', what: 'approve / un-approve punches', offline: 'needs_connection' },
+    { file: 'lib/crew/crewApi.ts', match: 'update({ timesheet_id: docId })', what: 'punches linked to their time sheet', offline: 'needs_connection' },
+    { file: 'lib/crew/crewTimesheetApi.ts', match: "from('documents').update({ data: next })", what: 'crew hours → update the time sheet', offline: 'needs_connection' },
+    { file: 'lib/crew/crewTimesheetApi.ts', match: "from('documents').insert(record)", what: 'crew hours → new time sheet', offline: 'needs_connection' },
+    // crew clock-in (worker's link, no login: their phone keeps punches made offline and sends them later, lib/crew/punchQueue.ts)
+    { file: 'lib/crew/crewPublicApi.ts', match: "rpc('crew_portal_get'", what: 'crew link page (worker)', offline: 'public' },
+    { file: 'lib/crew/crewPublicApi.ts', match: "rpc('crew_punch'", what: 'clock in / out (worker)', offline: 'public' },
+    { file: 'lib/crew/crewPublicApi.ts', match: 'storage.from(CREW_PHOTOS_BUCKET).upload(path, blob', what: 'clock-in photo (worker)', offline: 'public' },
+
+    // ------------------------------------------------------------------------------------------- punch lists
+    { file: 'components/punch/punchApi.ts', match: "from('punch_items').insert(row)", what: 'add punch item (offline → outbox)', offline: 'queue' },
+    { file: 'components/punch/punchApi.ts', match: "from('punch_items').update(", what: 'check off / edit punch item (offline → outbox)', offline: 'queue' },
+    { file: 'components/punch/punchApi.ts', match: "from('punch_items').delete().in('id', ids)", what: 'delete punch items', offline: 'needs_connection' },
+    { file: 'components/punch/punchApi.ts', match: "from('punch_lists').upsert(", what: 'show / hide the punch list in the portal', offline: 'needs_connection' },
+    { file: 'components/punch/PortalPunchList.tsx', match: "rpc('punch_item_feedback_via_portal'", what: 'client "Looks good" / "Needs work" (portal)', offline: 'public' },
+    { file: 'lib/noteDocuments.ts', match: "from('documents').insert(row)", what: 'punch-list sign-off / lien waiver saved as a job note', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------------------- papers vault
+    { file: 'components/papers/papersApi.ts', match: "from('company_papers').insert(row)", what: 'add paper (insurance, license, permit)', offline: 'needs_connection' },
+    { file: 'components/papers/papersApi.ts', match: "from('company_papers').update((", what: 'edit paper', offline: 'needs_connection' },
+    { file: 'components/papers/papersApi.ts', match: 'storage.from(PAPERS_BUCKET).upload(path, file', what: 'paper file upload', offline: 'needs_connection' },
+    { file: 'components/papers/papersApi.ts', match: 'storage.from(PAPERS_BUCKET).remove([path])', what: 'replaced / deleted paper file removed', offline: 'background' },
+    { file: 'components/papers/papersApi.ts', match: "from('company_papers').delete()", what: 'delete paper', offline: 'needs_connection' },
+    { file: 'components/papers/papersApi.ts', match: 'update({ last_sent_at:', what: 'paper emailed: last sent (after the email)', offline: 'background' },
+
+    // ------------------------------------------------------------------------------------------- service plans
+    { file: 'components/service/servicePlansApi.ts', match: "rpc('generate_due_service_visits')", what: 'service plan visits that came due', offline: 'background' },
+    { file: 'components/service/servicePlansApi.ts', match: "from('documents').insert(row)", what: 'service plan: its recurring invoice', offline: 'needs_connection' },
+    { file: 'components/service/servicePlansApi.ts', match: 'update({ invoice_source_id: row.id })', what: 'service plan: link its recurring invoice', offline: 'needs_connection' },
+    { file: 'components/service/servicePlansApi.ts', match: "from('service_plans').insert(row)", what: 'add service plan', offline: 'needs_connection' },
+    { file: 'components/service/servicePlansApi.ts', match: "from('service_plans').update((", what: 'edit service plan', offline: 'needs_connection' },
+    { file: 'components/service/servicePlansApi.ts', match: "from('service_plans').update({ status })", what: 'pause / resume / end a service plan', offline: 'needs_connection' },
+    { file: 'components/service/servicePlansApi.ts', match: "from('service_plans').delete()", what: 'delete service plan', offline: 'needs_connection' },
+    { file: 'components/service/servicePlansApi.ts', match: "rpc('complete_service_visit'", what: 'visit done / skipped', offline: 'needs_connection' },
 ];
 
 /** Rows of the table that cover a scanned line. */
