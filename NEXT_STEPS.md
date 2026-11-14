@@ -1,3 +1,49 @@
+# >>> HOW TO WORK IN THIS PROJECT (read first; owner's rules + cost rules, 2026-11-14) <<<
+The site is LIVE: www.contractordocs.app = branch `main` (Vercel deploys main). Work on `my-branch`.
+
+## Cost rules (the owner noticed heavy usage; follow these strictly)
+1. Start lean: read only this file's top sections and docs/work/handover/*. Don't re-read the whole repo; open only
+   the files a task touches. Use grep/tail/head instead of reading big files or full logs.
+2. Keep the conversation small: start a NEW session when context passes ~40-50% (check with get_usage). Everything
+   needed to continue must be in this file (update it after each finished step), so a fresh session loses nothing.
+3. Helpers (sub-agents): at most 2 at a time. Use model "sonnet" for simple/mechanical work (UI tweaks, copy, small
+   bug fixes, test updates); default (Opus) only for hard work (template design, offline sync, AI prompts/schemas,
+   SQL). Give each a tight scope + exact test commands. Prefer `isolation: "worktree"` so helpers can't collide; inside a
+   worktree, link deps instead of installing: `cmd /c mklink /J node_modules "<repo>
+ode_modules"`. When removing a
+   worktree, FIRST `cmd /c rmdir <worktree>
+ode_modules` (junction only), then `git worktree remove --force <path>`.
+4. Usage pacing: check get_usage before big steps; a recurring check every 15 minutes (not 5). Stop at 80% of the
+   5-hour limit (commit finished work, note state here, set a one-shot timer just after the reset) and stop entirely at
+   95% weekly. Don't run anything big when the weekly limit is near.
+5. Screenshots cost a lot: verify with get_page_text / read_page / find / small zoom; take a screenshot only to judge
+   visuals, at scale 0.5 or lower.
+6. Long jobs (templates browser QA ~45 min, full builds) run in the background; read only the result lines.
+7. Tests: run the suites for the area you changed; before publishing run `npx tsc --noEmit -p .`, `npm run build`,
+   `npm run seo:check`, plus the area suites (scripts/*-check.ts, scripts/forms-prefill-qa.ts, npm run qa:document-ai,
+   npx tsx scripts/templates-qa.ts --no-browser). Never push anything that fails.
+
+## Publishing (owner asked to keep production updated)
+- After tests pass: `git push origin my-branch && git push origin my-branch:main` (gh is logged in as Youness00Maache).
+  Check the live site (curl key pages; cache-bust with ?x=$RANDOM) after Vercel finishes (~1-3 min).
+- New public pages: after deploy run `npx tsx scripts/indexnow-ping.ts` (Bing/IndexNow). Google reads the sitemap
+  (property https://www.contractordocs.app/ in Search Console, already set up; Bing imported from it).
+- Edge functions (ai-assistant, kelviq-checkout, kelviq-webhook, gmail, reminders, delete-account): bundle with
+  `npx esbuild supabase/functions/<fn>/index.ts --bundle --format=esm --platform=neutral "--external:npm:*" --target=es2022 --outfile=<scratch>/<fn>.ts`,
+  then in Chrome "Browser 2" (deviceId 23a0a75c...; it has the owner's Supabase/Vercel/Kelviq/Search Console sessions)
+  open the function's Code page, inject the file into Monaco (hidden file input + monaco.editor.getModels()[0].setValue)
+  and click "Deploy updates" (+ confirm). Keep kelviq-webhook and reminders with JWT verification OFF.
+- Database: production project iauteblvljppwzsxloyd. Schema/data changes ONLY with the owner's explicit OK (ask with one
+  short question listing each change). Apply via the SQL editor; keep every applied change as a file in
+  supabase/migrations/ with a header "Applied <date> with the owner's OK".
+
+## Owner rules (always)
+- Never remove features the old app had; additive changes only.
+- No Docker. Never type passwords, API keys or secret values anywhere (the owner does that).
+- Design: compact and distinctive; no generic "icon in a tinted square + title + text" card grids, no stock icon grids.
+- Never mention Kelviq or "merchant of record" on the website.
+- Keep the owner updated in short, plain messages.
+
 # >>> STATUS 2026-11-14 afternoon: owner requests 1-5 below are DONE and LIVE (main) <<<
 - Community in the phone bottom bar (457427c); phone app bar: offline = one-line strip under the bar (0f0d9ba).
 - Offline jobs + clients (96e7088): create job (+ new client), job status, client add/edit/notes; ids kept, sync order
