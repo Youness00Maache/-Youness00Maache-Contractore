@@ -74,6 +74,21 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+**PAUSED 2026-11-14 ~15:50 at 80% of the 5-hour limit (resume timer 18:57 UTC).** State:
+- my-branch has, merged + tested but NOT pushed yet: crew clock-in (6ed0745), punch lists + papers vault + service plans,
+  merge 7f72eff + fix 8b43b21 (all suites pass: offline 307, crew 255, field 173, notifications 162, qa:document-ai 1315,
+  forms 945, views 804, seo 51 pages). These features stay hidden until their tables exist, so pushing is safe.
+- NOT applied yet (owner approved "Crew & field tables"): supabase/migrations/20261115000100_crew_clock_in.sql,
+  0200_punch_lists, 0300_papers_vault (then redeploy `reminders` for expiry emails), 0400_service_plans (adds pg_cron
+  job contractordocs-service-visits). FIRST a read-only review (the reviewer was stopped): verdict per file + fixes.
+- vercel.json now allows geolocation=(self) (crew worker page needs it).
+- Redeploy ai-assistant (new screens /crew /papers /service-plans + offline help).
+- Templates helper a300aae907df5b66c stopped mid-work in worktree branch worktree-agent-a300aae907df5b66c (resume with
+  SendMessage; it was committing the Premium design fixes). Then merge/test/publish.
+- Small follow-up: field-feature screens use their own offline text; switch them to the shared offline message.
+- Leftover worktree folder .claude/worktrees/agent-ab4b5d1fee0b54215 could not be deleted (Permission denied: a process
+  held files); remove its node_modules junction first, then delete it.
+
 **15:05 owner decisions applied:** (1) estimate option choice SQL APPLIED (20261114000100; functions verified);
 (2) AI credits ON: SQL applied (20261114000200), Kelviq Live plans ai-credits-5/10/20/50 ($5/$10/$20/$50, one-time,
 published, product ContractorDocs), webhook endpoint now also sends order.* + refund.* (16 events), kelviq-webhook +
