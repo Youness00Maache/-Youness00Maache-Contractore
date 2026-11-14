@@ -224,6 +224,18 @@ Known leftovers: paginator carries the last 2 rows with the totals (can leave a 
 utils/templates paginate.ts); browsers that need the html2canvas fallback lose the dark-page logo effects.
 **07:35:** Started good/better/best (#6) helper aeff85915b68325bd (told "templates committed" at 07:50; draft SQL only
 if the client's choice needs an RPC change).
+**09:05:** Good/better/best (#6) DONE + committed (8e40d01; estimate-options 229, templates-qa static 66,859, estimate
+pdfdiff 2,936, all suites pass). ai-assistant REDEPLOYED (knowledge: offline drafts + options). Today the client's
+pick is stored in the signer name ("Jane Doe (chose B: Better)"); the clean version needs
+docs/work/DRAFT_estimate_options_choice.sql (functions only, NOT applied). Options are open on every plan (research
+said Premium). Follow-ups: AI drafting good/better/best options (prompt + schema + deploy); old bug in
+utils/templates/blocks.ts ~line 257 (isShortSection regex has a broken  → notes with images/tables can sit beside
+the signatures; fixing changes how some existing estimates print, so ask first).
+**Owner decisions waiting (one list):** (1) apply DRAFT_purchase_order_confirm_link.sql? (2) apply
+DRAFT_estimate_options_choice.sql? (3) plan gating of new features (suppliers send/reorder = Premium, photo AI =
+Premium+AI, options = all plans)? (4) service worker + device caching for offline OK? (5) photo AI defaults
+(see 06:25). (6) price promise wording. (7) DB tables for crew clock-in, service plans, papers vault, punch lists.
+Remaining NEXT items all need DB tables (7) → waiting for the owner.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
