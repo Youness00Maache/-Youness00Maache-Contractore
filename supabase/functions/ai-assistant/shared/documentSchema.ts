@@ -235,7 +235,7 @@ export const DOCUMENT_SCHEMAS = {
         poNumber: { kind: 'text', label: 'PO number' },
         date: { kind: 'date', label: 'Order date' },
         deliveryDate: { kind: 'date', label: 'Delivery date' },
-        status: { kind: 'enum', label: 'Status', values: ['Draft', 'Sent', 'Received', 'Cancelled'] },
+        status: { kind: 'enum', label: 'Status', values: ['Draft', 'Sent', 'Confirmed', 'Cancelled'] }, // deliveries / invoice / paid come from Record delivery and the invoice fields, never from AI
         vendorName: { kind: 'text', label: 'Vendor', ask: true, placeholder: 'e.g. City Supply' },
         vendorAddress: { kind: 'text', label: 'Vendor address' },
         vendorPhone: { kind: 'phone', label: 'Vendor phone' },

@@ -44,7 +44,7 @@ export const STATUS_OPTIONS = {
     estimate: ['Draft', 'Sent', 'Accepted', 'Rejected'],
     workOrder: ['Scheduled', 'In Progress', 'On Hold', 'Completed'],
     timeSheet: ['Draft', 'Submitted', 'Approved'],
-    purchaseOrder: ['Draft', 'Sent', 'Received', 'Cancelled'],
+    purchaseOrder: ['Draft', 'Sent', 'Confirmed', 'Partially delivered', 'Delivered', 'Invoiced', 'Paid', 'Cancelled'], // = lib/poLifecycle.ts PO_STATUSES
     changeOrder: ['Draft', 'Sent', 'Approved', 'Rejected'],
 } as const;
 

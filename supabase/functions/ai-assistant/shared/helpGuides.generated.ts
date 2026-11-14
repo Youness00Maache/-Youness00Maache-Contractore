@@ -801,11 +801,15 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             },
             {
                 "title": "Receive the delivery",
-                "text": "When the goods arrive, open the order and click [[Mark received]]. Each line picked from Inventory (or named exactly like an item) is added to stock once, with a Received PO entry in the item’s [[History]]. The order becomes Received and can’t be received twice; if an item fails, [[Finish receiving]] adds only what is missing."
+                "text": "When goods arrive, open the order and click [[Record delivery]]: enter what arrived on each line (it starts at what is still to come), the date and a note. Each line picked from Inventory (or named exactly like an item) is added to stock once per delivery, with an entry in the item’s [[History]]. Part of the order? It shows Partially delivered and what is still to come; record the rest later. If a delivery stops half-way, [[Finish delivery]] adds only what is missing."
+            },
+            {
+                "title": "Supplier invoice and payment",
+                "text": "When the supplier bills you, enter the Supplier invoice # and amount (the order becomes Invoiced) and attach the supplier’s invoice (PDF or photo). Mark it paid when you pay. Job costing counts what was delivered or invoiced as spent and the rest of a sent order as ordered (committed)."
             }
         ],
         "tips": [
-            "Purchase orders, [[Share]] and [[Mark received]] work on every plan. [[Send to supplier]] and reorder POs are part of Premium.",
+            "Purchase orders, [[Share]] and [[Record delivery]] work on every plan. [[Send to supplier]] and reorder POs are part of Premium.",
             "Items on an open order show On order in the list, so you don’t order them twice."
         ]
     },
