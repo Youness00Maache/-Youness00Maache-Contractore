@@ -162,11 +162,17 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 <button type="button" onClick={onBack} className="-ml-2 mb-2 inline-flex h-10 items-center gap-1 rounded-xl px-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground">
                     <BackArrowIcon className="h-4 w-4" /> {t.dashboard || 'Dashboard'}
                 </button>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                {/* Row 1: title + the primary action (New document, top right). Row 2: details. Row 3: job tools. */}
+                <div className="flex flex-col gap-4">
                     <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <h1 className="page-title break-words">{job.name || 'Untitled job'}</h1>
-                            <JobStatusBadge status={job.status} />
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <h1 className="page-title break-words">{job.name || 'Untitled job'}</h1>
+                                <JobStatusBadge status={job.status} />
+                            </div>
+                            <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 shrink-0 sm:inline-flex" disabled={!canCreate}>
+                                <PlusIcon className="h-4 w-4" /> {t.newDocument || 'New document'}
+                            </button>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
                             <span className="inline-flex min-w-0 items-center gap-1.5"><UserIcon className="h-4 w-4 shrink-0" /><span className="truncate">{job.clientName || 'No client'}</span></span>
@@ -198,9 +204,6 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                         )}
                         {aiButton}
                         <HelpButton topic="jobs" />
-                        <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 sm:inline-flex" disabled={!canCreate}>
-                            <PlusIcon className="h-4 w-4" /> {t.newDocument || 'New document'}
-                        </button>
                     </div>
                 </div>
             </div>

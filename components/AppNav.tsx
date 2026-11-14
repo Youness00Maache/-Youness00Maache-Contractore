@@ -163,7 +163,8 @@ const AppNav: React.FC<AppNavProps> = ({
         <>
             <header className="no-print sticky top-0 z-40 border-b border-border bg-card/85 backdrop-blur-lg">
                 <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 sm:px-6 md:h-16 lg:px-8">
-                    <button type="button" onClick={() => onNavigate('dashboard')} className={`shrink-0 items-center gap-2 rounded-xl pr-2 ${hasPageTitle ? 'hidden md:flex' : 'flex'}`} aria-label="ContractorDocs home">
+                    {/* the logo always shows (phones too); next to a page title it is icon-only */}
+                    <button type="button" onClick={() => onNavigate('dashboard')} className={`flex shrink-0 items-center gap-2 rounded-xl ${hasPageTitle ? 'pr-1 md:pr-2' : 'pr-2'}`} aria-label="ContractorDocs home">
                         <AppLogo className="h-8 w-8" />
                         <span className={`text-base font-bold tracking-tight text-foreground ${hasPageTitle ? 'hidden md:inline' : 'inline'}`}>ContractorDocs</span>
                     </button>
