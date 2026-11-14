@@ -201,6 +201,23 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'components/punch/PortalPunchList.tsx', match: "rpc('punch_item_feedback_via_portal'", what: 'client "Looks good" / "Needs work" (portal)', offline: 'public' },
     { file: 'lib/noteDocuments.ts', match: "from('documents').insert(row)", what: 'punch-list sign-off / lien waiver saved as a job note', offline: 'needs_connection' },
 
+    // ------------------------------------------------------------------------------------------- job tasks + schedule (D2)
+    { file: 'lib/tasks/tasksApi.ts', match: "from('job_tasks').insert(row)", what: 'add a job task', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: "from('job_tasks').insert(rows)", what: 'add several job tasks (AI / work order / template)', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: 'update({ depends_on: wanted })', what: 'link the dependencies of tasks added together', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: "from('job_tasks').update(row)", what: 'edit a job task / its status', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: 'update(taskPatchRow({ startDate: p.startDate', what: 'move the tasks that wait for a moved task', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: 'update({ sort_order: p.sortOrder })', what: 'reorder job tasks', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: "from('job_tasks').delete()", what: 'delete a job task', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: 'storage.from(TASK_PHOTOS_BUCKET).remove([task.completedPhotoPath])', what: 'delete a job task: the worker\'s done photo', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: "from('task_comments').insert(row)", what: 'comment on a job task', offline: 'needs_connection' },
+    { file: 'lib/tasks/tasksApi.ts', match: "from('task_comments').delete()", what: 'delete a task comment', offline: 'needs_connection' },
+    { file: 'src/ai/extractTasks.ts', match: "functions.invoke('ai-assistant'", what: 'AI: turn a note / daily report into proposed tasks', offline: 'needs_connection' },
+    // job tasks on the crew link (worker, no login)
+    { file: 'lib/tasks/tasksPublicApi.ts', match: "rpc('crew_tasks_get'", what: 'crew link: the worker\'s tasks', offline: 'public' },
+    { file: 'lib/tasks/tasksPublicApi.ts', match: "rpc('crew_task_update'", what: 'crew link: mark a task started / done, comment', offline: 'public' },
+    { file: 'lib/tasks/tasksPublicApi.ts', match: 'storage.from(CREW_TASK_PHOTOS_BUCKET).upload(path, blob', what: 'crew link: task done photo', offline: 'public' },
+
     // ------------------------------------------------------------------------------------------- papers vault
     { file: 'components/papers/papersApi.ts', match: "from('company_papers').insert(row)", what: 'add paper (insurance, license, permit)', offline: 'needs_connection' },
     { file: 'components/papers/papersApi.ts', match: "from('company_papers').update((", what: 'edit paper', offline: 'needs_connection' },

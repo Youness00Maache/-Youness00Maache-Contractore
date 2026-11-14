@@ -11,6 +11,8 @@
  * chain and metering, plus a Premium + AI plan check; up to 8 photos; see handlePhotoTask.
  * Estimate review (body.task = "estimate_review", shared/estimateReview.ts): same auth, limits, model chain and
  * metering, Premium + AI only; returns findings (missing items / expenses / risky assumptions); see handleEstimateReview.
+ * Task extraction (body.task = "extract_tasks", shared/taskExtraction.ts): text -> proposed job tasks, Premium + AI;
+ * see handleExtractTasks (proposals only, nothing is written).
  */
 import {
     buildProposal, buildResponseSchema, hasPriceBook, isSampleRequest, parseModelJson, requestHasEstimateOptions, RouterInputError, sanitizeRequest,
@@ -24,6 +26,10 @@ import {
     buildReviewResponseSchema, buildReviewSystemPrompt, buildReviewUserTurn, ESTIMATE_REVIEW_TIER, ESTIMATE_REVIEW_UPGRADE_MESSAGE,
     isEstimateReviewBody, mockEstimateReviewOutput, parseReviewFindings, sanitizeEstimateReviewRequest, type EstimateReviewRequest,
 } from './shared/estimateReview.ts';
+import {
+    buildExtractTasksSchema, buildExtractTasksSystemPrompt, buildExtractTasksUserText, EXTRACT_TASKS_TIER, EXTRACT_TASKS_UPGRADE_MESSAGE,
+    extractTasksReply, isExtractTasksBody, mockExtractTasksOutput, normalizeExtractedTasks, sanitizeExtractTasksRequest, type ExtractTasksRequest,
+} from './shared/taskExtraction.ts';
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
 import { mockModelOutput } from './shared/mockModel.ts';
 import { REQUEST_LIMITS } from './shared/routerContract.ts';
@@ -699,6 +705,56 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         return json({ ok: true, task: request.task, review: { findings }, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
     }
 
+    /** Task extraction: the text in one user turn, own prompt and schema (no photos). */
+    async function callGeminiExtractTasks(request: ExtractTasksRequest): Promise<{ output: Record<string, unknown>; model: string }> {
+        const thinkingLevel = thinkingLevelOf();
+        const contents = [{ role: 'user', parts: [{ text: buildExtractTasksUserText(request) }] }];
+        const system = buildExtractTasksSystemPrompt(request);
+        const makeBody = (model: string, opts: { thinking: boolean; compact: boolean }) => {
+            const modern = geminiGeneration(model) >= 3;
+            return JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: buildExtractTasksSchema(),
+                    ...(modern ? {} : { temperature: 0.2 }),
+                    maxOutputTokens: 8192,
+                    ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),
+                },
+            });
+        };
+        return generateJson(makeBody);
+    }
+
+    /**
+     * "Turn this note into tasks" (Premium + AI): voice note / daily report / text → proposed job tasks
+     *   → { ok, task: 'extract_tasks', tasks, reply_text, meta }. Proposals only; the app saves what the user keeps.
+     * Metered as one AI request only when at least one task was found and the browser is still waiting.
+     */
+    async function handleExtractTasks(req: Request, userId: string, body: unknown, cors: Record<string, string>): Promise<Response> {
+        const request = sanitizeExtractTasksRequest(body);
+        const admission = await admit(userId, cors, EXTRACT_TASKS_TIER, EXTRACT_TASKS_UPGRADE_MESSAGE);
+        if (admission instanceof Response) return admission;
+
+        const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
+        const { output, model } = provider === 'mock'
+            ? { output: mockExtractTasksOutput(request), model: 'mock' }
+            : await callGeminiExtractTasks(request);
+        const tasks = normalizeExtractedTasks(output, request);
+        const reply_text = extractTasksReply(output, tasks);
+        if (req.signal?.aborted) {
+            log('client went away before the answer; not metered');
+            return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
+        }
+        if (!tasks.length) {
+            // nothing usable: answered, not metered
+            return json({ ok: true, task: request.task, tasks, reply_text, meta: { provider, model, usage: { used: admission.used, limit: admission.limit, tier: admission.tier } } }, 200, cors);
+        }
+        const spent = await recordUsage(userId, admission);
+        return json({ ok: true, task: request.task, tasks, reply_text, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
+    }
+
     return async function handle(req: Request): Promise<Response> {
         const cors = corsHeaders(req, env);
         if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -714,6 +770,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             try { body = JSON.parse(raw); } catch { throw new HttpError(400, 'BAD_REQUEST', 'Request body must be JSON.'); }
             if (isPhotoTaskBody(body)) return await handlePhotoTask(req, user.id, body, cors);
             if (isEstimateReviewBody(body)) return await handleEstimateReview(req, user.id, body, cors);
+            if (isExtractTasksBody(body)) return await handleExtractTasks(req, user.id, body, cors);
             const request = sanitizeRequest(body);
 
             const admission = await admit(user.id, cors);

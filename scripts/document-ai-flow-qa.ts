@@ -37,6 +37,7 @@ import {
 } from '../utils/aiMentionUtils.ts';
 import { clientSideHeuristicRouter, resolveJobForDocumentRequest, runLocalMockRouter } from '../src/hooks/useMasterAIRouter.ts';
 import { buildEmailDrafts, textToEmailHtml, toEmailBatchItems } from '../src/ai/emailBatch.ts';
+import { buildExtractTasksBody, parseExtractTasksResponse } from '../src/ai/extractTasks.ts';
 import { inferTemplateIdFromIntent, resolveTemplateId } from '../src/utils/aiTemplateUtils.ts';
 import { getFieldSpecs } from '../components/forms/documentFields.ts';
 import { mergeDraftIntoForm } from '../hooks/useDocumentDraftPrefill.ts';
@@ -1480,6 +1481,113 @@ async function photoTaskTests() {
     }
 }
 
+// ── 21. Job tasks from a voice note / daily report (roadmap D2): task "extract_tasks", Premium + AI, proposals only ──
+async function extractTasksTests() {
+    const crew = [{ id: 'm-1', name: 'Mike Diaz' }, { id: 'm-2', name: 'Ana Lopez' }];
+    const body = {
+        task: 'extract_tasks', source_kind: 'voice_note',
+        text: 'Drywall is finished in the hallway. Mike needs to tape and mud the hallway tomorrow. We need to order 12 sheets of drywall in 3 days. After that we have to sand and prime. Rough-in inspection on Friday.',
+        context: { today: TODAY, job: { id: job.id, name: job.name }, crew, existing_titles: ['Sand and prime'] },
+    };
+    const modelCallsOf = (calls: FakeCall[]) => calls.filter(c => c.url.includes('generativelanguage'));
+
+    // 21a. Plan gating: Free and Premium are told to upgrade; nothing metered, no model call.
+    for (const tier of ['free', 'premium']) {
+        const { f, calls } = makeFetch({ tier });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq([res.status, b.code], [402, 'PLAN_REQUIRED'], `${tier}: extract_tasks needs Premium + AI`);
+        ok(/^PLAN_REQUIRED: .*tasks.*Premium \+ AI/.test(b.error), `${tier}: task upgrade message (not the photo one)`);
+        ok(!calls.some(isMeteringCall) && !modelCallsOf(calls).length, `${tier}: not metered, no model call`);
+    }
+    eq((await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post(body))).status, 401, 'extract_tasks needs a signed-in user');
+    {
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai', used: 600 }).f, log: quiet })(post(body, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).code], [402, 'PLAN_LIMIT'], 'Premium + AI at the monthly limit → PLAN_LIMIT');
+    }
+
+    // 21b. Mock provider end to end: proposals only, finished work skipped, dates resolved from today, crew matched.
+    {
+        const { f, calls } = makeFetch({ tier: 'ai', used: 5 });
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq([res.status, b.ok, b.task], [200, true, 'extract_tasks'], 'mock extract answers');
+        const titles = b.tasks.map((t: any) => t.title);
+        ok(!titles.some((t: string) => /finished/i.test(t)), 'finished work is not a task');
+        ok(!titles.some((t: string) => /^sand and prime$/i.test(t)), 'a task already on the job is skipped');
+        const tape = b.tasks.find((t: any) => /tape and mud/i.test(t.title));
+        eq([tape?.due_date, tape?.crew_member_id, tape?.assignee_name], ['2026-11-13', 'm-1', 'Mike Diaz'], '"tomorrow" → date; "Mike" → Mike Diaz');
+        eq(b.tasks.find((t: any) => /order 12 sheets/i.test(t.title))?.due_date, '2026-11-15', '"in 3 days" resolved by the server');
+        ok(b.tasks.find((t: any) => /inspection/i.test(t.title))?.is_milestone === true, 'inspection is a milestone');
+        eq(b.meta.usage, { used: 6, limit: 600, tier: 'ai' }, 'usage reported');
+        eq(calls.filter(isMeteringCall).length, 1, 'one extraction = one AI request');
+        ok(!calls.some(c => /job_tasks|task_comments/.test(c.url)), 'proposals only: nothing written');
+    }
+
+    // 21c. Gemini path: own prompt + strict schema; the answer is validated (dates, crew, deps, duplicates).
+    {
+        const answer = { reply_text: 'Found 4.', tasks: [
+            { title: 'Tape and mud hallway', due: 'tomorrow', assignee: 'mike', depends_on: [] },
+            { title: '  ', due: 'Friday' },
+            { title: 'Sand and prime', due: 'next week', depends_on: [0] },
+            { title: 'Order drywall', due: '2026-11-01', assignee: 'Bob', depends_on: [5, 2, 0] },
+            { title: 'Tape and mud hallway', due: 'in 2 days' },
+            { title: 'Final walkthrough', due: 'in 2 weeks', is_milestone: true, depends_on: [3, 3, 9] },
+        ] };
+        const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiOk(answer)] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post({ ...body, context: { ...body.context, existing_titles: [] } }, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq(res.status, 200, 'Gemini extract answers');
+        eq(b.tasks.map((t: any) => t.title), ['Tape and mud hallway', 'Sand and prime', 'Order drywall', 'Final walkthrough'], 'empty + duplicate titles dropped');
+        eq(b.tasks.map((t: any) => t.due_date), ['2026-11-13', '2026-11-16', null, '2026-11-26'], 'due phrases resolved; a past date dropped');
+        eq(b.tasks.map((t: any) => t.crew_member_id), ['m-1', null, null, null], 'crew matched; unknown names kept as text only');
+        eq(b.tasks[2].assignee_name, 'Bob', 'unmatched assignee name kept');
+        eq(b.tasks.map((t: any) => t.depends_on), [[], [0], [0, 1], [2]], 'depends_on only to earlier kept tasks, remapped');
+        const sent = JSON.parse(String(modelCallsOf(calls)[0].init?.body));
+        const system = sent.systemInstruction.parts[0].text as string;
+        ok(/to-do items/.test(system) && !system.includes('Drywall is finished'), 'task prompt; the note stays in the user turn');
+        ok(/CREW NAMES/.test(sent.contents[0].parts[0].text) && /Mike Diaz/.test(sent.contents[0].parts[0].text), 'crew names sent as data');
+        eq(Object.keys(sent.generationConfig.responseSchema.properties.tasks.items.properties), ['title', 'notes', 'due', 'assignee', 'is_milestone', 'depends_on'], 'strict task schema sent');
+        eq(calls.filter(isMeteringCall).length, 1, 'metered once');
+    }
+
+    // 21d. Nothing found → answered, not metered. Bad input → 400 / 413.
+    {
+        const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiOk({ tasks: [], reply_text: '' })] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post(body, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq([res.status, b.tasks.length], [200, 0], 'no tasks found is a normal answer');
+        ok(/did not find/i.test(b.reply_text) && !calls.some(isMeteringCall), 'not metered');
+        const empty = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post({ ...body, text: '   ' }, 'Bearer user-jwt'));
+        eq(empty.status, 400, 'empty text → 400');
+        const big = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post({ ...body, text: 'x'.repeat(6001) }, 'Bearer user-jwt'));
+        eq(big.status, 413, 'too long → 413');
+    }
+
+    // 21e. Browser side: request body + answer parsing (crew ids only from the input).
+    {
+        const input = { text: 'Order tile', sourceKind: 'text' as const, today: TODAY, job: { id: job.id, name: job.name }, crew, existingTitles: ['A'] };
+        const reqBody = buildExtractTasksBody(input) as any;
+        eq([reqBody.task, reqBody.source_kind, reqBody.context.crew.length, reqBody.context.existing_titles], ['extract_tasks', 'text', 2, ['A']], 'browser request body');
+        const parsed = parseExtractTasksResponse({ ok: true, task: 'extract_tasks', reply_text: 'ok', tasks: [
+            { title: 'Order tile', due_date: '2026-11-20', crew_member_id: 'm-2', depends_on: [] },
+            { title: 'Set tile', due_date: 'soon', crew_member_id: 'evil', assignee_name: 'Zed', depends_on: [0, 4] },
+        ] }, input);
+        eq(parsed.tasks.map(t => [t.dueDate, t.crewMemberId, t.assigneeName, t.dependsOnIndex, t.source]), [
+            ['2026-11-20', 'm-2', 'Ana Lopez', [], 'ai'], [null, null, 'Zed', [0], 'ai'],
+        ], 'browser re-checks dates, crew ids and dependencies');
+        let threw = false;
+        try { parseExtractTasksResponse({ ok: true, proposal: {} }, input); } catch { threw = true; }
+        ok(threw, 'a non-task answer is refused');
+    }
+
+    // 21f. A normal assistant request is untouched by the task route.
+    {
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'free' }).f, log: quiet })(post({ message: 'Create an invoice for 2 doors at $450', scope: 'dashboard', context: ctx }, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).proposal.action_type], [200, 'GENERATE_DOCUMENT'], 'chat requests still work on Free');
+    }
+}
+
 // ── 20. Good / better / best estimate options (competitor gap #6): drafted by the assistant, opened in the form ──
 async function estimateOptionsTests() {
     type Set = { options: Array<{ id: string; name: string; description?: string; lineItems: any[] }>; sharedLineItems: any[]; recommendedId?: string };
@@ -2417,6 +2525,7 @@ await knowledgeTests();
 await handlerTests();
 await modelChainTests();
 await photoTaskTests();
+await extractTasksTests();
 await estimateOptionsTests();
 await priceBookTests();
 await estimateReviewTests();
