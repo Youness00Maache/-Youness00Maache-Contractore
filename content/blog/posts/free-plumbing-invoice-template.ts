@@ -110,9 +110,9 @@ The free generator handles one-off invoices. ContractorDocs adds what plumbers n
 - **Job photos:** take Before, During and After photos on the job, mark up the problem, and create a before/after photo report as a PDF.
 - **Pay now link:** paste your own PayPal, Square or Stripe payment link once; clients get a Pay now button and a Scan to pay code on the PDF. **Mark as paid** records the payment and creates a receipt.
 - **Reminders:** unpaid invoice reminders go out from your own Gmail and stop when the invoice is paid.
-- **AI drafting:** say "replaced 50-gallon gas water heater with expansion tank, hauled old unit away" and the assistant drafts the invoice with your price book prices for you to check. See the [AI invoice generator](/features#ai-assistant).
+- **AI drafting:** say "replaced 50-gallon gas water heater with expansion tank, hauled old unit away" and the assistant drafts the invoice with your price book prices for you to check. See the [AI invoice generator](/ai-invoice-generator).
 
-For plumbing estimates, work orders and good/better/best options, see our [page for plumbers](/templates).`,
+For plumbing estimates, work orders and good/better/best options, see our [page for plumbers](/for/plumbers).`,
   faq: [
     {
       q: 'What should be on a plumbing invoice?',

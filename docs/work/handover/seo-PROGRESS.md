@@ -1,40 +1,38 @@
-# SEO / AI-visibility work: stopped early (weekly budget at 96%), 2026-11-14
+# SEO / AI-visibility work: DONE 2026-11-14 (second helper)
 
-## Done (uncommitted; tsc clean, `npm run build` OK, `npm run seo:check` passed on 37 pages, blog lint passes on 24 posts)
-- robots.txt: one group listing GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-User, Claude-SearchBot, PerplexityBot,
-  Perplexity-User, Google-Extended, Applebot-Extended, Bingbot and CCBot. It allows /, /llms.txt and /llms-full.txt and has the
-  same Disallows as `*`, because a crawler named in its own group ignores the `*` group.
-- /llms.txt and /llms-full.txt are generated at build time (pages/llms.ts, exported via pages/entry-server.tsx `llms()`,
-  written by scripts/prerender.mjs) from lib/plans.ts, content/site.ts and the blog registry, so they can't go stale.
-- Blog: new required `answer` field (shown first as a "Short answer" box, marked with data-answer) on all 24 posts;
-  optional `howTo` field, output as HowTo JSON-LD (3 posts). BlogPosting, BreadcrumbList and FAQPage were already there.
-- 9 new posts (2026-11-14): how-to-create-a-construction-estimate-with-ai (featured), best-ai-tools-for-contractors,
-  good-better-best-pricing-for-contractors, send-estimate-clients-can-sign-on-phone, job-costing-budget-vs-actual,
-  change-orders-with-ai, free-electrical-invoice-template, free-plumbing-invoice-template, contractor-app-that-works-offline.
-- seo-check now also checks: the robots AI group, that llms.txt/llms-full.txt exist with prices and every URL, that every
-  FAQ question and answer in the JSON-LD appears on the page, and the short answer box on posts.
-- seo-blog-lint: requires `answer` (150–480 chars), checks howTo steps, and accepts links to landing pages.
-- Landing-page data: content/landing/types.ts and registry.ts (14 pages), plus the 8 finished trade modules in
-  content/landing/pages/for-*.ts. Nothing imports these yet: no page component, route or sitemap entry.
+## Earlier (first helper, already committed in 921f35d)
+- robots.txt AI crawler group, /llms.txt + /llms-full.txt generated at build time, answer-first blog posts with
+  HowTo JSON-LD, 9 new posts, seo-check + blog lint extensions, landing data model + 8 trade modules.
 
-## Left to do (in order)
-1. Landing-page renderer: pages/landingLoader.ts (import.meta.glob of content/landing/pages/*.ts, like blogLoader);
-   call it from preloadRouteData; pages/LandingPages.tsx (AI, trade and compare layouts; answer box with data-answer,
-   example document table, FAQ with FaqList); routes /for/:slug, /compare/:slug, /ai-estimate-generator and
-   /ai-invoice-generator in MarketingSite.tsx; getPageSeo for these paths (WebPage + BreadcrumbList + FAQPage, plus
-   SoftwareApplication/HowTo on the AI pages); entry-server loads the content; add the landing paths to getPrerenderRoutes
-   and seo-check ROUTES (parse `path: '…'` from content/landing/registry.ts).
-2. Add `for|compare|ai-estimate-generator|ai-invoice-generator` to MARKETING_RE (pages/routes.ts) AND the inline boot
-   script in index.html. The boot script's sha256 then changes: replace the hash in vercel.json's CSP (seo:check prints
-   the new one).
-3. Write content modules: ai-estimate-generator, ai-invoice-generator and the 4 compare pages (Joist, Invoice2go, Jobber,
-   Housecall Pro). Use facts from reports/Contractor software competitor feature gaps.md only, say "as of November 2026",
-   cite sources, and say fairly when the competitor is the better fit.
-4. Restore the 25 post links rewritten to existing pages (see rewritten-links.txt in this folder: /ai-* went to
-   /features#ai-assistant, /for/* to /templates, /compare/* to /blog/best-invoicing-software-for-contractors).
-5. Footer/nav links to the new pages; landing paths in llms.txt.
-6. IndexNow: key file in public/<key>.txt + scripts/indexnow-ping.ts (POST all sitemap URLs to api.indexnow.org). Not started.
-7. Optional: vercel.json header `Content-Type: text/plain; charset=utf-8` for /llms*.txt (Vercel already serves .txt as text/plain).
+## Finished now
+- Landing pages rendered and prerendered (14): /ai-estimate-generator, /ai-invoice-generator, /for/{electricians,
+  plumbers, hvac, roofers, remodelers, handyman, painters, landscapers}, /compare/{joist, invoice2go, jobber,
+  housecall-pro}-alternative.
+  - pages/landingLoader.ts (code-split bodies, preloaded before hydration), pages/LandingPages.tsx (trade / AI / compare
+    layouts: answer box with data-answer, example document as a real table, ledger + timeline sections, FAQ, related
+    guides, sibling links, CTA), routes in pages/MarketingSite.tsx, getPageSeo() landing branch in pages/seo.ts
+    (WebPage + BreadcrumbList + FAQPage; SoftwareApplication on AI + compare; HowTo on AI), entry-server loads the body.
+  - pages/routes.ts MARKETING_RE + getPrerenderRoutes, index.html boot script, vercel.json CSP hash updated.
+  - Sitemap lastmod = registry `updated`, priority 0.8. llms.txt lists the pages; llms-full.txt has answers, compare
+    facts with sources, AI can/limits and trade documents.
+- Content: ai-estimate-generator, ai-invoice-generator and 4 compare modules. Competitor facts come from the report's
+  sources and were re-read on the vendors' pricing pages on 2026-11-14 (Joist, Invoice2go, Jobber, Housecall Pro);
+  Invoice2go's page shows no prices, so its price cites Capterra.
+- The 25 rewritten blog links point at the real pages again (rewritten-links.txt is now history only).
+- Footer: Product column gets the two AI generators; new "For your trade" and "Compare" columns. Home "Made for the
+  trades" tape links to the trade pages; Features › AI assistant links to /ai-estimate-generator.
+- IndexNow: key file public/0c1123aa3adc22d3f1b108f8dc7539c7.txt, scripts/indexnow-ping.ts (reads the live sitemap,
+  checks the key file is live, POSTs to api.indexnow.org; `--dry-run`, `--sitemap=dist/sitemap.xml`). NOT run yet.
+- Checks: seo-check now covers the landing pages (JSON-LD types, answer first, a table, signup + pricing + 2 guide
+  links, compare pages dated "as of November 2026" with sources and a "better fit" section), the IndexNow key file and
+  the owner rule (no billing-provider name / "merchant of record" in any page, llms or sitemap). seo-blog-lint also
+  lints landing modules (lengths, counts, related slugs, internal links, compare rules).
 
-## Not in sitemap on purpose
-- /tutorials is an in-app route for signed-in users. Its public twin, /help, is already prerendered and in the sitemap.
+## After deploy (coordinator)
+1. `npx tsx scripts/indexnow-ping.ts` (submits all sitemap URLs to IndexNow).
+2. Search Console: request indexing for the 14 new URLs; Bing picks them up from IndexNow.
+
+## Ideas, not done
+- Hub pages /for and /compare (breadcrumbs are two levels today), a general-contractor trade page, an
+  "estimate options" or "lien waiver" landing page.
+- Refresh the compare pages when competitor prices change (registry `updated` drives the sitemap lastmod).

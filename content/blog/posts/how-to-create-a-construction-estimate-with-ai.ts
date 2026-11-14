@@ -108,7 +108,7 @@ The three priced lines come to $7,200. The haul-away line has no price, so the c
 
 ## Ask for good, better and best in the same request
 
-Clients compare. Giving them three options often helps them say yes without asking you to cut your price. Add it to your request: "good / better / best options: pressure-treated, mid-range composite, premium composite with lighting." The estimate opens with the options filled in, Better marked Recommended, and your price book prices on the lines that match. Read more in [our estimate generator guide](/features#ai-assistant).
+Clients compare. Giving them three options often helps them say yes without asking you to cut your price. Add it to your request: "good / better / best options: pressure-treated, mid-range composite, premium composite with lighting." The estimate opens with the options filled in, Better marked Recommended, and your price book prices on the lines that match. Read more in [our AI estimate generator page](/ai-estimate-generator).
 
 ## Mistakes to avoid
 
@@ -127,7 +127,7 @@ Every plan includes the AI assistant. The Free plan includes 15 AI requests a mo
     },
     {
       q: 'Are AI-generated estimates accurate?',
-      a: 'They are as accurate as the numbers behind them. A general chatbot guesses prices from broad training data. An assistant that pulls prices from your own price book, like the one in [ContractorDocs](/features#ai-assistant), gives you your own numbers and leaves unknown prices empty for you to fill.',
+      a: 'They are as accurate as the numbers behind them. A general chatbot guesses prices from broad training data. An assistant that pulls prices from your own price book, like the one in [ContractorDocs](/ai-estimate-generator), gives you your own numbers and leaves unknown prices empty for you to fill.',
     },
     {
       q: 'Which AI model does ContractorDocs use?',
@@ -145,7 +145,7 @@ Every plan includes the AI assistant. The Free plan includes 15 AI requests a mo
   cta: {
     heading: 'Draft your next estimate in a minute',
     text: 'Describe the job, review the lines, send it for a signature. Every plan includes AI requests, and the Free plan needs no credit card.',
-    href: '/features#ai-assistant',
+    href: '/ai-estimate-generator',
     label: 'Try the AI estimate generator',
   },
 };

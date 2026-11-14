@@ -87,9 +87,9 @@ AI that reads receipts and supplier bills saves typing and catches costs that ne
 
 ## Where ContractorDocs fits, honestly
 
-ContractorDocs is a document app for contractors: 12 document types, e-signatures, a client portal, Gmail sending, inventory, a price book and job costing, with an AI assistant on every plan. The Free plan includes 15 AI requests a month, Premium ($5 a month) includes 60 and Premium + AI ($10 a month) includes 600. See the [AI estimate generator](/features#ai-assistant) and [AI invoice generator](/features#ai-assistant) pages for what it drafts.
+ContractorDocs is a document app for contractors: 12 document types, e-signatures, a client portal, Gmail sending, inventory, a price book and job costing, with an AI assistant on every plan. The Free plan includes 15 AI requests a month, Premium ($5 a month) includes 60 and Premium + AI ($10 a month) includes 600. See the [AI estimate generator](/ai-estimate-generator) and [AI invoice generator](/ai-invoice-generator) pages for what it drafts.
 
-It isn't the right fit if you need an AI phone receptionist, dispatching and route planning for several crews, or built-in card processing. A field-service platform is the better tool there; our [Jobber comparison](/blog/best-invoicing-software-for-contractors) and our [invoicing software buyer's guide](/blog/best-invoicing-software-for-contractors) cover when each kind of tool makes sense.
+It isn't the right fit if you need an AI phone receptionist, dispatching and route planning for several crews, or built-in card processing. A field-service platform is the better tool there; our [Jobber comparison](/compare/jobber-alternative) and our [invoicing software buyer's guide](/blog/best-invoicing-software-for-contractors) cover when each kind of tool makes sense.
 
 ## What AI shouldn't do for you
 
@@ -105,7 +105,7 @@ Whatever you choose, keep these decisions human:
     },
     {
       q: 'Can ChatGPT write estimates for contractors?',
-      a: 'ChatGPT and similar assistants can write the wording of an estimate, but they don’t know your prices, your clients or the site. Use them for scope text and supply the numbers yourself, or use an estimating tool that drafts from your own [price book](/features#ai-assistant).',
+      a: 'ChatGPT and similar assistants can write the wording of an estimate, but they don’t know your prices, your clients or the site. Use them for scope text and supply the numbers yourself, or use an estimating tool that drafts from your own [price book](/ai-estimate-generator).',
     },
     {
       q: 'How much do AI tools for contractors cost?',
@@ -123,7 +123,7 @@ Whatever you choose, keep these decisions human:
   cta: {
     heading: 'Try AI that drafts your paperwork',
     text: 'Describe a job and get an estimate or invoice with your own prices, ready to review and send. Free plan, no credit card.',
-    href: '/features#ai-assistant',
+    href: '/ai-estimate-generator',
     label: 'See the AI estimate generator',
   },
 };

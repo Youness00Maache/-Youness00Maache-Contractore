@@ -46,7 +46,7 @@ These examples show how the tiers might differ. The prices are hypothetical roun
 
 Notice that every Good option is a real, defensible job. If the client picks it, you're happy to build it.
 
-For trade-specific line items and documents, see our pages for [plumbers](/templates), [HVAC contractors](/templates) and [roofers](/templates).
+For trade-specific line items and documents, see our pages for [plumbers](/for/plumbers), [HVAC contractors](/for/hvac) and [roofers](/for/roofers).
 
 ## Price each option, then check the margin
 
@@ -81,7 +81,7 @@ The PDF lists every option with its lines and total, marks the recommended one a
 
 Until the client chooses, the job budget, the pipeline board and Insights use the recommended option, so your numbers aren't inflated by the Best price.
 
-Options are available on every plan, including Free. The [AI assistant](/features#ai-assistant) can also draft them: ask for "good, better, best estimate for a 12 x 14 deck" and the estimate opens with the options filled in, using your price book prices where the lines match. Prices you didn't give stay empty for you to fill. Our guide to [creating an estimate with AI](/blog/how-to-create-a-construction-estimate-with-ai) covers the review steps.
+Options are available on every plan, including Free. The [AI assistant](/ai-estimate-generator) can also draft them: ask for "good, better, best estimate for a 12 x 14 deck" and the estimate opens with the options filled in, using your price book prices where the lines match. Prices you didn't give stay empty for you to fill. Our guide to [creating an estimate with AI](/blog/how-to-create-a-construction-estimate-with-ai) covers the review steps.
 
 ## When not to offer options
 
@@ -109,13 +109,13 @@ An estimate with three options still needs a follow-up. When you call, don't ask
     },
     {
       q: 'Can AI create good, better, best options?',
-      a: 'Yes. The ContractorDocs assistant can draft all three options from one request and fills in prices from your price book where the lines match. You review and edit each option before saving. See the [AI estimate generator](/features#ai-assistant).',
+      a: 'Yes. The ContractorDocs assistant can draft all three options from one request and fills in prices from your price book where the lines match. You review and edit each option before saving. See the [AI estimate generator](/ai-estimate-generator).',
     },
   ],
   cta: {
     heading: 'Send your next estimate with three options',
     text: 'Build good, better and best in one estimate, let the client pick and sign on their phone, then turn their choice into the invoice.',
-    href: '/features#ai-assistant',
+    href: '/ai-estimate-generator',
     label: 'Draft options with AI',
   },
 };

@@ -100,7 +100,7 @@ Be realistic about the limits of any offline app, including ours:
 
 ## Choosing the right app
 
-If your crews work in dead zones every week, put offline field capture near the top of your list, test it with airplane mode, and make sure the records it captures feed your invoices and job costing. If you also need dispatching, GPS time clocks or built-in card payments, a larger field-service platform may fit better; our [Jobber comparison](/blog/best-invoicing-software-for-contractors) covers when that's the case. For roofing and landscaping crews who spend their days on rural sites, see our pages for [roofers](/templates) and [landscapers](/templates).`,
+If your crews work in dead zones every week, put offline field capture near the top of your list, test it with airplane mode, and make sure the records it captures feed your invoices and job costing. If you also need dispatching, GPS time clocks or built-in card payments, a larger field-service platform may fit better; our [Jobber comparison](/compare/jobber-alternative) covers when that's the case. For roofing and landscaping crews who spend their days on rural sites, see our pages for [roofers](/for/roofers) and [landscapers](/for/landscapers).`,
   faq: [
     {
       q: 'Is there a contractor app that works without internet?',

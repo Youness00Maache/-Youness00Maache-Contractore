@@ -86,7 +86,7 @@ In ContractorDocs, open a job and click **Financials**. The job's profit is at t
 
 **Percent complete** comes from the lines of a progress-billing invoice if you use one; otherwise you type it in **Job complete**. When more of the budget is used than the job is complete, ContractorDocs shows "Costs are ahead of the work" in red, along with the profit you'd end with at the current pace.
 
-The same Financials view shows the job's overall profit: income from invoices minus materials, expenses and labor. Read more about [profit tracking](/features#profit-tracking), or see how remodelers use it on our [page for remodelers](/templates).
+The same Financials view shows the job's overall profit: income from invoices minus materials, expenses and labor. Read more about [profit tracking](/features#profit-tracking), or see how remodelers use it on our [page for remodelers](/for/remodelers).
 
 ## Billing time and materials without losing hours
 
