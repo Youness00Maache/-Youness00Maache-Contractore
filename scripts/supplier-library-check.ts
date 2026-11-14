@@ -273,7 +273,7 @@ const book = (id: string, name: string, extra: Partial<PriceBookLibraryItem> = {
     const sql = read('supabase/migrations/20261116000200_suppliers_library.sql');
     const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
     const lower = code.toLowerCase();
-    check('header: purpose + not applied', /Applied: NOT YET \(needs owner OK\)/.test(sql) && /suppliers \+ product library/i.test(sql));
+    check('header: purpose + applied with the owner OK', /Applied 2026-11-14 with the owner's OK/.test(sql) && /suppliers \+ product library/i.test(sql));
     const tables = Array.from(lower.matchAll(/create table if not exists public\.([a-z_]+)/g)).map((m) => m[1]);
     eq('new tables', tables, ['suppliers', 'supplier_items']);
     check('every create table is "if not exists"', !/create table (?!if not exists)/.test(lower));
