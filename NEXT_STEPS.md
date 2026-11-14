@@ -181,6 +181,10 @@ add /settings#data to NAV_ROUTES + knowledge.ts. Still running: templates ab3e48
 changes): pipeline board a6f93a02a6c772da0, job costing + T&M invoice aef749bf3a0d5af15. Waiting: good/better/best
 (#6) until the templates helper ab3e480c0eebe3ce2 finishes (needs template changes); DB-needing NEXT items (crew
 clock-in, service plans, papers vault, punch lists) need the owner's OK for new tables.
+**STOPPED 00:55 (Nov 14) at 87% of the 5-hour limit (weekly 79%).** Resume after 04:10 UTC. Stopped mid-work,
+uncommitted: templates ab3e480c0eebe3ce2 (native page renderer + QA diff tuning), pipeline a6f93a02a6c772da0 (was
+verifying UI with a local harness), job costing + T&M aef749bf3a0d5af15 (was writing its test script). Also pending:
+redeploy ai-assistant (34e56d1 knowledge base), then add /settings#data to the AI knowledge.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
