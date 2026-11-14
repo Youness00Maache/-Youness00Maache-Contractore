@@ -16,6 +16,7 @@ interface DocumentCardProps {
     onClick: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
+    onCopyToJob?: () => void;
     /** optional quick actions */
     onDownload?: () => void;
     onShare?: () => void;
@@ -47,7 +48,7 @@ const formatDate = (iso?: string) => {
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, onClick, onDelete, onDuplicate, onDownload, onShare }) => {
+export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, onClick, onDelete, onDuplicate, onCopyToJob, onDownload, onShare }) => {
     const d = (form.data || {}) as any;
     const isAi = Boolean(highlightAi || d.isAiGenerated);
     const Icon = ICONS[form.type] || FileTextIcon;
@@ -106,6 +107,11 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, o
                             <DropdownItem onClick={e => { e.stopPropagation(); onDuplicate(); }}>
                                 <CopyIcon className="mr-2 h-4 w-4 text-primary" /> Duplicate
                             </DropdownItem>
+                            {onCopyToJob && (
+                                <DropdownItem onClick={e => { e.stopPropagation(); onCopyToJob(); }}>
+                                    <CopyIcon className="mr-2 h-4 w-4 text-primary" /> Copy to another job
+                                </DropdownItem>
+                            )}
                             <DropdownItem onClick={e => { e.stopPropagation(); onDelete(); }} destructive>
                                 <TrashIcon className="mr-2 h-4 w-4" /> Delete
                             </DropdownItem>

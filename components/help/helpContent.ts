@@ -87,6 +87,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Save and download', text: 'Click [[Save]] (or Ctrl/Cmd + S). [[PDF]] downloads it, and [[Save & PDF]] does both. If you leave with unsaved changes, the app asks first.' },
       { title: 'Send it', text: '[[Share]] saves the document, then offers [[Send with Gmail]], [[Download PDF]], [[Copy portal link]], an approval link for estimates and change orders, and text or WhatsApp.' },
       { title: 'Let AI fill it', text: '[[AI fill]] fills the form from a description you type or say. It only fills fields: nothing is saved until you click [[Save]].' },
+      { title: 'Reuse it on another job', text: 'In the job’s document list, open the ⋮ menu of a document and choose [[Copy to another job]]. Pick the job (search by job or client, recent first). The copy is a Draft with the new job’s client and address, your lines, notes and design kept, and no signature, payments or stock change; tap [[Open]] to edit it.' },
     ],
     tips: [
       `Free plan: ${FREE_LIMITS.docs} new documents per job each month (deleted documents still count).`,

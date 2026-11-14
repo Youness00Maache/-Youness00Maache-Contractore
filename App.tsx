@@ -11,6 +11,8 @@ import AppNav, { type NavDestination, type NavSection } from './components/AppNa
 import DashboardScreen from './components/DashboardScreen.tsx';
 import JobDetailsScreen from './components/JobDetailsScreen.tsx';
 import { DuplicateJobModal } from './components/DuplicateJobModal.tsx';
+import { CopyToJobModal } from './components/CopyToJobModal.tsx';
+import { buildCopyToJobData, copyDoneMessage } from './lib/copyToJob.ts';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { Toaster, toast } from './components/Toast.tsx';
 import { AuthMessage, AppSplash, LoadErrorScreen } from './components/AppStates.tsx';
@@ -478,6 +480,8 @@ const App: React.FC = () => {
 
     // Duplicate Job State
     const [showDuplicateJobModal, setShowDuplicateJobModal] = useState(false);
+    // "Copy to another job": the document being copied (the job picker is open while set)
+    const [docToCopy, setDocToCopy] = useState<FormDataType | null>(null);
     const [jobToDuplicate, setJobToDuplicate] = useState<Job | null>(null);
 
     // ── Theme (light | dark | blue), persisted in localStorage `theme` ─────────
@@ -1533,6 +1537,43 @@ const App: React.FC = () => {
         }
     };
 
+    /** Copy a document into another job as a draft with the target job's client / job boxes (same guards as Duplicate). */
+    const handleCopyDocToJob = async (form: FormDataType, target: AppJob) => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) return;
+        if (outbox.itemFor(form.id)) { toast.info('This document is still waiting to sync. Copy it once it has synced.'); return; }
+        if (!navigator.onLine) { toast.error("You're offline. Reconnect to copy documents."); return; }
+        if (!(await ensureDocSlot(target.id))) return;
+        try {
+            const full = await fetchFullDocument(form.id);
+            const client = (target.clientId ? clients.find(c => c.id === target.clientId) : undefined)
+                || clients.find(c => (c.name || '').trim().toLowerCase() === (target.clientName || '').trim().toLowerCase());
+            const record = {
+                id: crypto.randomUUID(),
+                user_id: uid,
+                job_id: target.id,
+                type: full.type,
+                data: buildCopyToJobData(full.data as Record<string, any>, target, client),
+            };
+            const { error } = await supabase.from('documents').insert(record);
+            if (error) throw error;
+            const mapped = mapDocumentRow({ ...record, created_at: new Date().toISOString() }, true);
+            primeDocumentCache(mapped);
+            setForms(prev => mergeDocuments(prev, [mapped]));
+            bumpDocUsage(target.id);
+            setDocToCopy(null);
+            toast.success(copyDoneMessage(target), { duration: 8000, action: { label: 'Open', onClick: () => openDocument(mapped, false) } });
+        } catch (error) {
+            if (!handlePlanLimit(error)) toast.error(`Could not copy the document. ${describeError(error)}`);
+        }
+    };
+
+    const copyPickerActivity = useMemo(() => {
+        const latest: Record<string, string> = {};
+        for (const f of forms) if (f.createdAt && (!latest[f.jobId] || f.createdAt > latest[f.jobId])) latest[f.jobId] = f.createdAt;
+        return latest;
+    }, [forms]);
+
     const handleDeleteDoc = async () => {
         const id = docToDelete;
         if (!id) return;
@@ -2024,6 +2065,7 @@ const App: React.FC = () => {
                 onNewDocument={() => navigateToNewDoc(job.id)}
                 onOpenDocument={(form) => openDocument(form, true)}
                 onDuplicateDocument={handleDuplicateDoc}
+                onCopyDocumentToJob={jobs.length > 1 ? (form) => setDocToCopy(form) : undefined}
                 onDeleteDocument={(form) => setDocToDelete(form.id)}
                 onStatusChange={(status) => handleUpdateJobStatus(job.id, status)}
                 onLoadMore={() => loadDocumentsForJob(job.id)}
@@ -2487,6 +2529,14 @@ const App: React.FC = () => {
                 message="This permanently deletes the document. This can't be undone."
                 confirmLabel="Delete"
                 isDestructive={true}
+            />
+
+            <CopyToJobModal
+                form={docToCopy}
+                jobs={jobs}
+                lastActivity={copyPickerActivity}
+                onClose={() => setDocToCopy(null)}
+                onCopy={(target) => docToCopy ? handleCopyDocToJob(docToCopy, target as AppJob) : undefined}
             />
 
             <DuplicateJobModal

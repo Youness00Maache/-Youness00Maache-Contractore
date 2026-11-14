@@ -366,6 +366,7 @@ const FEATURES: KnowledgeEntry[] = [
             'Open a job, click [[New Document]] and pick a type: Billing & purchasing (Invoice, Estimate, Change Order, Purchase Order, Receipt), On the job (Work Order, Daily Job Report, Time Sheet, Material Log), Records (Expense Log, Warranty, Note).',
             'Form header: [[Save]] (Ctrl/Cmd + S), [[PDF]], [[Save & PDF]], [[Preview]], [[AI fill]] and [[Share]]. Invoice quick due dates: [[On receipt]], [[Net 15]], [[Net 30]], [[Net 60]]. Totals: Discount ($), Tax (%), Shipping ($), Paid / deposit ($).',
             'In the job’s [[Project Documents]], the ⋮ menu of a document has [[Mark as paid]] (open invoices), [[Duplicate as draft]] and [[Delete]].',
+            '[[Copy to another job]] (same ⋮ menu) copies a document into another job as a Draft with that job’s client and address, keeping the lines, notes and design but no signature, payments or stock change, so you can reuse work done for two clients.',
             'Lines: [[Add line]]; the tag button on a line picks from the [[Price book]] or [[Inventory]].',
         ],
         steps: ['Open the job ([[View Project]] on the dashboard).', 'Click [[New Document]] and pick the type.', 'Fill it in, then click [[Save]] or [[PDF]].'],

@@ -37,6 +37,8 @@ interface JobDetailsScreenProps {
     onNewDocument: () => void;
     onOpenDocument: (form: FormDataType) => void;
     onDuplicateDocument: (form: FormDataType) => void;
+    /** "Copy to another job" (the picker lives in App); omitted when there is no other job */
+    onCopyDocumentToJob?: (form: FormDataType) => void;
     onDeleteDocument: (form: FormDataType) => void;
     onStatusChange: (status: Job['status']) => void;
     onLoadMore: () => void;
@@ -66,9 +68,10 @@ const DocumentTile: React.FC<{
     form: FormDataType;
     onOpen: () => void;
     onDuplicate: () => void;
+    onCopyToJob?: () => void;
     onDelete: () => void;
     onMarkPaid?: () => void;
-}> = ({ form, onOpen, onDuplicate, onDelete, onMarkPaid }) => {
+}> = ({ form, onOpen, onDuplicate, onCopyToJob, onDelete, onMarkPaid }) => {
     const meta = getDocTypeMeta(form.type);
     const Icon = meta.icon;
     const d = (form.data || {}) as any;
@@ -112,6 +115,7 @@ const DocumentTile: React.FC<{
             >
                 {onMarkPaid && !waiting && isOpenInvoice(form) && <DropdownItem onClick={onMarkPaid}><CheckCircleIcon className="h-4 w-4" /> Mark as paid</DropdownItem>}
                 <DropdownItem onClick={onDuplicate}><CopyIcon className="h-4 w-4" /> Duplicate as draft</DropdownItem>
+                {onCopyToJob && <DropdownItem onClick={onCopyToJob}><CopyIcon className="h-4 w-4" /> Copy to another job</DropdownItem>}
                 <DropdownSeparator />
                 <DropdownItem onClick={onDelete} destructive><TrashIcon className="h-4 w-4" /> Delete</DropdownItem>
             </DropdownMenu>
@@ -121,7 +125,7 @@ const DocumentTile: React.FC<{
 
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
-    aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onDeleteDocument, onStatusChange,
+    aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onCopyDocumentToJob, onDeleteDocument, onStatusChange,
     onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot,
 }) => {
     // Documents / Photos switch (kept in the URL hash so Back from a photo or a refresh stays on Photos).
@@ -304,6 +308,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                                 form={form}
                                 onOpen={() => onOpenDocument(form)}
                                 onDuplicate={() => onDuplicateDocument(form)}
+                                onCopyToJob={onCopyDocumentToJob ? () => onCopyDocumentToJob(form) : undefined}
                                 onDelete={() => onDeleteDocument(form)}
                                 onMarkPaid={onMarkPaid && isOnline ? () => onMarkPaid(form) : undefined}
                             />

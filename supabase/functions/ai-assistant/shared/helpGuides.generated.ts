@@ -119,6 +119,10 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             {
                 "title": "Let AI fill it",
                 "text": "[[AI fill]] fills the form from a description you type or say. It only fills fields: nothing is saved until you click [[Save]]."
+            },
+            {
+                "title": "Reuse it on another job",
+                "text": "In the job’s document list, open the ⋮ menu of a document and choose [[Copy to another job]]. Pick the job (search by job or client, recent first). The copy is a Draft with the new job’s client and address, your lines, notes and design kept, and no signature, payments or stock change; tap [[Open]] to edit it."
             }
         ],
         "tips": [
