@@ -1,3 +1,16 @@
+# >>> STATUS 2026-11-14 afternoon: owner requests 1-5 below are DONE and LIVE (main) <<<
+- Community in the phone bottom bar (457427c); phone app bar: offline = one-line strip under the bar (0f0d9ba).
+- Offline jobs + clients (96e7088): create job (+ new client), job status, client add/edit/notes; ids kept, sync order
+  clients -> jobs -> inventory/price book -> stock changes -> documents, remap if the account changes an id, documents of
+  a refused job wait, plan-limit/stock refusals keep their reason, "Waiting to sync" chips (job cards, job page, clients).
+- Install-app banner on phones (f396496). AI "fill every box" (a0f9410) -> REDEPLOY the ai-assistant edge function.
+- Offline inventory items, stock changes, price-book items (9dbd8c5); client notes (1266293).
+- OFFLINE AUDIT: works offline = field documents, estimate/invoice drafts, jobs (create/status), clients (add/edit/notes),
+  inventory items + stock +/-, price book items, profit calculator / labor rate / theme / language / signature (device
+  pending, uploaded later). Needs a connection (clear "You're offline, this needs a connection" message): email/send,
+  portal links, payments, photos upload, job delete/duplicate, inventory checkout to a job, forum posts, settings
+  profile save, imports/exports, AI. Possible next: queue job photos and profile settings offline.
+
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
 Site is LIVE (main = production). Every fix: test, commit, push my-branch AND main (owner asked to keep production updated).
 1. OFFLINE EVERYWHERE (top priority). Documents already work offline (create/edit, sync later). Make the rest work offline
