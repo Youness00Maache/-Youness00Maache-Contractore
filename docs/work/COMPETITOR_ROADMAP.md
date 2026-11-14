@@ -118,6 +118,14 @@ D12 push also needs VAPID secrets the owner adds (never type them).
 reviews   13. N3 business overview   14. N6 AI documents   15. N8 setup   16. N9 plan measurement   17. N10
 integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (needs owner's VAPID secrets).
 
+## Coordinator state (fresh session started 2026-11-14 ~21:30 UTC; update after every step)
+- Helpers: Opus phase A (SQL + data layer + tests) then Sonnet phase B (UI). Pattern for every DB batch.
+- D4 phase A: merged on my-branch (641f73b); migration 20261116000200_suppliers_library.sql APPLIED to production
+  2026-11-14 (verified). Phase B (Sonnet UI) building in a worktree.
+- D2 phase A (Opus, migration 20261116000100_job_tasks.sql + lib/tasks + AI extract_tasks): building; not merged, SQL not applied.
+- TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
+- Known small gap: saved_items.supplier_id has no same-owner trigger (id is an unguessable uuid; harmless).
+
 ## Done log
 (append: date, batch, commit, tests, deploys)
 - 2026-11-14 ~22:45 UTC: N1 estimate reviewer (deterministic checks every plan + AI missing-items Premium+AI; estimate-review-check 101, qa:document-ai 1438) and N2 budget dashboard (original/revised budget, spent vs ordered, remaining, expected final cost, category overruns) + PO lifecycle (Confirmed / Partially delivered / Delivered / Invoiced / Paid, Record delivery once per delivery, supplier invoice attachment; costing-check 155, supplier-orders-check 209). All 31 suites pass. Pushed my-branch + main a3723ea; ai-assistant redeployed (376 KB, boots). Not click-tested signed in.

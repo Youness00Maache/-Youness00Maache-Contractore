@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK). Run once in the Supabase SQL editor (project iauteblvljppwzsxloyd) after the OK.
+-- Applied 2026-11-14 with the owner's OK ("Yes, approve all", roadmap D4) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: RLS on both tables, 8 owner policies, 3 saved_items columns, 3 triggers, definer function with search_path '', no anon grants.
 -- =====================================================================================
 -- ContractorDocs: suppliers + product library (competitor roadmap D4, gaps #10, #13, #25)
 --
