@@ -172,6 +172,10 @@ a5ff00bb5da18ddcd (knowledge base + retrieval + HOW_TO/"Do it for me"). Resume b
 test, commit, redeploy ai-assistant.
 **23:15 cycle 1 started** (5-hour 0%, weekly 67%). Resumed templates ab3e480c0eebe3ce2 + AI-knowledge a5ff00bb5da18ddcd.
 New: #7 Export everything + bookkeeper CSV + price promise → aff2f94e4414c0f80. Pacing job: every 5 min, stop at 86%.
+**00:10 (Nov 14):** AI product knowledge DONE + committed (34e56d1, 860 QA checks). PENDING: redeploy `ai-assistant`
+(bundle: esbuild supabase/functions/ai-assistant/index.ts → scratchpad; the Supabase dashboard wasn't loading at
+00:10). Until deployed, how-to answers in the local app show only a one-line reply. After the export helper lands,
+add /settings#data to NAV_ROUTES + knowledge.ts. Still running: templates ab3e480c0eebe3ce2, export aff2f94e4414c0f80.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
