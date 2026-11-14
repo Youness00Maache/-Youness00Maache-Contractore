@@ -8,6 +8,7 @@ import { fillEmailPlaceholders, payNowLine, senderIdentity, withPayLine } from '
 import { payLinkFor } from '../lib/payments.ts';
 import { shortShareMessage } from '../lib/messaging.ts';
 import { MessageAppButtons } from './MessageAppButtons.tsx';
+import { useOfflineDoc } from './offline/OfflineContext.tsx';
 import { CopyIcon, MailIcon, XCircleIcon, DownloadIcon, ShareIcon, GlobeIcon, UsersIcon, CheckIcon, AlertTriangleIcon } from './Icons.tsx';
 
 interface ShareModalProps {
@@ -106,6 +107,8 @@ const ShareModal: React.FC<ShareModalProps> = ({
     defaultRecipient, recipientName, supplierConfirm = false,
 }) => {
     const navigate = useNavigate();
+    // offline, or a document still waiting in the offline outbox: email, links and messages wait (PDF still works)
+    const sendBlocked = useOfflineDoc()?.sendBlockedReason ?? null;
     const [recipient, setRecipient] = useState('');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
@@ -163,6 +166,12 @@ const ShareModal: React.FC<ShareModalProps> = ({
         setBodyEdited(false);
         setApprovalLink(clientFacing && publicToken ? approvalUrl(publicToken) : '');
         let active = true;
+        if (sendBlocked) {
+            // nothing to link to yet (the account doesn't have this version / no connection)
+            setApprovalLink('');
+            setPortalLink('');
+            return () => { active = false; };
+        }
         if (clientFacing && documentId) {
             ensureApprovalToken(documentId).then(token => { if (active) setApprovalLink(approvalUrl(token)); }).catch(() => undefined);
         }
@@ -170,17 +179,17 @@ const ShareModal: React.FC<ShareModalProps> = ({
         else if (client.portal_key) setPortalLink(portalUrl(client.portal_key));
         else ensurePortalKey(client).then(key => { if (active) setPortalLink(portalUrl(key)); }).catch(() => undefined);
         return () => { active = false; };
-    }, [isOpen, client, publicToken, documentId, clientFacing]);
+    }, [isOpen, client, publicToken, documentId, clientFacing, sendBlocked]);
 
     useEffect(() => {
-        if (!isOpen || !supplierLinkMode || !documentId) { setSupplierLink(''); return; }
+        if (!isOpen || !supplierLinkMode || !documentId || sendBlocked) { setSupplierLink(''); return; }
         let active = true;
         import('../lib/suppliersApi.ts')
             .then(({ supplierConfirmLink }) => supplierConfirmLink(documentId))
             .then((url) => { if (active) setSupplierLink(url || ''); })
             .catch(() => undefined);
         return () => { active = false; };
-    }, [isOpen, supplierLinkMode, documentId]);
+    }, [isOpen, supplierLinkMode, documentId, sendBlocked]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -306,18 +315,21 @@ const ShareModal: React.FC<ShareModalProps> = ({
                         type="button"
                         className="btn btn-primary btn-lg w-full"
                         onClick={handleEmail}
-                        disabled={!documentId}
+                        disabled={!documentId || Boolean(sendBlocked)}
+                        title={sendBlocked || undefined}
                     >
                         <MailIcon className="h-5 w-5" /> Send with Gmail
                     </button>
-                    {!documentId && <p className="-mt-3 text-center text-xs text-muted-foreground">Save the document first to email it with its PDF attached.</p>}
+                    {sendBlocked
+                        ? <p className="-mt-3 text-center text-xs font-medium text-warning">{sendBlocked} You can still download the PDF.</p>
+                        : !documentId && <p className="-mt-3 text-center text-xs text-muted-foreground">Save the document first to email it with its PDF attached.</p>}
                     <div className="grid grid-cols-2 gap-2">
                         <button type="button" className={action} onClick={handleDownload} disabled={!onDownload || busy === 'download'}>
                             <span className="flex items-center gap-2 font-semibold text-foreground"><DownloadIcon className="h-4 w-4 text-primary" /> {busy === 'download' ? 'Creating…' : 'Download PDF'}</span>
                             <span className="text-xs text-muted-foreground">Attach it anywhere</span>
                         </button>
                         {clientFacing && (documentId || approvalLink) && (
-                            <button type="button" className={action} onClick={() => (documentId ? copyApprovalLink() : copy(approvalLink, linkCopiedText))}>
+                            <button type="button" className={action} onClick={() => (documentId ? copyApprovalLink() : copy(approvalLink, linkCopiedText))} disabled={Boolean(sendBlocked)} title={sendBlocked || undefined}>
                                 <span className="flex items-center gap-2 font-semibold text-foreground"><GlobeIcon className="h-4 w-4 text-primary" /> {canApprove ? 'Copy approval link' : 'Copy link'}</span>
                                 <span className="text-xs text-muted-foreground">{canApprove ? <>Client reviews &amp; signs online</> : 'Client views it online, no login'}</span>
                             </button>
@@ -335,13 +347,13 @@ const ShareModal: React.FC<ShareModalProps> = ({
                             </button>
                         )}
                         {canNativeShare && (
-                            <button type="button" className={action} onClick={handleNativeShare} disabled={busy === 'share'}>
+                            <button type="button" className={action} onClick={handleNativeShare} disabled={busy === 'share' || Boolean(sendBlocked)} title={sendBlocked || undefined}>
                                 <span className="flex items-center gap-2 font-semibold text-foreground"><ShareIcon className="h-4 w-4 text-primary" /> {busy === 'share' ? 'Preparing…' : 'Share…'}</span>
                                 <span className="text-xs text-muted-foreground">Messages, WhatsApp, more</span>
                             </button>
                         )}
                         {/* from the contractor's own phone: the message and link are typed in, nothing is sent by us */}
-                        <MessageAppButtons variant="tiles" tileClassName={action} phone={recipientName ? '' : client?.phone} message={textMessage} />
+                        <MessageAppButtons variant="tiles" tileClassName={action} phone={recipientName ? '' : client?.phone} message={textMessage} disabledReason={sendBlocked} />
                     </div>
                     {pay && (
                         <p className="-mt-2 text-xs text-muted-foreground">
@@ -391,12 +403,18 @@ const ShareModal: React.FC<ShareModalProps> = ({
                     <button type="button" className="btn btn-outline" onClick={() => copy(`${subject}\n\n${body}`, 'Message copied.')}>
                         <CopyIcon className="h-4 w-4" /> Copy message
                     </button>
-                    <a
-                        className="btn btn-secondary"
-                        href={`mailto:${mailtoTo.split(',').map(encodeURIComponent).join(',').replace(/%40/g, '@')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
-                    >
-                        <MailIcon className="h-4 w-4" /> Open email app
-                    </a>
+                    {sendBlocked ? (
+                        <button type="button" className="btn btn-secondary" disabled title={sendBlocked}>
+                            <MailIcon className="h-4 w-4" /> Open email app
+                        </button>
+                    ) : (
+                        <a
+                            className="btn btn-secondary"
+                            href={`mailto:${mailtoTo.split(',').map(encodeURIComponent).join(',').replace(/%40/g, '@')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+                        >
+                            <MailIcon className="h-4 w-4" /> Open email app
+                        </a>
+                    )}
                 </div>
             </div>
         </div>

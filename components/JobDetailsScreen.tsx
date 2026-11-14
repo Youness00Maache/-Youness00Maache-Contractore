@@ -12,6 +12,7 @@ import {
 import { getDocumentTitle } from '../lib/documents.ts';
 import HelpButton from './help/HelpButton.tsx';
 import type { Translation } from '../utils/translations.ts';
+import { DocSyncChip, useDocSyncState } from './offline/OfflineContext.tsx';
 
 interface JobDetailsScreenProps {
     job: Job;
@@ -26,6 +27,8 @@ interface JobDetailsScreenProps {
     docsThisMonth: number;
     docLimit: number | null;
     isOnline: boolean;
+    /** offline, "New document" still opens (field documents and estimate / invoice drafts wait in the outbox) */
+    canCreateOffline?: boolean;
     t: Translation;
     /** AI assistant button + modal (rendered by App, owned by the AI area). */
     aiButton?: React.ReactNode;
@@ -70,6 +73,8 @@ const DocumentTile: React.FC<{
     const Icon = meta.icon;
     const d = (form.data || {}) as any;
     const signed = Boolean(d.clientSignatureUrl || d.clientSignedAt);
+    // waiting in the offline outbox: "Mark as paid" waits until it is on the account
+    const waiting = useDocSyncState(form.id);
     return (
         <div
             role="button"
@@ -92,6 +97,7 @@ const DocumentTile: React.FC<{
                     {signed && <span className="badge badge-success"><CheckCircleIcon className="h-3 w-3" /> Client signed</span>}
                     {d.isAiGenerated && <span className="badge badge-primary"><SparklesIcon className="h-3 w-3" /> AI drafted</span>}
                     {d.paymentReportedAt && isOpenInvoice(form) && <span className="badge badge-warning">Payment reported</span>}
+                    <DocSyncChip docId={form.id} />
                 </div>
             </div>
             <DropdownMenu
@@ -104,7 +110,7 @@ const DocumentTile: React.FC<{
                     </span>
                 }
             >
-                {onMarkPaid && isOpenInvoice(form) && <DropdownItem onClick={onMarkPaid}><CheckCircleIcon className="h-4 w-4" /> Mark as paid</DropdownItem>}
+                {onMarkPaid && !waiting && isOpenInvoice(form) && <DropdownItem onClick={onMarkPaid}><CheckCircleIcon className="h-4 w-4" /> Mark as paid</DropdownItem>}
                 <DropdownItem onClick={onDuplicate}><CopyIcon className="h-4 w-4" /> Duplicate as draft</DropdownItem>
                 <DropdownSeparator />
                 <DropdownItem onClick={onDelete} destructive><TrashIcon className="h-4 w-4" /> Delete</DropdownItem>
@@ -114,7 +120,7 @@ const DocumentTile: React.FC<{
 };
 
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
-    job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, t,
+    job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onDeleteDocument, onStatusChange,
     onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot,
 }) => {
@@ -145,6 +151,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     }, [documents, query, typeFilter]);
 
     const atDocLimit = docLimit !== null && docsThisMonth >= docLimit;
+    const canCreate = isOnline || canCreateOffline;
     const start = formatShortDate(job.startDate);
     const end = formatShortDate(job.endDate);
 
@@ -191,7 +198,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                         )}
                         {aiButton}
                         <HelpButton topic="jobs" />
-                        <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 sm:inline-flex" disabled={!isOnline}>
+                        <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 sm:inline-flex" disabled={!canCreate}>
                             <PlusIcon className="h-4 w-4" /> {t.newDocument || 'New document'}
                         </button>
                     </div>
@@ -203,7 +210,9 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
             {!isOnline && (
                 <div className="mb-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground" role="status">
                     <WifiOffIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                    You're offline. You can view saved documents; creating and editing are paused until you reconnect.
+                    {canCreateOffline
+                        ? "You're offline. Daily reports, time sheets, material and expense logs, notes and receipts save on this device and sync when you reconnect; estimates and invoices can be drafted."
+                        : "You're offline. You can view saved documents; creating and editing are paused until you reconnect."}
                 </div>
             )}
 
@@ -276,7 +285,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                         icon={FileTextIcon}
                         title="No documents yet"
                         description={t.noDocsYet}
-                        action={<button type="button" className="btn btn-primary" onClick={onNewDocument} disabled={!isOnline}><PlusIcon className="h-4 w-4" /> Create first document</button>}
+                        action={<button type="button" className="btn btn-primary" onClick={onNewDocument} disabled={!canCreate}><PlusIcon className="h-4 w-4" /> Create first document</button>}
                     />
                 ) : filtered.length === 0 ? (
                     <EmptyState

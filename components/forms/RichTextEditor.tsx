@@ -17,6 +17,7 @@ import {
     liftListsOutOfParagraphs, normalizeChecklists, openLinkSafely, placeCaretAfterBox, placeCaretAtEnd, separateFromChecklist, setSelectionOffsets, tableAddColumn, tableAddRow,
     tableDeleteRow, textStats, toggleChecklist, toggleChecklistItem, toSafeLink, unwrapElement, type TextOffsets,
 } from './richTextDom.ts';
+import { rememberOfflinePhoto } from '../../lib/offline/offlinePhotos.ts';
 
 export interface RichTextEditorHandle {
     /** current sanitized HTML (use it right before saving / downloading) */
@@ -812,9 +813,17 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
                 url = await fileToDataUrl(compressed);
                 if (!EMBEDDABLE.test(url)) throw new Error('this image type can’t be embedded. Please use a JPG or PNG.');
             }
+            // offline: remembered, so the offline outbox uploads it when the document syncs (lib/offline/offlinePhotos.ts)
+            const offlineNow = embedded && typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (offlineNow) void rememberOfflinePhoto(url);
             insertHtml(`<img src="${attr(url)}" alt="Photo" style="max-width:100%;height:auto;border-radius:8px;display:inline-block;margin:4px 0" />`);
             if (embedded && onUploadImage) {
-                setNotice({ tone: 'info', text: 'The photo couldn’t be uploaded (offline?), so it was saved inside the document. It still appears in the PDF.' });
+                setNotice({
+                    tone: 'info',
+                    text: offlineNow
+                        ? 'You’re offline: the photo is kept with the document on this device and uploaded when it syncs. It appears in the PDF.'
+                        : 'The photo couldn’t be uploaded (offline?), so it was saved inside the document. It still appears in the PDF.',
+                });
             }
         } catch (e) {
             setNotice({ tone: 'warn', text: describeImageError(e) });

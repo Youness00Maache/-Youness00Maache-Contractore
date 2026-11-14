@@ -16,12 +16,28 @@ export const MessageAppButtons: React.FC<{
     className?: string;
     /** called when one is opened (e.g. to remember that the client was messaged) */
     onOpen?: (channel: 'sms' | 'whatsapp') => void;
-}> = ({ phone, message, variant = 'row', tileClassName = '', className = '', onOpen }) => {
+    /** greyed out with this reason (e.g. offline / document not synced yet) */
+    disabledReason?: string | null;
+}> = ({ phone, message, variant = 'row', tileClassName = '', className = '', onOpen, disabledReason }) => {
     const sms = smsHref(phone, message);
     const wa = whatsappHref(phone, message);
     const direct = Boolean(whatsappNumber(phone));
     const shownPhone = String(phone || '').trim();
 
+    if (variant === 'tiles' && disabledReason) {
+        return (
+            <>
+                <button type="button" className={tileClassName} disabled title={disabledReason}>
+                    <span className="flex items-center gap-2 font-semibold text-foreground"><MessageSquareIcon className="h-4 w-4 text-primary" /> Text message</span>
+                    <span className="truncate text-xs text-muted-foreground">Needs a connection</span>
+                </button>
+                <button type="button" className={tileClassName} disabled title={disabledReason}>
+                    <span className="flex items-center gap-2 font-semibold text-foreground"><MessageCircleIcon className="h-4 w-4 text-primary" /> WhatsApp</span>
+                    <span className="truncate text-xs text-muted-foreground">Needs a connection</span>
+                </button>
+            </>
+        );
+    }
     if (variant === 'tiles') {
         return (
             <>
@@ -34,6 +50,14 @@ export const MessageAppButtons: React.FC<{
                     <span className="truncate text-xs text-muted-foreground">{direct ? `Chat with ${shownPhone}` : 'Pick the chat in WhatsApp'}</span>
                 </a>
             </>
+        );
+    }
+    if (disabledReason) {
+        return (
+            <div className={`flex flex-wrap gap-2 ${className}`}>
+                <button type="button" className="btn btn-outline btn-sm min-h-[40px]" disabled title={disabledReason}><MessageSquareIcon className="h-4 w-4" /> Text</button>
+                <button type="button" className="btn btn-outline btn-sm min-h-[40px]" disabled title={disabledReason}><MessageCircleIcon className="h-4 w-4" /> WhatsApp</button>
+            </div>
         );
     }
     return (

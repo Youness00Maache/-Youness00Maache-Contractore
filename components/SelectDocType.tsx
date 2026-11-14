@@ -11,6 +11,8 @@ interface SelectDocTypeProps {
   docCount?: number;
   /** Shown in the subtitle. */
   jobName?: string;
+  /** Offline: only these types can be saved (the others are shown greyed out with the reason). Unset = all. */
+  offlineTypes?: readonly FormType[];
 }
 
 export interface DocTypeMeta {
@@ -46,7 +48,7 @@ const GROUP_LABELS: Record<DocTypeMeta['group'], string> = {
   Records: 'Records',
 };
 
-const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack, jobName }) => {
+const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack, jobName, offlineTypes }) => {
   const groups: DocTypeMeta['group'][] = ['Money', 'Field', 'Records'];
   return (
     <div className="page max-w-5xl">
@@ -56,28 +58,39 @@ const SelectDocType: React.FC<SelectDocTypeProps> = ({ onSelect, onBack, jobName
         onBack={onBack}
       />
 
+      {offlineTypes && (
+        <p className="mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground" role="status">
+          You're offline. These documents save on this device and sync when you reconnect; the greyed-out ones need a connection.
+        </p>
+      )}
+
       <div className="space-y-8">
         {groups.map(group => (
           <section key={group} aria-labelledby={`doc-group-${group}`}>
             <h2 id={`doc-group-${group}`} className="label mb-3">{GROUP_LABELS[group]}</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {DOC_TYPE_META.filter(m => m.group === group).map(({ type, description, icon: Icon, tone }) => (
+              {DOC_TYPE_META.filter(m => m.group === group).map(({ type, description, icon: Icon, tone }) => {
+                const unavailable = Boolean(offlineTypes && !offlineTypes.includes(type));
+                return (
                 <button
                   key={type}
                   type="button"
                   onClick={() => onSelect(type)}
-                  className="card group flex min-h-[72px] items-center gap-4 p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card"
+                  disabled={unavailable}
+                  title={unavailable ? 'Needs a connection' : undefined}
+                  className="card group flex min-h-[72px] items-center gap-4 p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-card disabled:pointer-events-none disabled:opacity-50"
                 >
                   <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${tone}`}>
                     <Icon className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block font-semibold text-foreground">{type}</span>
-                    <span className="block truncate text-sm text-muted-foreground">{description}</span>
+                    <span className="block truncate text-sm text-muted-foreground">{unavailable ? 'Needs a connection' : description}</span>
                   </span>
                   <ChevronRightIcon className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </button>
-              ))}
+                );
+              })}
             </div>
           </section>
         ))}

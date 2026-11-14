@@ -8,6 +8,7 @@ import { clearPaymentReport } from '../lib/paymentsApi.ts';
 import DocumentRemindersPanel from './reminders/DocumentRemindersPanel.tsx';
 import ShareModal from './ShareModal.tsx';
 import ShareButton from './forms/ShareButton.tsx';
+import { useOfflineDoc } from './offline/OfflineContext.tsx';
 import { FormShell } from './forms/FormShell.tsx';
 import { DateField, FieldGrid, FormSection, SelectField, Segmented, TextAreaField, TextField, Toggle } from './forms/Fields.tsx';
 import { AIInsightsSection, ClientSection, CompanySection, SignatureSection, TemplateSection } from './forms/Sections.tsx';
@@ -65,6 +66,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
     const [payLinkOpen, setPayLinkOpen] = useState(Boolean(saved?.paypalLink));
     const [markPaidDoc, setMarkPaidDoc] = useState<FormDataType | null>(null);
     const [reportBusy, setReportBusy] = useState(false);
+    // offline / not synced yet: recording a payment (and its receipt + emails) waits for the account
+    const payBlocked = useOfflineDoc()?.sendBlockedReason ?? null;
 
     const download = (d: InvoiceData) => generateInvoicePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID);
     const stockLookup = useMemo(() => makeStockLookup(inventoryItems, saved), [inventoryItems, saved]);
@@ -159,7 +162,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
         }
     };
     const markPaidButton = canMarkPaid(d.status) && totals.total > 0 ? (
-        <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => void openMarkPaid()} disabled={form.busy}>
+        <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={() => void openMarkPaid()} disabled={form.busy || Boolean(payBlocked)} title={payBlocked || undefined}>
             <CheckCircleIcon className="h-4 w-4" /> Mark as paid
         </button>
     ) : null;
@@ -211,8 +214,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = props => {
                         </p>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
-                        <button type="button" className="btn btn-ghost btn-sm min-h-[40px]" onClick={() => void dismissReport()} disabled={reportBusy || form.busy}>Not received</button>
-                        <button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={() => void openMarkPaid()} disabled={form.busy}>
+                        <button type="button" className="btn btn-ghost btn-sm min-h-[40px]" onClick={() => void dismissReport()} disabled={reportBusy || form.busy || Boolean(payBlocked)} title={payBlocked || undefined}>Not received</button>
+                        <button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={() => void openMarkPaid()} disabled={form.busy || Boolean(payBlocked)} title={payBlocked || undefined}>
                             <CheckCircleIcon className="h-4 w-4" /> Mark as paid
                         </button>
                     </div>

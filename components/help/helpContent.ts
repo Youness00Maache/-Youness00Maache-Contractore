@@ -88,7 +88,11 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Send it', text: '[[Share]] saves the document, then offers [[Send with Gmail]], [[Download PDF]], [[Copy portal link]], an approval link for estimates and change orders, and text or WhatsApp.' },
       { title: 'Let AI fill it', text: '[[AI fill]] fills the form from a description you type or say. It only fills fields: nothing is saved until you click [[Save]].' },
     ],
-    tips: [`Free plan: ${FREE_LIMITS.docs} new documents per job each month (deleted documents still count).`, 'Invoices can repeat on a schedule (Repeat this invoice) and switch to progress billing in Items.'],
+    tips: [
+      `Free plan: ${FREE_LIMITS.docs} new documents per job each month (deleted documents still count).`,
+      'Invoices can repeat on a schedule (Repeat this invoice) and switch to progress billing in Items.',
+      'No signal on site? Daily job reports, time sheets, material and expense logs, notes and receipts still save on your device with a Waiting to sync badge, and new estimates and invoices can be drafted (their number is confirmed when they sync). They sync by themselves when you are back online, or tap [[Sync now]]. Sending and links wait until then; [[View]] lists what is waiting.',
+    ],
   },
   {
     id: 'estimates',

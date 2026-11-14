@@ -8,6 +8,7 @@ import { Spinner } from './Spinner.tsx';
 import { DocumentPreviewModal, PreviewButton } from './DocumentPreview.tsx';
 import { DocumentDesignContext } from './Sections.tsx';
 import HelpButton from '../help/HelpButton.tsx';
+import { SyncChip, useOfflineDoc } from '../offline/OfflineContext.tsx';
 
 export { Spinner };
 
@@ -141,6 +142,20 @@ export const FormShell: React.FC<FormShellProps> = ({
     const [confirmLeave, setConfirmLeave] = useState(false);
     const [previewOpen, setPreviewOpen] = useState(false);
     const busy = saving || downloading;
+    // offline outbox (App.tsx provides it): "Waiting to sync" / "Not synced", or "Offline" while nothing waits
+    const offline = useOfflineDoc();
+    const syncChip = offline?.pending
+        ? <SyncChip variant="badge" tone={offline.pending.tone} label={offline.pending.label} title={offline.pending.reason} className="shrink-0" />
+        : offline && !offline.online
+            ? <SyncChip
+                variant="badge"
+                tone="offline"
+                label="Offline"
+                title={offline.canSaveOffline ? 'Saving keeps it on this device; it syncs when you’re back online.' : 'This document can’t be saved until you’re back online.'}
+                className="shrink-0"
+            />
+            : null;
+    const syncProblem = offline?.pending?.tone === 'error' ? offline.pending.reason : null;
 
     const requestBack = () => {
         if (isDirty) setConfirmLeave(true);
@@ -188,12 +203,15 @@ export const FormShell: React.FC<FormShellProps> = ({
                         <div className="flex min-w-0 items-center gap-2">
                             <h1 className="truncate text-base font-bold tracking-tight sm:text-lg">{title}</h1>
                             <StatusBadge status={status} className="shrink-0" />
+                            {syncChip}
                             {aiGenerated && (
                                 <span className="badge badge-primary hidden shrink-0 sm:inline-flex"><SparklesIcon className="h-3 w-3" /> AI draft</span>
                             )}
                         </div>
                         <p className="truncate text-xs text-muted-foreground">
-                            {isDirty ? <span className="font-medium text-warning">Unsaved changes</span> : subtitle}
+                            {isDirty
+                                ? <span className="font-medium text-warning">Unsaved changes</span>
+                                : syncProblem ? <span className="font-medium text-destructive">{syncProblem}</span> : subtitle}
                         </p>
                     </div>
                     <div className="hidden items-center gap-2 md:flex">{secondary}</div>

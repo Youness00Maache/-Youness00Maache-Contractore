@@ -44,6 +44,18 @@ import { parseView, type AppView } from './lib/routes.ts';
 import { dbApi } from './utils/db.ts';
 import { saveDefaultSignatureToAccount, saveUiPreferencesToAccount, syncUiPreferencesAfterLogin, syncUserDataAfterLogin } from './lib/userData.ts';
 import { compressImage } from './utils/imageCompression.ts';
+import { DOC_NUMBER_CONFIG, nextDocumentNumber } from './components/forms/formUtils.ts';
+// Offline create / edit (competitor gap #14): outbox on this device, synced through the same document save
+import { upsertDocumentRecord, fetchDocumentForSync, fetchDocumentNumbers } from './lib/documentSave.ts';
+import { useOutbox, type OutboxDeps } from './lib/offline/useOutbox.ts';
+import type { SyncReport } from './lib/offline/syncEngine.ts';
+import { OFFLINE_CREATE_TYPES, applyOutboxOverlay, canCreateOffline, contentHash, numberRuleFor, offlineSavePolicy, pendingCreatesByJob, type OutboxItem, type OutboxKind } from './lib/offline/outboxModel.ts';
+import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
+import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
+import { OfflineDocContext, OutboxStatusContext, sendBlockedReasonFor } from './components/offline/OfflineContext.tsx';
+import SyncStatusBar from './components/offline/SyncStatusBar.tsx';
+import OutboxPanel from './components/offline/OutboxPanel.tsx';
+import LogoutGuardDialog from './components/offline/LogoutGuardDialog.tsx';
 import type { EstimateHandoff } from './components/requests/RequestDetailModal.tsx';
 import type { ConvertResult } from './components/requests/requestsApi.ts';
 
@@ -172,6 +184,24 @@ const uploadFile = async (bucket: string, file: File, userId: string, prefix = '
 /** A save refused by a Free plan limit: the form shows this message and keeps everything typed (0b.4). */
 class PlanLimitSaveError extends Error {}
 
+/** File → data URL (a photo picked offline is kept inside the document until it syncs). */
+const fileToDataUrl = (file: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read the image.'));
+    reader.readAsDataURL(file);
+});
+
+/**
+ * Field-document forms, loaded ahead of time on a job page while online, so "New document" still opens them after
+ * the connection drops (lazy chunks can't be fetched offline). Same modules as the lazy() imports above.
+ */
+const prefetchOfflineForms = () => Promise.allSettled([
+    import('./components/DailyJobReportForm.tsx'), import('./components/TimeSheetForm.tsx'), import('./components/MaterialLogForm.tsx'),
+    import('./components/ExpenseLogForm.tsx'), import('./components/NoteForm.tsx'), import('./components/ReceiptForm.tsx'),
+    import('./components/EstimateForm.tsx'), import('./components/InvoiceForm.tsx'),
+]);
+
 /** React key of a not-yet-saved form; reused after its first save so the form isn't remounted. */
 const newFormKey = (formType: string, prefillData: any, routeKey: string) => `new-${formType}-${prefillData?.__draftId ?? routeKey}`;
 
@@ -267,8 +297,28 @@ const App: React.FC = () => {
     const [draftJob, setDraftJob] = useState<AppJob | null>(null);
     const [jobs, setJobs] = useState<AppJob[]>([]);
     const [jobsLoaded, setJobsLoaded] = useState(false);
-    const [forms, setForms] = useState<FormDataType[]>([]);
+    /** Documents loaded from the account (or the read cache). `forms` below adds the offline outbox on top. */
+    const [serverForms, setForms] = useState<FormDataType[]>([]);
+    const serverFormsRef = useRef(serverForms);
+    serverFormsRef.current = serverForms;
     const [clients, setClients] = useState<Client[]>([]);
+
+    // ── Offline outbox (lib/offline): documents saved without a connection, per user, synced in order ─────────
+    const outboxDepsRef = useRef<() => OutboxDeps | null>(() => null);
+    const outboxReportRef = useRef<(report: SyncReport, trigger: string) => void>(() => undefined);
+    const outbox = useOutbox(session?.user?.id ?? null, {
+        buildDeps: () => outboxDepsRef.current(),
+        onReport: (report, opts) => outboxReportRef.current(report, opts.trigger),
+        autoSync: profileStatus === 'ready',
+    });
+    /** Every document the screens show: the account's, with the versions waiting in the outbox on top. */
+    const forms = useMemo(
+        () => applyOutboxOverlay(serverForms, outbox.items, session?.user?.id),
+        [serverForms, outbox.items, session?.user?.id],
+    );
+    const pendingCreates = useMemo(() => pendingCreatesByJob(outbox.items, session?.user?.id), [outbox.items, session?.user?.id]);
+    const [outboxOpen, setOutboxOpen] = useState(false);
+    const [logoutGuard, setLogoutGuard] = useState<{ count: number; problem: string | null } | null>(null);
 
     // AI assistant state lives in useAIAssistant (called with the AI-owned render helpers below).
 
@@ -357,7 +407,8 @@ const App: React.FC = () => {
      * document does not give the slot back). Falls back to the loaded documents only when usage_events can't be read.
      */
     const docsUsedThisMonth = (jobId: string): number => {
-        if (docUsage) return docUsage[jobId] ?? 0;
+        // new documents waiting in the offline outbox take their slot when they sync
+        if (docUsage) return (docUsage[jobId] ?? 0) + (pendingCreates.get(jobId) ?? 0);
         return forms.filter(f => f.jobId === jobId && isThisMonth(f.createdAt)).length;
     };
 
@@ -409,8 +460,9 @@ const App: React.FC = () => {
             : null;
         if (fresh === null) return checkLimit('docs', jobId);
         setDocUsage(prev => ({ ...(prev || {}), [jobId]: fresh }));
-        if (fresh >= limit) {
-            openUpgrade(docLimitMessage(fresh, limit));
+        const used = fresh + (pendingCreates.get(jobId) ?? 0);
+        if (used >= limit) {
+            openUpgrade(docLimitMessage(used, limit));
             return false;
         }
         return true;
@@ -443,7 +495,7 @@ const App: React.FC = () => {
         if (sessionUserIdRef.current) void saveUiPreferencesToAccount({ theme: next, language: profile?.language });
     };
 
-    // ── Online / offline (read-only cache; nothing is queued, CORE-016) ───────
+    // ── Online / offline (read cache + the offline outbox, which syncs by itself on `online`: lib/offline) ───
     useEffect(() => {
         const handleOnline = () => {
             setIsOnline(true);
@@ -602,7 +654,7 @@ const App: React.FC = () => {
         if (sessionUserIdRef.current === uid) setDocUsage(perJob);
     }, []);
 
-    const writeCache = (userId: string, payload: { profile?: AppProfile; jobs?: AppJob[]; clients?: Client[]; documents?: FormDataType[] }) => {
+    const writeCache = (userId: string, payload: { profile?: AppProfile; jobs?: AppJob[]; clients?: Client[]; documents?: FormDataType[]; inventory?: InventoryItem[]; savedItems?: SavedItem[] }) => {
         // Best effort, never blocks the UI. Read-only offline cache (no secrets are stored).
         (async () => {
             try {
@@ -610,6 +662,9 @@ const App: React.FC = () => {
                 if (payload.jobs) await dbApi.replaceAll('jobs', payload.jobs);
                 if (payload.clients) await dbApi.replaceAll('clients', payload.clients);
                 if (payload.documents) await dbApi.putMany('documents', payload.documents.filter(d => isLightweightDocument(d)));
+                // price book + stock for documents drafted offline (line-item pickers)
+                if (payload.inventory) await dbApi.replaceAll('inventory', payload.inventory.filter(i => i && (i as any).id));
+                if (payload.savedItems) await dbApi.replaceAll('saved_items', payload.savedItems.filter(i => i && (i as any).id));
             } catch { /* cache is optional */ }
         })();
     };
@@ -629,6 +684,14 @@ const App: React.FC = () => {
             setClients(cachedClients.filter(c => c?.user_id === userId));
             setForms(mergeDocuments([], cachedDocs.filter(d => d && !String(d.id).startsWith('full:') && jobIds.has(d.jobId))));
             setUsingCachedData(true);
+            // price book + stock (optional: older caches don't have them)
+            void Promise.all([dbApi.getAll('inventory'), dbApi.getAll('saved_items')]).then(([inv, saved]) => {
+                if (sessionUserIdRef.current !== userId) return;
+                const mineInv = inv.filter(i => i?.user_id === userId);
+                const mineSaved = saved.filter(i => i?.user_id === userId);
+                if (mineInv.length) setInventory(prev => (prev.length ? prev : mineInv));
+                if (mineSaved.length) setSavedItems(prev => (prev.length ? prev : mineSaved));
+            }).catch(() => undefined);
             return true;
         } catch {
             return false;
@@ -683,7 +746,7 @@ const App: React.FC = () => {
             }
         });
 
-        const [jobsRes, docsRes, clientsRes] = await Promise.allSettled([
+        const [jobsRes, docsRes, clientsRes, inventoryRes, savedItemsRes] = await Promise.allSettled([
             loadJobs(user.id),
             loadRecentDocuments(user.id),
             loadClients(user.id),
@@ -707,6 +770,8 @@ const App: React.FC = () => {
             jobs: jobsRes.status === 'fulfilled' ? jobsRes.value : undefined,
             clients: clientsRes.status === 'fulfilled' ? clientsRes.value : undefined,
             documents: docsRes.status === 'fulfilled' ? docsRes.value : undefined,
+            inventory: inventoryRes.status === 'fulfilled' && Array.isArray(inventoryRes.value) && inventoryRes.value.length ? inventoryRes.value as InventoryItem[] : undefined,
+            savedItems: savedItemsRes.status === 'fulfilled' && Array.isArray(savedItemsRes.value) && savedItemsRes.value.length ? savedItemsRes.value as SavedItem[] : undefined,
         });
     };
 
@@ -810,6 +875,23 @@ const App: React.FC = () => {
     useEffect(() => {
         if (viewJobId && session?.user?.id && profileStatus === 'ready') loadDocumentsForJob(viewJobId, true);
     }, [viewJobId, session?.user?.id, profileStatus, loadDocumentsForJob]);
+
+    // On a job page (online, once per session, not in data-saver mode) the field-document forms are loaded in the
+    // background, so "New document" still opens them if the connection drops on site.
+    const offlineFormsPrefetchedRef = useRef(false);
+    useEffect(() => {
+        if (view.screen !== 'jobDetails' || profileStatus !== 'ready' || offlineFormsPrefetchedRef.current) return;
+        if (!navigator.onLine || (navigator as any).connection?.saveData) return;
+        offlineFormsPrefetchedRef.current = true;
+        const idle: (cb: () => void) => void = (window as any).requestIdleCallback
+            ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 5000 })
+            : (cb) => { setTimeout(cb, 2000); };
+        idle(() => { void prefetchOfflineForms().then(() => warmOfflineShell()); });
+    }, [view.screen, profileStatus]);
+
+    // The app opens without a connection (public/sw.js, production builds only). Signed-in users only: the marketing
+    // site and the clients' portal / approval pages never register it.
+    useEffect(() => { if (session?.user?.id) registerOfflineShell(); }, [session?.user?.id]);
 
     const openFormId = view.screen === 'form' ? view.formId : null;
     const openForm = openFormId ? forms.find(f => f.id === openFormId) : undefined;
@@ -929,8 +1011,10 @@ const App: React.FC = () => {
     };
 
     /** Logout clears everything the previous user left on this device (CORE-008, CORE-028). */
-    const handleLogout = async () => {
+    const performLogout = async () => {
         loggingOutRef.current = true;
+        // this user's offline outbox + its 7-day history (only reached after the "not synced yet" warning)
+        await outbox.clearAll(sessionUserIdRef.current);
         try {
             await supabase.auth.signOut({ scope: navigator.onLine ? 'global' : 'local' });
         } catch {
@@ -943,11 +1027,32 @@ const App: React.FC = () => {
         window.location.replace('/');
     };
 
+    /** Logout asks first when documents saved offline haven't reached the account yet ("Sync first"). */
+    const handleLogout = async () => {
+        const waiting = await outbox.countUnsynced();
+        if (waiting > 0) { setLogoutGuard({ count: waiting, problem: null }); return; }
+        await performLogout();
+    };
+
+    const handleLogoutSyncFirst = async () => {
+        const report = await outbox.sync({ trigger: 'manual', includeBlocked: true });
+        const left = await outbox.countUnsynced();
+        if (left === 0) {
+            setLogoutGuard(null);
+            await performLogout();
+            return;
+        }
+        const problem = report?.refused[0]?.message
+            || (report?.networkStopped ? 'the connection dropped. Try again in a moment.' : report ? 'try again in a moment.' : 'another tab is syncing. Try again in a moment.');
+        setLogoutGuard({ count: left, problem });
+    };
+
     // ── Navigation helpers (also used by the AI action handler) ──────────────
     const navigateToDashboard = () => setView({ screen: 'dashboard' });
     const navigateToSettings = () => setView({ screen: 'settings' });
     const navigateToNewDoc = async (jobId: string) => {
-        if (!navigator.onLine) { toast.error("You're offline. Reconnect to create documents."); return; }
+        // offline: field documents and estimate / invoice drafts go to the outbox (the picker greys out the rest);
+        // ensureDocSlot then checks the Free plan with the counts on this device
         if (await ensureDocSlot(jobId)) setView({ screen: 'selectDocType', jobId });
     };
     const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard', prefillData?: Record<string, unknown>) => {
@@ -995,6 +1100,22 @@ const App: React.FC = () => {
             return await uploadFile('logos', compressed, uid, 'doc');
         } catch (e) {
             toast.error(`Image upload failed. ${describeError(e)}`);
+            return '';
+        }
+    };
+
+    /**
+     * Image fields of the document forms (logo...). Online: the upload above, unchanged. Offline: the compressed photo is
+     * kept inside the document and uploaded when the document syncs (lib/offline/offlinePhotos.ts).
+     */
+    const handleUploadFormImage = async (file: File): Promise<string> => {
+        if (navigator.onLine) return handleUploadDocumentImage(file);
+        try {
+            const dataUrl = await fileToDataUrl(await compressImage(file));
+            void rememberOfflinePhoto(dataUrl);
+            return dataUrl;
+        } catch (e) {
+            toast.error(`The image couldn't be added. ${describeError(e)}`);
             return '';
         }
     };
@@ -1062,6 +1183,7 @@ const App: React.FC = () => {
             throw new Error("Automatic account deletion isn't available right now.");
         }
         loggingOutRef.current = true;
+        await outbox.clearAll(sessionUserIdRef.current);
         try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* ignore */ }
         clearDocumentCache();
         clearUserBrowserStorage();
@@ -1384,6 +1506,7 @@ const App: React.FC = () => {
     const handleDuplicateDoc = async (form: FormDataType) => {
         const uid = sessionUserIdRef.current;
         if (!uid) return;
+        if (outbox.itemFor(form.id)) { toast.info('This document is still waiting to sync. Duplicate it once it has synced.'); return; }
         if (!navigator.onLine) { toast.error("You're offline. Reconnect to duplicate documents."); return; }
         if (!(await ensureDocSlot(form.jobId))) return;
         try {
@@ -1410,12 +1533,21 @@ const App: React.FC = () => {
     const handleDeleteDoc = async () => {
         const id = docToDelete;
         if (!id) return;
+        const waiting = outbox.itemFor(id);
+        if (waiting?.kind === 'create') {
+            // never reached the account: it only leaves the outbox (kept 7 days under "Saved on this device")
+            await outbox.discard(id);
+            toast.success('Document deleted.');
+            if (view.screen === 'form' && view.formId === id) navigate(`/jobs/${view.jobId}`, { replace: true });
+            return;
+        }
         if (!navigator.onLine) { toast.error("You're offline. Reconnect to delete documents."); throw new Error('offline'); }
         const { error } = await supabase.from('documents').delete().eq('id', id);
         if (error) {
             toast.error(`Could not delete the document. ${describeError(error)}`);
             throw error;
         }
+        if (waiting) await outbox.discard(id); // its offline edit goes with it
         invalidateDocument(id);
         setForms(prev => prev.filter(f => f.id !== id));
         dbApi.delete('documents', id).catch(() => undefined);
@@ -1460,6 +1592,77 @@ const App: React.FC = () => {
     };
 
     /**
+     * A save that goes to the offline outbox (lib/offline): no connection, or a document that is still waiting there.
+     * It is listed at once with a "Waiting to sync" chip; online it is sent right away through the same document save.
+     * Resolves like handleSaveForm (the form shows "Saved"; the chip says whether it reached the account).
+     */
+    const saveFormToOutbox = async (formData: any, kind: OutboxKind): Promise<false | { id: string; public_token: string | null }> => {
+        if (!session || view.screen !== 'form') return false;
+        try {
+            if (!view.formId && (!newFormIdRef.current || newFormIdRef.current.key !== location.key)) {
+                newFormIdRef.current = { key: location.key, id: crypto.randomUUID() };
+            }
+            const docId = view.formId || newFormIdRef.current!.id;
+            const job = jobs.find(j => j.id === view.jobId);
+            if (!job) {
+                toast.error("This job isn't on your account yet, so the document can't wait offline. Reconnect, then save again.");
+                return false;
+            }
+            const existing = forms.find(f => f.id === docId);
+            const waiting = outbox.itemFor(docId);
+            const dataToSave = stripLightweightFlag({
+                ...formData,
+                ...((formData as any).isAiDrafted || (formData as any).isAiGenerated || view.prefillData?.isAiDrafted ? { isAiGenerated: true } : {}),
+            });
+            assertFullDocument({ data: dataToSave });
+            const clientId = job.clientId || findClientIdByName((dataToSave as any).clientName || job.clientName) || null;
+            // an edit remembers the version it started from (conflict check on sync); a new document its number rule
+            const base = kind === 'edit' && !waiting && existing && !isLightweightDocument(existing)
+                ? { hash: contentHash(existing.data as unknown as Record<string, unknown>), updatedAt: null }
+                : null;
+            const cfg = DOC_NUMBER_CONFIG[view.formType];
+            const suggested = cfg && kind === 'create' && !waiting
+                ? nextDocumentNumber(cfg.prefix, forms.filter(f => f.type === view.formType && f.id !== docId).map(f => String((f.data as any)?.[cfg.field] || '')).filter(Boolean))
+                : null;
+            const number = kind === 'create' && !waiting && cfg ? numberRuleFor(view.formType, (dataToSave as any)[cfg.field], suggested) : null;
+            await outbox.queue({ userId: session.user.id, docId, jobId: view.jobId, type: view.formType, kind, data: dataToSave, clientId, base, number });
+
+            // like an online save: the form stays on the document (its URL is replaced), Back/refresh reopen it
+            if (!view.formId || view.prefillData) {
+                formKeyAliasRef.current[docId] = newFormKey(view.formType, view.prefillData, location.key);
+                navigate(`/jobs/${view.jobId}/forms/${encodeURIComponent(view.formType)}/${docId}`, { replace: true, state: { fromJob: (location.state as any)?.fromJob ?? true } });
+            }
+            newFormIdRef.current = null;
+            const token = existing?.public_token ?? null;
+
+            if (!navigator.onLine) {
+                toast.success(`${view.formType} saved on this device. It syncs when you're back online.`);
+                return { id: docId, public_token: token };
+            }
+            // online (a document that was waiting): send it now
+            const report = await outbox.sync({ trigger: 'save', onlyDocIds: [docId], includeBlocked: true });
+            const synced = report?.synced.find(s => s.docId === docId);
+            if (synced) {
+                toast.success(synced.created ? `${view.formType} created.` : `${view.formType} saved.`);
+                return { id: docId, public_token: synced.publicToken ?? token };
+            }
+            const refused = report?.refused.find(r => r.docId === docId);
+            if (refused?.kind === 'plan_limit') {
+                openUpgrade(refused.message);
+                toast.info(`Saved on this device, not on your account yet: ${refused.message}`, { duration: 10000 });
+            } else if (refused) {
+                toast.error(`Saved on this device, but it couldn't sync: ${refused.message}`, { duration: 10000 });
+            } else {
+                toast.info('Saved on this device. It syncs in a moment.');
+            }
+            return { id: docId, public_token: token };
+        } catch (err) {
+            toast.error(`It couldn't be kept on this device. ${describeError(err)}`);
+            return false;
+        }
+    };
+
+    /**
      * `onSave` for the 12 forms. Resolves `false` when nothing was saved (offline, DB error: a toast says why) and
      * `{ id, public_token }` when saved. When a Free plan limit refuses the save it REJECTS with the reason (and
      * opens the upgrade modal): the form shows the message and keeps everything typed, so nothing is lost (0b.4).
@@ -1469,9 +1672,23 @@ const App: React.FC = () => {
     const handleSaveForm = async (formData: any): Promise<false | { id: string; public_token: string | null }> => {
         if (!session || view.screen !== 'form') return false;
         if (savingFormPromiseRef.current) return savingFormPromiseRef.current; // auto-save + click share one save (CORE-034)
-        if (!navigator.onLine) {
-            toast.error("You're offline. Your document is still open; save again when you're back online.");
-            return false;
+        // Offline, or a document still waiting in the outbox: the save goes through the outbox (lib/offline).
+        const knownId = view.formId || (newFormIdRef.current?.key === location.key ? newFormIdRef.current.id : null);
+        const waitingItem = outbox.itemFor(knownId);
+        if (!navigator.onLine || waitingItem) {
+            const kind: OutboxKind = waitingItem ? waitingItem.kind : view.formId ? 'edit' : 'create';
+            const policy = offlineSavePolicy(view.formType, kind);
+            if (!policy.ok && !waitingItem) {
+                toast.error(policy.reason);
+                return false;
+            }
+            const pending = saveFormToOutbox(formData, kind);
+            savingFormPromiseRef.current = pending;
+            try {
+                return await pending;
+            } finally {
+                savingFormPromiseRef.current = null;
+            }
         }
         const run = async (): Promise<false | { id: string; public_token: string | null }> => {
             // A new document keeps one id for its whole route visit, so retries/double saves update the same row.
@@ -1506,11 +1723,8 @@ const App: React.FC = () => {
             const linkedClientId = job?.clientId || findClientIdByName((dataToSave as any).clientName || job?.clientName);
             if (linkedClientId) record.client_id = linkedClientId;
 
-            let { data: savedRow, error: saveError } = await supabase.from('documents').upsert(record).select('public_token').maybeSingle();
-            if (saveError && 'client_id' in record && isMissingColumnError(saveError)) {
-                delete record.client_id;
-                ({ data: savedRow, error: saveError } = await supabase.from('documents').upsert(record).select('public_token').maybeSingle());
-            }
+            // the same upsert the offline outbox uses when it syncs (lib/documentSave.ts)
+            const { row: savedRow, error: saveError } = await upsertDocumentRecord(record);
             if (saveError) {
                 if (isPlanLimitError(saveError)) {
                     const reason = planLimitMessage(saveError);
@@ -1554,6 +1768,58 @@ const App: React.FC = () => {
         } finally {
             savingFormPromiseRef.current = null;
         }
+    };
+
+    // ── Offline outbox sync: the network side (same save, photo upload and number lookup as online) ───────────
+    outboxDepsRef.current = () => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) return null;
+        return {
+            upsert: upsertDocumentRecord,
+            fetchServer: fetchDocumentForSync,
+            fetchNumbers: fetchDocumentNumbers,
+            uploadPhoto: async (dataUrl: string) => {
+                const blob = dataUrlToBlob(dataUrl);
+                const file = new File([blob], `photo.${extensionForType(blob.type)}`, { type: blob.type });
+                return uploadFile('logos', file, uid, 'doc');
+            },
+            isOnline: () => navigator.onLine !== false,
+            onSynced: (doc) => {
+                if (sessionUserIdRef.current !== uid) return;
+                const known = serverFormsRef.current.find(f => f.id === doc.docId);
+                const savedForm = mapDocumentRow({
+                    id: doc.docId, job_id: doc.jobId, type: doc.type, data: doc.data,
+                    created_at: known?.createdAt ?? new Date().toISOString(), public_token: doc.publicToken ?? known?.public_token ?? null,
+                }, true);
+                primeDocumentCache(savedForm);
+                setForms(prev => mergeDocuments(prev.filter(f => f.id !== savedForm.id), [savedForm]));
+                dbApi.put('documents', { ...savedForm, id: `full:${savedForm.id}`, docId: savedForm.id }).catch(() => undefined);
+                if (doc.created) bumpDocUsage(doc.jobId);
+                const touchesStock = doc.type === FormType.MaterialLog ? Boolean((doc.data as any)?.deductInventory) : [FormType.Invoice, FormType.Estimate].includes(doc.type as FormType);
+                if (touchesStock) loadInventory(uid).catch(() => undefined);
+            },
+        };
+    };
+
+    outboxReportRef.current = (report, trigger) => {
+        if (report.synced.length) refreshUsage();
+        if (trigger === 'save') return; // the form's own save shows the outcome
+        const n = report.synced.length;
+        if (n && !report.refused.length) toast.success(`${n} ${n === 1 ? 'document' : 'documents'} saved offline ${n === 1 ? 'is' : 'are'} now on your account.`);
+        if (report.refused.length) {
+            const first = report.refused[0];
+            toast.error(`${report.refused.length} ${report.refused.length === 1 ? 'document' : 'documents'} couldn't sync: ${first.message}`, {
+                duration: 10000, action: { label: 'View', onClick: () => setOutboxOpen(true) },
+            });
+        }
+        const conflict = report.notices.find(e => e.reason === 'conflict');
+        if (conflict) toast.info(`${conflict.title}: changed on another device — your offline version was saved.`, { duration: 10000, action: { label: 'View', onClick: () => setOutboxOpen(true) } });
+    };
+
+    /** "Open" in the outbox panel: the document form (it opens from the outbox, online or not). */
+    const openOutboxDocument = (item: OutboxItem) => {
+        setOutboxOpen(false);
+        navigate(`/jobs/${item.jobId}/forms/${encodeURIComponent(item.type)}/${item.docId}`, { state: { fromJob: false } });
     };
 
     /**
@@ -1746,6 +2012,7 @@ const App: React.FC = () => {
                 docsThisMonth={docsUsedThisMonth(job.id)}
                 docLimit={paid ? null : effectiveUsage.limits.docs}
                 isOnline={isOnline}
+                canCreateOffline
                 t={t}
                 aiButton={renderJobAIButton(job)}
                 aiModal={renderJobAIModal(job)}
@@ -1819,12 +2086,22 @@ const App: React.FC = () => {
             job,
             clients,
             onSave: handleSaveForm,
-            onUploadImage: handleUploadDocumentImage,
+            onUploadImage: handleUploadFormImage,
             prefillData: pf,
             documentId: formId ?? undefined,
             existingNumbers,
         };
 
+        // Offline state of this document: header chip, and why sending / links / payments wait (OfflineContext.tsx)
+        const waitingItem = outbox.itemFor(formId);
+        const offlineKind: OutboxKind = waitingItem ? waitingItem.kind : formId ? 'edit' : 'create';
+        const offlineDoc = {
+            online: isOnline,
+            pending: outbox.stateOf(formId),
+            canSaveOffline: Boolean(waitingItem) || offlineSavePolicy(formType, offlineKind).ok,
+            sendBlockedReason: sendBlockedReasonFor(isOnline, Boolean(waitingItem)),
+        };
+        const body = (() => {
         switch (formType) {
             case FormType.Invoice: return <InvoiceForm key={componentKey} {...common} userProfile={profile} invoice={form?.data as InvoiceData | null} onClose={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} onPaymentRecorded={handlePaymentRecorded} onUpgrade={openUpgrade} onEmailSent={handleEmailSent} onOpenReceipt={(r) => openDocument(r, true)} onOpenSettings={() => navigate('/settings#payments')} />;
             case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} {...common} profile={profile} report={form?.data as DailyJobReportData | null} onBack={handleCloseForm} />;
@@ -1854,6 +2131,8 @@ const App: React.FC = () => {
             );
             default: return renderNotFoundJob();
         }
+        })();
+        return <OfflineDocContext.Provider value={offlineDoc}>{body}</OfflineDocContext.Provider>;
     };
 
     const renderAuth = () => {
@@ -1949,6 +2228,7 @@ const App: React.FC = () => {
                     <SelectDocType
                         jobName={activeJob.name}
                         profile={profile}
+                        offlineTypes={isOnline ? undefined : OFFLINE_CREATE_TYPES}
                         onSelect={(type) => navigate(`/jobs/${activeJob.id}/forms/${encodeURIComponent(type)}`, { replace: true, state: { fromJob: true } })}
                         onBack={() => navigate(`/jobs/${activeJob.id}`, { replace: true })}
                     />
@@ -2079,6 +2359,9 @@ const App: React.FC = () => {
         }
     };
 
+    const outboxStatus = useMemo(() => ({ stateOf: (docId: string) => outbox.stateOf(docId) }), [outbox.stateOf]);
+    const jobNameById = useMemo(() => new Map(jobs.map(j => [j.id, j.name])), [jobs]);
+
     const showNav = Boolean(session && profile && profileStatus === 'ready' && !portalKey && !approvalToken && !PUBLIC_SCREENS.includes(view.screen) && !NO_NAV_SCREENS.includes(view.screen));
     const showTabBar = showNav && TAB_BAR_SCREENS.includes(view.screen);
     const viewJob = viewJobId ? jobs.find(j => j.id === viewJobId) : undefined;
@@ -2108,22 +2391,58 @@ const App: React.FC = () => {
                     showTabBar={showTabBar}
                 />
             )}
-            {showNav && (!isOnline || usingCachedData) && (
-                <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-center text-sm text-foreground" role="status">
-                    <WifiOffIcon className="mr-1.5 inline h-4 w-4 align-[-3px] text-warning" />
-                    {!isOnline
-                        ? "You're offline. Showing data saved on this device; changes can't be saved until you reconnect."
-                        : 'Showing data saved on this device. Some information may be out of date.'}
-                </div>
+            {showNav && (
+                // offline state, documents waiting to sync, "changed on another device" (replaces the offline banner)
+                <SyncStatusBar
+                    online={isOnline}
+                    usingCachedData={usingCachedData}
+                    items={outbox.items}
+                    notices={outbox.notices}
+                    syncing={outbox.syncing}
+                    onSyncNow={() => { void outbox.sync({ trigger: 'manual', includeBlocked: true }); }}
+                    onOpen={() => setOutboxOpen(true)}
+                    onDismissNotices={() => { void outbox.dismiss(); }}
+                />
             )}
 
             <main className={`overflow-x-clip ${showTabBar ? 'pb-24 md:pb-0' : ''}`}>
                 <ErrorBoundary resetKey={location.pathname} onHome={() => navigate('/dashboard')}>
                     <Suspense fallback={view.screen === 'auth' || !session ? <AppSplash /> : <PageSkeleton />}>
-                        {renderContent()}
+                        <OutboxStatusContext.Provider value={outboxStatus}>
+                            {renderContent()}
+                        </OutboxStatusContext.Provider>
                     </Suspense>
                 </ErrorBoundary>
             </main>
+
+            <OutboxPanel
+                open={outboxOpen && Boolean(session)}
+                onClose={() => setOutboxOpen(false)}
+                online={isOnline}
+                items={outbox.items}
+                history={outbox.history}
+                syncing={outbox.syncing}
+                syncingDocId={outbox.syncingDocId}
+                storeKind={outbox.storeKind}
+                jobNameById={jobNameById}
+                onSyncNow={() => { void outbox.sync({ trigger: 'manual', includeBlocked: true }); }}
+                onOpenDocument={openOutboxDocument}
+                onDiscard={outbox.discard}
+                onRestore={async (id) => { await outbox.restore(id); if (navigator.onLine) void outbox.sync({ trigger: 'manual' }); }}
+                onRemoveHistory={outbox.removeHistory}
+                onDismiss={(id) => outbox.dismiss(id)}
+                onUpgrade={(reason) => { setOutboxOpen(false); openUpgrade(reason); }}
+            />
+
+            <LogoutGuardDialog
+                open={Boolean(logoutGuard)}
+                count={logoutGuard?.count ?? 0}
+                online={isOnline}
+                problem={logoutGuard?.problem ?? null}
+                onSyncFirst={handleLogoutSyncFirst}
+                onLogoutAnyway={performLogout}
+                onCancel={() => setLogoutGuard(null)}
+            />
 
             {/* AI-OWNED: the assistant panel (dashboard + job mode), lazy-loaded on first open. */}
             {session && ai.isOpen && (

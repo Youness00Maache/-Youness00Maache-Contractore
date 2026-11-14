@@ -2,7 +2,8 @@
  * Read-only offline cache (IndexedDB). Owned by CORE.
  * - One shared connection (no connection per call), closed when another tab upgrades the schema.
  * - Every call is best-effort: a cache failure must never block the UI, so callers should `.catch(() => {})`.
- * - Nothing here queues writes for later sync: offline mode is read-only (CORE-016).
+ * - Nothing here queues writes for later sync: documents saved offline go to the separate offline outbox
+ *   (lib/offline/outboxStore.ts, its own database), which logout / account switches do not wipe without a warning.
  */
 export const DB_NAME = 'contractor_db';
 export const DB_VERSION = 3;

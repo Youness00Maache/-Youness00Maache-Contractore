@@ -11,6 +11,7 @@ import type { UsageSnapshot } from '../lib/account.ts';
 import { isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { MobileHeaderSlot, useHeaderSlot } from './AppNav.tsx';
 import HelpButton from './help/HelpButton.tsx';
+import { DocSyncChip } from './offline/OfflineContext.tsx';
 
 type StatusFilter = 'All' | Job['status'];
 type SortKey = 'newest' | 'oldest' | 'name' | 'start';
@@ -389,6 +390,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                                                     <span className="block truncate text-sm font-medium">{getDocumentTitle(doc)}</span>
                                                     <span className="block truncate text-xs text-muted-foreground">{jobNameById.get(doc.jobId) || doc.type}{doc.createdAt ? ` · ${formatShortDate(doc.createdAt)}` : ''}</span>
                                                 </span>
+                                                <DocSyncChip docId={doc.id} />
                                                 {st && <span className="badge badge-muted shrink-0">{st}</span>}
                                             </button>
                                         </li>
