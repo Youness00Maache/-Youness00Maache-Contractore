@@ -325,6 +325,16 @@ redirect list already allows https://www.contractordocs.app/** (plan params OK).
 redeployed on purpose (live version works; new code only adds credits routing behind the OFF flag).
 ONLY BLOCKER LEFT FOR PUBLISHING: GitHub push access (add YounessMaache as collaborator or gh auth login as
 Youness00Maache), then push my-branch → merge main → verify live → Search Console sitemap + Bing.
+**15:00 — PUBLISHED.** gh is now logged in as Youness00Maache. Merged origin/main (only PR merge commits) into
+my-branch (2d56577), pushed my-branch and main → Vercel production deploy Ready; www.contractordocs.app serves the
+new site (37 pages, llms.txt, AI-bot robots groups, no Kelviq text). Kept both google-site-verification meta tags.
+Google Search Console (account of the owner in Chrome "Browser 2"): added URL-prefix property
+https://www.contractordocs.app/ (auto-verified by HTML tag) and submitted sitemap.xml (success).
+Checked owner QA items: multiple Gmail accounts ARE supported (account menu with switch / reconnect / "Add another
+Gmail account" appears after the first account is connected); Tools low-stock badge now red like the old app (84d9535).
+NEXT (after the weekly reset Nov 19): Bing Webmaster Tools (import from Search Console; owner signs in), IndexNow,
+SEO leftovers (trade/AI-generator/compare pages; docs/work/handover/seo-PROGRESS.md + seo-rewritten-links.txt; templates-PROGRESS.md, credits-PROGRESS.md there too;
+it lives in the old session scratchpad 0525b7dc…/d0cef399…/scratchpad/seo), templates leftovers, first live payment test.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
