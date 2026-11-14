@@ -193,6 +193,22 @@ good/better/best (#6) after templates; DB-needing items wait for the owner's OK.
 **05:10:** AI knowledge for pipeline/costing/export committed (e80f9e9, 891 checks) and ai-assistant REDEPLOYED.
 **05:20:** Started supplier POs + low-stock reorder (#21) helper a63826d76f236258a (no DB changes; data in existing
 columns / user_settings; does not touch template files). Templates helper ab3e480c0eebe3ce2 still running.
+**06:25:** DONE + committed (f3d28bd) + ai-assistant REDEPLOYED (photo tasks + knowledge, 922 QA checks):
+- AI client updates + AI walkthrough from job photos (#11, Premium + AI): Photos tab › Write client update (sent by
+  Gmail / Text / WhatsApp, saved as a "Client update" Note on the job) and AI walkthrough (Daily Job Report / Note draft).
+- Supplier ordering (#21): saved suppliers (user_settings `suppliers.list`), PO vendor picker + Save as supplier, Send to
+  supplier (Premium, via the Share window + Gmail), reorder qty + Create reorder POs grouped by supplier (Premium, Draft
+  POs under a "Shop stock" job), Mark received adds stock once (every plan).
+**Needs the owner's OK (ask when back):**
+1. Supplier "Confirm order" link: functions-only SQL (no table changes) in docs/work/DRAFT_purchase_order_confirm_link.sql
+   (NOT applied). Until then the PO email asks the supplier to confirm by reply.
+2. Plan gating of new features: Send to supplier + reorder POs = Premium; photo AI = Premium + AI (per the research plan;
+   old features keep their old gating).
+3. Photo AI defaults: each sent update creates a Note on the job; walkthrough photos are uploaded as public copies to
+   the `logos` bucket (same as the assistant's existing photo path); one photo task = one AI request (1–8 photos);
+   "show these photos in the portal" is ticked by default; Text/WhatsApp/Copy count as sent when tapped.
+Owner click-test after sign-in: Photos › Write client update / AI walkthrough; Inventory › Suppliers / Create reorder
+POs; a PO › Send to supplier / Mark received.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
