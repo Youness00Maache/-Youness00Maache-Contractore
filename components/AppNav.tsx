@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownItem, DropdownSeparator, DropdownLabel } from './
 import {
     AppLogo, HomeIcon, UsersIcon, MailIcon, BoxIcon, TagIcon, CalendarIcon, CalculatorIcon, BarChartIcon,
     MessageSquareIcon, SettingsIcon, UserIcon, LogoutIcon, CreditCardIcon, StarIcon, ChevronDownIcon, GridIcon,
-    PlusIcon, XCircleIcon, WifiOffIcon, MailIcon as HelpMailIcon, DownloadIcon,
+    PlusIcon, XCircleIcon, WifiOffIcon, MailIcon as HelpMailIcon, DownloadIcon, RefreshCwIcon, ShieldCheckIcon,
 } from './Icons.tsx';
 import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
@@ -21,6 +21,8 @@ export type NavDestination =
     | 'pipeline'
     /** crew clock-in links and hours (/crew) */
     | 'crew'
+    /** papers vault (/papers) and service plans (/service-plans) */
+    | 'papers' | 'servicePlans'
     /** Settings → Your data (export everything, bookkeeper CSV) */
     | 'export';
 
@@ -50,6 +52,8 @@ interface AppNavProps {
 
 const TOOLS: { dest: NavDestination; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; description: string }[] = [
     { dest: 'pipeline', label: 'Pipeline', icon: PipelineIcon, description: 'Every job by stage, from request to paid' },
+    { dest: 'servicePlans', label: 'Service plans', icon: RefreshCwIcon, description: 'Maintenance visits that schedule themselves' },
+    { dest: 'papers', label: 'Papers', icon: ShieldCheckIcon, description: 'Insurance, licenses and permits with expiry reminders' },
     { dest: 'inventory', label: 'Inventory', icon: BoxIcon, description: 'Stock, QR tags and job allocations' },
     { dest: 'pricebook', label: 'Price book', icon: TagIcon, description: 'Saved items and assemblies' },
     { dest: 'calendar', label: 'Calendar', icon: CalendarIcon, description: 'Job schedule' },

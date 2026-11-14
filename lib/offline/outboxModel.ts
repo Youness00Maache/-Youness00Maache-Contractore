@@ -61,7 +61,7 @@ export type OutboxKind = 'create' | 'edit';
  * real id (a UUID) on this device, so a document created offline inside a job created offline keeps pointing at it;
  * sync sends clients first, then jobs, then documents, and remaps any id the account changes.
  */
-export type OutboxEntity = 'document' | 'job' | 'client' | 'inventory' | 'price_item' | 'stock_move' | 'job_photo' | 'profile' | 'reminder_settings';
+export type OutboxEntity = 'document' | 'job' | 'client' | 'inventory' | 'price_item' | 'stock_move' | 'job_photo' | 'profile' | 'reminder_settings' | 'punch_item';
 /**
  * pending: waiting to sync (never tried, or the connection dropped);
  * failed:  the account refused it for a reason a later retry may fix (shown with the reason);
@@ -174,7 +174,7 @@ export const entityOf = (item: Pick<OutboxItem, 'entity'> | null | undefined): O
 /** Display type of job / client items. */
 export const ENTITY_TYPE: Record<Exclude<OutboxEntity, 'document'>, string> = {
     job: 'Job', client: 'Client', inventory: 'Inventory item', price_item: 'Price book item', stock_move: 'Stock change',
-    job_photo: 'Job photo', profile: 'Settings', reminder_settings: 'Reminder settings',
+    job_photo: 'Job photo', profile: 'Settings', reminder_settings: 'Reminder settings', punch_item: 'Punch item',
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -276,12 +276,12 @@ export const queueSave = (existing: OutboxItem | null | undefined, input: QueueI
 export const nextSeq = (items: readonly OutboxItem[], nowMs: number): number =>
     Math.max(nowMs, ...items.map(i => (Number.isFinite(i.seq) ? i.seq + 1 : 0)));
 
-const ENTITY_RANK: Record<OutboxEntity, number> = { profile: 0, reminder_settings: 0, client: 0, job: 1, inventory: 2, price_item: 2, stock_move: 3, document: 4, job_photo: 5 };
+const ENTITY_RANK: Record<OutboxEntity, number> = { profile: 0, reminder_settings: 0, client: 0, job: 1, inventory: 2, price_item: 2, punch_item: 2, stock_move: 3, document: 4, job_photo: 5 };
 
 /**
- * Sync order: settings and clients, jobs, inventory / price-book items, stock changes, documents, then job photos (what
- * they point at exists first; photos are the big uploads, so everything small reaches the account before them); in
- * each, first saved first.
+ * Sync order: settings and clients, jobs, inventory / price-book / punch-list items, stock changes, documents, then job
+ * photos (what they point at exists first; photos are the big uploads, so everything small reaches the account before
+ * them); in each, first saved first.
  */
 export const orderForSync = <T extends Pick<OutboxItem, 'seq' | 'createdAt' | 'id'> & { entity?: OutboxEntity }>(items: readonly T[]): T[] =>
     [...items].sort((a, b) => (ENTITY_RANK[entityOf(a)] - ENTITY_RANK[entityOf(b)]) || (a.seq - b.seq) || String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));

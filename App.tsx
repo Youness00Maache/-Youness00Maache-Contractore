@@ -18,7 +18,7 @@ import { Toaster, toast } from './components/Toast.tsx';
 import { AuthMessage, AppSplash, LoadErrorScreen } from './components/AppStates.tsx';
 import { PageSkeleton } from './components/ui/Skeleton.tsx';
 import { EmptyState } from './components/ui/EmptyState.tsx';
-import { WifiOffIcon, AlertTriangleIcon, BriefcaseIcon, SparklesIcon } from './components/Icons.tsx';
+import { WifiOffIcon, AlertTriangleIcon, BriefcaseIcon, SparklesIcon, FileTextIcon } from './components/Icons.tsx';
 
 // ── AI (owned by the AI engineer) ────────────────────────────────────────────
 import { DashboardMasterAIButton, InlineAIButton } from './components/DashboardMasterAIButton.tsx';
@@ -61,6 +61,8 @@ import { NEEDS_CONNECTION } from './lib/offline/connection.ts';
 import type { PaymentSettings } from './lib/payments.ts';
 import { applyProfileOverlay, offlineProfilePatch, pendingProfileItem, profileBaseFor, profileFieldsFromRow, comparableProfileRow, withoutPaymentColumns } from './lib/offline/offlineProfile.ts';
 import { offlinePhotoRow, photoEditPatch, photoItems, uploadQueuedPhoto, PHOTO_FILE_MAIN, PHOTO_FILE_THUMB, type OfflinePhotoInput } from './lib/offline/offlineJobPhotos.ts';
+import { PUNCH_SYNCED_EVENT, type PunchProgress } from './lib/punchList.ts';
+import { todayYMD } from './utils/localDates.ts';
 import { TEMP_TAG } from './utils/clientPortalRules.ts';
 import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
@@ -115,6 +117,14 @@ const PaymentReportsCard = lazy(() => import('./components/payments/PaymentRepor
 // Request-a-quote inbox (dashboard) and job photo timeline (job page): NEXT_STEPS 0c #5 / #11
 const RequestsInbox = lazy(() => import('./components/requests/RequestsInbox.tsx'));
 const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
+// Punch lists (#18): job page tab; hidden until migration 20261115000200 is applied
+const PunchList = lazy(() => import('./components/punch/PunchList.tsx'));
+// Papers vault + lien waivers (#17): /papers, the job page's permits line and its Lien waiver button
+const PapersView = lazy(() => import('./components/papers/PapersView.tsx'));
+const JobPapersStrip = lazy(() => import('./components/papers/JobPapersStrip.tsx'));
+const LienWaiverModal = lazy(() => import('./components/papers/LienWaiverModal.tsx'));
+// Recurring service plans (#15): /service-plans
+const ServicePlansView = lazy(() => import('./components/service/ServicePlansView.tsx'));
 // Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
 const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
 const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
@@ -256,14 +266,14 @@ const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
 
 const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
 const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
-const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline', 'crew'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline', 'crew', 'papers', 'servicePlans'];
 
 const navSectionFor = (screen: AppView['screen']): NavSection => {
     switch (screen) {
         case 'dashboard': case 'jobDetails': case 'createJob': case 'selectDocType': return 'dashboard';
         case 'clients': return 'clients';
         case 'communication': return 'communication';
-        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': case 'crew': return 'tools';
+        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': case 'crew': case 'papers': case 'servicePlans': return 'tools';
         case 'forum': return 'forum';
         case 'settings': case 'profile': return 'settings';
         default: return 'none';
@@ -302,6 +312,8 @@ const App: React.FC = () => {
             case 'profitCalculator': navigate('/calculator'); break;
             case 'pipeline': navigate('/pipeline'); break;
             case 'crew': navigate('/crew'); break;
+            case 'papers': navigate('/papers'); break;
+            case 'servicePlans': navigate('/service-plans'); break;
             case 'help': navigate('/tutorials'); break;
             case 'forum': navigate(newView.postId ? `/forum/${encodeURIComponent(newView.postId)}` : '/forum'); break;
             case 'gmailCallback': navigate('/gmail-callback'); break;
@@ -382,7 +394,9 @@ const App: React.FC = () => {
         if (!uid) { setOfflineEntityQueue(null); return; }
         setOfflineEntityQueue({
             queue: async (entity, kind, id, row) => {
-                await outboxRef.current.queue({ entity, userId: uid, docId: id, jobId: entity === 'job' ? id : '', type: ENTITY_TYPE[entity], kind, data: row });
+                // a punch item keeps its job (outbox panel, and its job id is remapped if the job was created offline)
+                const jobId = entity === 'job' ? id : entity === 'punch_item' ? String(row.job_id || '') : '';
+                await outboxRef.current.queue({ entity, userId: uid, docId: id, jobId, type: ENTITY_TYPE[entity], kind, data: row });
             },
             isWaiting: id => outboxRef.current.items.some(i => i.docId === id && entityOf(i) !== 'document'),
             items: () => outboxRef.current.items,
@@ -430,6 +444,12 @@ const App: React.FC = () => {
     const crewFeature = useCrewFeature(session?.user?.id ?? null, isOnline);
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [notificationCount, setNotificationCount] = useState(0);
+    // Punch lists: which jobs have items and how far they are (job page tab, pipeline cards); hidden until the database has them
+    const [punchState, setPunchState] = useState<{ available: boolean; map: Map<string, PunchProgress> }>(() => {
+        let available = false;
+        try { available = window.localStorage.getItem('cd.punch.available') === '1'; } catch { /* storage blocked */ }
+        return { available, map: new Map() };
+    });
     const [formLoad, setFormLoad] = useState<{ id: string; error: string | null } | null>(null);
     const [formReloadNonce, setFormReloadNonce] = useState(0);
 
@@ -467,6 +487,8 @@ const App: React.FC = () => {
     const showDeleteDocModal = docToDelete !== null;
     const [showJobFinancials, setShowJobFinancials] = useState(false);
     const [showBillTimeMaterials, setShowBillTimeMaterials] = useState(false);
+    /** job id of an open Lien waiver window (job page) */
+    const [lienWaiverJobId, setLienWaiverJobId] = useState<string | null>(null);
     const [markPaidDoc, setMarkPaidDoc] = useState<FormDataType | null>(null);
 
     // Refs that callbacks read (avoid stale closures in long-lived listeners)
@@ -1010,6 +1032,52 @@ const App: React.FC = () => {
         return () => { cancelled = true; clearTimeout(timer); };
     }, [session?.user?.id, profileStatus, loadRecentDocuments]);
 
+    // Punch lists: progress of every job, once per session and after an offline item synced.
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || profileStatus !== 'ready') return;
+        let cancelled = false;
+        const run = () => import('./components/punch/punchApi.ts')
+            .then(m => m.fetchPunchProgress(todayYMD()).then(r => {
+                if (cancelled || sessionUserIdRef.current !== uid || r.available === null) return;
+                m.rememberPunchAvailable(r.available);
+                setPunchState({ available: r.available, map: r.map });
+            }))
+            .catch(() => undefined);
+        const timer = setTimeout(() => { if (navigator.onLine) void run(); }, 1200);
+        const onSynced = () => { void run(); };
+        window.addEventListener(PUNCH_SYNCED_EVENT, onSynced);
+        return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(PUNCH_SYNCED_EVENT, onSynced); };
+    }, [session?.user?.id, profileStatus]);
+    // Service plans: visits that came due since the last run (the server also runs this every hour).
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || profileStatus !== 'ready' || !paid || !navigator.onLine) return;
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            try {
+                const { generateDueVisits } = await import('./components/service/servicePlansApi.ts');
+                const created = await generateDueVisits();
+                if (cancelled || !created || sessionUserIdRef.current !== uid) return;
+                toast.info(`${created} service ${created === 1 ? 'visit was' : 'visits were'} scheduled, with ${created === 1 ? 'its work order' : 'their work orders'}.`);
+                loadRecentDocuments(uid).catch(() => undefined);
+                loadJobs(uid).catch(() => undefined);
+            } catch { /* optional feature */ }
+        }, 2500);
+        return () => { cancelled = true; clearTimeout(timer); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user?.id, profileStatus, paid, loadRecentDocuments]);
+
+    const handlePunchProgress = useCallback((jobId: string, progress: PunchProgress) => {
+        setPunchState(prev => {
+            const cur = prev.map.get(jobId);
+            if (cur && cur.total === progress.total && cur.closed === progress.closed && cur.verified === progress.verified && cur.overdue === progress.overdue && cur.sentBack === progress.sentBack) return prev;
+            const map = new Map(prev.map);
+            map.set(jobId, progress);
+            return { available: true, map };
+        });
+    }, []);
+
     const refreshForumBadge = useCallback(async () => {
         if (!sessionUserIdRef.current || !navigator.onLine) return;
         try {
@@ -1322,6 +1390,8 @@ const App: React.FC = () => {
             case 'export': navigate('/settings#data'); break;
             case 'pipeline': navigate('/pipeline'); break;
             case 'crew': navigate('/crew'); break;
+            case 'papers': navigate('/papers'); break;
+            case 'servicePlans': navigate('/service-plans'); break;
             case 'help': navigate('/tutorials'); break;
         }
     };
@@ -1460,6 +1530,14 @@ const App: React.FC = () => {
         clearUserBrowserStorage();
         try { await dbApi.clearAll(); } catch { /* ignore */ }
         window.location.replace('/');
+    };
+
+    /** A lien waiver (Note) was saved on a job: show it in the job's documents and open it. */
+    const handleWaiverCreated = (form: FormDataType, jobId: string | null) => {
+        setForms(prev => mergeDocuments(prev.filter(f => f.id !== form.id), [form]));
+        if (jobId) void loadDocumentsForJob(jobId, true);
+        bumpDocUsage(form.jobId);
+        openDocument(form, true);
     };
 
     const handleEmailSent = () => {
@@ -2164,7 +2242,7 @@ const App: React.FC = () => {
                     const api = await import('./components/photos/photosApi.ts');
                     return uploadQueuedPhoto(api.queuedPhotoUploadDeps(uid), kind, row, files);
                 }
-                const table = { job: 'jobs', client: 'clients', inventory: 'inventory', price_item: 'saved_items' }[entity];
+                const table = { job: 'jobs', client: 'clients', inventory: 'inventory', price_item: 'saved_items', punch_item: 'punch_items' }[entity];
                 if (kind === 'create') {
                     if (entity === 'job') {
                         try { return { id: (await insertJobRow(row)).id, error: null }; } catch (e) { return { error: duplicate(e) ? null : e }; }
@@ -2193,6 +2271,7 @@ const App: React.FC = () => {
                 }
                 if (doc.entity === 'inventory' || doc.entity === 'stock_move') { loadInventory(uid).catch(() => undefined); return; }
                 if (doc.entity === 'price_item') { loadSavedItems(uid).catch(() => undefined); return; }
+                if (doc.entity === 'punch_item') { window.dispatchEvent(new CustomEvent(PUNCH_SYNCED_EVENT, { detail: { jobId: doc.jobId } })); return; }
                 if (doc.entity === 'client') {
                     setClients(prev => (prev.some(c => c.id === doc.docId)
                         ? prev.map(c => (c.id === doc.docId ? { ...c, ...doc.data } as Client : c))
@@ -2466,6 +2545,26 @@ const App: React.FC = () => {
                             job={job} jobs={jobs} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade}
                             onOpenCrew={() => navigate('/crew')}
                         />
+                    </Suspense>
+                ) : undefined}
+                punchSlot={punchState.available && session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <PunchList
+                            job={job} userId={session.user.id} profile={profile} client={client} isOnline={isOnline}
+                            outboxItems={outbox.items} onUpgrade={openUpgrade} onProgress={handlePunchProgress}
+                            onDocumentsChanged={() => { void loadDocumentsForJob(job.id, true); }}
+                        />
+                    </Suspense>
+                ) : undefined}
+                punchLabel={(() => { const p = punchState.map.get(job.id); return p && p.total ? `${p.closed}/${p.total}` : undefined; })()}
+                toolsSlot={(
+                    <button type="button" onClick={() => (isOnline ? setLienWaiverJobId(job.id) : toast.error("You're offline, this needs a connection."))} className="btn btn-outline h-10" title="Lien waiver from this job's invoice and payment">
+                        <FileTextIcon className="h-4 w-4" /> <span className="hidden sm:inline">Lien waiver</span><span className="sm:hidden">Waiver</span>
+                    </button>
+                )}
+                papersSlot={isOnline ? (
+                    <Suspense fallback={null}>
+                        <JobPapersStrip jobId={job.id} onOpenPapers={() => navigate('/papers')} />
                     </Suspense>
                 ) : undefined}
             />
@@ -2776,6 +2875,41 @@ const App: React.FC = () => {
                     onRequestConverted={handleRequestConverted}
                     onUpgrade={openUpgrade}
                     onDraftEstimate={handleDraftEstimate}
+                    punchProgress={punchState.available ? punchState.map : undefined}
+                />;
+            case 'papers':
+                return <PapersView
+                    userId={session.user.id}
+                    profile={profile}
+                    plan={plan}
+                    jobs={jobs}
+                    clients={clients}
+                    isOnline={isOnline}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onUpgrade={openUpgrade}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onEmailSent={handleEmailSent}
+                    onWaiverCreated={(form) => handleWaiverCreated(form, form.jobId)}
+                />;
+            case 'servicePlans':
+                return <ServicePlansView
+                    userId={session.user.id}
+                    profile={profile}
+                    plan={plan}
+                    clients={clients}
+                    jobs={jobs}
+                    isOnline={isOnline}
+                    existingInvoiceNumbers={forms.filter(f => f.type === FormType.Invoice).map(f => String((f.data as any)?.invoiceNumber || '')).filter(Boolean)}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onUpgrade={openUpgrade}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onOpenDocument={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType: formType as FormType })}
+                    onDataChanged={({ invoice, jobId }) => {
+                        const uid = sessionUserIdRef.current;
+                        if (uid) void loadJobs(uid).catch(() => undefined);
+                        if (invoice) setForms(prev => mergeDocuments(prev.filter(f => f.id !== invoice.id), [invoice]));
+                        if (jobId) void loadDocumentsForJob(jobId, true);
+                    }}
                 />;
             case 'help':
                 return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;
@@ -2971,6 +3105,21 @@ const App: React.FC = () => {
                         savedItems={savedItems}
                         onBillTimeMaterials={() => { setShowJobFinancials(false); setShowBillTimeMaterials(true); }}
                         onClose={() => setShowJobFinancials(false)}
+                    />
+                </Suspense>
+            )}
+
+            {lienWaiverJobId && session && profile && (
+                <Suspense fallback={null}>
+                    <LienWaiverModal
+                        userId={session.user.id}
+                        profile={profile}
+                        jobs={jobs}
+                        clients={clients}
+                        jobId={lienWaiverJobId}
+                        isOnline={isOnline}
+                        onClose={() => setLienWaiverJobId(null)}
+                        onCreated={(form) => { const jobId = lienWaiverJobId; setLienWaiverJobId(null); handleWaiverCreated(form, jobId); }}
                     />
                 </Suspense>
             )}

@@ -7,6 +7,7 @@ import type { PipelineAction, PipelineCard as Card } from '../../lib/pipeline.ts
 import { ActionMenu } from '../viewKit.tsx';
 import { AlertChip, StageTrack, ageText, wholeMoney } from './pipelineUi.tsx';
 import { formatYMD } from '../../utils/localDates.ts';
+import type { PunchProgress } from '../../lib/punchList.ts';
 
 /** Button / menu text of each action (the document actions name the document type). */
 export const actionLabel = (action: PipelineAction, card: Card): string => {
@@ -30,7 +31,20 @@ export const openActionOf = (card: Card): PipelineAction => (card.kind === 'requ
 /** Job status changes stay in the ⋯ menu (never a button next to the everyday actions). */
 const MENU_ONLY: ReadonlySet<PipelineAction> = new Set<PipelineAction>(['finish_job', 'set_inactive']);
 
-const PipelineCard: React.FC<{ card: Card; onAction: (action: PipelineAction, card: Card) => void; busy?: boolean }> = ({ card, onAction, busy }) => {
+/** "Punch 3/8": a punch list with open items (nothing when there is none or everything is done). */
+const PunchChip: React.FC<{ punch: PunchProgress }> = ({ punch }) => (
+    <span
+        className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold leading-4 tabular-nums ${punch.sentBack || punch.overdue ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground'}`}
+        title={`Punch list: ${punch.open} open, ${punch.done} done, ${punch.verified} verified`}
+    >
+        <span className="relative h-1.5 w-6 overflow-hidden rounded-full bg-border" aria-hidden>
+            <span className="absolute inset-y-0 left-0 bg-current" style={{ width: `${punch.pct}%` }} />
+        </span>
+        Punch {punch.closed}/{punch.total}
+    </span>
+);
+
+const PipelineCard: React.FC<{ card: Card; onAction: (action: PipelineAction, card: Card) => void; busy?: boolean; punch?: PunchProgress }> = ({ card, onAction, busy, punch }) => {
     const buttons = card.actions.filter(a => !MENU_ONLY.has(a)).slice(0, 2);
     const menu = card.actions.filter(a => !buttons.includes(a));
     const open = () => onAction(openActionOf(card), card);
@@ -68,6 +82,7 @@ const PipelineCard: React.FC<{ card: Card; onAction: (action: PipelineAction, ca
                 <StageTrack stage={card.stage} className="xl:hidden" />
                 {card.age !== null && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground" title={sinceText}>{ageText(card.age)}</span>}
                 {card.alert && <AlertChip alert={card.alert} />}
+                {punch && punch.total > 0 && punch.open > 0 && <PunchChip punch={punch} />}
                 {menu.length > 0 && (
                     <span className="-mr-1.5 ml-auto shrink-0 [&_button]:!h-7 [&_button]:!w-7" onClick={(e) => e.stopPropagation()}>
                         <ActionMenu

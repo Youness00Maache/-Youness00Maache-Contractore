@@ -82,3 +82,5 @@ export const pendingStockDeltas = (items: readonly OutboxItem[]): Map<string, nu
     }
     return out;
 };
+/** The outbox itself (null when no user is signed in): for a save whose connection dropped half way. */
+export const offlineEntityQueue = (): OfflineEntityQueue | null => current;

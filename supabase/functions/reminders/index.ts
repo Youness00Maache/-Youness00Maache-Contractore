@@ -1,4 +1,5 @@
-// reminders: sends automatic invoice reminders, estimate follow-ups and visit reminders from each user's own Gmail.
+// reminders: sends automatic invoice reminders, estimate follow-ups and visit reminders from each user's own Gmail,
+// and (./papers.ts) expiry reminders about the user's own papers (insurance, licenses, permits, bonds) to themselves.
 //
 // Called every 10 minutes by pg_cron (public.reminders_cron_tick() -> pg_net) — never by browsers.
 //   POST { action: 'run', dry_run?: boolean }   header  x-reminders-secret: <Vault 'reminders_cron_secret'>
@@ -34,6 +35,7 @@ import {
 } from './shared/targets.ts';
 import { dispatchReminders, emptySummary, mergeSummary, SendFailure, type Claim, type OutgoingReminder } from './shared/dispatch.ts';
 import { verifyCronSecret } from './shared/cronAuth.ts';
+import { runPaperReminders } from './papers.ts';
 
 const SITE_URL = (env('SITE_URL') || 'https://www.contractordocs.app').split(',')[0].trim().replace(/\/+$/, '');
 const USERS_PER_BATCH = 40;
@@ -549,7 +551,9 @@ async function run(admin: SupabaseClient, opts: { dryRun: boolean }) {
     const byKey = new Map(planned.map((p) => [`${p.item.userId}|${p.item.dedupeKey}`, p]));
     mergeSummary(summary, await dispatchReminders(planned.map((p) => p.item), makeDeps(admin, contexts, byKey, deadline)));
   }
-  const result = { ok: true, dry_run: opts.dryRun, users: userIds.length, targets, ...summary, ms: Date.now() - started, ...(opts.dryRun ? { preview } : {}) };
+  // papers vault: expiry reminders to the contractor (migration 20261115000300; nothing happens before it is applied)
+  const papers = await runPaperReminders(admin, accounts, now, { dryRun: opts.dryRun, deadline, siteUrl: SITE_URL });
+  const result = { ok: true, dry_run: opts.dryRun, users: userIds.length, targets, ...summary, papers, ms: Date.now() - started, ...(opts.dryRun ? { preview } : {}) };
   console.log('[reminders] run', JSON.stringify({ ...result, preview: undefined }));
   return result;
 }

@@ -17,7 +17,7 @@ import { HELP_GUIDES_SNAPSHOT, type GuideSnapshot } from './helpGuides.generated
 
 /** Every in-app screen and Settings section the assistant can open ("Take me there"). */
 export const NAV_ROUTES = [
-    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/crew', '/inventory', '/pricebook', '/calendar', '/analytics',
+    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/crew', '/service-plans', '/papers', '/inventory', '/pricebook', '/calendar', '/analytics',
     '/calculator', '/forum', '/settings', '/settings#profile', '/settings#company', '/settings#payments', '/settings#requests',
     '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
     '/profile', '/tutorials',
@@ -32,6 +32,8 @@ export const NAV_LABELS: Record<NavRoute, string> = {
     '/communication': 'Messages',
     '/pipeline': 'Pipeline',
     '/crew': 'Crew (clock-in links and hours)',
+    '/papers': 'Papers (insurance, licenses, permits)',
+    '/service-plans': 'Service plans',
     '/inventory': 'Inventory',
     '/pricebook': 'Price book',
     '/calendar': 'Calendar',
@@ -537,6 +539,72 @@ const FEATURES: KnowledgeEntry[] = [
         limits: ['Free: 30 photos per job and 250 MB in total; Premium 5 GB; Premium + AI 10 GB.'],
     },
     {
+        id: 'punch-list-detail',
+        title: 'Punch lists (what is left to finish on a job)',
+        where: ['Job', 'Punch list'],
+        route: '/dashboard',
+        concepts: ['punch', 'job'],
+        keywords: ['punch list', 'punchlist', 'snag list', 'snagging', 'checklist', 'to-do on the job', 'walkthrough list', 'final walkthrough', 'what is left', 'touch up'],
+        facts: [
+            'On a job page open the [[Punch list]] tab. Type one item per line and press Enter or [[Add item]]: “Kitchen: touch up paint @Mike” puts it in the Kitchen group and assigns it to Mike; the room sticks for the next items.',
+            'Each item is Open, Done or Verified. Tap the ring to mark it done (tap again to undo); the ⋯ menu has [[Mark verified]], [[Reopen]], [[Edit]] (room, assignee, due date, notes, before and after photo) and [[Delete]].',
+            '[[Show in client portal]] shows the list with its progress in the client’s portal. On a done item the client taps [[Looks good]] (it becomes verified by the client) or [[Needs work]] with a note (it opens again with the note, and the bell tells you).',
+            'The ⋯ menu at the top: [[Download PDF]] (punch list PDF with the item photos, same header as your documents) and [[Save as Note on the job]] (a Note you can email or share).',
+            'Offline: adding, checking off and editing save on the phone and sync later (“Waiting to sync” chip). Photos, delete and sharing need a connection. Item photos also go to the job’s photos.',
+            'Free on every plan. The pipeline board shows “Punch 3/8” on a job card while items are open.',
+        ],
+        steps: ['Open the job and click [[Punch list]].', 'Type an item (e.g. “Bath: caulk tub @Sam”) and press Enter.', 'Tap the ring when it is done; switch on [[Show in client portal]] so the client can approve.'],
+    },
+    {
+        id: 'service-plans-detail',
+        title: 'Recurring service plans (maintenance visits, work orders, invoices, reminders)',
+        where: ['Tools', 'Service plans'],
+        route: '/service-plans',
+        concepts: ['service_plan', 'recurring'],
+        keywords: ['service plan', 'maintenance plan', 'maintenance agreement', 'service agreement', 'recurring visit', 'recurring job', 'tune-up', 'twice a year', 'every 6 months', 'repeat visit', 'pool service', 'lawn service', 'pest control'],
+        facts: [
+            'Open [[Tools]] › [[Service plans]] (phone: [[More]] › [[Service plans]]) and click [[New plan]]: client, plan name, what is done at each visit, how often (Every week, Every 2 weeks, Monthly, Every 2 months, Quarterly, Twice a year, Yearly, or every N weeks / months), first visit, optional end date, who does it, price and billing, then [[Save plan]].',
+            'The plan gets its own job. Each visit is created ahead of time (3 to 30 days before, 14 by default) with a Work Order (status Scheduled); the job moves to the visit date, so it shows on the calendar and the client gets the visit reminder from your Gmail (when “Remind the client before each visit” is on). Visits are created every hour on the server, even when the app is closed.',
+            'Billing: Invoice each visit makes a Draft invoice with each visit (due 14 days after it). Monthly / Quarterly / every 6 months / Yearly add ONE recurring invoice to the plan’s job that repeats by itself (the same engine as “Repeat this invoice”). Not invoiced here makes no invoice.',
+            'Under Next visits: [[Done]] marks the visit done (the work order becomes Completed); the ⋯ menu has [[Skip this visit]], [[Open work order]], [[Open invoice]] and [[Open job]]. A plan’s ⋯ menu: [[Edit]], [[Pause]], [[Resume]], [[End plan]], [[Delete]] (the job and its documents stay).',
+            'The client portal shows the plan with its next and last visit (switch “Show the plan in the client portal”).',
+        ],
+        steps: ['Open [[Tools]] › [[Service plans]] and click [[New plan]].', 'Pick the client, what is done, how often, the first visit, the price and the billing.', 'Click [[Save plan]]; visits, work orders and invoices follow by themselves.'],
+        limits: [`Service plans are part of ${P.name}.`],
+    },
+    {
+        id: 'papers-vault',
+        title: 'Papers vault: insurance certificates (COI), licenses, permits, bonds, W-9 and expiry reminders',
+        where: ['Tools', 'Papers'],
+        route: '/papers',
+        concepts: ['papers'],
+        keywords: ['coi', 'certificate of insurance', 'insurance certificate', 'license', 'licence', 'permit', 'bond', 'w-9', 'w9', 'expire', 'expiry', 'expiration', 'renew', 'send my insurance', 'licensed and insured'],
+        facts: [
+            'Open [[Tools]] › [[Papers]] (phone: [[More]] › [[Papers]]). [[Add paper]]: kind (COI, License, Permit, Bond, W-9, Other), number, issuer, issued and expiry dates, [[Upload PDF or photo]], then [[Save]]. Permits can be linked to a job with the next inspection date; they then show on that job page.',
+            'Reminders 30, 7 and 1 days before expiry (change the days with the chips): in the notification bell, and by email to yourself from your connected Gmail at your reminder hour (Settings › Reminders). The list shows the most urgent first; expired papers are red.',
+            '[[Renew (new date and file)]] in the ⋯ menu updates the same paper and restarts the reminders from the new date.',
+            '[[Send]] / [[Send by email]] emails the file to a client or general contractor from your Gmail ([[Send with Gmail]]).',
+            '“Show in client portal” on a COI, license or bond adds a “Licensed & insured” line to the client portal (name, number, coverage, valid until; never the file).',
+        ],
+        steps: ['Open [[Tools]] › [[Papers]].', 'Click [[Add paper]], fill in the dates and upload the file, then [[Save]].', 'To send it: [[Send]], type the email, [[Send with Gmail]].'],
+        limits: [`The papers vault and its reminders are part of ${P.name}. Lien waivers are on every plan.`],
+    },
+    {
+        id: 'lien-waivers',
+        title: 'Lien waivers (conditional / unconditional, progress / final)',
+        where: ['Job', 'Lien waiver'],
+        route: '/papers',
+        concepts: ['lien'],
+        keywords: ['lien waiver', 'lien release', 'release of lien', 'conditional waiver', 'unconditional waiver', 'final waiver', 'progress waiver', 'waiver'],
+        facts: [
+            'On a job page click [[Lien waiver]] (phone: Waiver), or [[Lien waiver]] on the Papers screen and pick the job.',
+            'Pick Conditional (takes effect when the payment clears, safe to send before you are paid) or Unconditional (says you have been paid), and Progress (covers work through a date) or Final (the last payment). The invoice and the payment recorded with [[Mark as paid]] fill in the amount, the dates, the client and the job address; everything can be edited.',
+            '[[Create waiver]] saves it on the job as a Note document (title such as “Conditional Waiver and Release on Progress Payment”) that opens, prints, emails and shares like any document. With a saved default signature it can be signed with it; otherwise it has a signature line.',
+            'It is a general form. Some states (for example California, Texas, Florida and Georgia) require their own statutory wording; say so and suggest using the state form where required. On every plan.',
+        ],
+        steps: ['Open the job and click [[Lien waiver]].', 'Choose Conditional or Unconditional and Progress or Final, pick the invoice and payment.', 'Check the names and address, then [[Create waiver]].'],
+    },
+    {
         id: 'notifications',
         title: 'Notifications: the bell, what it shows and how to change it',
         where: ['Top bar', 'Bell'],
@@ -755,6 +823,9 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     calendar: ['calendar', 'insights'],
     settings: ['settings', 'plan', 'company'],
     notifications: ['notification', 'settings'],
+    'punch-list': ['punch', 'job'],
+    papers: ['papers', 'lien'],
+    'service-plans': ['service_plan', 'recurring'],
 };
 
 const GUIDE_DO_ACTIONS: Partial<Record<string, HowToDoAction>> = {
@@ -848,6 +919,10 @@ const LEXICON: Record<string, { w?: number; t: string }> = {
     status: { w: 1, t: 'status|pause|paused|complete|estado|statut|stato|状态|ステータス|상태|статус' },
     navigation: { w: 1, t: 'where is|where are|where can i find|where do i find|donde esta|ou est|ou se trouve|wo ist|wo finde|dove si trova|dove trovo|onde fica|onde esta|在哪|どこ|어디|где ' },
     dashboard: { w: 1, t: 'dashboard|home screen|panel principal|tableau de bord|startseite|cruscotto|painel|仪表|ダッシュボード|대시보드|главн' },
+    punch: { w: 3, t: 'punch|snag|checklist|check list|to-do list|todo list|what is left|whats left|walkthrough list|lista de pendientes|lista de verificaci|liste de reserves|mangelliste|restarbeiten|lista dei difetti|lista de pendencias|整改|尾项|手直し|パンチリスト|펀치 리스트|미결|недодел|дефектн' },
+    papers: { w: 3, t: 'papers vault|my papers|insurance cert|certificate of insurance|coi$|cois$|liability insurance|license expir|licence expir|my license|permit|bond$|bonded|w-9|w9$|certificado de seguro|licencia|permiso de obra|attestation d.assurance|licence|permis|versicherungsnachweis|lizenz|genehmigung|certificato assicurativ|licenza|permesso di costruire|apolice|alvara|保险证明|执照|许可证|保険証明|許可|免許|보험 증명|면허|허가|страхов|лицензи|разрешени' },
+    lien: { w: 3, t: 'lien waiver|lien release|release of lien|mechanic.s lien|lien rights|waiver|conditional release|unconditional release|renuncia de gravamen|exencion de gravamen|mainlevee|renonciation au privil|verzichtserklarung|rinuncia al privilegio|renuncia de penhor|留置权|先取特権|유치권|отказ от залог' },
+    service_plan: { w: 3, t: 'service plan|maintenance plan|maintenance contract|maintenance agreement|service agreement|service contract|recurring visit|recurring job|repeat visit|tune-up|tune up|every six months|twice a year|plan de mantenimiento|contrato de mantenimiento|contrat d.entretien|plan d.entretien|wartungsvertrag|wartungsplan|contratto di manutenzione|piano di manutenzione|plano de manutencao|contrato de manutencao|保养计划|维护合同|保守契約|メンテナンス|유지보수|정기 점검|договор обслуживан|техобслуживан' },
 };
 
 const COMPILED = Object.entries(LEXICON).map(([concept, { w = 2, t }]) => {

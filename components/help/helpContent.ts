@@ -13,7 +13,7 @@ import { FREE_LIMITS, PAID_AI_LIMITS, PLANS } from '../../lib/plans.ts';
 export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
-  | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew';
+  | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans';
 
 export interface HelpStep {
   title: string;
@@ -301,6 +301,67 @@ export const HELP_GUIDES: HelpGuide[] = [
       'Shared photos appear in the portal only when the job is linked to a saved client.',
       `Free: 30 photos per job and 250 MB in total. ${premium.name}: 5 GB. ${ai.name}: 10 GB.`,
       'The AI only writes what your photos and note show: weather, crew size and hours appear in a report only when you say them.',
+    ],
+  },
+  {
+    id: 'punch-list',
+    title: 'Punch lists',
+    summary: 'What is left to finish on a job: quick to add on a phone, checked off with photo proof, approved by the client in the portal.',
+    where: ['Job', 'Punch list'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open the Punch list tab', text: 'On a job page, switch to [[Punch list]]. The number next to it is how many items are done.' },
+      { title: 'Walk the job and type', text: 'Type one item per line and press Enter or [[Add item]]. Start with the room to group it (“Kitchen: touch up paint”); the room sticks for the next items. End with @Name to assign it (“caulk tub @Mike”).' },
+      { title: 'Check items off', text: 'Tap the ring in front of an item to mark it done (tap again to undo). In the ⋯ menu: [[Mark verified]] when you checked it, [[Reopen]] or [[Edit]] (room, assignee, due date, notes, before and after photo).' },
+      { title: 'Show it to the client', text: 'Switch on [[Show in client portal]]. In their portal the client sees the progress and, on each finished item, taps [[Looks good]] or [[Needs work]] with a note. A sent-back item opens again with the client’s note, and the bell tells you.' },
+      { title: 'Print or keep it', text: 'The ⋯ menu at the top has [[Download PDF]] (with the photos) and [[Save as Note on the job]] (a Note in Documents you can email or share).' },
+    ],
+    tips: [
+      'Works offline: adding, checking off and editing items save on the phone and sync when you are back online. Photos, delete and sharing need a connection.',
+      'Item photos are also added to the job’s photos (before = Issue, after = After) and count toward your photo storage.',
+      'The pipeline board shows “Punch 3/8” on a job card while items are open. Punch lists are on every plan.',
+    ],
+  },
+  {
+    id: 'papers',
+    title: 'Papers: insurance, licenses, permits and lien waivers',
+    summary: 'Keep your COI, licenses, permits, bonds and W-9 with their expiry dates, get reminded before they expire, send them in two taps, and make lien waivers.',
+    where: ['Tools', 'Papers'],
+    group: 'Tools',
+    appPath: '/papers',
+    steps: [
+      { title: 'Open Papers', text: 'Open [[Tools]] › [[Papers]] (phone: [[More]] › [[Papers]]).' },
+      { title: 'Add a paper', text: 'Click [[Add paper]], pick the kind (COI, License, Permit, Bond, W-9, Other), type the number, who issued it and the dates, then [[Upload PDF or photo]] and [[Save]]. A permit can be linked to its job, with the next inspection date: it then shows on the job page.' },
+      { title: 'Get reminded', text: 'Each paper reminds you 30, 7 and 1 days before it expires (tap the chips to change the days): in the bell, and by email to yourself from your Gmail. The list puts what expires first at the top, in red once expired.' },
+      { title: 'Renew', text: 'In the ⋯ menu, [[Renew (new date and file)]] keeps the paper and starts the reminders again from the new date.' },
+      { title: 'Send a certificate', text: 'Click [[Send]] (or [[Send by email]] in the ⋯ menu), type the client’s or GC’s email, check the message and click [[Send with Gmail]]. The file is attached.' },
+      { title: 'Make a lien waiver', text: 'Click [[Lien waiver]] here or on a job page. Pick Conditional or Unconditional and Progress or Final; the invoice and the payment recorded with [[Mark as paid]] fill in the amount and dates. Check the names and address, then [[Create waiver]]: it is saved on the job as a document you can print, email or share.' },
+    ],
+    tips: [
+      `The vault and its reminders are part of ${premium.name}. Lien waivers work on every plan.`,
+      'Switch on “Show in client portal” on a COI, license or bond: the portal shows “Licensed & insured” with the name, number and expiry date (never the file).',
+      'Lien waivers use general wording. Some states (for example California, Texas, Florida and Georgia) require their own statutory form; use it where required.',
+    ],
+  },
+  {
+    id: 'service-plans',
+    title: 'Service plans (recurring maintenance visits)',
+    summary: 'Plans like “HVAC tune-up twice a year”: each visit gets its work order, invoice and client reminder by itself.',
+    where: ['Tools', 'Service plans'],
+    group: 'Tools',
+    appPath: '/service-plans',
+    steps: [
+      { title: 'Open Service plans', text: 'Open [[Tools]] › [[Service plans]] (phone: [[More]] › [[Service plans]]).' },
+      { title: 'Create a plan', text: 'Click [[New plan]]: pick the client, name the plan, say what is done at each visit, choose how often (for example Twice a year), the first visit, the price and how it is billed, then [[Save plan]].' },
+      { title: 'Let it run', text: 'A job is made for the plan. Each visit is created ahead of time (14 days by default) with a Work Order; with Invoice each visit, a Draft invoice too. The job moves to the visit date, so it shows on the calendar, and the client gets your visit reminder the day before.' },
+      { title: 'Bill by the month, quarter or year', text: 'Choose Monthly, Quarterly, Invoice every 6 months or Yearly invoice: one recurring invoice is added to the plan’s job and repeats by itself (like Repeat this invoice).' },
+      { title: 'Mark visits', text: 'Under Next visits, tap [[Done]] when the visit is done (the work order becomes Completed), or in the ⋯ menu [[Skip this visit]], [[Open work order]] or [[Open invoice]].' },
+      { title: 'Change a plan', text: 'The ⋯ menu of a plan has [[Edit]], [[Pause]], [[Resume]], [[End plan]] and [[Delete]] (its job and documents stay).' },
+    ],
+    tips: [
+      `Service plans are part of ${premium.name}. Visits are created every hour on our side, even when you don’t open the app.`,
+      'Visit reminders go out from your Gmail; Settings › Reminders sets the day and the wording. The client also sees the plan, the next visit and the last one in their portal.',
     ],
   },
   {

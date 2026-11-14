@@ -15,14 +15,17 @@ import type { FormData as FormDataType } from '../../types.ts';
 import type { OutboxItem } from '../../lib/offline/outboxModel.ts';
 import { notificationStore } from '../../lib/notifications/store.ts';
 import {
-    fetchActivityDocs, fetchCrewMissed, fetchDueDocs, fetchForum, fetchGmailAccounts, fetchOrders, fetchReminders, fetchRequests, markForumRead,
+    fetchActivityDocs, fetchCrewMissed, fetchDueDocs, fetchExpiringPapers, fetchForum, fetchGmailAccounts, fetchOrders, fetchPunchFeedback, fetchReminders,
+    fetchRequests, fetchUpcomingVisits, markForumRead,
     type ForumData,
 } from '../../lib/notifications/sources.ts';
 import {
     buildNotifications, deriveCrewNotifications, deriveDocNotifications, deriveForumNotifications, deriveGmailNotifications, deriveLimitNotifications,
-    deriveOutboxNotifications, deriveReminderNotifications, deriveRequestNotifications, deriveStockNotifications, deriveThreadReplies,
+    deriveOutboxNotifications, derivePaperNotifications, derivePunchNotifications, deriveReminderNotifications, deriveRequestNotifications,
+    deriveServiceVisitNotifications, deriveStockNotifications, deriveThreadReplies,
     dismiss as dismissIds, docInputOf, forget, markAllRead as markAllIds, markRead, pickPopups, pruneSeen,
-    type CrewMissedInput, type DocInput, type GmailAccountInput, type ReminderInput, type RequestInput, type ShownNotification, type StockInput, type UsageInput,
+    type CrewMissedInput, type DocInput, type GmailAccountInput, type PaperInput, type PunchFeedbackInput, type ReminderInput, type RequestInput,
+    type ServiceVisitInput, type ShownNotification, type StockInput, type UsageInput,
 } from '../../lib/notifications/model.ts';
 import { popupSupport, showPopup } from '../../lib/notifications/popups.ts';
 import { requestOpenInventoryItem, requestOpenQuoteRequest } from '../../lib/notifications/intents.ts';
@@ -56,9 +59,13 @@ interface Remote {
     reminders: ReminderInput[] | null;
     gmail: GmailAccountInput[] | null;
     crew: CrewMissedInput[] | null;
+    /** field features (null = not in the database yet) */
+    punch: PunchFeedbackInput[] | null;
+    papers: PaperInput[] | null;
+    visits: ServiceVisitInput[] | null;
 }
 
-const EMPTY_REMOTE: Remote = { activity: null, due: null, orders: null, requests: null, forum: null, reminders: null, gmail: null, crew: null };
+const EMPTY_REMOTE: Remote = { activity: null, due: null, orders: null, requests: null, forum: null, reminders: null, gmail: null, crew: null, punch: null, papers: null, visits: null };
 const FAST_MS = 3 * 60_000;
 const SLOW_MS = 10 * 60_000;
 const BACK_MIN_MS = 60_000;
@@ -144,6 +151,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
                 fetchOrders(uid).then(orders => (orders ? { orders } : {})).catch(() => ({})),
                 fetchReminders(uid).then(reminders => (reminders ? { reminders } : {})).catch(() => ({})),
                 fetchGmailAccounts(uid).then(gmail => (gmail ? { gmail } : {})).catch(() => ({})),
+                fetchPunchFeedback(uid).then(punch => (punch ? { punch } : {})).catch(() => ({})),
+                fetchExpiringPapers(uid).then(papers => (papers ? { papers } : {})).catch(() => ({})),
+                fetchUpcomingVisits(uid).then(visits => (visits ? { visits } : {})).catch(() => ({})),
             );
         }
         const parts = await Promise.all(jobsList);
@@ -230,9 +240,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
             ...deriveCrewNotifications(remote.crew || [], ctx),
             ...deriveOutboxNotifications(outboxItems.map(i => ({ docId: i.docId, userId: i.userId, jobId: i.jobId, type: i.type, status: i.status, error: i.error, data: i.data })), ctx),
             ...deriveLimitNotifications(usage, docUsage, ctx, jobNames),
+            ...derivePunchNotifications(remote.punch || [], jobNames),
+            ...derivePaperNotifications(remote.papers || [], ctx),
+            ...deriveServiceVisitNotifications(remote.visits || [], ctx),
         ];
         return buildNotifications({ now: ctx.now, items, state: stored.state, prefs: stored.prefs, seen: notificationStore.getSeen() });
-    }, [docs, stock, remote.requests, remote.forum, remote.reminders, remote.gmail, remote.crew, outboxItems, usage, docUsage, ctx, jobNames, stored.state, stored.prefs]);
+    }, [docs, stock, remote.requests, remote.forum, remote.reminders, remote.gmail, remote.crew, remote.punch, remote.papers, remote.visits, outboxItems, usage, docUsage, ctx, jobNames, stored.state, stored.prefs]);
 
     // Low stock that is back to normal: forget it, so the next time it runs low is new again.
     useEffect(() => {
