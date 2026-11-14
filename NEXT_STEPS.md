@@ -23,6 +23,12 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
    `npm run seo:check`, plus the area suites (scripts/*-check.ts, scripts/forms-prefill-qa.ts, npm run qa:document-ai,
    npx tsx scripts/templates-qa.ts --no-browser). Never push anything that fails.
 
+8. (2026-11-14, owner: "usage is draining") Biggest costs were a 420k-token coordinator chat re-read on every step,
+   a 15-minute timer waking it, and two Opus helpers in parallel. From now on: coordinator = a FRESH short session
+   (hand over via docs/work/COMPETITOR_ROADMAP.md before ~150k tokens of context); helpers on Sonnet by default
+   (Opus only for SQL migration review and AI prompt/schema design); usage check hourly or when a helper finishes;
+   ship batches in pairs (one full test run + one deploy per pair); helpers get exact file paths, no exploring.
+
 ## Publishing (owner asked to keep production updated)
 - After tests pass: `git push origin my-branch && git push origin my-branch:main` (gh is logged in as Youness00Maache).
   Check the live site (curl key pages; cache-bust with ?x=$RANDOM) after Vercel finishes (~1-3 min).
