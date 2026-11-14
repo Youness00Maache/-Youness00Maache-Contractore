@@ -61,7 +61,7 @@ export type OutboxKind = 'create' | 'edit';
  * real id (a UUID) on this device, so a document created offline inside a job created offline keeps pointing at it;
  * sync sends clients first, then jobs, then documents, and remaps any id the account changes.
  */
-export type OutboxEntity = 'document' | 'job' | 'client' | 'inventory' | 'price_item' | 'stock_move';
+export type OutboxEntity = 'document' | 'job' | 'client' | 'inventory' | 'price_item' | 'stock_move' | 'job_photo' | 'profile';
 /**
  * pending: waiting to sync (never tried, or the connection dropped);
  * failed:  the account refused it for a reason a later retry may fix (shown with the reason);
@@ -84,6 +84,8 @@ export interface OutboxBase {
     hash: string;
     /** the account's updated_at of that version, when known */
     updatedAt?: string | null;
+    /** row patches (settings): the columns `hash` covers (the account copy is compared on these only) */
+    keys?: string[];
 }
 
 export interface OutboxItem {
@@ -132,6 +134,8 @@ export interface OutboxHistoryEntry {
     data: Record<string, unknown> | null;
     /** discarded items: the whole item, so "Restore" queues it again exactly */
     item?: OutboxItem | null;
+    /** what the version belongs to (absent = a document); "Restore" queues it as this */
+    entity?: OutboxEntity;
     savedAt: string;
     expiresAt: string;
     /** notice dismissed */
@@ -170,6 +174,7 @@ export const entityOf = (item: Pick<OutboxItem, 'entity'> | null | undefined): O
 /** Display type of job / client items. */
 export const ENTITY_TYPE: Record<Exclude<OutboxEntity, 'document'>, string> = {
     job: 'Job', client: 'Client', inventory: 'Inventory item', price_item: 'Price book item', stock_move: 'Stock change',
+    job_photo: 'Job photo', profile: 'Settings',
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -271,11 +276,12 @@ export const queueSave = (existing: OutboxItem | null | undefined, input: QueueI
 export const nextSeq = (items: readonly OutboxItem[], nowMs: number): number =>
     Math.max(nowMs, ...items.map(i => (Number.isFinite(i.seq) ? i.seq + 1 : 0)));
 
-const ENTITY_RANK: Record<OutboxEntity, number> = { client: 0, job: 1, inventory: 2, price_item: 2, stock_move: 3, document: 4 };
+const ENTITY_RANK: Record<OutboxEntity, number> = { profile: 0, client: 0, job: 1, inventory: 2, price_item: 2, stock_move: 3, document: 4, job_photo: 5 };
 
 /**
- * Sync order: clients, jobs, inventory / price-book items, stock changes, then documents (what they point at exists
- * first); in each, first saved first.
+ * Sync order: settings and clients, jobs, inventory / price-book items, stock changes, documents, then job photos (what
+ * they point at exists first; photos are the big uploads, so everything small reaches the account before them); in
+ * each, first saved first.
  */
 export const orderForSync = <T extends Pick<OutboxItem, 'seq' | 'createdAt' | 'id'> & { entity?: OutboxEntity }>(items: readonly T[]): T[] =>
     [...items].sort((a, b) => (ENTITY_RANK[entityOf(a)] - ENTITY_RANK[entityOf(b)]) || (a.seq - b.seq) || String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
@@ -293,10 +299,13 @@ export const remapItem = (item: OutboxItem, map: ReadonlyMap<string, string>): O
     const nextRowClient = to(rowClient);
     const rowJob = item.data?.job_id as string | null | undefined;
     const nextRowJob = to(rowJob);
-    if (jobId === item.jobId && clientId === item.clientId && nextRowClient === rowClient && nextRowJob === rowJob) return item;
+    const rowSource = item.data?.source_photo_id as string | null | undefined;
+    const nextRowSource = to(rowSource);
+    if (jobId === item.jobId && clientId === item.clientId && nextRowClient === rowClient && nextRowJob === rowJob && nextRowSource === rowSource) return item;
     const data = { ...item.data };
     if (nextRowClient !== rowClient) data.client_id = nextRowClient;
     if (nextRowJob !== rowJob) data.job_id = nextRowJob;
+    if (nextRowSource !== rowSource) data.source_photo_id = nextRowSource;
     return { ...item, jobId, clientId, data };
 };
 
@@ -338,6 +347,7 @@ export const classifySyncError = (error: unknown): { kind: OutboxErrorKind | 'ne
         return { kind: 'stock', message: 'Not enough stock for one or more inventory items. Open it, reduce the quantity and save again.' };
     }
     const code = String((error as { code?: unknown } | null)?.code || '');
+    if (/deleted on another device/i.test(msg)) return { kind: 'job_missing', message: msg };
     if (code === '23503' || /foreign key/i.test(msg)) {
         return { kind: 'job_missing', message: 'Its job was deleted on another device. Copy what you need, then discard it.' };
     }
@@ -415,6 +425,20 @@ export const detectConflict = (base: OutboxBase | null | undefined, server: Serv
 
 const hasValue = (v: unknown) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
 
+/**
+ * The columns `keys` of a table row, in a comparable form (settings: a value the account stores as null and one the
+ * app shows as '' are the same; numbers and text compare by their text). contentHash() of it is an OutboxBase hash.
+ */
+export const rowSnapshot = (row: Record<string, unknown> | null | undefined, keys: readonly string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const k of [...keys].sort()) {
+        const v = row?.[k];
+        out[k] = v === null || v === undefined ? '' : typeof v === 'object' ? stableStringify(v) : String(v).trim();
+        if (out[k] === '{}' || out[k] === '[]') out[k] = '';
+    }
+    return out;
+};
+
 /** The offline version wins, but a signature / decline / payment report / flag already on the account is kept. */
 export const mergeForUpload = (local: Record<string, unknown>, server: Record<string, unknown> | null | undefined): Record<string, unknown> => {
     if (!server) return local;
@@ -485,6 +509,12 @@ const NUMBER_KEYS = ['invoiceNumber', 'estimateNumber', 'reportNumber', 'workOrd
 /** Short label of a document for lists and notices. */
 export const outboxTitle = (type: string, data: Record<string, unknown> | null | undefined): string => {
     const d = data || {};
+    if (type === ENTITY_TYPE.profile) return 'Profile and business settings';
+    if (type === ENTITY_TYPE.job_photo) {
+        const stage = String(d.tag || '').trim();
+        const caption = String(d.caption || '').trim();
+        return [type, stage ? stage.charAt(0).toUpperCase() + stage.slice(1) : '', caption].filter(Boolean).join(' · ');
+    }
     const title = String(d.title || '').trim();
     if (title) return title;
     for (const k of NUMBER_KEYS) if (d[k]) return `${type} ${String(d[k])}`;
@@ -493,7 +523,7 @@ export const outboxTitle = (type: string, data: Record<string, unknown> | null |
 };
 
 export const makeHistoryEntry = (
-    args: { userId: string; docId: string; jobId: string; type: string; reason: HistoryReason; message: string; data: Record<string, unknown> | null; item?: OutboxItem | null; title?: string },
+    args: { userId: string; docId: string; jobId: string; type: string; reason: HistoryReason; message: string; data: Record<string, unknown> | null; item?: OutboxItem | null; title?: string; entity?: OutboxEntity },
     now: Date,
 ): OutboxHistoryEntry => ({
     id: `${args.userId}:${args.docId}:${args.reason}:${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
@@ -506,6 +536,7 @@ export const makeHistoryEntry = (
     message: args.message,
     data: args.data,
     item: args.item ?? null,
+    ...(args.entity && args.entity !== 'document' ? { entity: args.entity } : {}),
     savedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + HISTORY_TTL_MS).toISOString(),
     // a discard is the user's own action: nothing to tell them about

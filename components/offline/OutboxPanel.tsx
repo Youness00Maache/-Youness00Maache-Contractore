@@ -83,8 +83,10 @@ const OutboxPanel: React.FC<Props> = ({
     if (!open) return null;
 
     const count = items.length;
+    // documents only: "documents"; with jobs, photos, settings … waiting too: "changes"
+    const noun = items.every(i => !i.entity || i.entity === 'document') ? 'document' : 'change';
     const subtitle = count
-        ? `${count} document${count === 1 ? '' : 's'} waiting to sync`
+        ? `${count} ${noun}${count === 1 ? '' : 's'} waiting to sync`
         : 'Everything on this device is synced.';
 
     return (
@@ -123,7 +125,7 @@ const OutboxPanel: React.FC<Props> = ({
                             <ul className="divide-y divide-border rounded-xl border border-border">
                                 {items.map(item => {
                                     const state = docSyncState(item, syncingDocId);
-                                    const job = item.entity === 'job' ? null : jobNameById.get(item.jobId);
+                                    const job = item.entity === 'job' || item.entity === 'profile' ? null : jobNameById.get(item.jobId);
                                     return (
                                         <li key={item.id} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-start">
                                             <div className="min-w-0 flex-1">

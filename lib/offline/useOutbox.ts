@@ -7,11 +7,12 @@
  * while the browser says it is online. One run at a time per tab, and one per account across tabs (Web Locks).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { docSyncState, itemsOfUser, orderForSync, unseenNotices, type OutboxHistoryEntry, type OutboxItem, type QueueInput } from './outboxModel.ts';
+import { docSyncState, itemsOfUser, orderForSync, outboxItemId, unseenNotices, type OutboxHistoryEntry, type OutboxItem, type QueueInput } from './outboxModel.ts';
 import { getOutboxStore } from './outboxStore.ts';
 import { discardOutboxItem, dismissNotice, pruneHistory, queueOfflineSave, restoreHistoryEntry } from './outboxActions.ts';
 import { runOutboxSync, type SyncDeps, type SyncReport } from './syncEngine.ts';
 import { setOfflinePhotoUser } from './offlinePhotos.ts';
+import { setDeviceCacheUser } from './deviceCache.ts';
 
 export type SyncTrigger = 'start' | 'online' | 'manual' | 'save' | 'retry';
 
@@ -35,7 +36,12 @@ export interface OutboxApi {
     syncingDocId: string | null;
     itemFor: (docId: string | null | undefined) => OutboxItem | null;
     stateOf: (docId: string | null | undefined) => ReturnType<typeof docSyncState>;
-    queue: (input: QueueInput) => Promise<OutboxItem>;
+    /** `files`: kept with the item until it syncs (a job photo taken offline) */
+    queue: (input: QueueInput, files?: Record<string, Blob> | null) => Promise<OutboxItem>;
+    /** the files kept with an item of this user (null = none) */
+    filesOf: (docId: string) => Promise<Record<string, Blob> | null>;
+    /** files waiting on this device for this user: how many items have files, and their size */
+    fileUsage: () => Promise<{ count: number; bytes: number }>;
     discard: (docId: string) => Promise<void>;
     restore: (entryId: string) => Promise<void>;
     dismiss: (entryId?: string) => Promise<void>;
@@ -97,6 +103,7 @@ export function useOutbox(
         setHistory([]);
         setReady(false);
         setOfflinePhotoUser(userId);
+        setDeviceCacheUser(userId);
         if (!userId) return;
         let alive = true;
         void reload().finally(() => { if (alive) setReady(true); });
@@ -205,12 +212,34 @@ export function useOutbox(
     const itemFor = useCallback((docId: string | null | undefined) => (docId ? items.find(i => i.docId === docId) ?? null : null), [items]);
     const stateOf = useCallback((docId: string | null | undefined) => docSyncState(itemFor(docId), syncingDocId), [itemFor, syncingDocId]);
 
-    const queue = useCallback(async (input: QueueInput) => {
-        const saved = await queueOfflineSave(store, input);
+    const queue = useCallback(async (input: QueueInput, files?: Record<string, Blob> | null) => {
+        const saved = await queueOfflineSave(store, input, new Date(), files);
         await reload();
         announce();
         return saved;
     }, [store, reload, announce]);
+
+    const filesOf = useCallback(async (docId: string) => {
+        const uid = userRef.current;
+        if (!uid) return null;
+        try {
+            const entry = await store.getBlobs(outboxItemId(uid, docId));
+            return entry && entry.userId === uid ? entry.files : null;
+        } catch {
+            return null;
+        }
+    }, [store]);
+
+    const fileUsage = useCallback(async () => {
+        const uid = userRef.current;
+        if (!uid) return { count: 0, bytes: 0 };
+        try {
+            const list = await store.listBlobs(uid);
+            return { count: list.length, bytes: list.reduce((sum, b) => sum + (Number(b.bytes) || 0), 0) };
+        } catch {
+            return { count: 0, bytes: 0 };
+        }
+    }, [store]);
 
     const discard = useCallback(async (docId: string) => {
         const uid = userRef.current;
@@ -260,6 +289,6 @@ export function useOutbox(
 
     return {
         ready, storeKind: store.kind, items, history, notices, syncing, syncingDocId,
-        itemFor, stateOf, queue, discard, restore, dismiss, removeHistory, sync, countUnsynced, clearAll,
+        itemFor, stateOf, queue, filesOf, fileUsage, discard, restore, dismiss, removeHistory, sync, countUnsynced, clearAll,
     };
 }

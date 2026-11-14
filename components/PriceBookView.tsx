@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
-import { offlineEntityQueueFor } from '../lib/offline/offlineEntities.ts';
+import { offlineEntityQueueFor, pendingEntityItems, withPendingRows } from '../lib/offline/offlineEntities.ts';
+import { loadWithDeviceCopy } from '../lib/offline/deviceCache.ts';
+import { dbApi } from '../utils/db.ts';
 import { isPaidTier, normalizeTier } from '../lib/plans.ts';
 import type { SavedItem } from '../types.ts';
 import { BoxIcon, BriefcaseIcon, CopyIcon, EditIcon, PlusIcon, SearchIcon, TagIcon, TrashIcon, UsersIcon } from './Icons.tsx';
@@ -117,20 +119,28 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
     setLoadError(null);
     const uid = await getCurrentUserId();
     setUserId(uid);
-    // select('*') keeps the list working even if an optional column is missing (VIEW-027)
-    const res = await fetchAllPages<any>((from, to) => {
+    // select('*') keeps the list working even if an optional column is missing (VIEW-027); offline (also after a
+    // reload): the list last seen on this device, with the items saved offline on top
+    const res = await loadWithDeviceCopy<any>('saved_items', () => fetchAllPages<any>((from, to) => {
       let q = supabase.from('saved_items').select('*').order('name', { ascending: true }).range(from, to);
       if (uid) q = q.eq('user_id', uid);
       return q;
-    });
-    if (res.error) setLoadError(friendlyError(res.error, 'Could not load your price book.'));
-    else setItems(res.rows.map(normalize));
+    }));
+    const withPending = (rows: Item[]) => withPendingRows(rows, pendingEntityItems('price_item'), null, 'price_item', (row, prev) => normalize({ ...(prev || {}), ...row }));
+    let rows: any[] | null = res.error ? null : res.rows;
+    if (!rows && res.fromDevice) {
+      // never opened here online: the copy the app keeps for documents, or the items passed in
+      const kept = uid ? (await dbApi.getAll('saved_items').catch(() => [] as any[])).filter((r) => r?.user_id === uid) : [];
+      rows = kept.length ? kept : seed?.length ? seed : null;
+    }
+    if (rows) setItems(withPending(rows.map(normalize)));
+    else setLoadError(friendlyError(res.error, 'Could not load your price book.'));
     setLoading(false);
-    if (uid && !isPremiumProp) {
+    if (uid && !isPremiumProp && !res.fromDevice) {
       const { data } = await supabase.from('profiles').select('subscription_tier').eq('id', uid).maybeSingle();
       setPaidTier(isPaidTier(normalizeTier((data as any)?.subscription_tier)));
     }
-  }, [isPremiumProp]);
+  }, [isPremiumProp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

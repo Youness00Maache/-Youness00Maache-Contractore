@@ -56,6 +56,10 @@ import { useOutbox, type OutboxDeps } from './lib/offline/useOutbox.ts';
 import type { SyncReport } from './lib/offline/syncEngine.ts';
 import { OFFLINE_CREATE_TYPES, ENTITY_TYPE, applyEntityOverlay, applyOutboxOverlay, canCreateOffline, contentHash, entityOf, numberRuleFor, offlineSavePolicy, pendingCreatesByJob, pendingEntityCreates, type OutboxItem, type OutboxKind } from './lib/offline/outboxModel.ts';
 import { setOfflineEntityQueue } from './lib/offline/offlineEntities.ts';
+import { setDeviceCacheUser } from './lib/offline/deviceCache.ts';
+import type { PaymentSettings } from './lib/payments.ts';
+import { applyProfileOverlay, offlineProfilePatch, pendingProfileItem, profileBaseFor, profileFieldsFromRow, comparableProfileRow, withoutPaymentColumns } from './lib/offline/offlineProfile.ts';
+import { offlinePhotoRow, photoEditPatch, photoItems, uploadQueuedPhoto, PHOTO_FILE_MAIN, PHOTO_FILE_THUMB, type OfflinePhotoInput } from './lib/offline/offlineJobPhotos.ts';
 import { TEMP_TAG } from './utils/clientPortalRules.ts';
 import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
@@ -215,6 +219,21 @@ const prefetchOfflineForms = () => Promise.allSettled([
     import('./components/EstimateForm.tsx'), import('./components/InvoiceForm.tsx'),
 ]);
 
+/**
+ * The main screens, loaded in the background once per session after sign-in (online, not in data-saver mode), so the
+ * installed app opens them offline after one online visit (public/sw.js keeps the files). Same modules as the lazy()
+ * imports above; screens that only work online (AI, Gmail, community, billing) are left out.
+ */
+const prefetchOfflineScreens = () => Promise.allSettled([
+    import('./components/InventoryView.tsx'), import('./components/PriceBookView.tsx'), import('./components/CalendarView.tsx'),
+    import('./components/ClientsView.tsx'), import('./components/Settings.tsx'), import('./components/JobForm.tsx'),
+    import('./components/photos/JobPhotos.tsx'), import('./components/photos/PhotoMarkupEditor.tsx'),
+    import('./components/pipeline/PipelineView.tsx'), import('./components/AnalyticsView.tsx'), import('./components/ProfitCalculatorView.tsx'),
+    import('./components/JobFinancialsModal.tsx'), import('./components/help/HelpCenter.tsx'),
+    import('./components/WorkOrderForm.tsx'), import('./components/WarrantyForm.tsx'), import('./components/ChangeOrderForm.tsx'),
+    import('./components/PurchaseOrderForm.tsx'),
+]);
+
 /** React key of a not-yet-saved form; reused after its first save so the form isn't remounted. */
 const newFormKey = (formType: string, prefillData: any, routeKey: string) => `new-${formType}-${prefillData?.__draftId ?? routeKey}`;
 
@@ -297,7 +316,8 @@ const App: React.FC = () => {
     // ── Session & account state ──────────────────────────────────────────────
     const [session, setSession] = useState<Session | null>(null);
     const [authReady, setAuthReady] = useState(false);
-    const [profile, setProfile] = useState<AppProfile | null>(null);
+    /** The account's profile (or the device copy); `profile` below adds settings saved offline (outbox) on top. */
+    const [accountProfile, setProfile] = useState<AppProfile | null>(null);
     const [profileStatus, setProfileStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
     /** Plan picked on the website whose checkout wasn't completed (lib/pendingPlan.ts): small dismissible banner. */
     const [upgradeBanner, setUpgradeBanner] = useState<PlanIntent | null>(null);
@@ -324,11 +344,18 @@ const App: React.FC = () => {
     // ── Offline outbox (lib/offline): documents saved without a connection, per user, synced in order ─────────
     const outboxDepsRef = useRef<() => OutboxDeps | null>(() => null);
     const outboxReportRef = useRef<(report: SyncReport, trigger: string) => void>(() => undefined);
+    // screens read / keep their last list copy for this user (lib/offline/deviceCache.ts)
+    setDeviceCacheUser(session?.user?.id ?? null);
     const outbox = useOutbox(session?.user?.id ?? null, {
         buildDeps: () => outboxDepsRef.current(),
         onReport: (report, opts) => outboxReportRef.current(report, opts.trigger),
         autoSync: profileStatus === 'ready',
     });
+    /** The profile every screen shows: the account's, with settings saved offline (waiting to sync) on top. */
+    const profile = useMemo(
+        () => applyProfileOverlay(accountProfile, outbox.items, session?.user?.id),
+        [accountProfile, outbox.items, session?.user?.id],
+    );
     /** Every document the screens show: the account's, with the versions waiting in the outbox on top. */
     const forms = useMemo(
         () => applyOutboxOverlay(serverForms, outbox.items, session?.user?.id),
@@ -352,9 +379,37 @@ const App: React.FC = () => {
                 await outboxRef.current.queue({ entity, userId: uid, docId: id, jobId: entity === 'job' ? id : '', type: ENTITY_TYPE[entity], kind, data: row });
             },
             isWaiting: id => outboxRef.current.items.some(i => i.docId === id && entityOf(i) !== 'document'),
+            items: () => outboxRef.current.items,
         });
         return () => setOfflineEntityQueue(null);
     }, [session?.user?.id]);
+    /** Job photos taken / changed offline (Photos tab): files + row wait on this device (lib/offline/offlineJobPhotos.ts). */
+    const outboxPhotoItems = useMemo(() => photoItems(outbox.items, session?.user?.id), [outbox.items, session?.user?.id]);
+    const jobPhotoOffline = useMemo(() => {
+        const uid = session?.user?.id;
+        if (!uid) return null;
+        const syncSoon = (id: string) => { if (navigator.onLine) void outboxRef.current.sync({ trigger: 'save', onlyDocIds: [id] }); };
+        return {
+            userId: uid,
+            items: outboxPhotoItems,
+            stateOf: (id: string) => outboxRef.current.stateOf(id),
+            add: async (input: OfflinePhotoInput, files: { main: Blob; thumb: Blob }) => {
+                await outboxRef.current.queue(
+                    { entity: 'job_photo', userId: uid, docId: input.id, jobId: input.jobId, type: ENTITY_TYPE.job_photo, kind: 'create', data: offlinePhotoRow({ ...input, userId: uid }) },
+                    { [PHOTO_FILE_MAIN]: files.main, [PHOTO_FILE_THUMB]: files.thumb },
+                );
+                syncSoon(input.id);
+            },
+            edit: async (photoId: string, jobId: string, patch: Parameters<typeof photoEditPatch>[0]) => {
+                await outboxRef.current.queue({ entity: 'job_photo', userId: uid, docId: photoId, jobId, type: ENTITY_TYPE.job_photo, kind: 'edit', data: photoEditPatch(patch) });
+                syncSoon(photoId);
+            },
+            discard: (photoId: string) => outboxRef.current.discard(photoId),
+            filesOf: (photoId: string) => outboxRef.current.filesOf(photoId),
+            fileUsage: () => outboxRef.current.fileUsage(),
+        };
+        // stateOf reads the current outbox; re-created when the photo items change
+    }, [session?.user?.id, outboxPhotoItems, outbox.syncingDocId]);
     const [outboxOpen, setOutboxOpen] = useState(false);
     const [logoutGuard, setLogoutGuard] = useState<{ count: number; problem: string | null } | null>(null);
 
@@ -368,6 +423,22 @@ const App: React.FC = () => {
     const [notificationCount, setNotificationCount] = useState(0);
     const [formLoad, setFormLoad] = useState<{ id: string; error: string | null } | null>(null);
     const [formReloadNonce, setFormReloadNonce] = useState(0);
+
+    // The device copy of jobs / clients / stock / price book follows the account during the session (not only at login),
+    // so the app opens offline with what was last seen (jobs added online later included). Not while showing that copy.
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || profileStatus !== 'ready' || usingCachedData || !jobsLoaded) return;
+        const t = window.setTimeout(() => {
+            if (sessionUserIdRef.current !== uid) return;
+            dbApi.replaceAll('jobs', serverJobs.filter(j => j && j.id)).catch(() => undefined);
+            dbApi.replaceAll('clients', serverClients.filter(c => c && c.id)).catch(() => undefined);
+            if (inventory.length) dbApi.replaceAll('inventory', inventory.filter(i => i && (i as any).id)).catch(() => undefined);
+            if (savedItems.length) dbApi.replaceAll('saved_items', savedItems.filter(i => i && (i as any).id)).catch(() => undefined);
+        }, 1500);
+        return () => window.clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [serverJobs, serverClients, inventory, savedItems, profileStatus, usingCachedData, jobsLoaded]);
 
     const [theme, setThemeState] = useState<ThemeName>(() => {
         try { return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY)) || 'light'; } catch { return 'light'; }
@@ -981,6 +1052,8 @@ const App: React.FC = () => {
             return;
         }
         const mapped = (data || []).map((row: any) => mapDocumentRow(row));
+        // the job's document list opens offline too (also after a reload): keep the list rows on this device
+        dbApi.putMany('documents', mapped.filter(d => isLightweightDocument(d))).catch(() => undefined);
         setForms(prev => {
             let base = prev;
             if (reset && mapped.length < DOCUMENT_PAGE_SIZE) {
@@ -1014,6 +1087,27 @@ const App: React.FC = () => {
     // The app opens without a connection (public/sw.js, production builds only). Signed-in users only: the marketing
     // site and the clients' portal / approval pages never register it.
     useEffect(() => { if (session?.user?.id) registerOfflineShell(); }, [session?.user?.id]);
+
+    // Once per session (online, not in data-saver mode, a few seconds after the account is loaded): the main screens'
+    // files in the background, so they open offline later (the worker keeps them).
+    const offlineScreensPrefetchedRef = useRef(false);
+    useEffect(() => {
+        if (profileStatus !== 'ready' || offlineScreensPrefetchedRef.current) return;
+        if (!navigator.onLine || (navigator as any).connection?.saveData) return;
+        const timer = window.setTimeout(() => {
+            if (offlineScreensPrefetchedRef.current || !navigator.onLine) return;
+            offlineScreensPrefetchedRef.current = true;
+            const idle: (cb: () => void) => void = (window as any).requestIdleCallback
+                ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 8000 })
+                : (cb) => { setTimeout(cb, 1000); };
+            idle(() => {
+                void prefetchOfflineForms()
+                    .then(() => prefetchOfflineScreens())
+                    .then(() => warmOfflineShell());
+            });
+        }, 6000);
+        return () => window.clearTimeout(timer);
+    }, [profileStatus]);
 
     const openFormId = view.screen === 'form' ? view.formId : null;
     const openForm = openFormId ? forms.find(f => f.id === openFormId) : undefined;
@@ -1250,11 +1344,47 @@ const App: React.FC = () => {
         }
     };
 
+    /**
+     * Settings saved offline (or while an earlier offline save still waits): one outbox item per user, a patch of the
+     * profiles row, synced like the rest (lib/offline/offlineProfile.ts). A logo / picture picked offline waits inside
+     * it as a compressed image and is uploaded when it syncs.
+     */
+    const saveProfileToOutbox = async (uid: string, updated: UserProfile, logoFile?: File | null, profilePicFile?: File | null, payment?: PaymentSettings | null) => {
+        let logoUrl = updated.logoUrl || '';
+        let pictureUrl = updated.profilePictureUrl || '';
+        try {
+            if (logoFile) { logoUrl = await fileToDataUrl(logoFile); void rememberOfflinePhoto(logoUrl); }
+            if (profilePicFile) { pictureUrl = await fileToDataUrl(profilePicFile); void rememberOfflinePhoto(pictureUrl); }
+        } catch (err) {
+            throw new Error(`The image couldn't be kept on this device. ${describeError(err)}`);
+        }
+        const patch = offlineProfilePatch(updated, { logoUrl, pictureUrl }, payment ?? null);
+        const waiting = pendingProfileItem(outbox.items, uid);
+        try {
+            await outbox.queue({
+                entity: 'profile', userId: uid, docId: uid, jobId: '', type: ENTITY_TYPE.profile, kind: 'edit', data: patch,
+                base: waiting ? null : profileBaseFor(accountProfile || updated, patch),
+            });
+        } catch (err) {
+            throw new Error(`Your settings couldn't be kept on this device (storage full?). ${describeError(err)}`);
+        }
+        if (navigator.onLine) {
+            void outbox.sync({ trigger: 'save', onlyDocIds: [uid] });
+            toast.success('Settings saved.');
+        } else {
+            toast.success("Settings saved on this device. They're added to your account when you're back online.");
+        }
+    };
+
     /** Saves profile fields. Throws so Settings keeps the edits and shows the error (CORE-021, VIEW-010). */
-    const handleSaveProfile = async (updated: UserProfile, logoFile?: File | null, profilePicFile?: File | null) => {
+    const handleSaveProfile = async (updated: UserProfile, logoFile?: File | null, profilePicFile?: File | null, extras?: { paymentSettings?: PaymentSettings | null }) => {
         const uid = sessionUserIdRef.current;
         if (!uid) throw new Error('Please sign in again.');
-        if (!navigator.onLine) throw new Error("You're offline. Your changes are still here; save again when you reconnect.");
+        // offline, or settings saved offline still waiting: the outbox keeps the order (the newest save wins)
+        if (!navigator.onLine || pendingProfileItem(outbox.items, uid)) {
+            await saveProfileToOutbox(uid, updated, logoFile, profilePicFile, extras?.paymentSettings ?? null);
+            return;
+        }
         let logoUrl = updated.logoUrl || '';
         let pictureUrl = updated.profilePictureUrl || '';
         try {
@@ -1990,12 +2120,32 @@ const App: React.FC = () => {
                 return uploadFile('logos', file, uid, 'doc');
             },
             isOnline: () => navigator.onLine !== false,
-            saveEntity: async (entity, kind, row) => {
+            fetchEntity: async (entity, id) => {
+                if (entity !== 'profile') return null;
+                const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+                if (error) throw error;
+                return data ? comparableProfileRow(data as Record<string, unknown>) : null;
+            },
+            saveEntity: async (entity, kind, row, files) => {
                 const duplicate = (e: unknown) => String((e as { code?: unknown } | null)?.code || '') === '23505';
                 // a stock change made offline: the same stock RPC as online (it logs the history row)
                 if (entity === 'stock_move') {
                     const { error } = await supabase.rpc('adjust_inventory', { p_item_id: row.p_item_id, p_delta: row.p_delta, p_reason: row.p_reason, p_job_id: row.p_job_id ?? null });
                     return { error };
+                }
+                // settings saved offline: the same profiles update as online (without the payment columns when the
+                // database doesn't have them yet, as online)
+                if (entity === 'profile') {
+                    const { id: _id, ...patch } = row;
+                    const stamp = { updated_at: new Date().toISOString() };
+                    let res = await supabase.from('profiles').update({ ...patch, ...stamp }).eq('id', uid);
+                    if (res.error && isMissingColumnError(res.error)) res = await supabase.from('profiles').update({ ...withoutPaymentColumns(patch), ...stamp }).eq('id', uid);
+                    return { error: res.error };
+                }
+                // a job photo taken offline: the same row + upload + portal copy as "Add photos" online
+                if (entity === 'job_photo') {
+                    const api = await import('./components/photos/photosApi.ts');
+                    return uploadQueuedPhoto(api.queuedPhotoUploadDeps(uid), kind, row, files);
                 }
                 const table = { job: 'jobs', client: 'clients', inventory: 'inventory', price_item: 'saved_items' }[entity];
                 if (kind === 'create') {
@@ -2011,6 +2161,12 @@ const App: React.FC = () => {
             },
             onSynced: (doc) => {
                 if (sessionUserIdRef.current !== uid) return;
+                if (doc.entity === 'profile') {
+                    // the uploaded logo / picture URLs replace the device copies
+                    setProfile(prev => (prev ? { ...prev, ...profileFieldsFromRow(doc.data) } : prev));
+                    return;
+                }
+                if (doc.entity === 'job_photo') return; // the Photos tab reloads its list when its photos leave the outbox
                 if (doc.entity === 'job') {
                     const status = doc.data.status ? normalizeJobStatus(doc.data.status as string) : null;
                     setJobs(prev => (prev.some(j => j.id === doc.docId)
@@ -2062,6 +2218,10 @@ const App: React.FC = () => {
         setOutboxOpen(false);
         if (entityOf(item) === 'job') { navigate(`/jobs/${item.docId}`); return; }
         if (entityOf(item) === 'client') { navigate('/clients'); return; }
+        if (entityOf(item) === 'job_photo') { navigate(`/jobs/${item.jobId}#photos`); return; }
+        if (entityOf(item) === 'profile') { navigate('/settings'); return; }
+        if (entityOf(item) === 'inventory' || entityOf(item) === 'stock_move') { navigate('/inventory'); return; }
+        if (entityOf(item) === 'price_item') { navigate('/pricebook'); return; }
         navigate(`/jobs/${item.jobId}/forms/${encodeURIComponent(item.type)}/${item.docId}`, { state: { fromJob: false } });
     };
 
@@ -2278,6 +2438,7 @@ const App: React.FC = () => {
                             job={job} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade}
                             client={client} clients={clients} uploadImage={handleUploadDocumentImage} onEmailSent={handleEmailSent}
                             onDocumentsChanged={() => { void loadDocumentsForJob(job.id, true); }}
+                            offline={jobPhotoOffline ? { ...jobPhotoOffline, jobWaiting: outbox.itemFor(job.id)?.kind === 'create' } : null}
                         />
                     </Suspense>
                 )}
@@ -2497,6 +2658,7 @@ const App: React.FC = () => {
                         onSaveSignature={handleSaveSignature}
                         onDeleteAccount={handleDeleteAccount}
                         initialSection={location.hash === '#billing' ? 'billing' : location.hash === '#payments' ? 'payments' : location.hash === '#data' ? 'data' : undefined}
+                        syncState={session?.user?.id ? outbox.stateOf(session.user.id) : null}
                     />
                 );
             case 'billingSuccess':

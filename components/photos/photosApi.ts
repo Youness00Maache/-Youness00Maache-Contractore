@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase.ts';
 import { compressImage } from '../../utils/imageCompression.ts';
 import { isMissingBackendError, photoExtension } from '../requests/requestLogic.ts';
 import { flushStorageCleanup } from '../requests/requestsApi.ts';
+import type { PhotoUploadDeps } from '../../lib/offline/offlineJobPhotos.ts';
 import {
     JOB_PHOTO_COLUMNS, mapPhotoRow, mapPhotoUsage, photoStoragePaths, portalPhotoPath,
     type JobPhoto, type PhotoTag, type PhotoUsage,
@@ -254,6 +255,35 @@ export const setPhotoShared = async (photo: JobPhoto, shared: boolean, userId: s
     }
     return { sharedInPortal: true, portalPath };
 };
+
+/**
+ * The network side of a photo taken offline when it syncs (lib/offline/offlineJobPhotos.ts uploadQueuedPhoto): the
+ * same table, bucket, upload options and portal copy as addJobPhoto / updateJobPhoto / setPhotoShared above.
+ */
+export const queuedPhotoUploadDeps = (userId: string): PhotoUploadDeps => ({
+    insertRow: async (row) => {
+        const { error } = await supabase.from('job_photos').insert(row);
+        return { error };
+    },
+    upload: async (path, file, contentType) => {
+        const { error } = await supabase.storage.from(JOB_PHOTOS_BUCKET).upload(path, file, { upsert: false, contentType: contentType || 'image/jpeg', cacheControl: '3600' });
+        return { error };
+    },
+    deleteRow: async (id) => {
+        await supabase.from('job_photos').delete().eq('id', id);
+        flushStorageCleanup().catch(() => undefined);
+    },
+    updateRow: async (id, patch) => {
+        const { error } = await supabase.from('job_photos').update(patch).eq('id', id);
+        return { error };
+    },
+    fetchRow: async (id) => {
+        const { data, error } = await supabase.from('job_photos').select(JOB_PHOTO_COLUMNS).eq('id', id).maybeSingle();
+        if (error) throw error;
+        return data ? mapPhotoRow(data) : null;
+    },
+    share: async (photo, shared) => { await setPhotoShared(photo, shared, userId); },
+});
 
 /**
  * Request photos → the new job's timeline as "Before" photos (best effort: stops quietly at a plan limit).

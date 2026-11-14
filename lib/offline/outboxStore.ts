@@ -8,6 +8,20 @@
  */
 import type { OfflinePhoto, OutboxHistoryEntry, OutboxItem } from './outboxModel.ts';
 
+/**
+ * Files that belong to an outbox item (a job photo taken offline: the compressed photo and its preview). Kept next to
+ * the item (same id) until it syncs or is discarded.
+ */
+export interface OutboxBlobs {
+    /** the outbox item id (`${userId}:${docId}`) */
+    id: string;
+    userId: string;
+    files: Record<string, Blob>;
+    /** total size of the files, in bytes */
+    bytes: number;
+    createdAt: string;
+}
+
 export interface OutboxStore {
     /** 'indexeddb' persists across reloads; 'memory' only lives as long as the page */
     readonly kind: 'indexeddb' | 'memory';
@@ -23,7 +37,13 @@ export interface OutboxStore {
     getPhotos(userId: string): Promise<OfflinePhoto[]>;
     putPhoto(photo: OfflinePhoto): Promise<void>;
     deletePhotos(ids: string[]): Promise<void>;
-    /** Removes everything of this user (items, history, photo registry). */
+    /** Files of an outbox item (job photos taken offline). */
+    putBlobs(entry: OutboxBlobs): Promise<void>;
+    getBlobs(id: string): Promise<OutboxBlobs | null>;
+    deleteBlobs(ids: string[]): Promise<void>;
+    /** This user's stored files without their content (ids and sizes: device room, clean-up). */
+    listBlobs(userId: string): Promise<Array<{ id: string; bytes: number; createdAt: string }>>;
+    /** Removes everything of this user (items, history, photo registry, files). */
     clearUser(userId: string): Promise<void>;
 }
 
@@ -43,6 +63,8 @@ export function createMemoryOutboxStore(): OutboxStore & { failNextWrite?: boole
     const items = new Map<string, OutboxItem>();
     const history = new Map<string, OutboxHistoryEntry>();
     const photos = new Map<string, OfflinePhoto>();
+    // Blobs are kept as they are (not cloned: they are immutable)
+    const blobs = new Map<string, OutboxBlobs>();
     const store: OutboxStore & { failNextWrite?: boolean } = {
         kind: 'memory',
         failNextWrite: false,
@@ -67,10 +89,20 @@ export function createMemoryOutboxStore(): OutboxStore & { failNextWrite?: boole
         async getPhotos(userId) { return Array.from(photos.values()).filter(p => p.userId === userId).map(clone); },
         async putPhoto(photo) { photos.set(photo.id, clone(photo)); },
         async deletePhotos(ids) { ids.forEach(id => photos.delete(id)); },
+        async putBlobs(entry) {
+            if (store.failNextWrite) { store.failNextWrite = false; throw new Error('QuotaExceededError'); }
+            blobs.set(entry.id, { ...entry, files: { ...entry.files } });
+        },
+        async getBlobs(id) { const b = blobs.get(id); return b ? { ...b, files: { ...b.files } } : null; },
+        async deleteBlobs(ids) { ids.forEach(id => blobs.delete(id)); },
+        async listBlobs(userId) {
+            return Array.from(blobs.values()).filter(b => b.userId === userId).map(b => ({ id: b.id, bytes: b.bytes, createdAt: b.createdAt }));
+        },
         async clearUser(userId) {
             for (const [k, v] of items) if (v.userId === userId) items.delete(k);
             for (const [k, v] of history) if (v.userId === userId) history.delete(k);
             for (const [k, v] of photos) if (v.userId === userId) photos.delete(k);
+            for (const [k, v] of blobs) if (v.userId === userId) blobs.delete(k);
         },
     };
     return store;
@@ -81,10 +113,13 @@ export function createMemoryOutboxStore(): OutboxStore & { failNextWrite?: boole
 // ---------------------------------------------------------------------------------------------------------------------
 
 export const OUTBOX_DB_NAME = 'contractordocs_outbox';
-const OUTBOX_DB_VERSION = 1;
+/** 2: + `blobs` (job photos taken offline) */
+const OUTBOX_DB_VERSION = 2;
 const ITEMS = 'items';
 const HISTORY = 'history';
 const PHOTOS = 'photos';
+const BLOBS = 'blobs';
+const ALL_STORES = [ITEMS, HISTORY, PHOTOS, BLOBS];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -96,7 +131,7 @@ const openDb = (): Promise<IDBDatabase> => {
         request.onblocked = () => { dbPromise = null; reject(new Error('The offline outbox is blocked by another open tab')); };
         request.onupgradeneeded = () => {
             const db = request.result;
-            for (const name of [ITEMS, HISTORY, PHOTOS]) {
+            for (const name of ALL_STORES) {
                 if (!db.objectStoreNames.contains(name)) {
                     const os = db.createObjectStore(name, { keyPath: 'id' });
                     os.createIndex('userId', 'userId', { unique: false });
@@ -159,8 +194,15 @@ export function createIndexedDbOutboxStore(): OutboxStore {
         getPhotos: userId => byUser<OfflinePhoto>(PHOTOS, userId),
         putPhoto: photo => run<void>(PHOTOS, 'readwrite', tx => { tx.objectStore(PHOTOS).put(photo); }),
         deletePhotos: ids => run<void>(PHOTOS, 'readwrite', tx => { const os = tx.objectStore(PHOTOS); ids.forEach(id => os.delete(id)); }),
-        clearUser: userId => run<void>([ITEMS, HISTORY, PHOTOS], 'readwrite', tx => {
-            for (const name of [ITEMS, HISTORY, PHOTOS]) {
+        putBlobs: entry => run<void>(BLOBS, 'readwrite', tx => { tx.objectStore(BLOBS).put(entry); }),
+        getBlobs: id => run<OutboxBlobs | null>(BLOBS, 'readonly', tx => {
+            const req = tx.objectStore(BLOBS).get(id);
+            return () => (req.result as OutboxBlobs | undefined) ?? null;
+        }),
+        deleteBlobs: ids => run<void>(BLOBS, 'readwrite', tx => { const os = tx.objectStore(BLOBS); ids.forEach(id => os.delete(id)); }),
+        listBlobs: async userId => (await byUser<OutboxBlobs>(BLOBS, userId)).map(b => ({ id: b.id, bytes: Number(b.bytes) || 0, createdAt: b.createdAt })),
+        clearUser: userId => run<void>(ALL_STORES, 'readwrite', tx => {
+            for (const name of ALL_STORES) {
                 const req = tx.objectStore(name).index('userId').openCursor(IDBKeyRange.only(userId));
                 req.onsuccess = () => {
                     const cursor = req.result;
