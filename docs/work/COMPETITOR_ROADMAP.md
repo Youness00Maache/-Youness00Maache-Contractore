@@ -46,7 +46,7 @@ N2 Budget + POs (#30, #26, #27): committed vs actual (Sent/Confirmed POs not yet
    actual), original vs revised budget, remaining, expected final cost/profit/margin, category overrun highlight;
    PO statuses Draft/Sent/Confirmed/Partially delivered/Delivered/Invoiced/Paid, partial deliveries with remaining
    qty (stock += delivered qty once per delivery), supplier invoice attachment (document-assets bucket), expected
-   delivery date. Data in documents.data. Tests: costing-check, supplier-orders-check. [Opus]           TODO
+   delivery date. Data in documents.data. Tests: costing-check, supplier-orders-check. [Opus]       SHIPPED a3723ea
 N3 Business overview (#35): most/least profitable jobs, estimates awaiting approval list, active jobs, customer +
    project filters, AI monthly summary (Premium+AI, ai-assistant task). Tests: views-logic-check. [Sonnet] TODO
 N4 Proposal builder (#5, contractor side): optional line items (shown as "Optional" with their price, not in the
