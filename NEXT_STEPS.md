@@ -274,6 +274,12 @@ Basic vs Premium groups, Premium only for paid plans, customization beyond color
 better thumbnails), AI credit top-ups a591f3dddbe37d852 (scratchpad/credits: buy credits $5+, auto-recharge if Kelviq
 supports it; draft SQL + feature flag OFF; nothing applied). Weekly budget ~93%: if it runs out, continue after the
 weekly reset (Nov 19 17:00 UTC). AI test prompt for the owner is in the chat (Maria Lopez / Lopez Bathroom Remodel).
+**12:50:** Owner: "ship as fast as possible" + SEO complete + get found by AI chatbots. Started SEO/AI-visibility helper
+a4639163d6c212037 (scratchpad/seo: robots AI-bot groups, llms.txt + llms-full.txt, answer-first + FAQ + BlogPosting/
+Breadcrumb JSON-LD on posts, /ai-estimate-generator, /ai-invoice-generator, /for/<trade> pages, /compare/* pages,
+new posts, IndexNow key + ping script, seo:check extended). AI credits helper asked to wrap up (flag OFF) to save budget.
+AFTER DEPLOY: Search Console (verification file public/google58a3bf2c7e0ed45b.html) → submit sitemap + request indexing
+of key pages; Bing Webmaster Tools import from Search Console; run scripts/indexnow-ping.ts.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
