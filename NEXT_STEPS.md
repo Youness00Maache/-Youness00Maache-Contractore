@@ -294,6 +294,20 @@ a0b2903ffd888a515 + SEO a4639163d6c212037 told to wrap up in a working state (PR
 scratchpad/seo). NEXT: when both report → tsc + build + seo:check + templates-qa --no-browser + key suites → commit
 (groups: credits, notifications, templates, SEO) → redeploy ai-assistant → publish only on the owner's "publish".
 If the budget runs out first: everything is on disk (uncommitted); resume after Nov 19 17:00 UTC from here.
+**13:55 (weekly 97%): EVERYTHING COMMITTED** (921f35d templates/notifications/credits/SEO; 50b3844 landing fixes: hero
+badge removed + raised, natural phone mockup, no Kelviq/merchant-of-record text anywhere on the site, footer "Blog").
+Premium designs browser-checked (12,352 checks, PDF = preview; contact sheet scratchpad/tpl2/compare/premium_invoice_sheet.png).
+BLOCKERS FOR PUBLISHING (owner):
+1. GitHub: `git push` is refused (403): this computer is logged in as YounessMaache, which is not a collaborator on
+   Youness00Maache/-Youness00Maache-Contractore. Add YounessMaache as a collaborator (or `gh auth login` as
+   Youness00Maache), then: push my-branch, merge into main → Vercel deploys.
+2. Supabase dashboard in Chrome is signed out → sign in, then redeploy ai-assistant (bundle command in section 0;
+   needed for templates/notifications knowledge; credits code ships with the flag OFF).
+3. Vercel env vars + Kelviq secrets (D1) as listed at 12:00. 4. Owner click-test.
+SEO leftovers (scratchpad/seo/PROGRESS.md + rewritten-links.txt): render the 8 trade pages (content written), write
+/ai-estimate-generator, /ai-invoice-generator, 4 /compare pages, nav/footer links, IndexNow key + ping script.
+Templates leftovers (scratchpad/tpl2/PROGRESS.md): full --pdfdiff run on all kinds, marketing Templates page PNGs
+(content/templatePreviews.ts) still show retired designs, optional Settings default-design section.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
