@@ -1369,6 +1369,18 @@ const App: React.FC = () => {
         openDocument(invoice, true);
     };
 
+    /**
+     * Supplier ordering (lib/suppliersApi.ts): reorder purchase orders created from Inventory, or a PO updated by
+     * "Mark received" outside a form save. The full documents join the list (job page, pipeline, costing).
+     */
+    const handleSupplierDocuments = (docs: FormDataType[], created = false) => {
+        if (!docs.length) return;
+        const saved = docs.map(doc => ({ ...doc, createdAt: doc.createdAt || forms.find(f => f.id === doc.id)?.createdAt || new Date().toISOString() }));
+        saved.forEach(primeDocumentCache);
+        setForms(prev => mergeDocuments(prev.filter(f => !saved.some(s => s.id === f.id)), saved));
+        if (created) refreshUsage();
+    };
+
     const handleDuplicateDoc = async (form: FormDataType) => {
         const uid = sessionUserIdRef.current;
         if (!uid) return;
@@ -1750,7 +1762,11 @@ const App: React.FC = () => {
                 onMarkPaid={setMarkPaidDoc}
                 photosSlot={(
                     <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
-                        <JobPhotos job={job} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} />
+                        <JobPhotos
+                            job={job} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade}
+                            client={client} clients={clients} uploadImage={handleUploadDocumentImage} onEmailSent={handleEmailSent}
+                            onDocumentsChanged={() => { void loadDocumentsForJob(job.id, true); }}
+                        />
                     </Suspense>
                 )}
             />
@@ -1821,7 +1837,21 @@ const App: React.FC = () => {
             case FormType.Warranty: return <WarrantyForm key={componentKey} {...common} profile={profile} data={form?.data as WarrantyData | null} onBack={handleCloseForm} />;
             case FormType.Receipt: return <ReceiptForm key={componentKey} {...common} profile={profile} data={form?.data as ReceiptData | null} onBack={handleCloseForm} publicToken={publicToken} />;
             case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} {...common} profile={profile} data={form?.data as ChangeOrderData | null} onBack={handleCloseForm} publicToken={publicToken} savedItems={savedItems} inventoryItems={inventory} />;
-            case FormType.PurchaseOrder: return <PurchaseOrderForm key={componentKey} {...common} profile={profile} data={form?.data as PurchaseOrderData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} />;
+            case FormType.PurchaseOrder: return (
+                <PurchaseOrderForm
+                    key={componentKey}
+                    {...common}
+                    profile={profile}
+                    data={form?.data as PurchaseOrderData | null}
+                    onBack={handleCloseForm}
+                    savedItems={savedItems}
+                    inventoryItems={inventory}
+                    plan={plan}
+                    onUpgrade={openUpgrade}
+                    onInventoryChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadInventory(uid).catch(() => undefined); }}
+                    onDocumentUpdated={(doc) => handleSupplierDocuments([doc])}
+                />
+            );
             default: return renderNotFoundJob();
         }
     };
@@ -1985,6 +2015,10 @@ const App: React.FC = () => {
                     onUpgrade={openUpgrade}
                     onClientsChanged={() => { const uid = sessionUserIdRef.current; if (uid) { loadClients(uid).catch(() => undefined); refreshUsage(); } }}
                     onDataChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadInventory(uid).catch(() => undefined); }}
+                    plan={plan}
+                    savedItems={savedItems}
+                    onDocumentsCreated={(docs) => handleSupplierDocuments(docs, true)}
+                    onOpenDocument={(doc) => openDocument(doc)}
                 />;
             case 'pricebook':
                 return <PriceBookView

@@ -6,11 +6,18 @@
  * (usage_events, service role) → model (Gemini JSON mode with responseSchema, or the mock; busy
  * models are retried with a short backoff, then the next model is tried) → robust parse →
  * buildProposal (validation/normalization) → meter usage (successful answers only) → JSON response.
+ *
+ * Photo tasks (body.task = "photo_update" | "photo_walkthrough", shared/photoTasks.ts): same auth, limits, model
+ * chain and metering, plus a Premium + AI plan check; up to 8 photos; see handlePhotoTask.
  */
 import {
     buildProposal, buildResponseSchema, isSampleRequest, parseModelJson, RouterInputError, sanitizeRequest,
     type ModelOutput, type RouterRequest, type RouterResponse,
 } from './shared/routerContract.ts';
+import {
+    buildPhotoResponseSchema, buildPhotoSystemPrompt, buildPhotoUserParts, buildWalkthroughProposal, isPhotoTaskBody, mockPhotoTaskOutput,
+    parsePhotoUpdate, PHOTO_TASK_TIER, PHOTO_TASK_UPGRADE_MESSAGE, sanitizePhotoTaskRequest, type PhotoTaskRequest,
+} from './shared/photoTasks.ts';
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
 import { mockModelOutput } from './shared/mockModel.ts';
 import { REQUEST_LIMITS } from './shared/routerContract.ts';
@@ -221,13 +228,14 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         if (!res || !res.ok) log('usage insert failed', rpc?.status, text.slice(0, 200), res?.status);
     }
 
-    async function callGemini(request: RouterRequest): Promise<{ output: ModelOutput; model: string }> {
-        const key = env.get('GEMINI_API_KEY') || '';
-        if (!key) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured yet (missing model key).');
-        const primary = (env.get('GEMINI_MODEL') || '').trim().replace(/^models\//, '') || DEFAULT_MODEL;
-        const models = [...new Set([primary, ...BACKUP_MODELS])];
+    /** GEMINI_THINKING_LEVEL (Gemini 3+), else the default. */
+    const thinkingLevelOf = (): string => {
         const level = (env.get('GEMINI_THINKING_LEVEL') || '').trim().toUpperCase();
-        const thinkingLevel = (THINKING_LEVELS as readonly string[]).includes(level) ? level : DEFAULT_THINKING_LEVEL;
+        return (THINKING_LEVELS as readonly string[]).includes(level) ? level : DEFAULT_THINKING_LEVEL;
+    };
+
+    async function callGemini(request: RouterRequest): Promise<{ output: ModelOutput; model: string }> {
+        const thinkingLevel = thinkingLevelOf();
 
         const contents: Array<{ role: 'user' | 'model'; parts: Array<Record<string, unknown>> }> = [];
         for (const m of request.history || []) {
@@ -261,6 +269,20 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
                 },
             });
         };
+        const { output, model } = await generateJson(makeBody);
+        return { output: output as unknown as ModelOutput, model };
+    }
+
+    /**
+     * One JSON answer from the model chain (GEMINI_MODEL, then BACKUP_MODELS): busy models are retried with a short
+     * backoff, a hanging or failing model hands over to the next one, a model that rejects the thinking setting or
+     * the schema is asked again without it / with the compact schema. `makeBody` builds the request for one model.
+     */
+    async function generateJson(makeBody: (model: string, opts: { thinking: boolean; compact: boolean }) => string): Promise<{ output: Record<string, unknown>; model: string }> {
+        const key = env.get('GEMINI_API_KEY') || '';
+        if (!key) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured yet (missing model key).');
+        const primary = (env.get('GEMINI_MODEL') || '').trim().replace(/^models\//, '') || DEFAULT_MODEL;
+        const models = [...new Set([primary, ...BACKUP_MODELS])];
         const startedAt = Date.now();
         const remaining = () => limits.totalMs - (Date.now() - startedAt);
         const failures: FailureKind[] = [];
@@ -308,7 +330,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
                         .map((p: Record<string, unknown>) => p.text as string)
                         .join('');
                     const parsed = parseModelJson(text);
-                    if (parsed) return { output: parsed as unknown as ModelOutput, model };
+                    if (parsed) return { output: parsed, model };
                     // Cut off (MAX_TOKENS) or not JSON: the next model may do better.
                     log('unparseable model output', model, finish, text.slice(0, 200));
                     failures.push('bad_output');
@@ -356,6 +378,96 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         throw new HttpError(e.status, e.code, e.message);
     }
 
+    /** Photo tasks: the photos (each with its stage / time / caption line) in one user turn, own prompt and schema. */
+    async function callGeminiPhotos(request: PhotoTaskRequest): Promise<{ output: Record<string, unknown>; model: string }> {
+        const thinkingLevel = thinkingLevelOf();
+        const contents = [{ role: 'user', parts: buildPhotoUserParts(request) }];
+        const system = buildPhotoSystemPrompt(request);
+        const makeBody = (model: string, opts: { thinking: boolean; compact: boolean }) => {
+            const modern = geminiGeneration(model) >= 3;
+            return JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: buildPhotoResponseSchema(request, { compact: opts.compact }),
+                    ...(modern ? {} : { temperature: 0.3 }),
+                    maxOutputTokens: 8192,
+                    ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),
+                },
+            });
+        };
+        return generateJson(makeBody);
+    }
+
+    /**
+     * Configuration, burst guard, plan and rate limits for one request. Returns the plan facts, or the 402 response
+     * to send (monthly limit reached, or a feature of a higher plan when `requiredTier` is set).
+     */
+    async function admit(userId: string, cors: Record<string, string>, requiredTier?: 'ai'): Promise<{ tier: 'free' | 'premium' | 'ai'; used: number; limit: number } | Response> {
+        if (!serviceKey) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured on the server.');
+        const nowDate = now();
+        if (burstExceeded(userId, nowDate.getTime())) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a few seconds.');
+        const monthStart = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1)).toISOString();
+        const minuteAgo = new Date(nowDate.getTime() - 60_000).toISOString();
+        const perMinute = Number(env.get('AI_RATE_PER_MINUTE') || 10);
+        const [tier, used, lastMinute] = await Promise.all([
+            getTier(userId),
+            countUsage(userId, monthStart),
+            countUsage(userId, minuteAgo),
+        ]);
+        const limit = AI_MONTHLY_LIMITS[tier];
+        if (requiredTier && tier !== requiredTier) {
+            return json({ error: `PLAN_REQUIRED: ${PHOTO_TASK_UPGRADE_MESSAGE}`, code: 'PLAN_REQUIRED', tier, required: requiredTier }, 402, cors);
+        }
+        if (used >= limit) {
+            const upgrade = tier === 'ai' ? 'Your allowance resets on the 1st of next month.' : 'Upgrade your plan to keep using the assistant this month.';
+            return json({ error: `PLAN_LIMIT: You have used all ${limit} AI requests included in your plan this month. ${upgrade}`, code: 'PLAN_LIMIT', limit, used, tier }, 402, cors);
+        }
+        if (lastMinute >= perMinute) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a minute.');
+        return { tier, used, limit };
+    }
+
+    /**
+     * "Write client update" / "AI walkthrough" from job photos (Premium + AI). Metered as one AI request, only when
+     * the answer is usable and the browser is still waiting.
+     *   photo_update      → { ok, task, update: { subject, message, decision } }
+     *   photo_walkthrough → { ok, task, proposal } (GENERATE_DOCUMENT, Daily Job Report or Note, for the open job)
+     */
+    async function handlePhotoTask(req: Request, userId: string, body: unknown, cors: Record<string, string>): Promise<Response> {
+        const request = sanitizePhotoTaskRequest(body);
+        const admission = await admit(userId, cors, PHOTO_TASK_TIER);
+        if (admission instanceof Response) return admission;
+        const { tier, used, limit } = admission;
+
+        const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
+        const { output, model } = provider === 'mock'
+            ? { output: mockPhotoTaskOutput(request), model: 'mock' }
+            : await callGeminiPhotos(request);
+        let payload: Record<string, unknown>;
+        if (request.task === 'photo_update') {
+            const update = parsePhotoUpdate(output);
+            if (!update) {
+                log('photo update without a usable message', model);
+                throw new HttpError(FAILURE_ERRORS.bad_output.status, FAILURE_ERRORS.bad_output.code, FAILURE_ERRORS.bad_output.message);
+            }
+            payload = { update };
+        } else {
+            const proposal = buildWalkthroughProposal(output, request);
+            if (proposal.action_type !== 'GENERATE_DOCUMENT') {
+                log('walkthrough without a document', model, proposal.action_type);
+                throw new HttpError(FAILURE_ERRORS.bad_output.status, FAILURE_ERRORS.bad_output.code, FAILURE_ERRORS.bad_output.message);
+            }
+            payload = { proposal };
+        }
+        if (req.signal?.aborted) {
+            log('client went away before the answer; not metered');
+            return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
+        }
+        await recordUsage(userId);
+        return json({ ok: true, task: request.task, ...payload, meta: { provider, model, usage: { used: used + 1, limit, tier } } }, 200, cors);
+    }
+
     return async function handle(req: Request): Promise<Response> {
         const cors = corsHeaders(req, env);
         if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -369,25 +481,12 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             if (raw.length > REQUEST_LIMITS.bodyBytes) throw new HttpError(413, 'TOO_LARGE', 'That request is too large. Attach fewer or smaller photos.');
             let body: unknown;
             try { body = JSON.parse(raw); } catch { throw new HttpError(400, 'BAD_REQUEST', 'Request body must be JSON.'); }
+            if (isPhotoTaskBody(body)) return await handlePhotoTask(req, user.id, body, cors);
             const request = sanitizeRequest(body);
 
-            if (!serviceKey) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured on the server.');
-            const nowDate = now();
-            if (burstExceeded(user.id, nowDate.getTime())) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a few seconds.');
-            const monthStart = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1)).toISOString();
-            const minuteAgo = new Date(nowDate.getTime() - 60_000).toISOString();
-            const perMinute = Number(env.get('AI_RATE_PER_MINUTE') || 10);
-            const [tier, used, lastMinute] = await Promise.all([
-                getTier(user.id),
-                countUsage(user.id, monthStart),
-                countUsage(user.id, minuteAgo),
-            ]);
-            const limit = AI_MONTHLY_LIMITS[tier];
-            if (used >= limit) {
-                const upgrade = tier === 'ai' ? 'Your allowance resets on the 1st of next month.' : 'Upgrade your plan to keep using the assistant this month.';
-                return json({ error: `PLAN_LIMIT: You have used all ${limit} AI requests included in your plan this month. ${upgrade}`, code: 'PLAN_LIMIT', limit, used, tier }, 402, cors);
-            }
-            if (lastMinute >= perMinute) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a minute.');
+            const admission = await admit(user.id, cors);
+            if (admission instanceof Response) return admission;
+            const { tier, used, limit } = admission;
 
             const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
             let { output, model } = provider === 'mock'

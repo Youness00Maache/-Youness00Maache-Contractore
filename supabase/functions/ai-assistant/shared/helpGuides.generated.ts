@@ -489,11 +489,20 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             {
                 "title": "Make a report",
                 "text": "[[Before/after report]] creates a PDF of the job’s photos (tag some photos Before or After first)."
+            },
+            {
+                "title": "Send a client update",
+                "text": "With Premium + AI, [[Write client update]] picks the photos added since your last update (up to 8; tap to change), you add a note or dictate one, then [[Write update]]. Edit the text, then [[Send with Gmail]], [[Text]] or [[WhatsApp]]; the portal link is included and each update is saved on the job as a Client update note."
+            },
+            {
+                "title": "Turn a walkthrough into a report",
+                "text": "With Premium + AI, [[AI walkthrough]] takes the day’s photos and what you say about them and drafts a Daily Job Report (or a Note). It opens in the editor: check it, then save it."
             }
         ],
         "tips": [
             "Shared photos appear in the portal only when the job is linked to a saved client.",
-            "Free: 30 photos per job and 250 MB in total. Premium: 5 GB. Premium + AI: 10 GB."
+            "Free: 30 photos per job and 250 MB in total. Premium: 5 GB. Premium + AI: 10 GB.",
+            "The AI only writes what your photos and note show: weather, crew size and hours appear in a report only when you say them."
         ]
     },
     {
@@ -530,6 +539,43 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         "tips": [
             "Low-stock items also show on the dashboard.",
             "Print labels at 100% scale with no margins."
+        ]
+    },
+    {
+        "id": "suppliers",
+        "title": "Suppliers, purchase orders and reorders",
+        "summary": "Save your suppliers, send them purchase orders from your Gmail, reorder low stock in one tap and receive deliveries into stock.",
+        "where": [
+            "Tools",
+            "Inventory",
+            "Suppliers"
+        ],
+        "appPath": "/inventory",
+        "steps": [
+            {
+                "title": "Save your suppliers",
+                "text": "In Inventory, click [[Suppliers]], then [[Add supplier]]: the name, the email for orders, phone, your account # and notes. Click [[Save supplier]]."
+            },
+            {
+                "title": "Fill a purchase order in one tap",
+                "text": "On a Purchase Order, pick one from [[Saved suppliers…]] next to Vendor: the name, email, phone and address are filled, and your account # goes into the notes. Typed a new vendor? [[Save as supplier]] keeps it for next time."
+            },
+            {
+                "title": "Send it to the supplier (Premium)",
+                "text": "[[Send to supplier]] at the top of the order saves it and opens the Share window addressed to the supplier. [[Send with Gmail]] sends it from your own Gmail with the PDF attached and asks the supplier to confirm availability and the delivery date."
+            },
+            {
+                "title": "Reorder low stock (Premium)",
+                "text": "On each item set Low-stock alert at, the Supplier (a saved supplier’s name) and, if you like, a Reorder quantity. When items run low, Inventory says how many and what is already on order. [[Create reorder POs]] lists them by supplier with the quantity and unit cost (the item’s cost, else your price book). Untick or change quantities, choose the job (a Shop stock job by default), then create one Draft purchase order per supplier."
+            },
+            {
+                "title": "Receive the delivery",
+                "text": "When the goods arrive, open the order and click [[Mark received]]. Each line picked from Inventory (or named exactly like an item) is added to stock once, with a Received PO entry in the item’s [[History]]. The order becomes Received and can’t be received twice; if an item fails, [[Finish receiving]] adds only what is missing."
+            }
+        ],
+        "tips": [
+            "Purchase orders, [[Share]] and [[Mark received]] work on every plan. [[Send to supplier]] and reorder POs are part of Premium.",
+            "Items on an open order show On order in the list, so you don’t order them twice."
         ]
     },
     {

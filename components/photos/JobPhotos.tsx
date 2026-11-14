@@ -5,13 +5,14 @@
  *  - viewer with caption, stage, markup (arrows / circles / text / draw, saved as a new photo), download, delete
  *  - select photos → before/after PDF report, show / hide in the client portal, delete
  *  - Free plan photo cap (per job + total MB), checked before uploading and enforced by the database
+ *  - Premium + AI: "Write client update" and "AI walkthrough" from the photos (PhotoAIModal.tsx)
  * Shows a short notice instead when the database doesn't have job photos yet (migration 20261113000400).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Job, UserProfile } from '../../types.ts';
+import type { Client, Job, UserProfile } from '../../types.ts';
 import { toast } from '../Toast.tsx';
 import { Segmented } from '../viewKit.tsx';
-import { CameraIcon, CheckIcon, FileTextIcon, UploadImageIcon } from '../Icons.tsx';
+import { CameraIcon, CheckIcon, FileTextIcon, SparklesIcon, UploadImageIcon } from '../Icons.tsx';
 import { describeError, isPlanLimitError, planLimitMessage } from '../../lib/account.ts';
 import { describeImageError } from '../../utils/imageCompression.ts';
 import { flushStorageCleanup } from '../requests/requestsApi.ts';
@@ -25,8 +26,14 @@ import {
 } from './photosApi.ts';
 import PhotoViewer from './PhotoViewer.tsx';
 import HelpButton from '../help/HelpButton.tsx';
+import {
+    AI_PHOTOS_UPGRADE_REASON, canUseAiPhotos, capPhotos, pickUpdatePhotos, pickWalkthroughPhotos, updateHint, type SentUpdate,
+} from './photoUpdates.ts';
+import { loadSentUpdates } from './photoUpdatesApi.ts';
+import type { PhotoAIMode } from './PhotoAIModal.tsx';
 
 const PhotoMarkupEditor = React.lazy(() => import('./PhotoMarkupEditor.tsx'));
+const PhotoAIModal = React.lazy(() => import('./PhotoAIModal.tsx'));
 
 export interface JobPhotosProps {
     job: Job & { clientId?: string | null };
@@ -34,6 +41,14 @@ export interface JobPhotosProps {
     plan: string;
     isOnline: boolean;
     onUpgrade: (reason: string) => void;
+    /** the job's client (email / phone / portal link for client updates) */
+    client?: Client | null;
+    clients?: Client[];
+    /** uploads a photo for a document body (the assistant's report photos) and returns its URL */
+    uploadImage?: (file: File) => Promise<string>;
+    onEmailSent?: () => void;
+    /** a document was added to the job (the record of a sent client update) */
+    onDocumentsChanged?: () => void;
 }
 
 /** Rough size of one compressed photo + preview, for the pre-upload check. */
@@ -47,7 +62,7 @@ const FILTERS: { value: PhotoFilter; label: string }[] = [
 
 const isCoarsePointer = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
-const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onUpgrade }) => {
+const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onUpgrade, client, clients, uploadImage, onEmailSent, onDocumentsChanged }) => {
     /** undefined = loading, null = feature not in the database yet */
     const [photos, setPhotos] = useState<JobPhoto[] | null | undefined>(undefined);
     const [loadError, setLoadError] = useState('');
@@ -62,6 +77,9 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
     const [markup, setMarkup] = useState<{ photo: JobPhoto; blob: Blob } | null>(null);
     const [busy, setBusy] = useState(false);
     const [report, setReport] = useState<{ done: number; total: number } | null>(null);
+    const [aiMode, setAiMode] = useState<{ mode: PhotoAIMode; pick: JobPhoto[] } | null>(null);
+    const [sentUpdates, setSentUpdates] = useState<SentUpdate[]>([]);
+    const aiPlan = canUseAiPhotos(plan);
     const fileRef = useRef<HTMLInputElement>(null);
     const cameraRef = useRef<HTMLInputElement>(null);
     const objectUrls = useRef<string[]>([]);
@@ -105,6 +123,14 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         const t = window.setTimeout(() => { flushStorageCleanup().catch(() => undefined); }, 3000);
         return () => window.clearTimeout(t);
     }, [load]);
+
+    // Client updates already sent (Notes tagged "Client update"): what "new since the last update" means.
+    useEffect(() => {
+        if (!aiPlan) return;
+        let active = true;
+        loadSentUpdates(job.id).then(list => { if (active) setSentUpdates(list); }).catch(() => undefined);
+        return () => { active = false; };
+    }, [aiPlan, job.id]);
 
     const list = photos || [];
     const counts = useMemo(() => countByFilter(list), [list]);
@@ -334,6 +360,19 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
         }
     };
 
+    // ------------------------------------------------------------------------------- AI (Premium + AI)
+    const lastUpdate = sentUpdates[0] || null;
+    const openAi = (mode: PhotoAIMode) => {
+        if (!aiPlan) { onUpgrade(AI_PHOTOS_UPGRADE_REASON); return; }
+        if (!isOnline) { toast.error("You're offline. Reconnect to use the AI."); return; }
+        // A selection on the timeline wins; otherwise the default pick (since the last update / the latest day).
+        const pick = selecting && selected.size
+            ? capPhotos(selectedPhotos)
+            : mode === 'update' ? pickUpdatePhotos(list, lastUpdate?.sentAt) : pickWalkthroughPhotos(list);
+        if (selecting && selected.size > pick.length) toast.info(`The AI takes up to ${pick.length} photos at a time: the newest ${pick.length} of your selection are used.`);
+        setAiMode({ mode, pick });
+    };
+
     const toggleSelected = (id: string) => setSelected(prev => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id); else next.add(id);
@@ -400,6 +439,23 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
                     </div>
                     {usageText && <p className="text-xs text-muted-foreground sm:text-right">{usageText}</p>}
                 </div>
+                {list.length > 0 && (
+                    <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
+                        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                            {aiPlan
+                                ? updateHint(list, lastUpdate)
+                                : <>With <span className="font-semibold text-foreground">Premium + AI</span>, the assistant writes client updates and daily reports from these photos.</>}
+                        </p>
+                        <div className="flex gap-2">
+                            <button type="button" className="btn btn-outline btn-sm min-h-[40px] flex-1 sm:flex-none" onClick={() => openAi('update')} disabled={working}>
+                                <SparklesIcon className="h-4 w-4" /> Write client update
+                            </button>
+                            <button type="button" className="btn btn-outline btn-sm min-h-[40px] flex-1 sm:flex-none" onClick={() => openAi('walkthrough')} disabled={working}>
+                                <SparklesIcon className="h-4 w-4" /> AI walkthrough
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {(uploading || report) && (
@@ -529,6 +585,32 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
             {markup && (
                 <React.Suspense fallback={null}>
                     <PhotoMarkupEditor source={markup.blob} onCancel={() => setMarkup(null)} onSave={saveMarkup} />
+                </React.Suspense>
+            )}
+
+            {aiMode && (
+                <React.Suspense fallback={null}>
+                    <PhotoAIModal
+                        mode={aiMode.mode}
+                        job={job}
+                        client={client}
+                        clients={clients}
+                        profile={profile}
+                        plan={plan}
+                        photos={list}
+                        urls={urls}
+                        ensureUrl={ensureUrl}
+                        initialPick={aiMode.pick}
+                        lastUpdate={lastUpdate}
+                        hasClient={hasClient}
+                        onClose={() => setAiMode(null)}
+                        onUpgrade={onUpgrade}
+                        onSharePhotos={(targets) => share(targets, true)}
+                        onRecorded={(u) => setSentUpdates(prev => [u, ...prev.filter(x => x.id !== u.id)])}
+                        onEmailSent={onEmailSent}
+                        onDocumentsChanged={onDocumentsChanged}
+                        uploadImage={uploadImage}
+                    />
                 </React.Suspense>
             )}
         </section>

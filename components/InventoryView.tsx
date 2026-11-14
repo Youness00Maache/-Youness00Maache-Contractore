@@ -1,11 +1,19 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
-import type { AssemblyItem, Client, InventoryHistoryItem, InventoryItem, Job, UserProfile } from '../types.ts';
+import type { AssemblyItem, Client, FormData as FormDataType, InventoryHistoryItem, InventoryItem, Job, SavedItem, UserProfile } from '../types.ts';
 import { AlertTriangleIcon, BoxIcon, BriefcaseIcon, CameraIcon, ClockIcon, CopyIcon, EditIcon, MapPinIcon, PlusIcon, PrinterIcon, SearchIcon, TrashIcon, TruckIcon, UsersIcon } from './Icons.tsx';
 import { isPlanLimitError, planLimitMessage } from '../lib/account.ts';
 // The camera (html5-qrcode) and QR generator are only downloaded when the user opens them.
 const PrintTagsModal = lazy(() => import('./PrintTagsModal.tsx'));
 const QRScannerModal = lazy(() => import('./QRScannerModal.tsx'));
+// supplier ordering (lib/suppliers.ts): loaded when opened
+const ReorderModal = lazy(() => import('./suppliers/ReorderModal.tsx'));
+const SuppliersModal = lazy(() => import('./suppliers/SuppliersModal.tsx'));
+import LowStockStrip from './suppliers/LowStockStrip.tsx';
+import { useSuppliers } from './suppliers/useSuppliers.ts';
+import { defaultReorderQty, findSupplierByName, lowStockSummary, onOrderByItem, planReorder, setReorderQty, stripReceiptMarker, type ParsedReorder, type Supplier } from '../lib/suppliers.ts';
+import { fetchOpenPurchaseOrders, loadReorder, saveReorder, type OpenPurchaseOrder } from '../lib/suppliersApi.ts';
+import { isPaidTier, normalizeTier, type PlanTier } from '../lib/plans.ts';
 import {
   ActionMenu, ConfirmDialog, EmptyState, Field, InlineError, LayersIcon, Modal, NoticeToast, NumberInput, PageHeader, Pager,
   QrIcon, Segmented, SkeletonList, SlidersIcon, StatCard, XIcon, fetchAllPages, friendlyError, getCurrentUserId, money, timeAgo,
@@ -58,6 +66,14 @@ interface InventoryViewProps {
   prefillData?: any;
   /** Called after any change so the App can refresh its cached inventory (forms, dashboard badge). */
   onDataChanged?: () => void;
+  /** the user's plan: "Create reorder POs" is Premium */
+  plan?: PlanTier;
+  /** price book, for unit costs of items without one */
+  savedItems?: SavedItem[];
+  /** reorder purchase orders were created (the App adds them to its document list) */
+  onDocumentsCreated?: (docs: FormDataType[]) => void;
+  /** opens a document (a created reorder PO) */
+  onOpenDocument?: (doc: FormDataType) => void;
 }
 
 const COLUMNS = 'id,user_id,name,quantity,category,unit,cost_price,supplier,location,sku,low_stock_threshold,created_at,is_assembly,assembly_items';
@@ -100,6 +116,8 @@ interface Draft {
   is_assembly: boolean;
   assembly_items: AssemblyItem[];
   initialQty: number;
+  /** quantity to order when it runs low (0 = automatic); saved in user_settings 'inventory.reorder', not on the row */
+  reorder_qty?: number;
 }
 
 const emptyDraft = (): Draft => ({
@@ -154,12 +172,30 @@ const StockStepper: React.FC<{ qty: number; unit?: string; onStep: (delta: numbe
   </div>
 );
 
-const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, jobs = [], clients = [], userProfile, onAddJob, onAddClient, onUpgrade, onClientsChanged, openAddModal, prefillData, onDataChanged }) => {
+const InventoryView: React.FC<InventoryViewProps> = ({
+  onBack, inventory: seed, jobs = [], clients = [], userProfile, onAddJob, onAddClient, onUpgrade, onClientsChanged, openAddModal, prefillData, onDataChanged,
+  plan, savedItems, onDocumentsCreated, onOpenDocument,
+}) => {
   const [items, setItems] = useState<InventoryItem[]>(() => (seed || []).map(normalizeItem));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(userProfile?.id ?? null);
   const { notice, notify, clear } = useNotice();
+
+  // ------------------------------------------------------------------ suppliers, reorder quantities, open POs
+  const { suppliers, persist: persistSuppliers } = useSuppliers();
+  const [reorder, setReorder] = useState<ParsedReorder>({ qty: {}, jobId: null });
+  const [openOrders, setOpenOrders] = useState<OpenPurchaseOrder[]>([]);
+  const [suppliersOpen, setSuppliersOpen] = useState(false);
+  const [reorderOpen, setReorderOpen] = useState(false);
+  const paid = isPaidTier(normalizeTier(plan || (userProfile as (UserProfile & { plan?: string }) | undefined)?.plan || (userProfile?.subscriptionTier === 'Premium' ? 'premium' : 'free')));
+  const loadOpenOrders = useCallback(() => { fetchOpenPurchaseOrders().then(setOpenOrders).catch(() => undefined); }, []);
+  useEffect(() => {
+    let active = true;
+    loadReorder().then((r) => { if (active) setReorder(r); });
+    loadOpenOrders();
+    return () => { active = false; };
+  }, [loadOpenOrders]);
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
@@ -323,6 +359,25 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     });
   }, [items, search, category, filter, sort, effectiveStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** what open purchase orders will bring in, per item id (lower case) */
+  const onOrder = useMemo(() => onOrderByItem(openOrders, items), [openOrders, items]);
+  const onOrderOf = (item: InventoryItem) => onOrder.get(String(item.id).toLowerCase());
+  const reorderSummary = useMemo(
+    () => lowStockSummary(planReorder({ items, suppliers, reorderQty: reorder.qty, onOrder })),
+    [items, suppliers, reorder.qty, onOrder],
+  );
+
+  /** Saves one item's reorder quantity (null = automatic) in the account. */
+  const saveReorderQtyFor = useCallback(async (itemId: string, qty: number | null) => {
+    const next = setReorderQty(reorder, itemId, qty);
+    setReorder(next);
+    try {
+      await saveReorder(next, [...items.map((i) => i.id), itemId]);
+    } catch (e) {
+      notify('error', friendlyError(e, 'The reorder quantity could not be saved.'));
+    }
+  }, [reorder, items, notify]);
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const visible = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
@@ -363,9 +418,13 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
     if (editor.mode === 'add' && d.is_assembly && !trackedComponents(d).length) { setEditorError('Add at least one stocked component to the kit.'); return; }
     setSavingEditor(true);
     setEditorError(null);
+    // reorder quantity (user_settings 'inventory.reorder'): saved after the item itself, only when it changed
+    const reorderBefore = editor.id ? reorder.qty[editor.id.toLowerCase()] ?? 0 : 0;
+    const reorderAfter = d.is_assembly ? 0 : Math.max(0, toNumber(d.reorder_qty));
     try {
       if (editor.mode === 'add') {
         const created = await createItem(d);
+        if (reorderAfter > 0) void saveReorderQtyFor(created.id, reorderAfter);
         notify('success', `"${created.name}" added to inventory.`);
       } else if (editor.id) {
         const original = byId.get(editor.id) ?? { is_assembly: d.is_assembly, quantity: 0 };
@@ -384,6 +443,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
         const { data, error } = await withSchemaFallback(patch, (p) => supabase.from('inventory').update(p).eq('id', editor.id!).select(COLUMNS).single());
         if (error) throw error;
         mergeRow(data || { ...byId.get(editor.id), ...patch });
+        if (reorderAfter !== reorderBefore) void saveReorderQtyFor(editor.id, reorderAfter || null);
         notify('success', 'Item updated.');
       }
       notifyChanged();
@@ -404,6 +464,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
         name: item.name || '', category: item.category || '', unit: item.unit || '', cost_price: toNumber(item.cost_price),
         supplier: item.supplier || '', sku: (item as any).sku || '', location: item.location || '', low_stock_threshold: lowStockThreshold(item),
         is_assembly: !!item.is_assembly, assembly_items: (item.assembly_items || []).map((c) => ({ ...c })), initialQty: 0,
+        reorder_qty: reorder.qty[String(item.id).toLowerCase()] ?? 0,
       },
     });
   };
@@ -575,6 +636,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
             <HelpButton topic="inventory" />
             <button type="button" className="btn btn-outline" onClick={() => setScanOpen(true)}><CameraIcon className="h-4 w-4" /> Scan</button>
             <button type="button" className="btn btn-outline" onClick={() => setHistoryFor({ itemId: null })}><ClockIcon className="h-4 w-4" /> History</button>
+            <button type="button" className="btn btn-outline" onClick={() => setSuppliersOpen(true)}><TruckIcon className="h-4 w-4" /> Suppliers</button>
             <button type="button" className="btn btn-outline hidden sm:inline-flex" onClick={() => filtered.length ? setPrintItems(filtered.slice(0, 300)) : notify('info', 'No items to print.')} disabled={loading}><QrIcon className="h-4 w-4" /> Labels</button>
             <button type="button" className="btn btn-primary" onClick={() => openAdd()}><PlusIcon className="h-4 w-4" /> Add item</button>
           </>
@@ -587,6 +649,17 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
         <StatCard label="Needs attention" value={loading ? '—' : stats.attention} hint="Low, out or oversold" icon={<AlertTriangleIcon />} tone={stats.attention ? 'warning' : 'default'} onClick={() => setFilter(filter === 'attention' ? 'all' : 'attention')} active={filter === 'attention'} />
         <StatCard label="Kits" value={loading ? '—' : stats.kits} hint="Built from components" icon={<LayersIcon />} onClick={() => setFilter(filter === 'kits' ? 'all' : 'kits')} active={filter === 'kits'} />
       </div>
+
+      {!loading && (
+        <LowStockStrip
+          low={reorderSummary.low}
+          toOrder={reorderSummary.toOrder}
+          onOrder={reorderSummary.onOrder}
+          paid={paid}
+          onReorder={() => setReorderOpen(true)}
+          onShowLow={() => setFilter('attention')}
+        />
+      )}
 
       <div className="card mb-4 p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -668,7 +741,10 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
                       <td>{stockCell(item)}</td>
                       <td className="text-right tabular-nums">{money(cost)}{item.unit && !item.is_assembly ? <span className="text-xs text-muted-foreground"> /{item.unit}</span> : null}</td>
                       <td className="text-right font-semibold tabular-nums">{item.is_assembly ? (kitOwnStock(item) !== null ? money(stockValue(item)) : '—') : money(stockValue({ ...item, quantity: displayQty(item) }))}</td>
-                      <td><StatusBadge status={status} kit={item.is_assembly} /></td>
+                      <td>
+                        <StatusBadge status={status} kit={item.is_assembly} />
+                        {onOrderOf(item) && <span className="badge badge-muted ml-1" title={`On ${onOrderOf(item)!.orders.join(', ')}`}>On order {onOrderOf(item)!.qty}</span>}
+                      </td>
                       <td className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" className="btn btn-outline btn-sm h-9" onClick={() => setCheckoutFor(item)}><BriefcaseIcon className="h-3.5 w-3.5" /> Check out</button>
@@ -690,7 +766,11 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
                 <div key={item.id} className={`card p-4 ${status === 'out' || status === 'oversold' ? 'border-destructive/30' : status === 'low' ? 'border-warning/40' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <button type="button" onClick={() => setSheetId(item.id)} className="min-w-0 flex-1 text-left">
-                      <div className="mb-1 flex flex-wrap items-center gap-1.5"><StatusBadge status={status} kit={item.is_assembly} />{item.category && <span className="badge badge-muted">{item.category}</span>}</div>
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        <StatusBadge status={status} kit={item.is_assembly} />
+                        {onOrderOf(item) && <span className="badge badge-muted">On order {onOrderOf(item)!.qty}</span>}
+                        {item.category && <span className="badge badge-muted">{item.category}</span>}
+                      </div>
                       <div className="truncate font-semibold text-foreground">{item.name}</div>
                       <div className="truncate text-xs text-muted-foreground">
                         {item.is_assembly ? `${trackedComponents(item).length} components · cost ${money(kitUnitCost(item))}${kitOwnStock(item) !== null ? ` · value ${money(stockValue(item))}` : ''}` : `${money(item.cost_price)}${item.unit ? ` / ${item.unit}` : ''} · value ${money(stockValue({ ...item, quantity: displayQty(item) }))}`}
@@ -756,6 +836,14 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
                   <div><div className="text-xs text-muted-foreground">Unit cost</div><div className="font-semibold">{money(sheetItem.cost_price)}</div></div>
                   <div><div className="text-xs text-muted-foreground">Value</div><div className="font-semibold">{money(stockValue({ ...sheetItem, quantity: displayQty(sheetItem) }))}</div></div>
                   <div><div className="text-xs text-muted-foreground">Low-stock alert at</div><div className="font-semibold">{lowStockThreshold(sheetItem)}</div></div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">{onOrderOf(sheetItem) ? 'On order' : 'Reorder'}</div>
+                    <div className="font-semibold">
+                      {onOrderOf(sheetItem)
+                        ? `${onOrderOf(sheetItem)!.qty} (${onOrderOf(sheetItem)!.orders.join(', ')})`
+                        : reorder.qty[String(sheetItem.id).toLowerCase()] ?? `${defaultReorderQty(displayQty(sheetItem), lowStockThreshold(sheetItem))} (auto)`}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -810,6 +898,7 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
             editingId={editor.id}
             categories={categories}
             error={editorError}
+            suppliers={suppliers}
           />
         )}
       </Modal>
@@ -898,6 +987,39 @@ const InventoryView: React.FC<InventoryViewProps> = ({ onBack, inventory: seed, 
         onCancel={() => setDeleteFor(null)}
       />
 
+      {reorderOpen && (
+        <Suspense fallback={null}>
+          <ReorderModal
+            onClose={() => setReorderOpen(false)}
+            items={items}
+            suppliers={suppliers}
+            reorder={reorder}
+            openOrders={openOrders}
+            priceBook={savedItems}
+            jobs={jobs}
+            userId={userId}
+            profile={userProfile}
+            paid={paid}
+            onUpgrade={onUpgrade}
+            onAddJob={onAddJob}
+            onCreated={(docs, job) => {
+              setReorder((r) => ({ ...r, jobId: job.id }));
+              loadOpenOrders();
+              onDocumentsCreated?.(docs);
+              notify('success', `${docs.length} draft purchase order${docs.length === 1 ? '' : 's'} created under “${job.name}”.`);
+            }}
+            onOpenDocument={onOpenDocument ? (doc) => { setReorderOpen(false); onOpenDocument(doc); } : undefined}
+            onManageSuppliers={() => setSuppliersOpen(true)}
+          />
+        </Suspense>
+      )}
+
+      {suppliersOpen && (
+        <Suspense fallback={null}>
+          <SuppliersModal open onClose={() => setSuppliersOpen(false)} suppliers={suppliers} onSave={persistSuppliers} />
+        </Suspense>
+      )}
+
       <NoticeToast notice={notice} onClose={clear} />
     </div>
   );
@@ -915,8 +1037,14 @@ const ItemEditor: React.FC<{
   editingId?: string;
   categories: string[];
   error: string | null;
-}> = ({ draft, mode, onChange, items, editingId, categories, error }) => {
+  /** saved suppliers: suggestions for Supplier (an item is reordered from the saved supplier with the same name) */
+  suppliers?: Supplier[];
+}> = ({ draft, mode, onChange, items, editingId, categories, error, suppliers = [] }) => {
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => onChange({ ...draft, [k]: v });
+  const savedSupplier = findSupplierByName(suppliers, draft.supplier);
+  const supplierHint = savedSupplier
+    ? `Saved supplier${savedSupplier.email ? ` · ${savedSupplier.email}` : ''}. Reorders go to it.`
+    : draft.supplier.trim() && suppliers.length ? 'Not a saved supplier: reorders use this name without an email.' : undefined;
   const [pick, setPick] = useState('');
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const stockItems = useMemo(() => items.filter((i) => !i.is_assembly && i.id !== editingId).sort((a, b) => a.name.localeCompare(b.name)), [items, editingId]);
@@ -962,8 +1090,9 @@ const ItemEditor: React.FC<{
           <Field label="SKU / part no." htmlFor="inv-sku">
             <input id="inv-sku" className="input uppercase" value={draft.sku} onChange={(e) => set('sku', e.target.value.toUpperCase())} placeholder="e.g. CU-050" maxLength={40} />
           </Field>
-          <Field label="Supplier" htmlFor="inv-sup">
-            <input id="inv-sup" className="input" value={draft.supplier} onChange={(e) => set('supplier', e.target.value)} placeholder="e.g. Home Depot" />
+          <Field label="Supplier" htmlFor="inv-sup" hint={supplierHint}>
+            <input id="inv-sup" className="input" list="inv-suppliers" value={draft.supplier} onChange={(e) => set('supplier', e.target.value)} placeholder="e.g. Home Depot" />
+            <datalist id="inv-suppliers">{suppliers.map((s) => <option key={s.id} value={s.name} />)}</datalist>
           </Field>
           <Field label="Unit cost ($)" htmlFor="inv-cost">
             <NumberInput id="inv-cost" value={draft.cost_price} onValue={(n) => set('cost_price', n)} placeholder="0.00" />
@@ -985,6 +1114,25 @@ const ItemEditor: React.FC<{
         {mode === 'add' && !draft.is_assembly && (
           <Field label="Starting quantity" htmlFor="inv-qty" hint="Recorded in the stock history as “Initial stock”.">
             <NumberInput id="inv-qty" value={draft.initialQty} onValue={(n) => set('initialQty', q3(n))} />
+          </Field>
+        )}
+        {!draft.is_assembly && (
+          <Field
+            label="Reorder quantity"
+            htmlFor="inv-reorder"
+            hint={toNumber(draft.reorder_qty) > 0
+              ? 'Ordered from the supplier when it runs low.'
+              : q3(draft.low_stock_threshold) > 0
+                ? `Empty: enough to reach ${q3(draft.low_stock_threshold) * 2} in stock (twice the alert level).`
+                : 'Empty: 1 at a time.'}
+          >
+            <NumberInput
+              id="inv-reorder"
+              value={toNumber(draft.reorder_qty) > 0 ? toNumber(draft.reorder_qty) : null}
+              onValue={(n) => set('reorder_qty', Math.max(0, q3(n)))}
+              onEmpty={() => set('reorder_qty', 0)}
+              placeholder="Auto"
+            />
           </Field>
         )}
       </div>
@@ -1415,7 +1563,7 @@ const HistoryModal: React.FC<{ itemId: string | null; byId: Map<string, Inventor
                     </div>
                     <span className={`shrink-0 font-bold tabular-nums ${change >= 0 ? 'text-success' : 'text-destructive'}`}>{change > 0 ? '+' : ''}{change}</span>
                   </div>
-                  {r.notes && <p className="mt-0.5 break-words text-sm text-muted-foreground">{r.notes}</p>}
+                  {r.notes && <p className="mt-0.5 break-words text-sm text-muted-foreground">{stripReceiptMarker(r.notes)}</p>}
                   <p className="mt-0.5 text-xs text-muted-foreground" title={r.created_at ? new Date(r.created_at).toLocaleString() : undefined}>
                     {timeAgo(r.created_at)}
                     {r.quantity_after !== null && r.quantity_after !== undefined && <> · {toNumber(r.quantity_after)} left after this change</>}

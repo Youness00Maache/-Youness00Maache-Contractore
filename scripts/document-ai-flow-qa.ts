@@ -1361,8 +1361,100 @@ async function knowledgeTests() {
     }
 }
 
+// ── 19. Job photo AI tasks (competitor gap #11): client update + walkthrough, Premium + AI only, ≤ 8 photos ──
+async function photoTaskTests() {
+    const photoImg = (i: number) => ({ mime_type: 'image/jpeg', data: 'QUJD'.repeat(10), tag: i % 2 ? 'after' : 'during', caption: `Photo caption ${i}`, taken_at: '2026-11-12T15:00:00Z' });
+    const ctxPhoto = { today: TODAY, job: { id: job.id, name: job.name, client_name: job.clientName, address: job.clientAddress, status: 'active' }, company_name: profile.companyName, sender_name: profile.name, client_name: job.clientName };
+    const updateBody = { task: 'photo_update', note: 'Cabinets go in Monday. White or gray grout?', images: [photoImg(1), photoImg(2)], context: ctxPhoto };
+    const walkBody = { task: 'photo_walkthrough', note: 'Framed the hallway, 3 of us, 7 hours.', images: [photoImg(1)], context: { ...ctxPhoto, doc_type: 'DAILY_REPORT' } };
+    const modelCallsOf = (calls: FakeCall[]) => calls.filter(c => c.url.includes('generativelanguage'));
+
+    // 19a. Plan gating (server-side): Free and Premium are told to upgrade, nothing is metered or sent to the model.
+    for (const tier of ['free', 'premium']) {
+        const { f, calls } = makeFetch({ tier });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet })(post(updateBody, 'Bearer user-jwt'));
+        const body = await res.json() as any;
+        eq([res.status, body.code], [402, 'PLAN_REQUIRED'], `${tier}: photo tasks need Premium + AI`);
+        ok(/^PLAN_REQUIRED: .*Premium \+ AI/.test(body.error), `${tier}: upgrade message`);
+        ok(!calls.some(isMeteringCall) && !modelCallsOf(calls).length, `${tier}: not metered, no model call`);
+    }
+    {
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai', used: 600 }).f, log: quiet })(post(updateBody, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).code], [402, 'PLAN_LIMIT'], 'Premium + AI at the monthly limit → PLAN_LIMIT');
+        eq((await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post(updateBody))).status, 401, 'photo tasks need a signed-in user');
+    }
+
+    // 19b. Mock provider: update + walkthrough end to end, metered once each.
+    {
+        const { f, calls } = makeFetch({ tier: 'ai', used: 5 });
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: f, log: quiet })(post(updateBody, 'Bearer user-jwt'));
+        const body = await res.json() as any;
+        eq([res.status, body.ok, body.task], [200, true, 'photo_update'], 'mock update answers');
+        ok(/Photo caption 1/.test(body.update.message) && body.update.decision === 'White or gray grout?', 'mock update: captions + decision');
+        eq(body.meta.usage, { used: 6, limit: 600, tier: 'ai' }, 'usage reported');
+        eq(calls.filter(isMeteringCall).length, 1, 'one photo task = one AI request');
+        const w = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post(walkBody, 'Bearer user-jwt'));
+        const wb = await w.json() as any;
+        eq([w.status, wb.proposal.action_type, wb.proposal.document_type, wb.proposal.job_id], [200, 'GENERATE_DOCUMENT', 'DAILY_REPORT', job.id], 'mock walkthrough → daily report draft for the job');
+    }
+
+    // 19c. Gemini path: ≤ 8 photos reach the model, photo prompt + schema, the answer is cleaned.
+    {
+        const answer = { subject: 'Kitchen: progress update', message: 'Hi Morgan,\nThe cabinets are hung. Next we set the counters. https://x.test\n\nThanks,\nJordan', decision: 'none' };
+        const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiErr(503, HIGH_DEMAND), geminiOk(answer)] });
+        const many = { ...updateBody, images: Array.from({ length: 11 }, (_, i) => photoImg(i)) };
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post(many, 'Bearer user-jwt'));
+        const body = await res.json() as any;
+        eq(res.status, 200, 'Gemini update answers (after a busy retry)');
+        eq(body.update, { subject: 'Kitchen: progress update', message: 'The cabinets are hung. Next we set the counters.', decision: null }, 'greeting, link, sign-off and "none" removed');
+        const mc = modelCallsOf(calls);
+        eq(mc.map(modelOf), ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite'], 'same model chain and busy retry as the assistant');
+        const sent = JSON.parse(String(mc[1].init?.body));
+        const parts = sent.contents[0].parts as any[];
+        eq(parts.filter(p => p.inlineData).length, 8, 'server caps the photos at 8');
+        ok(parts.some(p => /^Photo 8 · After/.test(String(p.text || ''))), 'each photo has its stage / caption line');
+        ok(/progress updates/.test(sent.systemInstruction.parts[0].text) && !sent.systemInstruction.parts[0].text.includes('Cabinets go in Monday'), 'photo prompt; the note stays in the user turn');
+        eq(Object.keys(sent.generationConfig.responseSchema.properties), ['subject', 'message', 'decision'], 'update schema sent');
+        eq([sent.generationConfig.responseMimeType, sent.generationConfig.thinkingConfig], ['application/json', { thinkingLevel: 'LOW' }], 'JSON mode + thinking level');
+        eq(calls.filter(isMeteringCall).length, 1, 'metered once');
+    }
+    {
+        const answer = { document_type: 'DAILY_REPORT', reply_text: 'Draft ready.', fields: [
+            { key: 'content', value: '<h3>Work Completed</h3><p>Framed the hallway.</p><p>No injuries today.</p>' },
+            { key: 'weather', value: 'Sunny' }, { key: 'crewSize', value: '3' }, { key: 'laborHours', value: '7' },
+        ] };
+        const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiOk(answer)] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post(walkBody, 'Bearer user-jwt'));
+        const body = await res.json() as any;
+        eq([res.status, body.proposal.action_type, body.proposal.document_type], [200, 'GENERATE_DOCUMENT', 'DAILY_REPORT'], 'Gemini walkthrough → draft');
+        eq([body.proposal.prefill.weather, body.proposal.prefill.crewSize, body.proposal.prefill.laborHours], [undefined, 3, 7], 'fact guards: guessed weather dropped, typed crew / hours kept');
+        ok(!/injur/i.test(body.proposal.prefill.content), 'invented "no injuries" removed');
+        const sent = JSON.parse(String(modelCallsOf(calls)[0].init?.body));
+        eq(sent.generationConfig.responseSchema.properties.document_type.enum, ['DAILY_REPORT'], 'walkthrough schema: the picked type only');
+    }
+
+    // 19d. Unusable answers and bad input are never metered.
+    {
+        const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiOk({ subject: 'x', message: '   ' })] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post(updateBody, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).code], [502, 'AI_BAD_OUTPUT'], 'empty update → clean 502');
+        ok(!calls.some(isMeteringCall), 'empty update not metered');
+        const big = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post({ ...updateBody, images: [{ ...photoImg(1), data: 'A'.repeat(950_000) }] }, 'Bearer user-jwt'));
+        eq(big.status, 413, 'oversized photo → 413');
+        const none = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post({ ...updateBody, note: '', images: [] }, 'Bearer user-jwt'));
+        eq(none.status, 400, 'no photos and no note → 400');
+    }
+
+    // 19e. A normal assistant request is untouched by the photo route.
+    {
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'free' }).f, log: quiet })(post({ message: 'Create an invoice for 2 doors at $450', scope: 'dashboard', context: ctx }, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).proposal.action_type], [200, 'GENERATE_DOCUMENT'], 'chat requests still work on Free');
+    }
+}
+
 await sampleAndFieldTests();
 await knowledgeTests();
 await handlerTests();
 await modelChainTests();
+await photoTaskTests();
 console.log(`Document AI flow QA passed: ${checks} checks across ${DOC_TYPES.length} document types.`);

@@ -33,6 +33,11 @@ interface ShareModalProps {
     defaultRecipient?: string;
     /** name used for "Hi [Client Name]" when it is not the client (e.g. the vendor) */
     recipientName?: string;
+    /**
+     * Purchase order "Send to supplier" (Premium): the message carries the supplier's "Confirm order" link (the
+     * document's approval link) once the database serves purchase orders on it (lib/suppliersApi.ts). Off = unchanged.
+     */
+    supplierConfirm?: boolean;
 }
 
 const NUMBER_KEYS = ['invoiceNumber', 'estimateNumber', 'workOrderNumber', 'changeOrderNumber', 'poNumber', 'receiptNumber', 'reportNumber', 'warrantyNumber'];
@@ -56,7 +61,10 @@ const defaultTemplate = (docType: string, hasLink: boolean): EmailTemplate => {
     if (type === 'purchase order') {
         return {
             subject: 'Purchase Order [Document Number] from [My Company]',
-            body: `Hello [Client Name],\n\nPlease find attached purchase order [Document Number] ([Total Amount]). Please confirm availability and the delivery date.\n\nThank you,\n[My Name]\n[My Company]`,
+            body: hasLink
+                // "Send to supplier" with the online confirmation link (lib/suppliersApi.ts supplierConfirmLink)
+                ? `Hello [Client Name],\n\nPlease find attached purchase order [Document Number] ([Total Amount]).\n\nConfirm the order online (no login needed): [Link]\nIf you can't fill part of it, use the same page to tell us why, or reply to this email.\n\nThank you,\n[My Name]\n[My Company]`
+                : `Hello [Client Name],\n\nPlease find attached purchase order [Document Number] ([Total Amount]). Please confirm availability and the delivery date.\n\nThank you,\n[My Name]\n[My Company]`,
         };
     }
     if (type === 'invoice') {
@@ -95,7 +103,7 @@ const isEmailList = (value: string) => {
 
 const ShareModal: React.FC<ShareModalProps> = ({
     isOpen, onClose, data, docType, profile, documentId, publicToken, clients = [], job, hasUnsavedChanges, onDownload, getPdfDataUri,
-    defaultRecipient, recipientName,
+    defaultRecipient, recipientName, supplierConfirm = false,
 }) => {
     const navigate = useNavigate();
     const [recipient, setRecipient] = useState('');
@@ -127,7 +135,10 @@ const ShareModal: React.FC<ShareModalProps> = ({
     const [portalLink, setPortalLink] = useState('');
     const [approvalLink, setApprovalLink] = useState(publicToken && clientFacing ? approvalUrl(publicToken) : '');
     const [bodyEdited, setBodyEdited] = useState(false);
-    const shareLink = clientFacing ? approvalLink : '';
+    // supplier mode (purchase orders only): the "Confirm order" link, '' until the database supports it
+    const supplierLinkMode = supplierConfirm && /^purchase order$/i.test(docType);
+    const [supplierLink, setSupplierLink] = useState('');
+    const shareLink = clientFacing ? approvalLink : supplierLinkMode ? supplierLink : '';
     const total = documentTotalOf(data);
     const number = documentNumberOf(data);
     const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -160,6 +171,16 @@ const ShareModal: React.FC<ShareModalProps> = ({
         else ensurePortalKey(client).then(key => { if (active) setPortalLink(portalUrl(key)); }).catch(() => undefined);
         return () => { active = false; };
     }, [isOpen, client, publicToken, documentId, clientFacing]);
+
+    useEffect(() => {
+        if (!isOpen || !supplierLinkMode || !documentId) { setSupplierLink(''); return; }
+        let active = true;
+        import('../lib/suppliersApi.ts')
+            .then(({ supplierConfirmLink }) => supplierConfirmLink(documentId))
+            .then((url) => { if (active) setSupplierLink(url || ''); })
+            .catch(() => undefined);
+        return () => { active = false; };
+    }, [isOpen, supplierLinkMode, documentId]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -299,6 +320,12 @@ const ShareModal: React.FC<ShareModalProps> = ({
                             <button type="button" className={action} onClick={() => (documentId ? copyApprovalLink() : copy(approvalLink, linkCopiedText))}>
                                 <span className="flex items-center gap-2 font-semibold text-foreground"><GlobeIcon className="h-4 w-4 text-primary" /> {canApprove ? 'Copy approval link' : 'Copy link'}</span>
                                 <span className="text-xs text-muted-foreground">{canApprove ? <>Client reviews &amp; signs online</> : 'Client views it online, no login'}</span>
+                            </button>
+                        )}
+                        {supplierLinkMode && supplierLink && (
+                            <button type="button" className={action} onClick={() => copy(supplierLink, 'Confirm link copied.')}>
+                                <span className="flex items-center gap-2 font-semibold text-foreground"><GlobeIcon className="h-4 w-4 text-primary" /> Copy confirm link</span>
+                                <span className="text-xs text-muted-foreground">Supplier confirms the order online</span>
                             </button>
                         )}
                         {portalLink && (

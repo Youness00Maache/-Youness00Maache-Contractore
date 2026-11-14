@@ -8,6 +8,8 @@
  *   bookkeeper email           → public.user_settings 'export.bookkeeper' (Settings → Your data)
  *   job % complete (manual)    → public.user_settings 'costing.progress:<job id>' (Job financials → Budget vs actual)
  *   T&M billing rates          → public.user_settings 'billing.tm' (Bill time & materials)
+ *   saved suppliers            → public.user_settings 'suppliers.list' (lib/suppliers.ts SuppliersSetting)
+ *   reorder qty per item + job → public.user_settings 'inventory.reorder' (lib/suppliers.ts ReorderSetting)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -302,6 +304,23 @@ export async function loadTmRates(): Promise<SavedTmRates | null> {
 
 export const saveTmRates = (rates: SavedTmRates): Promise<SyncMode> =>
     saveJsonSetting(TM_RATES_SETTING, tmRatesLocalKey, { ...rates, updatedAt: new Date().toISOString() });
+
+// ------------------------------------------------------------------- suppliers + reorders
+// Shapes and limits: lib/suppliers.ts (SuppliersSetting, ReorderSetting). Callers serialize + size-check first.
+// Same key strings as SUPPLIERS_SETTING / REORDER_SETTING in lib/suppliers.ts (not imported: that file pulls in the
+// document defaults, which this login-time module doesn't need; scripts/supplier-orders-check.ts checks they match).
+const SUPPLIERS_SETTING = 'suppliers.list';
+const REORDER_SETTING = 'inventory.reorder';
+const suppliersLocalKey = (uid: string) => `cd.suppliers.list:${uid}`;
+const reorderLocalKey = (uid: string) => `cd.inventory.reorder:${uid}`;
+
+/** Raw 'suppliers.list' value (account, else this device's copy); parse it with parseSuppliers(). */
+export const loadSuppliersSetting = (): Promise<unknown> => loadJsonSetting(SUPPLIERS_SETTING, suppliersLocalKey);
+export const saveSuppliersSetting = (value: unknown): Promise<SyncMode> => saveJsonSetting(SUPPLIERS_SETTING, suppliersLocalKey, value);
+
+/** Raw 'inventory.reorder' value; parse it with parseReorderSetting(). */
+export const loadReorderSetting = (): Promise<unknown> => loadJsonSetting(REORDER_SETTING, reorderLocalKey);
+export const saveReorderSetting = (value: unknown): Promise<SyncMode> => saveJsonSetting(REORDER_SETTING, reorderLocalKey, value);
 
 // -------------------------------------------------------------------------------- login
 const syncedUsers = new Set<string>();

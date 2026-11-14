@@ -132,7 +132,8 @@ export function runLocalMockRouter(message: string, scope: 'dashboard' | 'job' |
     return buildProposal(mockModelOutput(request), { request });
 }
 
-async function readFunctionError(error: unknown): Promise<AIError> {
+/** A failed `ai-assistant` call → a user-facing message and code (also used by the job photo AI tasks). */
+export async function readFunctionError(error: unknown): Promise<AIError> {
     if (error instanceof FunctionsHttpError) {
         const res = (error as unknown as { context?: Response }).context;
         const status = res?.status || 0;

@@ -352,6 +352,8 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
         // a copy starts unpaid: no client payment report, no recorded payments, no review request
         paymentReportedAt: _reported, paymentReportNote: _reportNote, paymentReportAmount: _reportAmount,
         payments: _payments, paidAt: _paidAt, reviewRequestedAt: _review,
+        // a copy of a purchase order starts un-received (lib/suppliers.ts RECEIPT_KEY) and is not a reorder record
+        internalStockReceipt: _stockReceipt, internalReorder: _reorder,
         [LIGHTWEIGHT_DOCUMENT_FLAG]: _flag,
         ...rest
     } = (data || {}) as any;

@@ -166,6 +166,11 @@ export const currencyOf = (d: Record<string, any>) => str(d.currency) || 'USD';
 
 const typeNoun = (type: string) => (type ? type.toLowerCase() : 'document');
 const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
+/**
+ * A purchase order opened by the SUPPLIER ("Send to supplier", lib/suppliersApi.ts): same link and same approve /
+ * decline calls, worded as "Confirm order" / "Can't fill this order". Every other type keeps its wording.
+ */
+const isPurchaseOrder = (type: string) => type === 'Purchase Order';
 
 /* =====================================================================================
    RPC helpers (COMM-029: check both the transport error and a payload {error})
@@ -553,7 +558,7 @@ export const SignatureBlock: React.FC<{ doc: PublicDocument }> = ({ doc }) => {
     return (
         <section className="rounded-2xl border border-success/30 bg-success/5 p-4">
             <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <CheckCircleIcon className="h-5 w-5 text-success" /> Approved by {who}
+                <CheckCircleIcon className="h-5 w-5 text-success" /> {isPurchaseOrder(doc.type) ? 'Confirmed' : 'Approved'} by {who}
             </p>
             {when && <p className="mt-0.5 pl-7 text-xs text-muted-foreground">Signed electronically on {when}</p>}
             {img && (
@@ -582,16 +587,21 @@ export const DocumentDetail: React.FC<{
     const state = getDocState(doc);
     const label = documentLabel(doc.type, d);
     const title = str(d.title);
+    const po = isPurchaseOrder(doc.type);
 
-    const dates: Array<[string, string]> = ([
+    const dates: Array<[string, string]> = ((po ? [
+        ['Ordered', fmtDate(d.date || doc.createdAt)],
+        ['Required by', fmtDate(d.deliveryDate)],
+    ] : [
         ['Issued', fmtDate(d.issueDate || d.date || doc.createdAt)],
         ['Due', fmtDate(d.dueDate)],
         ['Valid until', fmtDate(d.expiryDate)],
         ['Completed', fmtDate(d.completedDate)],
-    ] as Array<[string, string]>).filter(([, v]) => !!v);
+    ]) as Array<[string, string]>).filter(([, v]) => !!v);
 
-    const toName = str(d.clientName) || clientName;
-    const toAddress = str(d.clientAddress) || str(d.projectAddress);
+    // a purchase order goes TO the supplier (vendor fields), and is delivered to the ship-to address
+    const toName = po ? str(d.vendorName) : str(d.clientName) || clientName;
+    const toAddress = po ? str(d.vendorAddress) : str(d.clientAddress) || str(d.projectAddress);
     const fromName = contractorName(contractor);
     const fromAddress = contractor.address || str(d.companyAddress);
 
@@ -604,9 +614,12 @@ export const DocumentDetail: React.FC<{
         ['Paid by', doc.type === 'Receipt' ? str(d.paymentMethod) : ''],
         ['For invoice', doc.type === 'Receipt' ? str(d.invoiceNumber) : ''],
         ['Weather', [str(d.weather), str(d.temperature)].filter(Boolean).join(' · ')],
+        ['Deliver to', po ? [str(d.shipToName), str(d.shipToAddress)].filter(Boolean).join(', ') : ''],
+        ['Site phone', po ? str(d.shipToPhone) : ''],
     ] as Array<[string, string]>).filter(([, v]) => !!v);
 
     const sections: Array<[string, string]> = ([
+        ['Delivery instructions', po ? htmlToText(d.deliveryInstructions) : ''],
         ['Description', htmlToText(d.description)],
         ['Coverage', htmlToText(d.coverage)],
         ['Conditions', htmlToText(d.conditions)],
@@ -656,7 +669,7 @@ export const DocumentDetail: React.FC<{
                     )}
                 </div>
                 <div className="min-w-0">
-                    <p className="label">{doc.type === 'Invoice' ? 'Bill to' : 'Prepared for'}</p>
+                    <p className="label">{doc.type === 'Invoice' ? 'Bill to' : po ? 'Supplier' : 'Prepared for'}</p>
                     <p className="font-semibold text-foreground">{toName || '—'}</p>
                     {toAddress && <p className="whitespace-pre-line text-sm text-muted-foreground">{toAddress}</p>}
                 </div>
@@ -754,8 +767,8 @@ export const DocumentDetail: React.FC<{
             {/* Signature / decision state */}
             {state === 'signed' && <SignatureBlock doc={doc} />}
             {state === 'declined' && (
-                <Notice tone="danger" title={`Declined${signerNameOf(d) ? ` by ${signerNameOf(d)}` : ''}${fmtDateTime(d.clientDeclinedAt) ? ` on ${fmtDateTime(d.clientDeclinedAt)}` : ''}`}>
-                    {str(d.clientDeclineReason) ? <span className="whitespace-pre-wrap">Reason: {str(d.clientDeclineReason)}</span> : `This ${typeNoun(doc.type)} was declined.`}
+                <Notice tone="danger" title={`${po ? 'Can’t fill this order' : 'Declined'}${signerNameOf(d) ? `${po ? ':' : ''} ${po ? '' : 'by '}${signerNameOf(d)}` : ''}${fmtDateTime(d.clientDeclinedAt) ? ` on ${fmtDateTime(d.clientDeclinedAt)}` : ''}`}>
+                    {str(d.clientDeclineReason) ? <span className="whitespace-pre-wrap">Reason: {str(d.clientDeclineReason)}</span> : po ? 'The supplier said this order can’t be filled.' : `This ${typeNoun(doc.type)} was declined.`}
                 </Notice>
             )}
             {state === 'expired' && (
@@ -804,6 +817,7 @@ export const SigningPanel: React.FC<{
     const label = documentLabel(doc.type, d);
     const noun = typeNoun(doc.type);
     const company = contractorName(contractor);
+    const po = isPurchaseOrder(doc.type);
     const trimmedName = name.trim();
     const canSign = trimmedName.length >= 2 && signature.startsWith('data:image/') && consent && !busy;
 
@@ -856,7 +870,7 @@ export const SigningPanel: React.FC<{
     return (
         <section id={id} className="card overflow-hidden scroll-mt-24" aria-label={`Review and sign ${label}`}>
             <div className="border-b border-border bg-muted/40 px-4 py-4 sm:px-6">
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">{mode === 'sign' ? 'Review & sign' : 'Decline'}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">{mode === 'sign' ? (po ? 'Confirm order' : 'Review & sign') : (po ? 'Can’t fill this order' : 'Decline')}</p>
                 <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                     <h3 className="min-w-0 break-words text-lg font-semibold text-foreground">{label}</h3>
                     {totals.hasMoney && <p className="text-lg font-bold tabular-nums text-foreground">{formatMoney(totals.total, currencyOf(d))}</p>}
@@ -893,7 +907,9 @@ export const SigningPanel: React.FC<{
                             onChange={(e) => setConsent(e.target.checked)}
                             disabled={busy}
                         />
-                        <span>I have reviewed this {noun} and agree to its terms. I understand this electronic signature is legally binding.</span>
+                        <span>{po
+                            ? `I confirm we can supply this order as listed, for delivery by the date requested or as agreed with ${company}.`
+                            : `I have reviewed this ${noun} and agree to its terms. I understand this electronic signature is legally binding.`}</span>
                     </label>
                     {error && <Notice tone="danger" onClose={() => setError('')}>{error}</Notice>}
                     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -903,10 +919,10 @@ export const SigningPanel: React.FC<{
                             onClick={() => { setMode('decline'); setError(''); }}
                             disabled={busy}
                         >
-                            <XCircleIcon className="h-4 w-4" /> Decline
+                            <XCircleIcon className="h-4 w-4" /> {po ? 'Can’t fill it' : 'Decline'}
                         </button>
                         <button type="button" className="btn btn-primary btn-lg min-h-[48px]" onClick={submitSign} disabled={!canSign}>
-                            {busy ? <Spinner label="Signing…" /> : (<><PenIcon className="h-4 w-4" /> Approve &amp; sign</>)}
+                            {busy ? <Spinner label={po ? 'Confirming…' : 'Signing…'} /> : (<><PenIcon className="h-4 w-4" /> {po ? 'Confirm order' : <>Approve &amp; sign</>}</>)}
                         </button>
                     </div>
                     {!canSign && !busy && (
@@ -919,7 +935,9 @@ export const SigningPanel: React.FC<{
             ) : (
                 <div className="space-y-4 px-4 py-5 sm:px-6">
                     <p className="text-sm text-muted-foreground">
-                        Let {company} know you're declining this {noun}. You can add a short reason so they can follow up.
+                        {po
+                            ? `Let ${company} know you can’t fill this order. Say what’s missing (out of stock, a later date, a price change) so they can adjust it.`
+                            : `Let ${company} know you're declining this ${noun}. You can add a short reason so they can follow up.`}
                     </p>
                     <div>
                         <label className="label" htmlFor={`${doc.id}-decline-name`}>Your name</label>
@@ -941,7 +959,7 @@ export const SigningPanel: React.FC<{
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             maxLength={1000}
-                            placeholder="e.g. We'd like to change the scope before approving."
+                            placeholder={po ? 'e.g. The 2x4s are out of stock until Dec 2.' : "e.g. We'd like to change the scope before approving."}
                             disabled={busy}
                         />
                         <p className="mt-1 text-right text-xs text-muted-foreground tabular-nums">{reason.length}/1000</p>
@@ -964,7 +982,7 @@ export const SigningPanel: React.FC<{
                         </button>
                         {!declineUnsupported && (
                             <button type="button" className="btn btn-danger min-h-[44px]" onClick={submitDecline} disabled={busy}>
-                                {busy ? <Spinner label="Sending…" /> : `Decline ${noun}`}
+                                {busy ? <Spinner label="Sending…" /> : po ? 'Send reply' : `Decline ${noun}`}
                             </button>
                         )}
                     </div>
@@ -991,7 +1009,9 @@ export const CompletionCard: React.FC<{
             <div className={cx('mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full', signed ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground')}>
                 {signed ? <CheckCircleIcon className="h-9 w-9" /> : <XCircleIcon className="h-9 w-9" />}
             </div>
-            <h2 className="text-xl font-bold text-foreground">{signed ? `${doc.type} approved` : `${doc.type} declined`}</h2>
+            <h2 className="text-xl font-bold text-foreground">
+                {isPurchaseOrder(doc.type) ? (signed ? 'Order confirmed' : 'Reply sent') : signed ? `${doc.type} approved` : `${doc.type} declined`}
+            </h2>
             <p className="mx-auto mt-2 max-w-md text-muted-foreground">
                 Thanks, {outcome.name}. {company} has been notified{signed ? '' : ' of your decision'}.
             </p>
@@ -1130,6 +1150,14 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
         const noun = typeNoun(doc.type);
         if (outcome) return { title: outcome.kind === 'signed' ? 'All set' : 'Response sent', subtitle: `Your response to this ${noun} was recorded.` };
         if (linkUsed) return { title: 'This link was already used', subtitle: `Ask ${company} for a new link to sign this ${noun}.` };
+        if (isPurchaseOrder(doc.type)) {
+            switch (state) {
+                case 'signed': return { title: 'Order already confirmed', subtitle: `This order was confirmed. You can download a copy below.` };
+                case 'declined': return { title: 'Marked as can’t fill', subtitle: `Contact ${company} if anything has changed.` };
+                case 'open': return { title: 'Confirm this order', subtitle: `${company} sent you a purchase order. Check the items and the delivery details, then confirm it or tell them what you can’t supply.` };
+                default: return { title: 'Purchase order', subtitle: `Sent to you by ${company}.` };
+            }
+        }
         switch (state) {
             case 'signed': return { title: 'Already approved', subtitle: `This ${noun} has already been signed. You can download a copy below.` };
             case 'declined': return { title: 'Declined', subtitle: `This ${noun} was declined. Contact ${company} if you'd like to discuss it.` };
@@ -1164,7 +1192,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
 
     return (
         <div className="flex min-h-screen flex-col bg-background text-foreground">
-            <BrandHeader contractor={contractor} tagline={doc.type === 'Invoice' ? 'Secure invoice' : 'Secure document approval'} />
+            <BrandHeader contractor={contractor} tagline={doc.type === 'Invoice' ? 'Secure invoice' : isPurchaseOrder(doc.type) ? 'Secure order confirmation' : 'Secure document approval'} />
 
             <main className={cx('mx-auto w-full max-w-3xl flex-1 space-y-6 px-4 py-6 sm:px-6 sm:py-10', ((canSign && !signInView) || payBar) && 'pb-28 sm:pb-10')}>
                 <section className="animate-fade-in">
@@ -1244,7 +1272,7 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                             className="btn btn-primary min-h-[44px] shrink-0"
                             onClick={() => signRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                         >
-                            <PenIcon className="h-4 w-4" /> Review &amp; sign
+                            <PenIcon className="h-4 w-4" /> {isPurchaseOrder(doc.type) ? 'Review & confirm' : <>Review &amp; sign</>}
                         </button>
                     </div>
                 </div>
