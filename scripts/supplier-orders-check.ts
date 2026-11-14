@@ -289,6 +289,22 @@ const FERG = normalizeSupplier({ id: 's_fe', name: 'Ferguson', email: 'po@fergus
     eq('retry: only the missing item, from the plan frozen at the claim (later edits ignored)', retry.moves.map((m) => [m.itemId, m.qty]), [[BOX.id, 2]]);
     const retryDone = finishReceipt(claimReceipt(retry, NOW), [BOX.id], [], NOW);
     eq('retry finishes the receipt', [retryDone.state, retryDone.applied.length, retryDone.failed], ['done', 2, undefined]);
+    // two devices / two tabs: B opens "Mark received" while A is still adding stock (receipt 'receiving', claimed
+    // seconds ago; the stock history only shows what A added so far). B must not add the rest a second time.
+    const inFlight = withReceipt(po, claimReceipt(plan, NOW));
+    const second = planReceive({ data: inFlight, items: ITEMS, appliedItemIds: [PIPE.id], now: '2026-11-14T10:00:20.000Z' });
+    eq('in progress elsewhere: a second receive adds nothing while the first is still adding stock', [second.status, second.moves.length], ['busy', 0]);
+    const abandoned = planReceive({ data: inFlight, items: ITEMS, appliedItemIds: [PIPE.id], now: '2026-11-14T10:10:00.000Z' });
+    eq('a claim left unfinished (tab closed) can be finished later: only the missing item', [abandoned.status, abandoned.moves.map((m) => [m.itemId, m.qty])], ['ready', [[BOX.id, 2]]]);
+    // a retry of a partial receipt is a new claim with its own time, so it is protected the same way
+    const retryClaim = claimReceipt(retry, '2026-11-14T11:00:00.000Z');
+    eq('a retry claim is stamped with its own time', retryClaim.claimedAt, '2026-11-14T11:00:00.000Z');
+    eq('the claim time survives a JSON round trip', parseStockReceipt(JSON.parse(JSON.stringify(withReceipt(po, retryClaim))))?.claimedAt, '2026-11-14T11:00:00.000Z');
+    const retryInFlight = planReceive({ data: withReceipt(po, retryClaim), items: ITEMS, now: '2026-11-14T11:00:30.000Z' });
+    eq('a retry in progress elsewhere: nothing added twice', [retryInFlight.status, retryInFlight.moves.length], ['busy', 0]);
+    const api = read('lib/suppliersApi.ts');
+    check('Mark received: a retry claim only wins when nobody else claimed the receipt meanwhile (compare-and-set)', api.includes("->>claimedAt") && api.includes("->>state`, plan.receipt.state"));
+    check('Mark received: a busy receipt is refused before any stock moves', /plan\.status === 'busy'[\s\S]*?throw/.test(api));
     eq('nothing matches → nothing', planReceive({ data: { lineItems: [{ description: 'Gravel', quantity: 1 }] }, items: ITEMS }).status, 'nothing');
     eq('a receipt with an unknown state is ignored', parseStockReceipt({ [RECEIPT_KEY]: { state: 'weird' } }), null);
 

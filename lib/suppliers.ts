@@ -582,6 +582,11 @@ export interface StockReceipt {
     v: 1;
     /** when receiving started (the claim) */
     at: string;
+    /**
+     * when the latest claim was made (the first one, or a retry of a partial receipt). While a claim is fresh
+     * (RECEIVE_CLAIM_FRESH_MS) another device / tab is still adding stock: a second "Mark received" waits.
+     */
+    claimedAt?: string;
     /** receiving = claimed, stock being added; partial = some items failed (retry adds only those); done */
     state: 'receiving' | 'partial' | 'done';
     /** what this PO adds to stock, per item (frozen at the claim) */
@@ -604,7 +609,9 @@ export const parseStockReceipt = (data: unknown): StockReceipt | null => {
         .map((m) => ({ itemId: str(m.itemId).toLowerCase(), name: str(m.name), unit: str(m.unit), qty: q3(toNumber(m.qty)) }))
         .filter((m) => m.itemId && m.qty > 0);
     const ids = (v: unknown) => (Array.isArray(v) ? v.map((x) => str(x).toLowerCase()).filter(Boolean) : []);
-    const receipt: StockReceipt = { v: 1, at: isoOr(r.at, ''), state, items, applied: ids(r.applied) };
+    const receipt: StockReceipt = {
+        v: 1, at: isoOr(r.at, ''), ...(str(r.claimedAt) ? { claimedAt: isoOr(r.claimedAt, '') } : {}), state, items, applied: ids(r.applied),
+    };
     if (Array.isArray(r.failed)) receipt.failed = ids(r.failed);
     if (Array.isArray(r.unmatched)) {
         receipt.unmatched = r.unmatched
@@ -643,9 +650,19 @@ export const appliedFromHistory = (
     return Array.from(totals.entries()).filter(([, n]) => n > 0).map(([id]) => id);
 };
 
+/**
+ * A 'receiving' receipt claimed less than this long ago belongs to a "Mark received" still running on another device
+ * or tab (it adds one item after the other): nothing is added a second time meanwhile. Older = abandoned (tab closed
+ * mid-way): it can be finished.
+ */
+export const RECEIVE_CLAIM_FRESH_MS = 2 * 60 * 1000;
+
 export interface ReceivePlan {
-    /** ready = there is stock to add; already = this PO was received (nothing left to add); nothing = no line matches */
-    status: 'ready' | 'already' | 'nothing';
+    /**
+     * ready = there is stock to add; already = this PO was received (nothing left to add); nothing = no line matches;
+     * busy = another device / tab is receiving it right now (try again in a moment)
+     */
+    status: 'ready' | 'already' | 'nothing' | 'busy';
     /** stock to add now */
     moves: ReceiveMove[];
     /** items of this PO already added (marker or history): never added again */
@@ -660,7 +677,7 @@ export interface ReceivePlan {
  * Otherwise the PO's lines, matched to inventory (linked id, else exact name), summed per item. Items in
  * `appliedItemIds` (from the stock history) are never added again.
  */
-export const planReceive = (args: { data: unknown; items: readonly StockItemLike[]; appliedItemIds?: Iterable<string> }): ReceivePlan => {
+export const planReceive = (args: { data: unknown; items: readonly StockItemLike[]; appliedItemIds?: Iterable<string>; now?: string | number | Date }): ReceivePlan => {
     const receipt = parseStockReceipt(args.data);
     const applied = new Set<string>([...(receipt?.applied || []), ...Array.from(args.appliedItemIds || [], (id) => str(id).toLowerCase())]);
     if (receipt?.state === 'done') {
@@ -691,15 +708,23 @@ export const planReceive = (args: { data: unknown; items: readonly StockItemLike
     }
     const moves = all.filter((m) => !applied.has(m.itemId));
     const skipped = all.filter((m) => applied.has(m.itemId));
+    if (moves.length && receipt?.state === 'receiving') {
+        // claimed moments ago: that run is still adding stock (the history doesn't show all of it yet)
+        const claimed = Date.parse(receipt.claimedAt || receipt.at);
+        const nowMs = args.now === undefined ? Date.now() : new Date(args.now).getTime();
+        if (Number.isFinite(claimed) && Number.isFinite(nowMs) && nowMs - claimed < RECEIVE_CLAIM_FRESH_MS) {
+            return { status: 'busy', moves: [], skipped, unmatched, receipt };
+        }
+    }
     const status = moves.length ? 'ready' : skipped.length ? 'already' : 'nothing';
     return { status, moves, skipped, unmatched, receipt };
 };
 
 /** The receipt written BEFORE any stock moves (the claim). */
 export const claimReceipt = (plan: ReceivePlan, now: string): StockReceipt => plan.receipt
-    ? { ...plan.receipt, state: 'receiving', applied: Array.from(new Set([...plan.receipt.applied, ...plan.skipped.map((m) => m.itemId)])) }
+    ? { ...plan.receipt, state: 'receiving', claimedAt: now, applied: Array.from(new Set([...plan.receipt.applied, ...plan.skipped.map((m) => m.itemId)])) }
     : {
-        v: 1, at: now, state: 'receiving',
+        v: 1, at: now, claimedAt: now, state: 'receiving',
         items: [...plan.moves, ...plan.skipped],
         applied: plan.skipped.map((m) => m.itemId),
         ...(plan.unmatched.length ? { unmatched: plan.unmatched } : {}),

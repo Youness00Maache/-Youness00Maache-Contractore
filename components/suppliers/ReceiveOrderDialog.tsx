@@ -82,6 +82,11 @@ const ReceiveOrderDialog: React.FC<{
                                 Already received: this order’s items were added to stock{plan.receipt?.doneAt ? ` on ${new Date(plan.receipt.doneAt).toLocaleDateString()}` : ''}. Nothing is added twice.
                             </p>
                         )}
+                        {plan.status === 'busy' && (
+                            <p className="rounded-xl bg-warning/10 px-3 py-2.5 text-sm text-foreground">
+                                This order is being received on another device or tab right now. Wait a minute, then open Mark received again. Nothing is added twice.
+                            </p>
+                        )}
                         {plan.status === 'nothing' && (
                             <p className="rounded-xl bg-warning/10 px-3 py-2.5 text-sm text-foreground">
                                 None of the lines match an inventory item. Pick the items from Inventory on the order (the tag button on a line), or use their exact names, then try again.

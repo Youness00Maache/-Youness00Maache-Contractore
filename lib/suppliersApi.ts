@@ -216,6 +216,10 @@ export async function receivePurchaseOrder(documentId: string): Promise<ReceiveR
         }
         return { status: 'already', receipt, doc: saved, added: [], failed: [], unmatched: plan.unmatched };
     }
+    if (plan.status === 'busy') {
+        // another device / tab claimed it moments ago and is still adding the stock: never add it a second time
+        throw new Error('This order is being received on another device or tab right now. Wait a minute, then open Mark received again.');
+    }
     if (plan.status === 'nothing') {
         throw new Error(plan.unmatched.length
             ? 'None of the lines match an inventory item. Pick the items from Inventory on the order (or use the exact item names), then try again.'
@@ -237,8 +241,22 @@ export async function receivePurchaseOrder(documentId: string): Promise<ReceiveR
             return { status: 'already', receipt: parseStockReceipt(fresh.data), doc: fresh, added: [], failed: [], unmatched: plan.unmatched };
         }
     } else {
-        const { error } = await supabase.from('documents').update({ data: { ...base, [RECEIPT_KEY]: receipt } }).eq('id', documentId);
+        // atomic too: only the receipt exactly as previewed is taken over (two devices finishing the same partial
+        // receipt can't both add the missing items)
+        let claim = supabase
+            .from('documents')
+            .update({ data: { ...base, [RECEIPT_KEY]: receipt } })
+            .eq('id', documentId)
+            .eq(`data->${RECEIPT_KEY}->>state`, plan.receipt.state);
+        // every claim stamps a new claimedAt: whoever takes it over first changes it, the other update matches nothing
+        claim = plan.receipt.claimedAt
+            ? claim.eq(`data->${RECEIPT_KEY}->>claimedAt`, plan.receipt.claimedAt)
+            : claim.is(`data->${RECEIPT_KEY}->>claimedAt`, null);
+        const { data: claimed, error } = await claim.select('id');
         if (error) throw new Error(describeError(error, 'Could not continue receiving this order.'));
+        if (!claimed || !claimed.length) {
+            throw new Error('This order is being received on another device or tab right now. Wait a minute, then open Mark received again.');
+        }
     }
 
     const reason = receiveReason(base, documentId);
