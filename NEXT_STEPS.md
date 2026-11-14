@@ -12,6 +12,14 @@
   profile save, imports/exports, AI. Possible next: queue job photos and profile settings offline.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+**15:05 owner decisions applied:** (1) estimate option choice SQL APPLIED (20261114000100; functions verified);
+(2) AI credits ON: SQL applied (20261114000200), Kelviq Live plans ai-credits-5/10/20/50 ($5/$10/$20/$50, one-time,
+published, product ContractorDocs), webhook endpoint now also sends order.* + refund.* (16 events), kelviq-webhook +
+kelviq-checkout + ai-assistant redeployed, secret AI_CREDITS_ENABLED=true; webhook test event → HTTP 200.
+(3) crew & field tables approved → helpers building (crew clock-in abbb5deadbe96121d; punch lists + papers vault +
+service plans a1a42b37360684bec), migrations to apply after review. Supplier confirm link NOT approved (leave it).
+Price promise: owner had no preference → Terms now match the pricing page (12 months from a change).
+
 **2026-11-14 14:45 (weekly reset to 2%): "finish everything".** Helpers in their own git worktrees (merge their
 branches into my-branch, test, push my-branch + main): SEO pages + IndexNow ab4e22c8920d43a3d; templates (full QA all
 kinds, marketing previews, units on PDFs, isShortSection fix, paginator gap) a300aae907df5b66c; offline gaps (photos,

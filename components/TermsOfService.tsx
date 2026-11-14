@@ -70,8 +70,9 @@ export const TERMS_SECTIONS: LegalSection[] = [
           your account then moves to the Free plan. Your documents are not deleted when you downgrade.
         </p>
         <p>
-          <strong>Price changes.</strong> If we change prices, we will tell you in advance and the new price will apply from your next billing
-          period after the notice.
+          <strong>Price changes and our price promise.</strong> If we raise prices, existing subscribers keep the price they pay at the time of the
+          change for 12 months from the change, as long as the subscription stays active. We will tell you by email before any change takes
+          effect; after the 12 months, the new price applies from your next billing period.
         </p>
         <p>
           <strong>Refunds.</strong> Except where required by law, payments are non-refundable and we don’t provide credits for partial periods. If
