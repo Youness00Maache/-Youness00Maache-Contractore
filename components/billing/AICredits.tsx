@@ -12,6 +12,7 @@ import {
     saveAutoRecharge, startCreditsCheckout, type AiCreditPack, type AiCreditsStatus,
 } from '../../lib/aiCredits.ts';
 import { Switch, InlineNote, cx } from '../reminders/ui.tsx';
+import { errorText } from '../../lib/offline/connection.ts';
 
 /** "$10" over "220 credits": one segmented control, the pack is the choice. */
 export const PackPicker: React.FC<{
@@ -55,7 +56,7 @@ const useCheckout = () => {
         try {
             window.location.assign(await startCreditsCheckout(packId));
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Could not start checkout. Please try again.');
+            setError(errorText(err, 'Could not start checkout. Please try again.'));
             setBusy(false);
         }
     }, []);
@@ -118,7 +119,7 @@ export const AICreditsRow: React.FC = () => {
             setStatus(await saveAutoRecharge(next));
         } catch (err) {
             setStatus(before);
-            setSaveError(err instanceof Error ? err.message : 'Could not save. Please try again.');
+            setSaveError(errorText(err, 'Could not save. Please try again.'));
         } finally {
             setSaving(false);
         }

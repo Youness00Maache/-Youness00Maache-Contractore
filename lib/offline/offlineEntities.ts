@@ -14,6 +14,8 @@ export interface OfflineEntityQueue {
     isWaiting: (id: string) => boolean;
     /** this user's items waiting in the outbox (screens show them on top of their list) */
     items?: () => OutboxItem[];
+    /** removes an item from the outbox (kept 7 days in its history) */
+    discard?: (id: string) => Promise<void>;
 }
 
 let current: OfflineEntityQueue | null = null;
@@ -25,6 +27,20 @@ export const offlineEntityQueueFor = (id?: string | null): OfflineEntityQueue | 
     if (!current) return null;
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     return offline || (id ? current.isWaiting(id) : false) ? current : null;
+};
+
+/**
+ * Deleting something that only exists on this device (created offline, not synced yet): it leaves the outbox (with
+ * the changes waiting for it) and no connection is needed. False when it is on the account (delete it there).
+ */
+export const discardPendingCreate = async (id: string): Promise<boolean> => {
+    const all = current?.items?.() || [];
+    const created = all.some(i => i.docId === id && i.kind === 'create' && entityOf(i) !== 'document');
+    if (!created || !current?.discard) return false;
+    await current.discard(id);
+    // stock changes of an item that never reached the account go with it
+    for (const move of all.filter(i => entityOf(i) === 'stock_move' && i.data?.p_item_id === id)) await current.discard(move.docId);
+    return true;
 };
 
 /** Items of one kind waiting in the outbox (empty without a signed-in outbox). */

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
-import { offlineEntityQueueFor, pendingEntityItems, withPendingRows } from '../lib/offline/offlineEntities.ts';
+import { discardPendingCreate, offlineEntityQueueFor, pendingEntityItems, withPendingRows } from '../lib/offline/offlineEntities.ts';
 import { loadWithDeviceCopy } from '../lib/offline/deviceCache.ts';
 import { dbApi } from '../utils/db.ts';
 import { isPaidTier, normalizeTier } from '../lib/plans.ts';
@@ -276,6 +276,15 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
     if (!uid) return;
     const { id, created_at, updated_at, user_id, ...rest } = item as any;
     const row = { ...rest, id: crypto.randomUUID(), user_id: uid, name: `${item.name} (copy)`, use_count: 0, last_used_at: null };
+    // offline: the copy waits on this device like a new item
+    const outbox = offlineEntityQueueFor(item.id);
+    if (outbox) {
+      await outbox.queue('price_item', 'create', row.id, row);
+      setItems((prev) => [...prev, normalize(row)]);
+      notify('success', `Duplicated as "${row.name}". Saved on this device; it syncs when you're back online.`);
+      changed.current?.();
+      return;
+    }
     const { data, error } = await withSchemaFallback(row, (p) => supabase.from('saved_items').insert(p).select('*').single());
     if (error) { notify('error', friendlyError(error, 'Could not duplicate the item.')); return; }
     setItems((prev) => [...prev, normalize(data || row)]);
@@ -286,7 +295,9 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
   const confirmDelete = async () => {
     if (!deleteFor) return;
     setDeleting(true);
-    const { error } = await supabase.from('saved_items').delete().eq('id', deleteFor.id);
+    // an item only on this device (added offline) is removed here; others need a connection (a clear message offline)
+    const local = await discardPendingCreate(deleteFor.id);
+    const { error } = local ? { error: null } : await supabase.from('saved_items').delete().eq('id', deleteFor.id);
     setDeleting(false);
     if (error) { notify('error', friendlyError(error, 'Could not delete the item.')); return; }
     const remaining = items.filter((i) => i.id !== deleteFor.id);

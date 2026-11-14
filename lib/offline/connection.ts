@@ -12,7 +12,7 @@ export const isBrowserOffline = (): boolean => typeof navigator !== 'undefined' 
 
 /** Is this the offline refusal (or a message that already says so)? */
 export const isNeedsConnectionMessage = (message: unknown): boolean =>
-    /you'?re offline\W+this needs a connection/i.test(String(message ?? ''));
+    /this needs a connection/i.test(String(message ?? ''));
 
 const NETWORK_RE = /failed to fetch|networkerror|load failed|network request failed|err_internet_disconnected|failed to send a request to the edge function/i;
 
@@ -38,12 +38,13 @@ export const errorText = (error: unknown, fallback: string): string => {
 };
 
 /**
- * The error thrown for a request made offline: its message is NEEDS_CONNECTION (storage and auth errors show the
- * message; database errors show "Offline: <message>"; the app's error helpers turn both into NEEDS_CONNECTION).
+ * The error thrown for a request made offline. Database errors print it as `${name}: ${message}` ("You're offline:
+ * This needs a connection; try again …"), storage and sign-in errors print the message alone; both read as a plain
+ * sentence, and the app's error helpers turn both into NEEDS_CONNECTION.
  */
 export const offlineRequestError = (): Error => {
-    const error = new Error(NEEDS_CONNECTION);
-    error.name = 'Offline';
+    const error = new Error("This needs a connection; try again when you're back online.");
+    error.name = "You're offline";
     return error;
 };
 

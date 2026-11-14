@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { InlineError, Modal } from '../viewKit.tsx';
 import { previewReceive, receivePurchaseOrder, type ReceiveResult } from '../../lib/suppliersApi.ts';
 import type { ReceiveMove, ReceivePlan, UnmatchedLine } from '../../lib/suppliers.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 const qtyText = (m: ReceiveMove) => `${m.qty}${m.unit ? ` ${m.unit}` : ''}`;
 const REASON: Record<UnmatchedLine['reason'], string> = {
@@ -32,7 +33,7 @@ const ReceiveOrderDialog: React.FC<{
         setPlan(null);
         previewReceive(documentId)
             .then(({ plan: p }) => { if (active) setPlan(p); })
-            .catch((e) => { if (active) setLoadError(e instanceof Error ? e.message : 'Could not load the order.'); });
+            .catch((e) => { if (active) setLoadError(errorText(e, 'Could not load the order.')); });
         return () => { active = false; };
     }, [documentId, reload]);
 
@@ -42,7 +43,7 @@ const ReceiveOrderDialog: React.FC<{
         try {
             onReceived(await receivePurchaseOrder(documentId));
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'The stock could not be updated.');
+            setError(errorText(e, 'The stock could not be updated.'));
             setBusy(false);
         }
     };

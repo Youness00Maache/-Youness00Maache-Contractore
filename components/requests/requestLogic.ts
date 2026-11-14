@@ -144,7 +144,7 @@ export const classifyRequestError = (e: ErrLike): { kind: RequestErrorKind; mess
     }
     if (code === 'P0002' || /request page not found/i.test(msg)) return { kind: 'not_found', message: 'This request page does not exist. Check the link and try again.' };
     if (code === '22023') return { kind: 'invalid', message: msg || 'Please check the form and try again.' };
-    if (/failed to fetch|networkerror|load failed|network|you'?re offline/i.test(msg)) return { kind: 'network', message: 'No connection. Check your internet and try again; nothing you typed was lost.' };
+    if (/failed to fetch|networkerror|load failed|network|you'?re offline|needs a connection/i.test(msg)) return { kind: 'network', message: 'No connection. Check your internet and try again; nothing you typed was lost.' };
     return { kind: 'unknown', message: 'Something went wrong. Please try again in a moment.' };
 };
 

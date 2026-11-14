@@ -8,6 +8,7 @@ import { EditIcon, PlusIcon, TrashIcon } from '../Icons.tsx';
 import { SUPPLIER_LIMITS, isValidEmail, removeSupplier, upsertSupplier, type Supplier } from '../../lib/suppliers.ts';
 import type { SyncMode } from '../../lib/userData.ts';
 import { syncNote } from './useSuppliers.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 type DraftSupplier = Pick<Supplier, 'name' | 'email' | 'phone' | 'address' | 'accountNumber' | 'notes'> & { id?: string };
 const EMPTY: DraftSupplier = { name: '', email: '', phone: '', address: '', accountNumber: '', notes: '' };
@@ -52,7 +53,7 @@ const SuppliersModal: React.FC<{
             setNote(syncNote(mode) || `“${supplier.name}” saved.`);
             setEditing(null);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'The supplier could not be saved.');
+            setError(errorText(e, 'The supplier could not be saved.'));
         } finally {
             setBusy(false);
         }
@@ -67,7 +68,7 @@ const SuppliersModal: React.FC<{
             setNote(syncNote(mode) || `“${deleteFor.name}” removed. Purchase orders already made keep its details.`);
             setDeleteFor(null);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'The supplier could not be removed.');
+            setError(errorText(e, 'The supplier could not be removed.'));
         } finally {
             setBusy(false);
         }

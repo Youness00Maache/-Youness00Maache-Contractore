@@ -13,6 +13,7 @@ import {
     buildProposal, sanitizeRequest,
     type RouterImage, type RouterProposal, type RouterRequestContext, type RouterResponse,
 } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 export { DOC_TYPE_TO_FORM_TYPE } from '../config/docTypeMap.ts';
 export type { MasterDocumentType } from '../config/docTypeMap.ts';
@@ -149,7 +150,7 @@ export async function readFunctionError(error: unknown): Promise<AIError> {
     }
     if (error instanceof FunctionsRelayError) return { code: 'AI_UPSTREAM', message: 'The AI service is not reachable right now. Please try again in a moment.' };
     if (error instanceof FunctionsFetchError) return { code: 'NETWORK', message: 'You appear to be offline, or the AI service is unreachable. Please try again.' };
-    return { code: 'ERROR', message: error instanceof Error ? error.message : 'The AI assistant could not answer. Please try again.' };
+    return { code: 'ERROR', message: errorText(error, 'The AI assistant could not answer. Please try again.') };
 }
 
 export function useMasterAIRouter({ scope, scopeId = null, userId = null }: UseMasterAIRouterOptions) {

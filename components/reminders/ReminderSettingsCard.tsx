@@ -12,12 +12,14 @@ import { startGmailConnect } from '../../services/gmailService.ts';
 import { supabase } from '../../lib/supabase.ts';
 import {
     browserTimezone, buildValues, loadReminderBasics, normalizeOffsets, offsetChip, PLACEHOLDER_HELP, REMINDER_RULES,
-    RemindersUnavailableError, renderReminder, resolveTemplate, safeTimezone, saveReminderSettings, TEMPLATE_KEYS, TEMPLATE_PLACEHOLDERS,
+    RemindersUnavailableError, renderReminder, resolveTemplate, safeTimezone, saveReminderSettings, pendingReminderSettings, TEMPLATE_KEYS, TEMPLATE_PLACEHOLDERS,
     TEMPLATE_TITLES, zonedNow, addDays,
     type ReminderBasics, type ReminderKind, type ReminderSettings, type TemplateKey,
 } from '../../lib/reminders.ts';
 import { cx, hourLabel, InlineNote, Switch } from './ui.tsx';
 import HelpButton from '../help/HelpButton.tsx';
+import { isOffline, isOfflineFailure, readListCopy, saveListCopy } from '../../lib/offline/deviceCache.ts';
+import { errorText } from '../../lib/offline/connection.ts';
 
 interface Props {
     onUpgradeClick?: () => void;
@@ -80,9 +82,18 @@ const ReminderSettingsCard: React.FC<Props> = ({ onUpgradeClick }) => {
             setBasics(b);
             // a user without saved settings gets this device's time zone when they first save
             setDraft(b.saved ? b.settings : { ...b.settings, timezone: browserTimezone() });
+            void saveListCopy('reminder_basics', [b]);
         } catch (e) {
             if (e instanceof RemindersUnavailableError) setUnavailable(true);
-            else setLoadError((e as Error)?.message || 'Could not load reminder settings.');
+            else if (isOfflineFailure(e)) {
+                // offline: the settings as last seen on this device (+ a change saved offline); a save waits here too
+                const kept = (await readListCopy<ReminderBasics>('reminder_basics'))?.rows?.[0];
+                if (kept) {
+                    const settings = pendingReminderSettings() ?? kept.settings;
+                    setBasics({ ...kept, settings });
+                    setDraft(settings);
+                } else setLoadError("You're offline. Reminder settings show here once you're back online.");
+            } else setLoadError(errorText(e, 'Could not load reminder settings.'));
         }
     };
     useEffect(() => { load(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -175,12 +186,19 @@ const ReminderSettingsCard: React.FC<Props> = ({ onUpgradeClick }) => {
         setSaveError(null);
         try {
             const saved = await saveReminderSettings(draft);
+            if (isOffline()) {
+                // kept on this device (lib/reminders.ts): synced when the connection is back
+                setBasics((prev) => (prev ? { ...prev, settings: saved, saved: true } : prev));
+                setDraft(saved);
+                setSavedAt(Date.now());
+                return;
+            }
             const b = await loadReminderBasics(true);
             setBasics(b);
             setDraft(saved);
             setSavedAt(Date.now());
         } catch (e) {
-            setSaveError((e as Error)?.message || 'Could not save.');
+            setSaveError(errorText(e, 'Could not save.'));
         } finally {
             setSaving(false);
         }
@@ -192,7 +210,7 @@ const ReminderSettingsCard: React.FC<Props> = ({ onUpgradeClick }) => {
             await startGmailConnect({ returnTo: '/settings#reminders', loginHint: hint });
         } catch (e) {
             setConnecting(false);
-            setSaveError((e as Error)?.message || 'Could not start the Google connection.');
+            setSaveError(errorText(e, 'Could not start the Google connection.'));
         }
     };
 

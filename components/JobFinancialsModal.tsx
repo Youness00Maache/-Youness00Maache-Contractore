@@ -11,6 +11,7 @@ import { loadJobProgress, saveJobProgress, saveLaborRateToAccount } from '../lib
 import { CalculatorIcon, XCircleIcon, InfoIcon } from './Icons.tsx';
 import { Skeleton } from './ui/Skeleton.tsx';
 import JobCostingPanel from './costing/JobCostingPanel.tsx';
+import { errorText } from '../lib/offline/connection.ts';
 
 interface JobFinancialsModalProps {
     job: Job;
@@ -44,7 +45,7 @@ const JobFinancialsModal: React.FC<JobFinancialsModalProps> = ({ job, defaultLab
         // Only the JSON paths needed for the numbers: never downloads photos/signatures (CORE-011).
         fetchJobCostingDocs(job.id)
             .then(data => { if (!cancelled) setRows(data); })
-            .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load the numbers for this job.'); });
+            .catch(err => { if (!cancelled) setError(errorText(err, 'Could not load the numbers for this job.')); });
         loadJobProgress(job.id).then(p => { if (!cancelled && p !== null) setManualPercent(p); }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [job.id]);

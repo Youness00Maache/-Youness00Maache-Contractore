@@ -5,6 +5,7 @@
 import type { InventoryItem, LineItem, SavedItem } from '../../types.ts';
 import { toNumber } from '../../utils/money.ts';
 import { supabase } from '../../lib/supabase.ts';
+import { offlineEntityQueueFor } from '../../lib/offline/offlineEntities.ts';
 import { newId } from './formUtils.ts';
 
 /** Statuses at which the database deducts stock for Invoice / Estimate / Change Order line items. */
@@ -66,6 +67,12 @@ export const addLineToPriceBook = async (line: { description: string; rate: numb
         rate: toNumber(line.rate),
         unit_cost: toNumber(line.unitCost),
     };
+    // offline: kept on this device and added to the price book when the connection is back (lib/offline)
+    const outbox = offlineEntityQueueFor();
+    if (outbox) {
+        await outbox.queue('price_item', 'create', row.id, row);
+        return { ...row } as SavedItem;
+    }
     const { error } = await supabase.from('saved_items').insert(row);
     if (error) throw new Error(error.message || 'Could not save to the price book.');
     return { ...row } as SavedItem;

@@ -57,6 +57,7 @@ import type { SyncReport } from './lib/offline/syncEngine.ts';
 import { OFFLINE_CREATE_TYPES, ENTITY_TYPE, applyEntityOverlay, applyOutboxOverlay, canCreateOffline, contentHash, entityOf, numberRuleFor, offlineSavePolicy, pendingCreatesByJob, pendingEntityCreates, type OutboxItem, type OutboxKind } from './lib/offline/outboxModel.ts';
 import { setOfflineEntityQueue } from './lib/offline/offlineEntities.ts';
 import { setDeviceCacheUser } from './lib/offline/deviceCache.ts';
+import { NEEDS_CONNECTION } from './lib/offline/connection.ts';
 import type { PaymentSettings } from './lib/payments.ts';
 import { applyProfileOverlay, offlineProfilePatch, pendingProfileItem, profileBaseFor, profileFieldsFromRow, comparableProfileRow, withoutPaymentColumns } from './lib/offline/offlineProfile.ts';
 import { offlinePhotoRow, photoEditPatch, photoItems, uploadQueuedPhoto, PHOTO_FILE_MAIN, PHOTO_FILE_THUMB, type OfflinePhotoInput } from './lib/offline/offlineJobPhotos.ts';
@@ -380,6 +381,7 @@ const App: React.FC = () => {
             },
             isWaiting: id => outboxRef.current.items.some(i => i.docId === id && entityOf(i) !== 'document'),
             items: () => outboxRef.current.items,
+            discard: id => outboxRef.current.discard(id),
         });
         return () => setOfflineEntityQueue(null);
     }, [session?.user?.id]);
@@ -1280,7 +1282,8 @@ const App: React.FC = () => {
         if (await ensureDocSlot(jobId)) setView({ screen: 'selectDocType', jobId });
     };
     const navigateToCreateJob = (returnTo: 'dashboard' | 'calendar' = 'dashboard', prefillData?: Record<string, unknown>) => {
-        if (!navigator.onLine) { toast.error("You're offline. Reconnect to create jobs."); return; }
+        // offline too: the new job (and a new client typed in it) waits on this device and syncs later (createJob);
+        // the Free plan check counts the jobs waiting there
         if (checkLimit('jobs')) setView({ screen: 'createJob', returnTo: returnTo === 'calendar' ? 'calendar' : undefined, prefillData });
     };
     const navigateToPriceBook = () => setView({ screen: 'pricebook' });
@@ -1436,7 +1439,7 @@ const App: React.FC = () => {
     };
 
     const handleDeleteAccount = async () => {
-        if (!navigator.onLine) throw new Error("You're offline.");
+        if (!navigator.onLine) throw new Error(NEEDS_CONNECTION);
         try {
             await invokeFunction('delete-account', {});
         } catch {
@@ -2142,6 +2145,12 @@ const App: React.FC = () => {
                     if (res.error && isMissingColumnError(res.error)) res = await supabase.from('profiles').update({ ...withoutPaymentColumns(patch), ...stamp }).eq('id', uid);
                     return { error: res.error };
                 }
+                // reminder settings saved offline: the same upsert as the Reminders card online
+                if (entity === 'reminder_settings') {
+                    const { id: _id, ...settingsRow } = row;
+                    const { error } = await supabase.from('reminder_settings').upsert({ ...settingsRow, user_id: uid }, { onConflict: 'user_id' });
+                    return { error };
+                }
                 // a job photo taken offline: the same row + upload + portal copy as "Add photos" online
                 if (entity === 'job_photo') {
                     const api = await import('./components/photos/photosApi.ts');
@@ -2220,6 +2229,7 @@ const App: React.FC = () => {
         if (entityOf(item) === 'client') { navigate('/clients'); return; }
         if (entityOf(item) === 'job_photo') { navigate(`/jobs/${item.jobId}#photos`); return; }
         if (entityOf(item) === 'profile') { navigate('/settings'); return; }
+        if (entityOf(item) === 'reminder_settings') { navigate('/settings#reminders'); return; }
         if (entityOf(item) === 'inventory' || entityOf(item) === 'stock_move') { navigate('/inventory'); return; }
         if (entityOf(item) === 'price_item') { navigate('/pricebook'); return; }
         navigate(`/jobs/${item.jobId}/forms/${encodeURIComponent(item.type)}/${item.docId}`, { state: { fromJob: false } });

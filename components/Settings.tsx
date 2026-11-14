@@ -23,6 +23,7 @@ import DataExportSection from './export/DataExportSection.tsx';
 import { AICreditsRow } from './billing/AICredits.tsx';
 import NotificationSettingsCard from './notifications/NotificationSettingsCard.tsx';
 import { SyncChip } from './offline/OfflineContext.tsx';
+import { errorText } from '../lib/offline/connection.ts';
 
 type ThemeName = 'light' | 'dark' | 'blue';
 export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'notifications' | 'data' | 'account';
@@ -267,7 +268,7 @@ const Settings: React.FC<SettingsProps> = ({
             baselineRef.current = profile;
             setSavedAt(Date.now());
         } catch (err: any) {
-            setSaveError(err?.message || 'Your changes could not be saved. Please try again.');
+            setSaveError(errorText(err, 'Your changes could not be saved. Please try again.'));
         } finally {
             setSaving(false);
         }
@@ -299,7 +300,7 @@ const Settings: React.FC<SettingsProps> = ({
         setBillingBusy(true);
         setBillingError(null);
         try { await onManageBilling(); }
-        catch (err: any) { setBillingError(err?.message || 'Could not open the billing portal.'); }
+        catch (err: any) { setBillingError(errorText(err, 'Could not open the billing portal.')); }
         finally { setBillingBusy(false); }
     };
 
@@ -308,7 +309,7 @@ const Settings: React.FC<SettingsProps> = ({
         setDeleteBusy(true);
         setDeleteError(null);
         try { await onDeleteAccount(); }
-        catch (err: any) { setDeleteError(err?.message || 'We could not delete your account automatically.'); setDeleteBusy(false); }
+        catch (err: any) { setDeleteError(errorText(err, 'We could not delete your account automatically.')); setDeleteBusy(false); }
     };
 
     const statusBadge = (() => {

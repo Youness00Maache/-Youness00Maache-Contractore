@@ -154,6 +154,6 @@ export const fileToDataUrl = (file: Blob): Promise<string> =>
 export const describeImageError = (error: unknown): string => {
     if (error instanceof ImageProcessingError) return error.message;
     const msg = error instanceof Error ? error.message : '';
-    if (/failed to fetch|network|you'?re offline/i.test(msg)) return 'Upload failed: you appear to be offline. Please try again.';
+    if (/failed to fetch|network|you'?re offline|needs a connection/i.test(msg)) return 'Upload failed: you appear to be offline. Please try again.';
     return msg ? `Image upload failed: ${msg}` : 'Image upload failed. Please use a JPG or PNG under 25 MB.';
 };

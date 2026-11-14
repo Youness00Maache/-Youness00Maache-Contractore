@@ -61,7 +61,7 @@ export type OutboxKind = 'create' | 'edit';
  * real id (a UUID) on this device, so a document created offline inside a job created offline keeps pointing at it;
  * sync sends clients first, then jobs, then documents, and remaps any id the account changes.
  */
-export type OutboxEntity = 'document' | 'job' | 'client' | 'inventory' | 'price_item' | 'stock_move' | 'job_photo' | 'profile';
+export type OutboxEntity = 'document' | 'job' | 'client' | 'inventory' | 'price_item' | 'stock_move' | 'job_photo' | 'profile' | 'reminder_settings';
 /**
  * pending: waiting to sync (never tried, or the connection dropped);
  * failed:  the account refused it for a reason a later retry may fix (shown with the reason);
@@ -174,7 +174,7 @@ export const entityOf = (item: Pick<OutboxItem, 'entity'> | null | undefined): O
 /** Display type of job / client items. */
 export const ENTITY_TYPE: Record<Exclude<OutboxEntity, 'document'>, string> = {
     job: 'Job', client: 'Client', inventory: 'Inventory item', price_item: 'Price book item', stock_move: 'Stock change',
-    job_photo: 'Job photo', profile: 'Settings',
+    job_photo: 'Job photo', profile: 'Settings', reminder_settings: 'Reminder settings',
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -276,7 +276,7 @@ export const queueSave = (existing: OutboxItem | null | undefined, input: QueueI
 export const nextSeq = (items: readonly OutboxItem[], nowMs: number): number =>
     Math.max(nowMs, ...items.map(i => (Number.isFinite(i.seq) ? i.seq + 1 : 0)));
 
-const ENTITY_RANK: Record<OutboxEntity, number> = { profile: 0, client: 0, job: 1, inventory: 2, price_item: 2, stock_move: 3, document: 4, job_photo: 5 };
+const ENTITY_RANK: Record<OutboxEntity, number> = { profile: 0, reminder_settings: 0, client: 0, job: 1, inventory: 2, price_item: 2, stock_move: 3, document: 4, job_photo: 5 };
 
 /**
  * Sync order: settings and clients, jobs, inventory / price-book items, stock changes, documents, then job photos (what
@@ -331,7 +331,7 @@ const messageOf = (error: unknown): string => {
 export const isNetworkError = (error: unknown): boolean => {
     const msg = messageOf(error);
     const status = (error as { status?: unknown } | null)?.status;
-    return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|you'?re offline|appears to be offline|timed? ?out/i.test(msg)
+    return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|you'?re offline|appears to be offline|this needs a connection|failed to send a request|timed? ?out/i.test(msg)
         || (status === 0 && !msg);
 };
 

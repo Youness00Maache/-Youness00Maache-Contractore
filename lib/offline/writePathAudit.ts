@@ -1,0 +1,170 @@
+/**
+ * Offline audit of EVERY place the app writes to the account (owner, 2026-11-14: "it needs to work in all aspects of
+ * the website"). scripts/offline-drafts-check.ts scans the source (lib/offline/writePathScan.ts) and fails when a
+ * write call isn't covered here, or a row here no longer matches any code. Summary in NEXT_STEPS.md.
+ *
+ *  queue            works offline: saved on this device (outbox), shown at once with "Waiting to sync", synced later
+ *  device           works offline: kept on this device and uploaded at the next login (lib/userDataSync.ts)
+ *  sync             the outbox's own upload when the connection is back (runs online only)
+ *  needs_connection can't work offline; says "You're offline. This needs a connection" (never a raw network error:
+ *                   lib/offline/connection.ts, the Supabase client fails offline requests with that sentence)
+ *  background       automatic online work (usage, viewed flags, clean-ups); skipped / retried later, silent offline
+ *  public           pages for the contractor's clients (portal, approval link, request form): the client's connection
+ */
+export type OfflineMode = 'queue' | 'device' | 'sync' | 'needs_connection' | 'background' | 'public';
+
+export interface WritePathEntry {
+    file: string;
+    /** text on the write call's line (unique enough in that file) */
+    match: string;
+    what: string;
+    offline: OfflineMode;
+}
+
+export const WRITE_PATHS: WritePathEntry[] = [
+    // ---------------------------------------------------------------------------------------------------- App.tsx
+    { file: 'App.tsx', match: 'supabase.storage.from(bucket).upload(path, file', what: 'image upload (logo, document image, online)', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "from('profiles').update(row)", what: 'settings save (online path; offline it goes to the outbox)', offline: 'queue' },
+    { file: 'App.tsx', match: "invokeFunction('delete-account'", what: 'delete account', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "from('jobs').insert(payload)", what: 'create job (offline: outbox, then this insert on sync)', offline: 'queue' },
+    { file: 'App.tsx', match: 'update({ client_id: client.id })', what: 'link the client added after an online job create', offline: 'background' },
+    { file: 'App.tsx', match: 'update({ status: newStatus })', what: 'job status', offline: 'queue' },
+    { file: 'App.tsx', match: "from('jobs').delete()", what: 'delete job', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "from('documents').insert(batch)", what: 'duplicate job (with its documents)', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "from('documents').insert(record)", what: 'duplicate document / copy to another job', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "from('documents').delete()", what: 'delete document (one only on this device is discarded offline)', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "rpc('adjust_inventory', { p_item_id: row.p_item_id", what: 'stock change saved offline', offline: 'sync' },
+    { file: 'App.tsx', match: "from('profiles').update({ ...patch", what: 'settings saved offline', offline: 'sync' },
+    { file: 'App.tsx', match: 'withoutPaymentColumns(patch)', what: 'settings saved offline (database without payment columns)', offline: 'sync' },
+    { file: 'App.tsx', match: "from('reminder_settings').upsert({ ...settingsRow", what: 'reminder settings saved offline', offline: 'sync' },
+    { file: 'App.tsx', match: 'from(table).insert(row)', what: 'client / inventory / price-book item created offline', offline: 'sync' },
+    { file: 'App.tsx', match: 'from(table).update(patch)', what: 'job / client / inventory / price-book edit made offline', offline: 'sync' },
+
+    // ------------------------------------------------------------------------------------------- clients
+    { file: 'components/ClientDetails.tsx', match: 'update({ notes: withTempTag', what: 'temporary ↔ regular client', offline: 'queue' },
+    { file: 'components/ClientDetails.tsx', match: "from('clients').insert(row)", what: 'add client', offline: 'queue' },
+    { file: 'components/ClientDetails.tsx', match: '.update(cleanDraft(draft))', what: 'edit client', offline: 'queue' },
+    { file: 'components/ClientDetails.tsx', match: "from('clients').delete()", what: 'delete clients', offline: 'needs_connection' },
+    { file: 'components/ClientDetails.tsx', match: "update({ data: { ...data, status: 'Sent' } })", what: '"Ask again" on a declined estimate', offline: 'needs_connection' },
+    { file: 'components/ClientDetails.tsx', match: "from('clients').update({ notes })", what: 'client notes', offline: 'queue' },
+    { file: 'components/ClientsView.tsx', match: "rpc('mark_documents_viewed', args)", what: 'client decisions marked seen', offline: 'background' },
+    { file: 'components/ClientsView.tsx', match: 'insert(chunk.map', what: 'import clients (CSV)', offline: 'needs_connection' },
+    { file: 'components/ClientsView.tsx', match: 'insert(toRow(r.draft))', what: 'import clients (one by one at the plan limit)', offline: 'needs_connection' },
+    { file: 'utils/clientLinks.ts', match: '.update({ portal_key: key })', what: 'client portal link', offline: 'needs_connection' },
+    { file: 'utils/clientLinks.ts', match: '.update({ public_token: token })', what: 'document approval link', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------------------- documents
+    { file: 'lib/documentSave.ts', match: "from('documents').upsert(record)", what: 'document save (field documents, estimate / invoice drafts offline → outbox)', offline: 'queue' },
+    { file: 'lib/documents.ts', match: "rpc('mark_documents_viewed'", what: 'documents marked viewed', offline: 'background' },
+    { file: 'lib/costingApi.ts', match: "from('documents').insert(record)", what: 'bill time & materials (new invoice)', offline: 'needs_connection' },
+    { file: 'lib/costingApi.ts', match: "from('documents').update({ data: next })", what: 'bill time & materials (mark sheets billed)', offline: 'needs_connection' },
+    { file: 'services/recurringService.ts', match: '.update({ data: { ...data, recurrence: next } })', what: 'recurring invoices', offline: 'background' },
+    { file: 'services/recurringService.ts', match: "rpc('generate_due_recurring_invoices')", what: 'recurring invoices', offline: 'background' },
+
+    // ------------------------------------------------------------------------------------------- payments
+    { file: 'lib/paymentsApi.ts', match: "from('profiles').update(paymentSettingsRow(settings))", what: 'payment / review links (offline: part of the settings save → outbox)', offline: 'queue' },
+    { file: 'lib/paymentsApi.ts', match: "rpc('report_payment_via_portal'", what: 'client "I\'ve paid" (portal)', offline: 'public' },
+    { file: 'lib/paymentsApi.ts', match: "rpc('report_payment_by_token'", what: 'client "I\'ve paid" (link)', offline: 'public' },
+    { file: 'lib/paymentsApi.ts', match: 'update(REPORT_COLUMNS_CLEARED)', what: 'dismiss a payment report', offline: 'needs_connection' },
+    { file: 'lib/paymentsApi.ts', match: "from('documents').insert(", what: 'Mark as paid (receipt)', offline: 'needs_connection' },
+    { file: 'lib/paymentsApi.ts', match: "from('documents').update({ data, ...REPORT_COLUMNS_CLEARED })", what: 'Mark as paid (invoice)', offline: 'needs_connection' },
+    { file: 'lib/paymentsApi.ts', match: "from('documents').update({ data }).eq('id', invoice.id).select", what: 'Mark as paid (invoice, older database)', offline: 'needs_connection' },
+    { file: 'lib/paymentsApi.ts', match: "from('documents').update({ data }).eq('id', invoice.id);", what: 'review request sent', offline: 'needs_connection' },
+    { file: 'components/DocumentApprovalView.tsx', match: 'supabase.rpc(fn', what: 'client signs / declines (approval link)', offline: 'public' },
+    { file: 'components/DocumentApprovalView.tsx', match: 'supabase.rpc(plan.rpc.name', what: 'client picks an estimate option', offline: 'public' },
+
+    // ------------------------------------------------------------------------------------------- inventory, price book
+    { file: 'components/InventoryView.tsx', match: "rpc('adjust_inventory'", what: 'stock + / − (offline → outbox)', offline: 'queue' },
+    { file: 'components/InventoryView.tsx', match: "from('inventory').insert(p)", what: 'add inventory item', offline: 'queue' },
+    { file: 'components/InventoryView.tsx', match: "from('inventory').update(p)", what: 'edit inventory item', offline: 'queue' },
+    { file: 'components/InventoryView.tsx', match: "from('inventory').delete()", what: 'delete inventory item (one only on this device is discarded offline)', offline: 'needs_connection' },
+    { file: 'components/InventoryView.tsx', match: "rpc('checkout_inventory'", what: 'check out to a job / client (offline: the same stock moves → outbox)', offline: 'queue' },
+    { file: 'components/InventoryView.tsx', match: "from('jobs').insert(row)", what: 'new job inside check-out (fallback when the app gives none; the app\'s own create works offline)', offline: 'needs_connection' },
+    { file: 'components/PriceBookView.tsx', match: 'storage.from(BUCKET).remove(paths)', what: 'unused item photos removed', offline: 'background' },
+    { file: 'components/PriceBookView.tsx', match: "from('saved_items').update(p)", what: 'edit price-book item', offline: 'queue' },
+    { file: 'components/PriceBookView.tsx', match: "from('saved_items').insert(p)", what: 'add / duplicate price-book item', offline: 'queue' },
+    { file: 'components/PriceBookView.tsx', match: "from('saved_items').delete()", what: 'delete price-book item (one only on this device is discarded offline)', offline: 'needs_connection' },
+    { file: 'components/forms/inventory.ts', match: "from('saved_items').insert(row)", what: 'line item → price book (from a form)', offline: 'queue' },
+    { file: 'components/viewKit.tsx', match: 'storage.from(bucket).upload(path, file', what: 'price-book item photo upload', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: "from('documents').insert(record)", what: 'purchase orders (reorder)', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: "from('documents').update({ data }).eq('id', doc.id)", what: 'purchase order update', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: '.update({ data: { ...base, [RECEIPT_KEY]: receipt } })', what: 'receive a purchase order', offline: 'needs_connection' },
+    { file: 'lib/suppliersApi.ts', match: "rpc('adjust_inventory', { p_item_id: m.itemId", what: 'receive a purchase order (stock)', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------------------- job photos
+    { file: 'components/photos/photosApi.ts', match: "from('job_photos').insert(row).select", what: 'add photo (offline: kept on this device → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: 'bucket.upload(paths.main', what: 'add photo: file (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: 'bucket.upload(paths.thumb', what: 'add photo: preview (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: "await supabase.from('job_photos').delete().eq('id', id);", what: 'undo a photo row whose upload failed (online add, and a photo taken offline when it syncs)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: "from('job_photos').update(row)", what: 'photo stage / caption (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: "from('job_photos').delete().in('id', ids)", what: 'delete photos (ones only on this device are deleted offline)', offline: 'needs_connection' },
+    { file: 'components/photos/photosApi.ts', match: 'update({ shared_in_portal: false', what: 'hide from the portal (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: '.copy(photo.storagePath, portalPath', what: 'show in the portal (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: 'storage.from(PORTAL_PHOTOS_BUCKET).upload(portalPath', what: 'show in the portal, older storage (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: 'update({ shared_in_portal: true', what: 'show in the portal (offline → outbox)', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: 'storage.from(PORTAL_PHOTOS_BUCKET).remove([portalPath])', what: 'undo a failed portal copy', offline: 'queue' },
+    { file: 'components/photos/photosApi.ts', match: "const { error } = await supabase.from('job_photos').insert(row);", what: 'photo taken offline', offline: 'sync' },
+    { file: 'components/photos/photosApi.ts', match: 'storage.from(JOB_PHOTOS_BUCKET).upload(path, file', what: 'photo taken offline: files', offline: 'sync' },
+    { file: 'components/photos/photosApi.ts', match: "from('job_photos').update(patch)", what: 'photo change made offline', offline: 'sync' },
+    { file: 'components/photos/photoUpdatesApi.ts', match: "functions.invoke('ai-assistant'", what: 'AI client update / walkthrough', offline: 'needs_connection' },
+    { file: 'components/photos/photoUpdatesApi.ts', match: "from('documents').update({ data })", what: 'AI client update: record', offline: 'needs_connection' },
+    { file: 'components/photos/photoUpdatesApi.ts', match: "from('documents').insert(row)", what: 'AI client update: record', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------------------- requests
+    { file: 'components/requests/requestsApi.ts', match: "rpc('submit_quote_request'", what: 'request-a-quote form (client)', offline: 'public' },
+    { file: 'components/requests/requestsApi.ts', match: 'storage.from(REQUEST_PHOTOS_BUCKET).upload', what: 'request-a-quote photos (client)', offline: 'public' },
+    { file: 'components/requests/requestsApi.ts', match: "from('quote_requests').update({ status })", what: 'request seen / archived', offline: 'needs_connection' },
+    { file: 'components/requests/requestsApi.ts', match: "from('quote_requests').delete()", what: 'delete request', offline: 'needs_connection' },
+    { file: 'components/requests/requestsApi.ts', match: "rpc('convert_quote_request'", what: 'request → job', offline: 'needs_connection' },
+    { file: 'components/requests/requestsApi.ts', match: "rpc('update_request_page'", what: 'request page settings', offline: 'needs_connection' },
+    { file: 'components/requests/requestsApi.ts', match: "rpc('regenerate_request_slug')", what: 'new request link', offline: 'needs_connection' },
+    { file: 'components/requests/requestsApi.ts', match: 'storage.from(bucket).remove(entry.paths)', what: 'storage clean-up', offline: 'background' },
+    { file: 'components/requests/requestsApi.ts', match: "from('storage_cleanup_queue').delete()", what: 'storage clean-up', offline: 'background' },
+
+    // ------------------------------------------------------------------------------------------- settings, account
+    { file: 'lib/reminders.ts', match: ".upsert({ user_id: userId, ...settingsToRow(settings) }", what: 'reminder settings (offline → outbox)', offline: 'queue' },
+    { file: 'lib/reminders.ts', match: "from('reminder_overrides').delete()", what: 'reminders on/off for a document / client', offline: 'needs_connection' },
+    { file: 'lib/reminders.ts', match: '.upsert({ user_id: userId, [column]: id, enabled }', what: 'reminders on/off for a document / client', offline: 'needs_connection' },
+    { file: 'lib/reminders.ts', match: "rpc('skip_reminder'", what: 'skip a reminder', offline: 'needs_connection' },
+    { file: 'lib/reminders.ts', match: "rpc('unskip_reminder'", what: 'undo skip', offline: 'needs_connection' },
+    { file: 'lib/userData.ts', match: "from('profit_calculations').upsert(", what: 'profit calculator', offline: 'device' },
+    { file: 'lib/userData.ts', match: "from('profit_calculations').delete()", what: 'profit calculator', offline: 'device' },
+    { file: 'lib/userData.ts', match: "from('profiles').update(patch)", what: 'labor rate / signature / theme / language', offline: 'device' },
+    { file: 'lib/userData.ts', match: "from('user_settings').upsert(", what: 'device preferences (label sheet, theme, language)', offline: 'device' },
+    { file: 'lib/account.ts', match: ".insert({ id: user.id, email: user.email", what: 'first profile row at sign-up', offline: 'background' },
+    { file: 'lib/account.ts', match: "rpc('record_usage'", what: 'usage counters', offline: 'background' },
+    { file: 'lib/notifications/sources.ts', match: "from('notifications').update({ is_read: true })", what: 'community notifications read', offline: 'background' },
+    { file: 'lib/aiCredits.ts', match: "invokeFunction<unknown>('kelviq-checkout', { action: 'credits_status' })", what: 'AI credits balance', offline: 'needs_connection' },
+    { file: 'lib/aiCredits.ts', match: "invokeFunction<{ url?: string }>('kelviq-checkout'", what: 'buy AI credits', offline: 'needs_connection' },
+    { file: 'lib/aiCredits.ts', match: "invokeFunction<unknown>('kelviq-checkout', {", what: 'AI credits settings', offline: 'needs_connection' },
+    { file: 'lib/billing.ts', match: "invokeFunction<CheckoutResult>('kelviq-checkout'", what: 'upgrade checkout', offline: 'needs_connection' },
+    { file: 'lib/billing.ts', match: "action: 'portal'", what: 'billing portal', offline: 'needs_connection' },
+    { file: 'lib/supabase.ts', match: 'supabase.functions.invoke(name', what: 'edge functions (all of them)', offline: 'needs_connection' },
+    { file: 'services/gmailService.ts', match: "functions.invoke('gmail'", what: 'Gmail: send, accounts, connect', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------------------- community, AI
+    { file: 'components/ForumView.tsx', match: "rpc('toggle_forum_vote'", what: 'vote', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "rpc('toggle_forum_comment_vote'", what: 'vote', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: 'storage.from(BUCKET).remove([path])', what: 'unused post image removed', offline: 'background' },
+    { file: 'components/ForumView.tsx', match: "from('forum_posts').update(fields)", what: 'edit post', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from('forum_posts').insert(", what: 'new post', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from(table).delete({ count: 'exact' })", what: 'delete post / comment', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from('forum_reports').insert(row)", what: 'report', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from('forum_comments').insert(", what: 'comment', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from('forum_comments').update({ content: text })", what: 'edit comment', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from('notifications').update({ is_read: true }).eq('id'", what: 'notification read', offline: 'needs_connection' },
+    { file: 'components/ForumView.tsx', match: "from('notifications').update({ is_read: true }).eq('user_id'", what: 'all notifications read', offline: 'needs_connection' },
+    { file: 'src/hooks/useAIAssistant.ts', match: 'rpc(', what: 'AI "Do it all": stock', offline: 'needs_connection' },
+    { file: 'src/hooks/useAIAssistant.ts', match: "from('jobs').update(", what: 'AI "Do it all": job status', offline: 'needs_connection' },
+    { file: 'src/hooks/useAIAssistant.ts', match: "from('jobs').insert(r)", what: 'AI "Do it all": job', offline: 'needs_connection' },
+    { file: 'src/hooks/useAIAssistant.ts', match: "from('documents').insert(record)", what: 'AI "Do it all": document', offline: 'needs_connection' },
+    { file: 'src/hooks/useAIAssistant.ts', match: "from('inventory').insert(r)", what: 'AI "Do it all": inventory item', offline: 'needs_connection' },
+    { file: 'src/hooks/useAIAssistant.ts', match: "from('saved_items').insert(r)", what: 'AI "Do it all": price-book item', offline: 'needs_connection' },
+    { file: 'src/hooks/useContractorAI.ts', match: "functions.invoke<RouterResponse>('ai-assistant'", what: 'AI form fill', offline: 'needs_connection' },
+    { file: 'src/hooks/useMasterAIRouter.ts', match: "functions.invoke<RouterResponse>('ai-assistant'", what: 'AI assistant', offline: 'needs_connection' },
+    { file: 'src/hooks/useMasterAIRouter.ts', match: "from('ai_chat_history').upsert(", what: 'AI chat history', offline: 'needs_connection' },
+    { file: 'src/hooks/useMasterAIRouter.ts', match: "from('ai_chat_history').delete()", what: 'AI chat history', offline: 'needs_connection' },
+];
+
+/** Rows of the table that cover a scanned line. */
+export const auditRowsFor = (file: string, text: string): WritePathEntry[] => WRITE_PATHS.filter(r => r.file === file && text.includes(r.match));

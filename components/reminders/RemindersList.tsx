@@ -14,6 +14,7 @@ import {
     unskipReminder, zonedNow, type ReminderLogItem, type ReminderOverview, type UpcomingReminder,
 } from '../../lib/reminders.ts';
 import { cx, dayHeading, hourLabel, InlineNote, KindTag } from './ui.tsx';
+import { errorText } from '../../lib/offline/connection.ts';
 
 type Tab = 'upcoming' | 'sent' | 'attention';
 
@@ -44,7 +45,7 @@ const RemindersList: React.FC<Props> = ({ onUpgrade, className }) => {
             setError(null);
         } catch (e) {
             if (e instanceof RemindersUnavailableError) setHidden(true);
-            else setError((e as Error)?.message || 'Could not load reminders.');
+            else setError(errorText(e, 'Could not load reminders.'));
         }
     }, []);
     useEffect(() => { load(); }, [load]);
@@ -83,7 +84,7 @@ const RemindersList: React.FC<Props> = ({ onUpgrade, className }) => {
             setUndo({ id, label: `${u.label} · ${stepLabel(u.kind, u.step.offset).toLowerCase()}` });
             await load();
         } catch (e) {
-            setError((e as Error)?.message || 'Could not skip this reminder.');
+            setError(errorText(e, 'Could not skip this reminder.'));
         } finally {
             setBusyKey(null);
         }
@@ -97,7 +98,7 @@ const RemindersList: React.FC<Props> = ({ onUpgrade, className }) => {
             await unskipReminder(id);
             await load();
         } catch (e) {
-            setError((e as Error)?.message || 'Could not undo.');
+            setError(errorText(e, 'Could not undo.'));
         }
     };
 
@@ -107,7 +108,7 @@ const RemindersList: React.FC<Props> = ({ onUpgrade, className }) => {
             await startGmailConnect({ returnTo: '/communication', loginHint: hint });
         } catch (e) {
             setConnecting(false);
-            setError((e as Error)?.message || 'Could not start the Google connection.');
+            setError(errorText(e, 'Could not start the Google connection.'));
         }
     };
 

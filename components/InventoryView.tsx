@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
-import { offlineEntityQueueFor, pendingEntityItems, pendingStockDeltas, withPendingRows } from '../lib/offline/offlineEntities.ts';
+import { discardPendingCreate, offlineEntityQueueFor, pendingEntityItems, pendingStockDeltas, withPendingRows } from '../lib/offline/offlineEntities.ts';
 import { loadWithDeviceCopy } from '../lib/offline/deviceCache.ts';
 import { dbApi } from '../utils/db.ts';
 import type { AssemblyItem, Client, FormData as FormDataType, InventoryHistoryItem, InventoryItem, Job, SavedItem, UserProfile } from '../types.ts';
@@ -535,7 +535,9 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   const confirmDelete = async () => {
     if (!deleteFor) return;
     setDeleting(true);
-    const { error } = await supabase.from('inventory').delete().eq('id', deleteFor.id);
+    // an item only on this device (added offline) is removed here; others need a connection (a clear message offline)
+    const local = await discardPendingCreate(deleteFor.id);
+    const { error } = local ? { error: null } : await supabase.from('inventory').delete().eq('id', deleteFor.id);
     setDeleting(false);
     if (error) { notify('error', friendlyError(error, 'Could not delete the item.')); return; }
     setItems((prev) => prev.filter((i) => i.id !== deleteFor.id));
@@ -992,7 +994,19 @@ const InventoryView: React.FC<InventoryViewProps> = ({
               : note.trim() || (jobName ? `Checked out to ${jobName}` : 'Checked out');
             const target = jobId ? jobName : clientName;
             const moves = checkoutMoves(item, qty);
-            const { error } = await supabase.rpc('checkout_inventory', { p_item_id: item.id, p_qty: qty, p_job_id: jobId, p_reason: reason });
+            // offline (or an item still waiting to sync): the same stock moves wait on this device, each logged to the
+            // job / client like online, and go through the stock RPC when the connection is back (stock rules apply then)
+            const waits = Boolean(offlineEntityQueueFor(item.id)) || moves.some((m) => Boolean(offlineEntityQueueFor(m.itemId)));
+            const { error } = waits
+              ? { error: null as any }
+              : await supabase.rpc('checkout_inventory', { p_item_id: item.id, p_qty: qty, p_job_id: jobId, p_reason: reason });
+            if (waits) {
+              for (const m of moves) await adjustStock(m.itemId, m.delta, item.is_assembly ? `${reason} (kit: ${item.name})` : reason, jobId);
+              notify('success', `Checked out ${qty} × ${item.name}${target ? ` to ${target}` : ''}. Saved on this device; it syncs ${navigator.onLine ? 'right after the item' : "when you're back online"}.`);
+              notifyChanged();
+              setCheckoutFor(null);
+              return;
+            }
             if (!error) {
               await refreshRows(moves.map((m) => m.itemId).concat(item.id));
             } else if (isMissingRpc(error)) {

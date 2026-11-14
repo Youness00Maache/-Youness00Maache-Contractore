@@ -103,6 +103,13 @@ export const isTemporaryClient = (c: Pick<Client, 'notes'> | null | undefined) =
 
 /** Makes a client temporary or regular (only the `[TEMPORARY]` marker in the notes changes). */
 export async function setClientTemporary(client: Pick<Client, 'id' | 'notes'>, temporary: boolean): Promise<Client> {
+    // offline (or a client still waiting to sync): the change waits on this device like other client edits
+    const outbox = offlineEntityQueueFor(client.id);
+    if (outbox) {
+        const notes = withTempTag(client.notes, temporary);
+        await outbox.queue('client', 'edit', client.id, { notes });
+        return { ...(client as Client), notes };
+    }
     const { data, error } = await supabase
         .from('clients')
         .update({ notes: withTempTag(client.notes, temporary) })
