@@ -332,7 +332,9 @@ Google Search Console (account of the owner in Chrome "Browser 2"): added URL-pr
 https://www.contractordocs.app/ (auto-verified by HTML tag) and submitted sitemap.xml (success).
 Checked owner QA items: multiple Gmail accounts ARE supported (account menu with switch / reconnect / "Add another
 Gmail account" appears after the first account is connected); Tools low-stock badge now red like the old app (84d9535).
-NEXT (after the weekly reset Nov 19): Bing Webmaster Tools (import from Search Console; owner signs in), IndexNow,
+BING DONE (15:15): imported www.contractordocs.app from Search Console (framitor.site left out on purpose); sitemap
+read by Bing: Success, 37 URLs.
+NEXT (after the weekly reset Nov 19): IndexNow,
 SEO leftovers (trade/AI-generator/compare pages; docs/work/handover/seo-PROGRESS.md + seo-rewritten-links.txt; templates-PROGRESS.md, credits-PROGRESS.md there too;
 it lives in the old session scratchpad 0525b7dc…/d0cef399…/scratchpad/seo), templates leftovers, first live payment test.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
