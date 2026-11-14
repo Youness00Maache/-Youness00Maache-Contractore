@@ -345,6 +345,26 @@ export const HELP_GUIDES: HelpGuide[] = [
     ],
   },
   {
+    id: 'service-plans',
+    title: 'Service plans (recurring maintenance visits)',
+    summary: 'Plans like “HVAC tune-up twice a year”: each visit gets its work order, invoice and client reminder by itself.',
+    where: ['Tools', 'Service plans'],
+    group: 'Tools',
+    appPath: '/service-plans',
+    steps: [
+      { title: 'Open Service plans', text: 'Open [[Tools]] › [[Service plans]] (phone: [[More]] › [[Service plans]]).' },
+      { title: 'Create a plan', text: 'Click [[New plan]]: pick the client, name the plan, say what is done at each visit, choose how often (for example Twice a year), the first visit, the price and how it is billed, then [[Save plan]].' },
+      { title: 'Let it run', text: 'A job is made for the plan. Each visit is created ahead of time (14 days by default) with a Work Order; with Invoice each visit, a Draft invoice too. The job moves to the visit date, so it shows on the calendar, and the client gets your visit reminder the day before.' },
+      { title: 'Bill by the month, quarter or year', text: 'Choose Monthly, Quarterly, Invoice every 6 months or Yearly invoice: one recurring invoice is added to the plan’s job and repeats by itself (like Repeat this invoice).' },
+      { title: 'Mark visits', text: 'Under Next visits, tap [[Done]] when the visit is done (the work order becomes Completed), or in the ⋯ menu [[Skip this visit]], [[Open work order]] or [[Open invoice]].' },
+      { title: 'Change a plan', text: 'The ⋯ menu of a plan has [[Edit]], [[Pause]], [[Resume]], [[End plan]] and [[Delete]] (its job and documents stay).' },
+    ],
+    tips: [
+      `Service plans are part of ${premium.name}. Visits are created every hour on our side, even when you don’t open the app.`,
+      'Visit reminders go out from your Gmail; Settings › Reminders sets the day and the wording. The client also sees the plan, the next visit and the last one in their portal.',
+    ],
+  },
+  {
     id: 'inventory',
     title: 'Inventory',
     summary: 'Track stock, check it out to jobs, get low-stock alerts and print QR labels.',

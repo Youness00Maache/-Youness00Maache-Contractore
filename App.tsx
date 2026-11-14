@@ -117,6 +117,8 @@ const PunchList = lazy(() => import('./components/punch/PunchList.tsx'));
 const PapersView = lazy(() => import('./components/papers/PapersView.tsx'));
 const JobPapersStrip = lazy(() => import('./components/papers/JobPapersStrip.tsx'));
 const LienWaiverModal = lazy(() => import('./components/papers/LienWaiverModal.tsx'));
+// Recurring service plans (#15): /service-plans
+const ServicePlansView = lazy(() => import('./components/service/ServicePlansView.tsx'));
 // Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
 const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
 const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
@@ -967,6 +969,25 @@ const App: React.FC = () => {
         window.addEventListener(PUNCH_SYNCED_EVENT, onSynced);
         return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(PUNCH_SYNCED_EVENT, onSynced); };
     }, [session?.user?.id, profileStatus]);
+    // Service plans: visits that came due since the last run (the server also runs this every hour).
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || profileStatus !== 'ready' || !paid || !navigator.onLine) return;
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            try {
+                const { generateDueVisits } = await import('./components/service/servicePlansApi.ts');
+                const created = await generateDueVisits();
+                if (cancelled || !created || sessionUserIdRef.current !== uid) return;
+                toast.info(`${created} service ${created === 1 ? 'visit was' : 'visits were'} scheduled, with ${created === 1 ? 'its work order' : 'their work orders'}.`);
+                loadRecentDocuments(uid).catch(() => undefined);
+                loadJobs(uid).catch(() => undefined);
+            } catch { /* optional feature */ }
+        }, 2500);
+        return () => { cancelled = true; clearTimeout(timer); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user?.id, profileStatus, paid, loadRecentDocuments]);
+
     const handlePunchProgress = useCallback((jobId: string, progress: PunchProgress) => {
         setPunchState(prev => {
             const cur = prev.map.get(jobId);
@@ -2667,6 +2688,26 @@ const App: React.FC = () => {
                     onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
                     onEmailSent={handleEmailSent}
                     onWaiverCreated={(form) => handleWaiverCreated(form, form.jobId)}
+                />;
+            case 'servicePlans':
+                return <ServicePlansView
+                    userId={session.user.id}
+                    profile={profile}
+                    plan={plan}
+                    clients={clients}
+                    jobs={jobs}
+                    isOnline={isOnline}
+                    existingInvoiceNumbers={forms.filter(f => f.type === FormType.Invoice).map(f => String((f.data as any)?.invoiceNumber || '')).filter(Boolean)}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onUpgrade={openUpgrade}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onOpenDocument={(formId, jobId, formType) => setView({ screen: 'form', formId, jobId, formType: formType as FormType })}
+                    onDataChanged={({ invoice, jobId }) => {
+                        const uid = sessionUserIdRef.current;
+                        if (uid) void loadJobs(uid).catch(() => undefined);
+                        if (invoice) setForms(prev => mergeDocuments(prev.filter(f => f.id !== invoice.id), [invoice]));
+                        if (jobId) void loadDocumentsForJob(jobId, true);
+                    }}
                 />;
             case 'help':
                 return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;

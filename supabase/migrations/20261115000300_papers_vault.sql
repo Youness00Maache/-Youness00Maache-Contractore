@@ -86,14 +86,18 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $$
+declare
+  v_job_changed boolean := true;
 begin
-  if tg_op = 'INSERT' and not public.is_service_context()
-     and public.user_effective_tier(new.user_id) not in ('premium', 'ai') then
-    raise exception 'PLAN_LIMIT: The papers vault (insurance, licenses, permits and expiry reminders) is part of Premium.'
-      using errcode = 'P0001', hint = 'papers';
+  if tg_op = 'INSERT' then
+    if not public.is_service_context() and public.user_effective_tier(new.user_id) not in ('premium', 'ai') then
+      raise exception 'PLAN_LIMIT: The papers vault (insurance, licenses, permits and expiry reminders) is part of Premium.'
+        using errcode = 'P0001', hint = 'papers';
+    end if;
+  else
+    v_job_changed := new.job_id is distinct from old.job_id;
   end if;
-  if new.job_id is not null and (tg_op = 'INSERT' or new.job_id is distinct from old.job_id)
+  if new.job_id is not null and v_job_changed
      and not exists (select 1 from public.jobs j where j.id = new.job_id and j.user_id = new.user_id) then
     raise exception 'Job not found' using errcode = '23503', detail = 'company_papers.job_id must belong to the same user';
   end if;

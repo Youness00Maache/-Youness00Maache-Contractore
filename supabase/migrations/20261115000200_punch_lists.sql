@@ -101,18 +101,28 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_browser boolean := current_user in ('authenticated', 'anon');
-  v_count   integer;
+  v_browser         boolean := current_user in ('authenticated', 'anon');
+  v_count           integer;
+  -- the row before this write (null on insert); OLD is only read inside UPDATE branches
+  v_old_status      text;
+  v_old_done_at     timestamptz;
+  v_old_verified_by text;
+  v_old_note        text;
+  v_old_note_at     timestamptz;
 begin
-  if tg_op = 'UPDATE' and new.job_id is distinct from old.job_id then
-    raise exception 'A punch item cannot move to another job' using errcode = '22023';
-  end if;
-  if tg_op = 'INSERT' or new.job_id is distinct from old.job_id then
+  if tg_op = 'UPDATE' then
+    if new.job_id is distinct from old.job_id then
+      raise exception 'A punch item cannot move to another job' using errcode = '22023';
+    end if;
+    v_old_status := old.status;
+    v_old_done_at := old.done_at;
+    v_old_verified_by := old.verified_by;
+    v_old_note := old.client_note;
+    v_old_note_at := old.client_note_at;
+  else
     if not exists (select 1 from public.jobs j where j.id = new.job_id and j.user_id = new.user_id) then
       raise exception 'Job not found' using errcode = '23503', detail = 'punch_items.job_id must belong to the same user';
     end if;
-  end if;
-  if tg_op = 'INSERT' then
     perform pg_advisory_xact_lock(hashtextextended('punch:' || new.job_id::text, 0));
     select count(*) into v_count from public.punch_items p where p.job_id = new.job_id;
     if v_count >= 500 then
@@ -137,16 +147,17 @@ begin
 
   -- the client's answer belongs to the client
   if v_browser then
-    if new.verified_by = 'client' and (tg_op = 'INSERT' or old.verified_by is distinct from 'client' or old.status <> 'verified') then
+    if new.verified_by = 'client'
+       and (v_old_status is null or v_old_verified_by is distinct from 'client' or v_old_status <> 'verified') then
       raise exception 'Only the client can verify an item as the client' using errcode = '42501';
     end if;
     if tg_op = 'INSERT' then
       new.client_note := null;
       new.client_note_at := null;
-    elsif new.client_note is not null and new.client_note is distinct from old.client_note then
+    elsif new.client_note is not null and new.client_note is distinct from v_old_note then
       -- the contractor may clear the client's note, not write one
-      new.client_note := old.client_note;
-      new.client_note_at := old.client_note_at;
+      new.client_note := v_old_note;
+      new.client_note_at := v_old_note_at;
     end if;
   end if;
 
@@ -156,11 +167,11 @@ begin
     new.verified_at := null;
     new.verified_by := null;
   elsif new.status = 'done' then
-    new.done_at := coalesce(case when tg_op = 'UPDATE' and old.status <> 'open' then old.done_at end, new.done_at, now());
+    new.done_at := coalesce(case when v_old_status in ('done', 'verified') then v_old_done_at end, new.done_at, now());
     new.verified_at := null;
     new.verified_by := null;
   else -- verified
-    new.done_at := coalesce(new.done_at, case when tg_op = 'UPDATE' then old.done_at end, now());
+    new.done_at := coalesce(new.done_at, v_old_done_at, now());
     new.verified_at := coalesce(new.verified_at, now());
     new.verified_by := coalesce(new.verified_by, 'contractor');
   end if;

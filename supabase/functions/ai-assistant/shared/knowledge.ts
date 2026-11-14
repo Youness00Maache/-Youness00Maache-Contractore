@@ -17,7 +17,7 @@ import { HELP_GUIDES_SNAPSHOT, type GuideSnapshot } from './helpGuides.generated
 
 /** Every in-app screen and Settings section the assistant can open ("Take me there"). */
 export const NAV_ROUTES = [
-    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/papers', '/inventory', '/pricebook', '/calendar', '/analytics',
+    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/service-plans', '/papers', '/inventory', '/pricebook', '/calendar', '/analytics',
     '/calculator', '/forum', '/settings', '/settings#profile', '/settings#company', '/settings#payments', '/settings#requests',
     '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
     '/profile', '/tutorials',
@@ -32,6 +32,7 @@ export const NAV_LABELS: Record<NavRoute, string> = {
     '/communication': 'Messages',
     '/pipeline': 'Pipeline',
     '/papers': 'Papers (insurance, licenses, permits)',
+    '/service-plans': 'Service plans',
     '/inventory': 'Inventory',
     '/pricebook': 'Price book',
     '/calendar': 'Calendar',
@@ -552,6 +553,23 @@ const FEATURES: KnowledgeEntry[] = [
             'Free on every plan. The pipeline board shows “Punch 3/8” on a job card while items are open.',
         ],
         steps: ['Open the job and click [[Punch list]].', 'Type an item (e.g. “Bath: caulk tub @Sam”) and press Enter.', 'Tap the ring when it is done; switch on [[Show in client portal]] so the client can approve.'],
+    },
+    {
+        id: 'service-plans-detail',
+        title: 'Recurring service plans (maintenance visits, work orders, invoices, reminders)',
+        where: ['Tools', 'Service plans'],
+        route: '/service-plans',
+        concepts: ['service_plan', 'recurring'],
+        keywords: ['service plan', 'maintenance plan', 'maintenance agreement', 'service agreement', 'recurring visit', 'recurring job', 'tune-up', 'twice a year', 'every 6 months', 'repeat visit', 'pool service', 'lawn service', 'pest control'],
+        facts: [
+            'Open [[Tools]] › [[Service plans]] (phone: [[More]] › [[Service plans]]) and click [[New plan]]: client, plan name, what is done at each visit, how often (Every week, Every 2 weeks, Monthly, Every 2 months, Quarterly, Twice a year, Yearly, or every N weeks / months), first visit, optional end date, who does it, price and billing, then [[Save plan]].',
+            'The plan gets its own job. Each visit is created ahead of time (3 to 30 days before, 14 by default) with a Work Order (status Scheduled); the job moves to the visit date, so it shows on the calendar and the client gets the visit reminder from your Gmail (when “Remind the client before each visit” is on). Visits are created every hour on the server, even when the app is closed.',
+            'Billing: Invoice each visit makes a Draft invoice with each visit (due 14 days after it). Monthly / Quarterly / every 6 months / Yearly add ONE recurring invoice to the plan’s job that repeats by itself (the same engine as “Repeat this invoice”). Not invoiced here makes no invoice.',
+            'Under Next visits: [[Done]] marks the visit done (the work order becomes Completed); the ⋯ menu has [[Skip this visit]], [[Open work order]], [[Open invoice]] and [[Open job]]. A plan’s ⋯ menu: [[Edit]], [[Pause]], [[Resume]], [[End plan]], [[Delete]] (the job and its documents stay).',
+            'The client portal shows the plan with its next and last visit (switch “Show the plan in the client portal”).',
+        ],
+        steps: ['Open [[Tools]] › [[Service plans]] and click [[New plan]].', 'Pick the client, what is done, how often, the first visit, the price and the billing.', 'Click [[Save plan]]; visits, work orders and invoices follow by themselves.'],
+        limits: [`Service plans are part of ${P.name}.`],
     },
     {
         id: 'papers-vault',

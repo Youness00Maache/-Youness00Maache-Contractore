@@ -28,6 +28,15 @@ import {
 } from '../lib/papers.ts';
 import { duePaperStep, paperDedupeKey, paperReminderEmail, paperReminderSteps } from '../supabase/functions/reminders/shared/papers.ts';
 import { buildLienWaiverHtml, lienWaiverTitle, waiverCheck, waiverInvoices, waiverPrefill } from '../lib/lienWaiver.ts';
+import {
+    annualValue, dueVisits, frequencyLabel, mapPlanRow, mapVisitRow, nextVisitDate, parsePortalPlans, planProblems, planRowOf, priceLabel,
+    recurrenceFrequency, recurringInvoiceFields, upcomingVisitDates, visitInvoicePreview, type PlanBilling, type ServicePlan,
+} from '../lib/servicePlans.ts';
+import { planRecurringCatchUp } from '../lib/recurring.ts';
+import { deriveServiceVisitNotifications } from '../lib/notifications/model.ts';
+import { NAV_LABELS, NAV_ROUTES, retrieveKnowledge } from '../supabase/functions/ai-assistant/shared/knowledge.ts';
+import { HELP_GUIDES } from '../components/help/helpContent.ts';
+import { parseView } from '../lib/routes.ts';
 
 let passes = 0;
 let failures = 0;
@@ -339,6 +348,103 @@ async function offlinePunch() {
     ok('reminders function runs the paper reminders (needs a redeploy)', /import \{ runPaperReminders \} from '\.\/papers\.ts'/.test(fn) && /await runPaperReminders\(admin, accounts, now/.test(fn));
     const pf = readFileSync(join(here, '..', 'supabase', 'functions', 'reminders', 'papers.ts'), 'utf8');
     ok('paper reminders: claim before send, to the sender address, paid plans only, quiet before the migration', /insert\(\{ \.\.\.base, status: 'sending' \}\)/.test(pf) && /to: sender\.gmail_address/.test(pf) && /=== 'free'\) continue/.test(pf) && /MISSING\.test/.test(pf));
+}
+
+// =====================================================================================================================
+// 3. Recurring service plans
+// =====================================================================================================================
+const plan = (over: Partial<ServicePlan> = {}): ServicePlan => ({
+    id: 'sp-1', clientId: 'c1', clientName: 'Morgan Client', clientAddress: '456 Oak Ave', jobId: 'job-sp', name: 'HVAC maintenance', service: 'Furnace and AC tune-up',
+    price: 129, billing: 'per_visit', intervalUnit: 'month', intervalCount: 6, anchorDay: null, nextVisit: '2026-12-01', endsOn: '', assignedTo: 'Sam',
+    leadDays: 14, remindClient: true, showInPortal: true, status: 'active', invoiceSourceId: null, visitsCreated: 0, notes: '', createdAt: '', ...over,
+});
+{
+    // next-visit math (weeks, months, month ends, leap years) = SQL _service_next_date / _add_months_anchored
+    eq('weekly / every 2 weeks', [nextVisitDate('2026-12-28', 'week', 1), nextVisitDate('2026-12-28', 'week', 2)], ['2027-01-04', '2027-01-11']);
+    eq('twice a year from Nov 30', nextVisitDate('2026-11-30', 'month', 6), '2027-05-30');
+    eq('month end clamps and comes back: Jan 31 → Feb 28 → Mar 31', [nextVisitDate('2027-01-31', 'month', 1, 31), nextVisitDate('2027-02-28', 'month', 1, 31)], ['2027-02-28', '2027-03-31']);
+    eq('leap year: Feb 29 kept when it exists', [nextVisitDate('2028-01-31', 'month', 1, 31), nextVisitDate('2027-08-29', 'month', 6, 29)], ['2028-02-29', '2028-02-29']);
+    eq('yearly from Feb 29 → Feb 28 → back to Feb 29 in a leap year', [nextVisitDate('2028-02-29', 'month', 12, 29), nextVisitDate('2031-02-28', 'month', 12, 29)], ['2029-02-28', '2032-02-29']);
+    eq('quarterly across the year end', nextVisitDate('2026-11-30', 'month', 3, 30), '2027-02-28');
+    eq('schedule keeps the anchor (31st)', upcomingVisitDates(plan({ nextVisit: '2027-01-31', intervalCount: 1, anchorDay: 31 }), 4), ['2027-01-31', '2027-02-28', '2027-03-31', '2027-04-30']);
+    eq('schedule stops at the end date', upcomingVisitDates(plan({ nextVisit: '2026-12-01', endsOn: '2027-06-01' }), 5), ['2026-12-01', '2027-06-01']);
+    eq('frequency labels', [frequencyLabel('month', 6), frequencyLabel('week', 2), frequencyLabel('month', 5), frequencyLabel('week', 3)], ['Twice a year', 'Every 2 weeks', 'Every 5 months', 'Every 3 weeks']);
+
+    // generation window = SQL _generate_service_visits
+    eq('not yet: more than lead days ahead', dueVisits(plan({ nextVisit: '2026-12-01' }), '2026-11-16').create, []);
+    eq('lead days reached: the visit is created, next one moves 6 months', dueVisits(plan({ nextVisit: '2026-12-01' }), '2026-11-17'), { create: ['2026-12-01'], skipped: [], nextVisit: '2027-06-01' });
+    eq('weekly with 14 days lead: 3 visits at once', dueVisits(plan({ intervalUnit: 'week', intervalCount: 1, nextVisit: '2026-11-20' }), '2026-11-20').create, ['2026-11-20', '2026-11-27', '2026-12-04']);
+    eq('far in the past: visits more than 30 days ago skipped, recent ones created', dueVisits(plan({ intervalUnit: 'month', intervalCount: 1, nextVisit: '2026-08-15', leadDays: 0 }), TODAY), { create: ['2026-11-15'], skipped: ['2026-08-15', '2026-09-15', '2026-10-15'], nextVisit: '2026-12-15' });
+    eq('end date stops generation', dueVisits(plan({ intervalUnit: 'week', intervalCount: 1, nextVisit: '2026-11-20', endsOn: '2026-11-27' }), '2026-11-20').create, ['2026-11-20', '2026-11-27']);
+    eq('paused: nothing', dueVisits(plan({ status: 'paused', nextVisit: '2026-11-15' }), TODAY).create, []);
+    eq('idempotent: an existing visit is not made twice', dueVisits(plan({ nextVisit: '2026-11-20' }), TODAY, new Set(['2026-11-20'])).create, []);
+    eq('at most 24 per run', dueVisits(plan({ intervalUnit: 'week', intervalCount: 1, nextVisit: '2026-11-15', leadDays: 60 }), '2027-12-31').create.length + dueVisits(plan({ intervalUnit: 'week', intervalCount: 1, nextVisit: '2026-11-15', leadDays: 60 }), '2027-12-31').skipped.length, 24);
+
+    // invoices
+    eq('per-visit Draft invoice: amount, due in 14 days', visitInvoicePreview(plan(), '2026-12-01'), { issueDate: '2026-12-01', dueDate: '2026-12-15', description: 'HVAC maintenance · visit Dec 1, 2026', total: 129 });
+    eq('no per-visit invoice for period billing / free plans', [visitInvoicePreview(plan({ billing: 'annual' }), '2026-12-01'), visitInvoicePreview(plan({ price: 0 }), '2026-12-01')], [null, null]);
+    eq('billing → recurring invoice frequency', (['per_visit', 'monthly', 'quarterly', 'semiannual', 'annual', 'none'] as PlanBilling[]).map(recurrenceFrequency), [null, 'Monthly', 'Quarterly', 'Bi-Annually', 'Annually', null]);
+    const rec = recurringInvoiceFields(plan({ billing: 'annual', price: 480, nextVisit: '2027-01-31' }), 'line-1') as any;
+    eq('recurring source invoice: dated the first visit, repeats yearly from the anchor', [rec.issueDate, rec.dueDate, rec.status, rec.recurrence, rec.lineItems[0].rate], ['2027-01-31', '2027-02-14', 'Draft', { enabled: true, frequency: 'Annually', nextRunDate: '2028-01-31', anchorDay: 31 }, 480]);
+    const recM = recurringInvoiceFields(plan({ billing: 'monthly', price: 40, nextVisit: '2027-01-31' }), 'l') as any;
+    eq('monthly from Jan 31: next run Feb 28 (the recurring engine keeps the anchor)', [recM.recurrence.nextRunDate, planRecurringCatchUp(recM.recurrence, '2027-03-31').due], ['2027-02-28', 2]);
+    eq('per-visit billing has no recurring invoice', recurringInvoiceFields(plan(), 'x'), null);
+    eq('labels and yearly value', [priceLabel(plan()), priceLabel(plan({ billing: 'annual', price: 480 })), priceLabel(plan({ billing: 'none' })), annualValue(plan()), annualValue(plan({ billing: 'quarterly', price: 100 })), annualValue(plan({ intervalUnit: 'week', intervalCount: 2, price: 50 }))],
+        ['$129.00 per visit', '$480.00 per year', 'Not invoiced here', 258, 400, 1300]);
+
+    // validation, rows, portal
+    eq('problems', [planProblems(plan({ name: '' }), TODAY)[0], planProblems(plan({ clientId: null, clientName: '' }), TODAY)[0], planProblems(plan({ nextVisit: '2026-09-01' }), TODAY)[0], planProblems(plan({ endsOn: '2026-11-30' }), TODAY)[0], planProblems(plan({ price: 0 }), TODAY)[0], planProblems(plan({ price: 0, billing: 'none' }), TODAY).length],
+        ['Name the plan (e.g. HVAC maintenance).', 'Pick the client.', 'The first visit is more than 30 days ago: pick the next one to come.', 'The end date is before the first visit.', 'Add the price, or choose “Not invoiced here”.', 0]);
+    const row = planRowOf(plan({ intervalUnit: 'week', intervalCount: 99, leadDays: 90, price: 12.345 }), 'u1');
+    eq('row: counts and lead days clamped, money rounded', [row.interval_count, row.lead_days, row.price, row.user_id, row.job_id], [52, 60, 12.35, 'u1', 'job-sp']);
+    eq('row: a new plan without a job lets the database make one', 'job_id' in planRowOf(plan({ jobId: null }), 'u1'), false);
+    const odd = mapPlanRow({ id: 'x', billing: 'weird', interval_unit: 'day', interval_count: 0, status: 'gone', price: '-5' });
+    eq('odd rows are safe', [odd.billing, odd.intervalUnit, odd.intervalCount, odd.status, odd.price, odd.leadDays], ['per_visit', 'month', 1, 'active', 0, 14]);
+    eq('visit rows', mapVisitRow({ id: 'v', plan_id: 'p', scheduled_for: '2026-12-01', status: 'nope' }).status, 'scheduled');
+    const portal = parsePortalPlans([{ id: 'p', name: 'Pool service', price: 90, billing: 'monthly', interval_unit: 'week', interval_count: 1, status: 'active', next_visit: '2026-11-20', last_visit: '2026-11-13' }, { name: 'no id' }, 7]);
+    eq('portal plans', portal, [{ id: 'p', name: 'Pool service', service: '', priceLabel: '$90.00 per month', frequency: 'Every week', status: 'active', nextVisit: '2026-11-20', lastVisit: '2026-11-13' }]);
+
+    // the bell
+    const n = deriveServiceVisitNotifications([
+        { id: 'v1', jobId: 'j', planName: 'HVAC', scheduledFor: '2026-11-16', status: 'scheduled' },
+        { id: 'v2', planName: 'Pool', scheduledFor: '2026-11-20', status: 'scheduled' },
+        { id: 'v3', planName: 'Done one', scheduledFor: '2026-11-15', status: 'done' },
+    ], { uid: 'me', now: Date.parse('2026-11-15T12:00:00') });
+    eq('bell: visits within 2 days that are still scheduled', n.map(x => [x.id, x.text]), [['visit:v1:2026-11-16', 'Service visit tomorrow: HVAC']]);
+}
+{
+    const sql = readMigration('20261115000400_service_plans.sql');
+    const code = sql.replace(/--.*$/gm, '');
+    ok('plans sql: RLS + owner policies', /alter table public\.service_plans\s+enable row level security/.test(code) && ['select', 'insert', 'update', 'delete'].every(op => new RegExp(`create policy service_plans_${op}_own on public\\.service_plans for ${op} to authenticated`).test(code)));
+    ok('plans sql: visits written only by the functions', /revoke insert, update, truncate on public\.service_visits from authenticated/.test(code) && /constraint service_visits_plan_day_key unique \(plan_id, scheduled_for\)/.test(code) && /on conflict \(plan_id, scheduled_for\) do nothing/.test(code));
+    ok('plans sql: Premium on insert and for generation', /hint = 'service_plans'/.test(code) && /user_effective_tier\(p_user_id\) not in \('premium', 'ai'\)/.test(code));
+    ok('plans sql: same month math as recurring invoices', /public\._add_months_anchored\(p_date/.test(code));
+    ok('plans sql: generation rules match lib/servicePlans.ts (lead days, 30 days, 24 per run)', /v_next - pl\.lead_days <= v_today and v_iter < 24/.test(code) && /v_next >= v_today - 30/.test(code));
+    ok('plans sql: per-visit invoice is a Draft due 14 days later', /'status', 'Draft'\)\)/.test(code) && /p_date \+ 14/.test(code) && /'status', 'Scheduled'/.test(code));
+    ok('plans sql: cron job hourly, documented', /cron\.schedule\('contractordocs-service-visits', '15 \* \* \* \*', 'select public\.service_plans_cron_tick\(\)'\)/.test(code));
+    ok('plans sql: cron tick only for the service role, portal for anon', /grant execute on function public\.service_plans_cron_tick\(\)\s+to service_role;/.test(code) && /grant execute on function public\.get_portal_service_plans\(text\)\s+to anon, authenticated;/.test(code));
+    const fns = code.match(/create or replace function[\s\S]*?\$\$;/g) || [];
+    ok('plans sql: every function pins search_path', fns.length >= 11 && fns.every(f => /set search_path = ''/.test(f)));
+    ok('plans sql: OLD is only read in UPDATE branches', !/tg_op = 'INSERT' or [^;]*old\./i.test(code) && !/tg_op = 'UPDATE' and [^;]*old\./i.test(code));
+    ok('plans sql: additive only', !/drop table|alter table public\.(jobs|documents|clients|reminder_overrides)|delete from|truncate (table )?public/i.test(code));
+    for (const f of ['20261115000200_punch_lists.sql', '20261115000300_papers_vault.sql']) {
+        const c = readMigration(f).replace(/--.*$/gm, '');
+        ok(`${f}: OLD is only read in UPDATE branches`, !/tg_op = 'INSERT' or [^;]*old\./i.test(c) && !/tg_op = 'UPDATE' and [^;]*old\./i.test(c));
+    }
+}
+{
+    // the assistant finds the new features (retrieval) and every new screen is a real route
+    for (const [q, id] of [
+        ['how do I make a punch list for the final walkthrough?', 'punch-list-detail'],
+        ['where do I keep my insurance certificate and get reminded before it expires?', 'papers-vault'],
+        ['send my COI to a general contractor', 'papers-vault'],
+        ['how do I make a conditional lien waiver?', 'lien-waivers'],
+        ['set up an HVAC maintenance plan twice a year', 'service-plans-detail'],
+        ['can I make an invoice repeat every month?', 'recurring-invoices'],
+    ] as const) ok(`assistant: "${q}" → ${id}`, retrieveKnowledge(q).some(e => e.id === id));
+    eq('new screens are real routes', ['/papers', '/service-plans'].map(r => parseView(r, '', null).screen), ['papers', 'servicePlans']);
+    ok('new routes are navigation targets with labels', ['/papers', '/service-plans'].every(r => (NAV_ROUTES as readonly string[]).includes(r) && !!NAV_LABELS[r as keyof typeof NAV_LABELS]));
+    ok('help guides exist', ['punch-list', 'papers', 'service-plans'].every(id => HELP_GUIDES.some(g => g.id === id)));
 }
 
 // =====================================================================================================================

@@ -15,6 +15,7 @@ import { groupPortalDocuments } from '../utils/clientPortalRules.ts';
 import PortalPhotos from './photos/PortalPhotos.tsx';
 import PortalPunchList from './punch/PortalPunchList.tsx';
 import PortalCredentials from './papers/PortalCredentials.tsx';
+import PortalServicePlans from './service/PortalServicePlans.tsx';
 import { choiceOf, optionRange, withEffectiveLines } from '../lib/estimateOptions.ts';
 import {
     BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
@@ -388,6 +389,7 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                 <PortalPhotos portalKey={key} className="mt-8" />
 
                 {/* field features (nothing when none is shared or the database doesn't have them yet) */}
+                <PortalServicePlans portalKey={key} className="mt-8" />
                 <PortalPunchList portalKey={key} className="mt-8" />
                 <PortalCredentials portalKey={key} className="mt-8" />
 
