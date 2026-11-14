@@ -58,6 +58,7 @@ import { OFFLINE_CREATE_TYPES, ENTITY_TYPE, applyEntityOverlay, applyOutboxOverl
 import { setOfflineEntityQueue } from './lib/offline/offlineEntities.ts';
 import { setDeviceCacheUser } from './lib/offline/deviceCache.ts';
 import { NEEDS_CONNECTION } from './lib/offline/connection.ts';
+import { DocSlotContext } from './components/forms/DocSlotContext.ts';
 import type { PaymentSettings } from './lib/payments.ts';
 import { applyProfileOverlay, offlineProfilePatch, pendingProfileItem, profileBaseFor, profileFieldsFromRow, comparableProfileRow, withoutPaymentColumns } from './lib/offline/offlineProfile.ts';
 import { offlinePhotoRow, photoEditPatch, photoItems, uploadQueuedPhoto, PHOTO_FILE_MAIN, PHOTO_FILE_THUMB, type OfflinePhotoInput } from './lib/offline/offlineJobPhotos.ts';
@@ -2663,7 +2664,11 @@ const App: React.FC = () => {
             default: return renderNotFoundJob();
         }
         })();
-        return <OfflineDocContext.Provider value={offlineDoc}>{body}</OfflineDocContext.Provider>;
+        return (
+            <OfflineDocContext.Provider value={offlineDoc}>
+                <DocSlotContext.Provider value={() => ensureDocSlot(job.id)}>{body}</DocSlotContext.Provider>
+            </OfflineDocContext.Provider>
+        );
     };
 
     const renderAuth = () => {

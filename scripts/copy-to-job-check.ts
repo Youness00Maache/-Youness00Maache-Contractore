@@ -80,5 +80,17 @@ ok('wiring: Open action', /label: 'Open'/.test(h));
 ok('wiring: no inventory writes', !/inventory/i.test(h));
 ok('Duplicate unchanged (still present)', /const handleDuplicateDoc = async/.test(app) && /onDuplicateDocument=\{handleDuplicateDoc\}/.test(app));
 
+// Free plan slot also BEFORE a form opens filled from another document (Convert to invoice, Create revision)
+{
+    const est = fs.readFileSync(new URL('../components/EstimateForm.tsx', import.meta.url), 'utf8');
+    const lock = fs.readFileSync(new URL('../components/forms/SignedLock.tsx', import.meta.url), 'utf8');
+    ok('slot: the form gets ensureDocSlot for its job', /<DocSlotContext\.Provider value=\{\(\) => ensureDocSlot\(job\.id\)\}>/.test(app));
+    const convert = est.slice(est.indexOf('const openConvert = async'), est.indexOf('const convert = (deposit'));
+    ok('slot: Convert to invoice checks it after saving, before the dialog', /ensureSaved\(\)[\s\S]*ensureDocSlot && !\(await ensureDocSlot\(\)\)\) return;[\s\S]*setConvertOpen\(true\)/.test(convert));
+    const revise = lock.slice(lock.indexOf('const createRevision = async'), lock.indexOf('const unlockInPlace = async'));
+    ok('slot: Create revision checks it before the new form opens', /ensureDocSlot && !\(await ensureDocSlot\(\)\)\) return;[\s\S]*navigate\(/.test(revise));
+    ok('slot: unlock in place (same document) needs no slot', !/ensureDocSlot/.test(lock.slice(lock.indexOf('const unlockInPlace = async'), lock.indexOf('const unlockInPlace = async') + 1500)));
+}
+
 console.log(`copy-to-job-check: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

@@ -21,6 +21,7 @@ import { STATUS_OPTIONS } from './forms/documentFields.ts';
 import { makeStockLookup } from './forms/inventory.ts';
 import { buildInvoiceSeedFromEstimate, isClientSigned, signedChangeProblem } from './forms/signedLock.ts';
 import { LockedFieldset, SignedLockBanner, makeSignatureCheck, useSignedLock } from './forms/SignedLock.tsx';
+import { useEnsureDocSlot } from './forms/DocSlotContext.ts';
 import { fetchInvoicesFromEstimate } from './forms/jobDocuments.ts';
 import {
     adoptLineItemsIntoOption, applyChosenOption, canUndoApply, createOptionSet, effectiveOption, packOptionsForSave, readOptionSet,
@@ -116,6 +117,7 @@ const EstimateForm: React.FC<Props> = ({
     job, profile, data, clients = [], savedItems = [], inventoryItems = [], onSave, onBack, onUploadImage, publicToken, prefillData, documentId, existingNumbers,
 }) => {
     const navigate = useNavigate();
+    const ensureDocSlot = useEnsureDocSlot();
     const [showCosts, setShowCosts] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
     const [convertOpen, setConvertOpen] = useState(false);
@@ -232,6 +234,8 @@ const EstimateForm: React.FC<Props> = ({
     const openConvert = async () => {
         // the invoice links back to the SAVED estimate
         if ((await form.ensureSaved()) !== 'saved') return;
+        // Free plan: the invoice is a new document on this job; check the slot before the form opens
+        if (ensureDocSlot && !(await ensureDocSlot())) return;
         setConvertOpen(true);
     };
     const convert = (deposit: number) => {

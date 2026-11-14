@@ -10,6 +10,7 @@ import { Spinner } from './Spinner.tsx';
 import { makeSeedPrefill, type DocumentFormApi } from './useDocumentForm.ts';
 import { todayISO } from './formUtils.ts';
 import { fetchServerSignature } from './jobDocuments.ts';
+import { useEnsureDocSlot } from './DocSlotContext.ts';
 import {
     CLIENT_SIGNATURE_KEYS, buildRevisionSeed, docLabelOf, isClientSigned, revisionNumber, signedOnLabel, signerOf, unsignedPatch,
     type SignableKind,
@@ -87,6 +88,7 @@ interface SignedLockOptions<T extends object> {
  */
 export function useSignedLock<T extends object>({ form, kind, formType, job, documentId, numberKey }: SignedLockOptions<T>) {
     const navigate = useNavigate();
+    const ensureDocSlot = useEnsureDocSlot();
     const locked = isClientSigned(form.data);
     const [reviseOpen, setReviseOpen] = useState(false);
     const [unlockOpen, setUnlockOpen] = useState(false);
@@ -102,6 +104,8 @@ export function useSignedLock<T extends object>({ form, kind, formType, job, doc
         setBusy('revision');
         try {
             if (form.isDirty && !(await form.save())) return; // e.g. a design change: keep it
+            // Free plan: the revision is a new document on this job; check the slot before the form opens
+            if (ensureDocSlot && !(await ensureDocSlot())) return;
             const seed = buildRevisionSeed(form.data, kind, documentId ?? form.lastSaveResult?.id, todayISO());
             setReviseOpen(false);
             navigate(`/jobs/${job.id}/forms/${encodeURIComponent(formType)}`, { state: { prefillData: makeSeedPrefill(seed), fromJob: true } });
