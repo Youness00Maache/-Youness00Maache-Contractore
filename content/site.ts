@@ -9,7 +9,7 @@ export const SITE = {
   url: 'https://www.contractordocs.app',
   email: 'support@contractordocs.app',
   /** Last content revision of the marketing pages (YYYY-MM-DD). */
-  lastUpdated: '2026-11-12',
+  lastUpdated: '2026-11-13',
   /** Revision date shown on Privacy / Terms / Security. */
   legalUpdated: '2026-11-12',
   year: 2026,
@@ -79,12 +79,36 @@ export const HOME_FAQ: FaqItem[] = [
   { q: 'Does it work on my phone?', a: 'Yes. ContractorDocs runs in the browser on phones, tablets and computers, and you can add it to your home screen. Create a daily report on site and finish the invoice at your desk.' },
   { q: 'Can I take card payments through ContractorDocs?', a: 'Not directly. ContractorDocs is for creating, sending and tracking paperwork. Add your payment instructions or payment link to your invoices, and record deposits and payments so the balance due stays accurate.' },
   { q: 'Is my data secure?', a: 'Your data is stored in a managed Postgres database with per-account access rules, encrypted in transit, and long-lived Gmail tokens are encrypted and kept on the server. Read the details on our Security page.' },
-  { q: 'Can I cancel anytime?', a: 'Yes. Paid plans are month-to-month or yearly and you can cancel at any time from Settings. You keep paid features until the end of the period you paid for, then your account moves to the Free plan. Your documents stay available.' },
+  { q: 'Can I cancel anytime?', a: 'Yes. Paid plans are month-to-month or yearly and you can cancel at any time from Settings. You keep paid features until the end of the period you paid for, then your account moves to the Free plan. Your documents stay available, and you can export all of your data on every plan.' },
   { q: 'Who handles billing?', a: 'Payments are processed by Kelviq, our merchant of record. Kelviq handles checkout, sales tax/VAT and receipts; ContractorDocs never sees your full card number.' },
 ];
 
+/**
+ * The written price promise (pricing page, under the plan cards; the same commitments are in PRICING_FAQ).
+ * Plain promises the app keeps: export never checks the plan (Settings → Your data, lib/export).
+ */
+export const PRICE_PROMISE: { lead: string; points: { title: string; text: string }[] } = {
+  lead: 'Three things we commit to, in writing, for every customer.',
+  points: [
+    {
+      title: 'Your data is always exportable.',
+      text: 'On every plan, Free included, you can download everything at any time: a PDF of every document in a folder per job, plus spreadsheets of your jobs, clients, payments, expenses, inventory and price book. It keeps working after you cancel.',
+    },
+    {
+      title: 'Your price is locked for 12 months.',
+      text: 'If we ever raise prices, existing subscribers keep the price they pay today for 12 months from the change.',
+    },
+    {
+      title: 'No surprise price hikes.',
+      text: 'You hear about any price change by email before it takes effect. The price on this page is what you pay; only sales tax or VAT is added at checkout.',
+    },
+  ],
+};
+
 export const PRICING_FAQ: FaqItem[] = [
   { q: 'Do I need a credit card for the Free plan?', a: 'No. Create an account with your email or Google and start right away. You only enter payment details if you choose to upgrade.' },
+  { q: 'Can I export my data? What if I cancel?', a: 'Yes, on every plan including Free, and it keeps working after you cancel. Settings → Your data builds one ZIP file with a PDF of every document, organized in a folder per job, plus spreadsheets (CSV) of your jobs, clients, documents and line items, payments, time sheets, expenses, inventory, price book, reminders and quote requests. You can also download or email your bookkeeper a monthly CSV of invoices, payments, expenses and materials.' },
+  { q: 'Will my price go up?', a: 'Not by surprise. If we raise prices, existing subscribers keep their current price for 12 months from the change, and we tell you by email before any change takes effect.' },
   { q: 'What does the Free plan include?', a: `Every document type and PDF design, the client portal with approvals and e-signatures, inventory, the price book, job profit tracking, Insights and the AI assistant. The limits are ${FREE_LIMITS.jobs} new jobs and ${FREE_LIMITS.clients} new clients per month, ${FREE_LIMITS.docs} new documents per job each month, ${FREE_LIMITS.emails} emails and ${FREE_LIMITS.ai} AI requests per month. Photos on price book items need a paid plan.` },
   { q: 'What happens when I reach a Free plan limit?', a: 'Nothing you have created is lost. You will be asked to upgrade before creating more of that item this month; monthly limits reset at the start of each calendar month. Limits count what you created this month, so deleting a document or job does not give the slot back.' },
   { q: 'What is the difference between Premium and Premium + AI?', a: `Both remove the Free plan limits: unlimited jobs, clients, documents and Gmail sending, plus photos on price book items. The difference is the AI allowance: Premium includes ${PAID_AI_LIMITS.premium} AI requests a month, Premium + AI includes ${PAID_AI_LIMITS.ai} and priority support, for contractors who let the assistant draft most of their paperwork, batch emails and dictated reports.` },

@@ -19,9 +19,10 @@ import { savePaymentSettings } from '../lib/paymentsApi.ts';
 import { Toggle } from './forms/Fields.tsx';
 import RequestLinkSettings from './requests/RequestLinkSettings.tsx';
 import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
+import DataExportSection from './export/DataExportSection.tsx';
 
 type ThemeName = 'light' | 'dark' | 'blue';
-export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'account';
+export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'data' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
@@ -60,6 +61,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'appearance', label: 'Appearance' },
     { id: 'billing', label: 'Plan & billing' },
     { id: 'reminders', label: 'Reminders' },
+    { id: 'data', label: 'Your data' },
     { id: 'account', label: 'Account' },
 ];
 
@@ -577,6 +579,14 @@ const Settings: React.FC<SettingsProps> = ({
                                     {status === 'past_due' && (
                                         <p className="mt-1 flex items-center gap-1.5 text-sm text-warning"><AlertTriangleIcon className="h-4 w-4" /> Your last payment failed. Update your payment method to keep Premium.</p>
                                     )}
+                                    {status === 'cancelled' && (
+                                        <p className="mt-1 text-sm text-muted-foreground">
+                                            Your data stays yours: you can still{' '}
+                                            <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => document.getElementById('settings-data')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+                                                export everything
+                                            </button>{' '}on any plan.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex flex-col gap-2 sm:items-end">
@@ -609,6 +619,9 @@ const Settings: React.FC<SettingsProps> = ({
 
                     {/* Reminders & follow-ups (components/reminders; the card's id is settings-reminders) */}
                     <ReminderSettingsCard onUpgradeClick={onUpgradeClick} />
+
+                    {/* Your data: export everything + bookkeeper CSV, on every plan (components/export; id settings-data) */}
+                    <DataExportSection profile={initialProfile} onUpgradeClick={onUpgradeClick} />
 
                     {/* Account */}
                     <Section id="account" title="Account" tone="danger">

@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownItem, DropdownSeparator, DropdownLabel } from './
 import {
     AppLogo, HomeIcon, UsersIcon, MailIcon, BoxIcon, TagIcon, CalendarIcon, CalculatorIcon, BarChartIcon,
     MessageSquareIcon, SettingsIcon, UserIcon, LogoutIcon, CreditCardIcon, StarIcon, ChevronDownIcon, GridIcon,
-    PlusIcon, XCircleIcon, WifiOffIcon, MailIcon as HelpMailIcon,
+    PlusIcon, XCircleIcon, WifiOffIcon, MailIcon as HelpMailIcon, DownloadIcon,
 } from './Icons.tsx';
 import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
@@ -13,7 +13,9 @@ import { HelpCircleIcon } from './help/HelpText.tsx';
 
 export type NavDestination =
     | 'dashboard' | 'clients' | 'communication' | 'inventory' | 'pricebook' | 'calendar'
-    | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing' | 'help';
+    | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing' | 'help'
+    /** Settings → Your data (export everything, bookkeeper CSV) */
+    | 'export';
 
 export type NavSection = 'dashboard' | 'clients' | 'communication' | 'tools' | 'forum' | 'settings' | 'none';
 
@@ -136,7 +138,8 @@ const AppNav: React.FC<AppNavProps> = ({
             <DropdownItem onClick={() => onNavigate('profile')}><UserIcon className="h-4 w-4" /> Profile</DropdownItem>
             <DropdownItem onClick={() => onNavigate('settings')}><SettingsIcon className="h-4 w-4" /> Settings</DropdownItem>
             <DropdownItem onClick={() => onNavigate('billing')}><CreditCardIcon className="h-4 w-4" /> Plan &amp; billing</DropdownItem>
-            {!paid && <DropdownItem onClick={onUpgrade} className="text-primary"><StarIcon className="h-4 w-4" /> Upgrade</DropdownItem>}
+            <DropdownItem onClick={() => onNavigate('export')}><DownloadIcon className="h-4 w-4" /> Export my data</DropdownItem>
+            {!paid &&<DropdownItem onClick={onUpgrade} className="text-primary"><StarIcon className="h-4 w-4" /> Upgrade</DropdownItem>}
             <DropdownItem onClick={() => onNavigate('help')}><HelpCircleIcon className="h-4 w-4" /> Help &amp; tutorials</DropdownItem>
             <DropdownItem onClick={() => { window.location.href = `mailto:${SUPPORT_EMAIL}`; }}><HelpMailIcon className="h-4 w-4" /> Contact support</DropdownItem>
             <DropdownSeparator />

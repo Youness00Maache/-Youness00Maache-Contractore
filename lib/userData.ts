@@ -5,6 +5,7 @@
  *   saved profit calculations  → public.profit_calculations   (migration 20261113000500)
  *   label sheet (Print labels) → public.user_settings 'labels.sheet' (migration 20261113000500)
  *   first-run tour seen        → public.user_settings 'help.tour'    (components/help/AppTour.tsx)
+ *   bookkeeper email           → public.user_settings 'export.bookkeeper' (Settings → Your data)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -16,7 +17,7 @@
 import { supabase } from './supabase.ts';
 import {
     LABEL_SHEET_SETTING, countPendingProfitCalcs, deleteProfitCalc, loadProfitCalcs, parseRate, pendingFieldKey, readProfitCalcsLocal,
-    saveDefaultSignature, saveLaborRate,
+    readSetting, saveDefaultSignature, saveLaborRate,
     saveProfitCalc, saveSetting, syncLabelSheet, syncProfileValues, claimLegacyProfitCalcs, loadTourSeen, saveTourSeen,
     saveUiPrefs, syncUiPrefs, type ProfilePrefsRemote, type UiPrefs,
     type DbError, type KeyValueStore, type ProfileValuesRemote, type ProfitCalcRemote, type SavedProfitCalc, type SettingsRemote, type SyncMode,
@@ -170,6 +171,44 @@ export async function syncUiPreferencesAfterLogin(uid: string, profile: UiPrefs)
 export const loadAppTourSeen = (uid: string): Promise<boolean | null> => loadTourSeen(browserStore, settingsRemote, uid);
 /** Remembers that the tour was finished or skipped, in the account and on this device. */
 export const saveAppTourSeen = (uid: string): Promise<SyncMode> => saveTourSeen(browserStore, settingsRemote, uid);
+
+// ------------------------------------------------------------------------- bookkeeper email
+/** public.user_settings key for the bookkeeper CSV (Settings → Your data): { email, updatedAt }. */
+export const BOOKKEEPER_SETTING = 'export.bookkeeper';
+const bookkeeperLocalKey = (uid: string) => `cd.export.bookkeeper:${uid}`;
+const bookkeeperEmailOf = (v: unknown): string | null => {
+    if (!v || typeof v !== 'object') return null;
+    const email = (v as { email?: unknown }).email;
+    return typeof email === 'string' ? email.trim().slice(0, 254) : null;
+};
+
+/**
+ * The bookkeeper's email: the account's copy (every device), else this device's copy (offline, or the table isn't
+ * there yet). A device copy that never reached the account is uploaded now.
+ */
+export async function loadBookkeeperEmail(uid: string): Promise<string> {
+    if (!uid) return '';
+    const local = browserStore.getItem(bookkeeperLocalKey(uid)) || '';
+    if (offline()) return local;
+    const res = await readSetting(settingsRemote, uid, BOOKKEEPER_SETTING);
+    if (res.mode !== 'account') return local;
+    const pending = browserStore.getItem(pendingFieldKey(BOOKKEEPER_SETTING, uid)) === '1';
+    const account = bookkeeperEmailOf(res.value);
+    if (pending || account === null) {
+        if (local) void saveSetting(browserStore, settingsRemote, uid, BOOKKEEPER_SETTING, { email: local, updatedAt: new Date().toISOString() });
+        return local;
+    }
+    try { if (account) browserStore.setItem(bookkeeperLocalKey(uid), account); else browserStore.removeItem(bookkeeperLocalKey(uid)); } catch { /* storage unavailable */ }
+    return account;
+}
+
+/** Remembers the bookkeeper's email on this device and in the account ('' forgets it). */
+export async function saveBookkeeperEmail(uid: string, email: string): Promise<SyncMode> {
+    if (!uid) return 'failed';
+    const value = email.trim().slice(0, 254);
+    try { if (value) browserStore.setItem(bookkeeperLocalKey(uid), value); else browserStore.removeItem(bookkeeperLocalKey(uid)); } catch { /* storage unavailable */ }
+    return saveSetting(browserStore, settingsRemote, uid, BOOKKEEPER_SETTING, { email: value, updatedAt: new Date().toISOString() });
+}
 
 // -------------------------------------------------------------------------------- login
 const syncedUsers = new Set<string>();

@@ -90,6 +90,8 @@ const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
+// "Export everything" progress on screens other than Settings (lib/export/exportStore.ts)
+const ExportProgressDock = lazy(() => import('./components/export/ExportProgressDock.tsx'));
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const JOB_COLUMN_SETS = [
@@ -971,6 +973,7 @@ const App: React.FC = () => {
             case 'settings': navigate('/settings'); break;
             case 'profile': navigate('/profile'); break;
             case 'billing': navigate('/settings#billing'); break;
+            case 'export': navigate('/settings#data'); break;
             case 'help': navigate('/tutorials'); break;
         }
     };
@@ -1911,7 +1914,7 @@ const App: React.FC = () => {
                         onManageBilling={handleManageBilling}
                         onSaveSignature={handleSaveSignature}
                         onDeleteAccount={handleDeleteAccount}
-                        initialSection={location.hash === '#billing' ? 'billing' : location.hash === '#payments' ? 'payments' : undefined}
+                        initialSection={location.hash === '#billing' ? 'billing' : location.hash === '#payments' ? 'payments' : location.hash === '#data' ? 'data' : undefined}
                     />
                 );
             case 'billingSuccess':
@@ -2123,6 +2126,13 @@ const App: React.FC = () => {
             {showNav && session && (
                 <Suspense fallback={null}>
                     <TourHost userId={session.user.id} onDashboard={view.screen === 'dashboard'} />
+                </Suspense>
+            )}
+
+            {/* "Export everything" keeps running while the user works elsewhere (Settings → Your data) */}
+            {showNav && session && (
+                <Suspense fallback={null}>
+                    <ExportProgressDock userId={session.user.id} />
                 </Suspense>
             )}
 

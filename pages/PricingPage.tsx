@@ -4,7 +4,7 @@ import { Container, FaqList, CtaBand, Eyebrow, GRID_BG } from './components/ui.t
 import { PlanCards, PeriodToggle, signupHref, type Period } from './components/PlanCards.tsx';
 import { Check, Minus, CreditCard, ShieldCheck, Clock } from './components/icons.tsx';
 import { FREE_LIMITS, PAID_AI_LIMITS, PLANS } from '../lib/plans.ts';
-import { PRICING_FAQ } from '../content/site.ts';
+import { PRICE_PROMISE, PRICING_FAQ } from '../content/site.ts';
 
 type Cell = boolean | string;
 // Matches what the app does (owner decision 2026-11-13): everything but price book photos works on Free; paid plans remove the monthly
@@ -19,6 +19,8 @@ const ROWS: { group: string; rows: { label: string; free: Cell; premium: Cell; a
       { label: 'All 12 document types', free: true, premium: true, ai: true },
       { label: 'PDF export with your logo', free: true, premium: true, ai: true },
       { label: 'Every PDF design, premium styles included', free: true, premium: true, ai: true },
+      { label: 'Export all your data (PDFs + spreadsheets), even after cancelling', free: true, premium: true, ai: true },
+      { label: 'Monthly bookkeeper CSV', free: true, premium: true, ai: true },
     ],
   },
   {
@@ -84,11 +86,38 @@ const PricingPage: React.FC = () => {
           <div className="mt-12">
             <PlanCards period={period} headingLevel="h2" />
           </div>
-          <ul className="mt-10 flex flex-col items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground sm:flex-row">
+          <p className="mx-auto mt-8 max-w-3xl text-center text-[15px] leading-relaxed text-foreground/80">
+            Every plan, Free included, lets you export all your data, and it keeps working if you cancel. Existing subscribers’ prices are locked for 12 months.{' '}
+            <a href="#price-promise" className="font-semibold text-brand-700 underline underline-offset-4">Read our price promise</a>
+          </p>
+          <ul className="mt-8 flex flex-col items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground sm:flex-row">
             <li className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-brand-600" /> Secure checkout by Kelviq (merchant of record)</li>
             <li className="flex items-center gap-2"><Clock className="h-4 w-4 text-brand-600" /> Cancel anytime from Settings</li>
             <li className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-brand-600" /> Prices in USD; tax added at checkout where applicable</li>
           </ul>
+        </Container>
+      </section>
+
+      <section id="price-promise" aria-labelledby="promise-heading" className="scroll-mt-20 border-b border-border py-16 sm:py-20">
+        <Container className="max-w-5xl">
+          <div className="grid gap-8 rounded-3xl border border-border bg-card p-6 shadow-soft sm:p-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] lg:gap-14">
+            <div>
+              <Eyebrow>In writing</Eyebrow>
+              <h2 id="promise-heading" className="mt-3 font-display text-3xl font-extrabold tracking-[-0.01em] text-foreground sm:text-4xl">Our price promise</h2>
+              <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground">{PRICE_PROMISE.lead}</p>
+            </div>
+            <ol className="divide-y divide-border">
+              {PRICE_PROMISE.points.map((p, i) => (
+                <li key={p.title} className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 py-5 first:pt-0 last:pb-0">
+                  <span aria-hidden="true" className="font-display text-2xl font-extrabold leading-7 tabular-nums text-brand-600">{String(i + 1).padStart(2, '0')}</span>
+                  <div>
+                    <h3 className="font-semibold leading-7 text-foreground">{p.title}</h3>
+                    <p className="mt-1 text-[15px] leading-relaxed text-muted-foreground">{p.text}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
         </Container>
       </section>
 
