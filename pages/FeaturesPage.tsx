@@ -49,7 +49,7 @@ const SECTIONS: Section[] = [
       'Powered by Google Gemini; see our Privacy Policy for how AI requests are handled',
     ],
     visual: <AiMockup />,
-    related: { to: '/pricing', label: 'Compare AI allowances by plan' },
+    related: { to: '/ai-estimate-generator', label: 'See the AI estimate generator' },
   },
   {
     id: 'client-portal',

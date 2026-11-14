@@ -4,6 +4,7 @@
  * `rootBelongsToApp` (keep both in sync).
  */
 import { BLOG_POSTS } from '../content/blog/registry.ts';
+import { LANDING_PAGES } from '../content/landing/registry.ts';
 import { PENDING_PLAN_KEY, captureIntentFromSearch } from '../lib/pendingPlan.ts';
 
 export const AUTH_STORAGE_KEY = 'contractordocs-auth'; // lib/supabase.ts storageKey
@@ -27,7 +28,7 @@ export const STATIC_MARKETING_ROUTES = [
   '/help',
 ] as const;
 
-const MARKETING_RE = /^\/(features|pricing|templates|blog|invoice-generator|estimate-generator|about|contact|privacy|terms|security|help)(\/|$)/;
+const MARKETING_RE = /^\/(features|pricing|templates|blog|invoice-generator|estimate-generator|about|contact|privacy|terms|security|help|for|compare|ai-estimate-generator|ai-invoice-generator)(\/|$)/;
 
 export const normalizePath = (pathname: string): string => {
   let p = pathname || '/';
@@ -40,9 +41,10 @@ export const isMarketingPath = (pathname: string): boolean => {
   return p === '/' || MARKETING_RE.test(p);
 };
 
-/** Every URL that is prerendered to static HTML (marketing pages + blog posts). */
+/** Every URL that is prerendered to static HTML (marketing pages, landing pages and blog posts). */
 export const getPrerenderRoutes = (): string[] => [
   ...STATIC_MARKETING_ROUTES,
+  ...LANDING_PAGES.map((p) => p.path),
   ...BLOG_POSTS.map((p) => `/blog/${p.slug}`),
 ];
 

@@ -17,7 +17,15 @@ const read = (p) => fs.readFileSync(p, 'utf8');
 const STATIC_ROUTES = ['/', '/features', '/pricing', '/templates', '/invoice-generator', '/estimate-generator', '/blog', '/about', '/contact', '/privacy', '/terms', '/security', '/help'];
 const registry = read(path.join(ROOT, 'content/blog/registry.ts'));
 const slugs = [...registry.slice(registry.indexOf('export const BLOG_POSTS')).matchAll(/slug: '([a-z0-9-]+)'/g)].map((m) => m[1]);
-const ROUTES = [...STATIC_ROUTES, ...slugs.map((s) => `/blog/${s}`)];
+// Landing pages (AI generators, /for/<trade>, /compare/<x>): every `path: '…'` in the landing registry.
+const landingRegistry = read(path.join(ROOT, 'content/landing/registry.ts'));
+const LANDING = [...landingRegistry.matchAll(/^\s*key: '([a-z0-9-]+)',\s*\n\s*path: '(\/[a-z0-9/-]+)',\s*\n\s*kind: '(ai|trade|compare)'/gm)].map((m) => ({ key: m[1], path: m[2], kind: m[3] }));
+const LANDING_KIND = new Map(LANDING.map((l) => [l.path, l.kind]));
+const ROUTES = [...STATIC_ROUTES, ...LANDING.map((l) => l.path), ...slugs.map((s) => `/blog/${s}`)];
+if (LANDING.length < 14) errors.push(`landing registry: parsed ${LANDING.length} pages, expected at least 14`);
+for (const l of LANDING) {
+  if (!fs.existsSync(path.join(ROOT, 'content/landing/pages', `${l.key}.ts`))) errors.push(`${l.path}: content/landing/pages/${l.key}.ts missing`);
+}
 const APP_PREFIXES = ['/auth/', '/dashboard', '/jobs', '/settings', '/update-password'];
 const fileFor = (route) => (route === '/' ? path.join(DIST, 'index.html') : path.join(DIST, ...route.split('/').filter(Boolean), 'index.html'));
 
@@ -97,7 +105,11 @@ for (const route of ROUTES) {
       fail(`${where}: invalid JSON-LD (${e.message})`);
     }
   }
+  const landingKind = LANDING_KIND.get(route);
   const need = route === '/' ? ['Organization', 'WebSite', 'SoftwareApplication', 'FAQPage']
+    : landingKind === 'ai' ? ['WebPage', 'BreadcrumbList', 'FAQPage', 'SoftwareApplication', 'HowTo']
+    : landingKind === 'compare' ? ['WebPage', 'BreadcrumbList', 'FAQPage', 'SoftwareApplication']
+    : landingKind === 'trade' ? ['WebPage', 'BreadcrumbList', 'FAQPage']
     : route === '/pricing' ? ['SoftwareApplication', 'FAQPage', 'BreadcrumbList']
     : route.startsWith('/blog/') ? ['BlogPosting', 'BreadcrumbList', 'FAQPage']
     : ['/invoice-generator', '/estimate-generator'].includes(route) ? ['FAQPage', 'BreadcrumbList']
@@ -117,7 +129,25 @@ for (const route of ROUTES) {
       }
     } catch { /* invalid JSON-LD is reported above */ }
   }
-  if (route.startsWith('/blog/') && !/data-answer=""/.test(body)) fail(`${where}: short answer box missing`);
+  if ((route.startsWith('/blog/') || landingKind) && !/data-answer=""/.test(body)) fail(`${where}: short answer box missing`);
+  // Landing pages: answer first, example/comparison table, dated and sourced comparisons, links to signup + pricing.
+  if (landingKind) {
+    const answerAt = body.indexOf('data-answer=""');
+    const firstH2 = body.search(/<h2[\s>]/);
+    if (answerAt < 0 || (firstH2 >= 0 && firstH2 < answerAt)) fail(`${where}: the short answer must come before the other sections`);
+    if (!/<table[\s>]/.test(body)) fail(`${where}: no <table> (example document or comparison)`);
+    if (!body.includes('href="/auth/signup"')) fail(`${where}: no "Start free" link to /auth/signup`);
+    if (!/href="\/pricing"/.test(body)) fail(`${where}: no link to /pricing`);
+    if ((body.match(/href="\/blog\/[a-z0-9-]+"/g) || []).length < 2) fail(`${where}: fewer than 2 links to guides`);
+    if (landingKind === 'compare') {
+      if (!/as of November 2026/.test(bodyText)) fail(`${where}: comparison is not dated "as of November 2026"`);
+      const external = [...body.matchAll(/<a href="(https:\/\/[^"]+)" target="_blank" rel="noopener noreferrer"/g)].map((m) => m[1]).filter((u) => !u.startsWith(SITE));
+      if (external.length < 1) fail(`${where}: no cited public sources`);
+      if (!/better fit|Choose [^.]+ if/.test(bodyText)) fail(`${where}: no "when the competitor is the better fit" section`);
+    }
+  }
+  // Owner rule: never name the billing provider or "merchant of record" on the public site.
+  if (/kelviq|merchant of record/i.test(html)) fail(`${where}: mentions the billing provider / merchant of record`);
 
   // Internal links resolve
   for (const m of body.matchAll(/href="(\/[^"#?]*)/g)) {
@@ -200,7 +230,7 @@ for (const f of ['llms.txt', 'llms-full.txt']) {
   const txt = read(p);
   if (!txt.startsWith('# ContractorDocs')) fail(`${f}: must start with "# ContractorDocs"`);
   if (!/\$\d/.test(txt)) fail(`${f}: no plan prices`);
-  for (const route of ROUTES.filter((r) => f === 'llms-full.txt' || r.startsWith('/blog/') || r === '/pricing')) {
+  for (const route of ROUTES.filter((r) => f === 'llms-full.txt' || r.startsWith('/blog/') || r === '/pricing' || LANDING_KIND.has(r))) {
     const url = route === '/' ? `${SITE}/` : `${SITE}${route}`;
     if (!txt.includes(url)) fail(`${f}: missing ${url}`);
   }
@@ -219,6 +249,22 @@ try {
   for (const icon of manifest.icons) if (!fs.existsSync(path.join(DIST, icon.src))) fail(`manifest icon missing: ${icon.src}`);
 } catch (e) {
   fail(`manifest invalid: ${e.message}`);
+}
+
+// ---------------------------------------------------------------- IndexNow key file (scripts/indexnow-ping.ts)
+{
+  const pingSrc = read(path.join(ROOT, 'scripts/indexnow-ping.ts'));
+  const key = pingSrc.match(/INDEXNOW_KEY = '([a-f0-9]{8,128})'/)?.[1];
+  if (!key) fail('scripts/indexnow-ping.ts: INDEXNOW_KEY not found');
+  else {
+    const keyFile = path.join(DIST, `${key}.txt`);
+    if (!fs.existsSync(keyFile)) fail(`dist/${key}.txt (IndexNow key file) missing`);
+    else if (read(keyFile).trim() !== key) fail(`dist/${key}.txt does not contain the IndexNow key`);
+  }
+}
+for (const f of ['llms.txt', 'llms-full.txt', 'sitemap.xml', 'robots.txt']) {
+  const p = path.join(DIST, f);
+  if (fs.existsSync(p) && /kelviq|merchant of record/i.test(read(p))) fail(`dist/${f} mentions the billing provider / merchant of record`);
 }
 
 // ---------------------------------------------------------------- vercel.json
@@ -251,4 +297,4 @@ if (errors.length) {
   console.log(`\nSEO check FAILED with ${errors.length} error(s).`);
   process.exit(1);
 }
-console.log(`\nSEO check passed: ${rows.length} pages, unique titles/descriptions, canonical + OG + JSON-LD, sitemap (${ROUTES.length} URLs), robots.txt, CSP hash, verification file.`);
+console.log(`\nSEO check passed: ${rows.length} pages (${LANDING.length} landing pages), unique titles/descriptions, canonical + OG + JSON-LD, answer-first landing pages, sitemap (${ROUTES.length} URLs), robots.txt, llms.txt, IndexNow key, CSP hash, verification file.`);

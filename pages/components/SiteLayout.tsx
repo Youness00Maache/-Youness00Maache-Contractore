@@ -5,6 +5,7 @@ import { Container, ButtonLink } from './ui.tsx';
 import { Menu, XIcon, Mail } from './icons.tsx';
 import { SITE, SIGNUP_PATH, LOGIN_PATH } from '../../content/site.ts';
 import { hasStoredSession } from '../routes.ts';
+import { landingPagesOf } from '../../content/landing/registry.ts';
 
 const NAV = [
   { to: '/features', label: 'Features' },
@@ -20,10 +21,19 @@ const FOOTER_COLUMNS: { title: string; links: { to: string; label: string }[] }[
       { to: '/features', label: 'Features' },
       { to: '/pricing', label: 'Pricing' },
       { to: '/templates', label: 'Templates' },
-      { to: '/invoice-generator', label: 'Invoice generator' },
-      { to: '/estimate-generator', label: 'Estimate generator' },
+      ...landingPagesOf('ai').map((p) => ({ to: p.path, label: p.label.charAt(0).toUpperCase() + p.label.slice(1) })),
+      { to: '/invoice-generator', label: 'Free invoice generator' },
+      { to: '/estimate-generator', label: 'Free estimate generator' },
       { to: '/help', label: 'Help center' },
     ],
+  },
+  {
+    title: 'For your trade',
+    links: landingPagesOf('trade').map((p) => ({ to: p.path, label: p.label })),
+  },
+  {
+    title: 'Compare',
+    links: landingPagesOf('compare').map((p) => ({ to: p.path, label: p.label })),
   },
   {
     title: 'Guides',
@@ -153,7 +163,7 @@ export const SiteHeader: React.FC = () => {
 export const SiteFooter: React.FC = () => (
   <footer className="border-t border-border bg-card">
     <Container className="py-14">
-      <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,3.4fr)] lg:gap-12">
         <div className="max-w-sm">
           <Link to="/" className="inline-flex items-center" aria-label="ContractorDocs home">
             <Logo />
@@ -165,7 +175,7 @@ export const SiteFooter: React.FC = () => (
             <Mail className="h-4 w-4" /> {SITE.email}
           </a>
         </div>
-        <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:col-span-3">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
           {FOOTER_COLUMNS.map((col) => (
             <div key={col.title}>
               <h2 className="text-sm font-semibold text-foreground">{col.title}</h2>

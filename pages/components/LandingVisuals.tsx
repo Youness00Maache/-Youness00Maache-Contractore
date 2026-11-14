@@ -258,7 +258,7 @@ const TAPE_STYLE: React.CSSProperties = {
 };
 
 /** "Made for the trades" as a strip of measuring tape. */
-export const TradesTape: React.FC<{ trades: { id: string; name: string }[] }> = ({ trades }) => (
+export const TradesTape: React.FC<{ trades: { id: string; name: string; to?: string }[] }> = ({ trades }) => (
   <div className="relative mx-auto mt-6 max-w-6xl">
     <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2 lg:flex lg:gap-0 lg:pr-2.5 lg:shadow-[0_8px_18px_-12px_rgba(120,53,15,.55)]">
       {trades.map((t, i) => (
@@ -270,7 +270,9 @@ export const TradesTape: React.FC<{ trades: { id: string; name: string }[] }> = 
           <span aria-hidden="true" className="absolute left-[6px] top-[7px] font-mono text-[11px] font-bold leading-none text-stone-800">
             {i + 1}
           </span>
-          {t.name}
+          {t.to ? (
+            <Link to={t.to} className="after:absolute after:inset-0 hover:underline hover:decoration-stone-700/60 hover:underline-offset-4 focus-visible:outline-none focus-visible:after:rounded-[4px] focus-visible:after:ring-2 focus-visible:after:ring-brand-500">{t.name}</Link>
+          ) : t.name}
         </li>
       ))}
     </ul>

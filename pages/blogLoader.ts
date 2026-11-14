@@ -5,6 +5,7 @@
  */
 import type { BlogPostContent } from '../content/blog/types.ts';
 import { normalizePath } from './routes.ts';
+import { preloadLanding } from './landingLoader.ts';
 
 const loaders = import.meta.glob<{ default: BlogPostContent }>('../content/blog/posts/*.ts');
 const cache = new Map<string, BlogPostContent>();
@@ -30,5 +31,7 @@ export async function preloadRouteData(pathname: string): Promise<void> {
   const m = normalizePath(pathname).match(/^\/blog\/([a-z0-9-]+)$/);
   if (m) {
     try { await loadPost(m[1]); } catch { /* the page shows a retry state */ }
+    return;
   }
+  await preloadLanding(pathname);
 }

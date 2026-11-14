@@ -10,11 +10,13 @@ import { AboutPage, ContactPage } from './CompanyPages.tsx';
 import { BlogIndexPage, BlogPostPage } from './BlogPages.tsx';
 import NotFoundPage from './NotFoundPage.tsx';
 import HelpPage from './HelpPage.tsx';
+import LandingRoute from './LandingPages.tsx';
 import PrivacyPolicy from '../components/PrivacyPolicy.tsx';
 import TermsOfService from '../components/TermsOfService.tsx';
 import Security from '../components/Security.tsx';
 import { getPageSeo, applySeoToDocument, NOT_FOUND_SEO } from './seo.ts';
 import { getLoadedPost } from './blogLoader.ts';
+import { getLoadedLandingForPath } from './landingLoader.ts';
 import { normalizePath } from './routes.ts';
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -40,7 +42,7 @@ const MarketingSite: React.FC = () => {
   useEffect(() => {
     const path = normalizePath(location.pathname);
     const slug = path.startsWith('/blog/') ? path.slice(6) : '';
-    const seo = getPageSeo(path, slug ? getLoadedPost(slug) : null) || NOT_FOUND_SEO(path);
+    const seo = getPageSeo(path, slug ? getLoadedPost(slug) : null, getLoadedLandingForPath(path)) || NOT_FOUND_SEO(path);
     if (!first.current) applySeoToDocument(seo);
     first.current = false;
 
@@ -69,6 +71,10 @@ const MarketingSite: React.FC = () => {
         <Route path="/terms" element={<TermsOfService />} />
         <Route path="/security" element={<Security />} />
         <Route path="/help" element={<HelpPage />} />
+        <Route path="/ai-estimate-generator" element={<LandingRoute />} />
+        <Route path="/ai-invoice-generator" element={<LandingRoute />} />
+        <Route path="/for/:slug" element={<LandingRoute />} />
+        <Route path="/compare/:slug" element={<LandingRoute />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </SiteLayout>

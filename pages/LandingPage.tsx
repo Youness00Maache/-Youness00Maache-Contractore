@@ -8,7 +8,18 @@ import {
 } from './components/LandingVisuals.tsx';
 import { PlanCards, PeriodToggle, type Period } from './components/PlanCards.tsx';
 import { ArrowRight } from './components/icons.tsx';
-import { TRADES, HOME_FAQ, SIGNUP_PATH } from '../content/site.ts';
+import { TRADES, HOME_FAQ, SIGNUP_PATH, type TradeIconName } from '../content/site.ts';
+
+/** Trade pages (content/landing) linked from the trades tape; general contractors have none yet. */
+const TRADE_PAGES: Partial<Record<TradeIconName, string>> = {
+  remodel: '/for/remodelers',
+  electric: '/for/electricians',
+  plumbing: '/for/plumbers',
+  hvac: '/for/hvac',
+  roofing: '/for/roofers',
+  landscaping: '/for/landscapers',
+  handyman: '/for/handyman',
+};
 
 const FeatureRow: React.FC<{
   eyebrow: string;
@@ -115,7 +126,7 @@ const LandingPage: React.FC = () => {
           <h2 id="trades-heading" className="text-center text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Made for the trades
           </h2>
-          <TradesTape trades={TRADES} />
+          <TradesTape trades={TRADES.map((t) => ({ ...t, to: TRADE_PAGES[t.id] }))} />
         </Container>
       </section>
 
