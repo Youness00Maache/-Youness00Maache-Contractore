@@ -455,8 +455,20 @@ export interface PurchaseOrderData extends DocumentStyle {
   title?: string;
   poNumber: string;
   date: string;
+  /** "Required by": also the expected delivery (late orders are flagged) */
   deliveryDate: string;
-  status: 'Draft' | 'Sent' | 'Received' | 'Cancelled';
+  /** lifecycle (lib/poLifecycle.ts); 'Received' = older orders (= Delivered), kept as saved */
+  status: 'Draft' | 'Sent' | 'Confirmed' | 'Partially delivered' | 'Delivered' | 'Invoiced' | 'Paid' | 'Received' | 'Cancelled';
+
+  // Supplier invoice + payment (roadmap N2)
+  supplierInvoiceNumber?: string;
+  supplierInvoiceAmount?: number;
+  supplierInvoiceDate?: string;
+  paidDate?: string;
+  /** the invoice file in the private bucket document-assets (lib/poLifecycle.ts SupplierInvoiceFile) */
+  internalSupplierInvoiceFile?: { path: string; name: string; type: string; size: number; uploadedAt: string } | null;
+  /** deliveries (lib/poLifecycle.ts DeliveriesRecord), written by Record delivery */
+  internalDeliveries?: unknown;
 
   // Vendor
   vendorName: string;

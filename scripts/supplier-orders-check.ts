@@ -21,8 +21,15 @@ import {
     planReorder, purchaseOrderStage, receiptMarker, receiveReason, removeSupplier, serializeReorderSetting, serializeSuppliers, setReorderQty,
     stripReceiptMarker, supplierToVendor, unitCostFor, upsertSupplier, vendorSaveState, vendorToSupplierInput, withAccountNumberNote, withReceipt,
     type StockItemLike, type Supplier,
+    claimDeliveryFinish, deliveryHistory, deliveryReason, finishDelivery, makeDelivery, planDelivery, withDelivery,
 } from '../lib/suppliers.ts';
+import {
+    DELIVERIES_KEY, PO_STATUSES, SUPPLIER_INVOICE_FILE_KEY, deliveryMarker, deliveryProgress, ensureLineIds, lineIndexFor, parseDeliveries,
+    parseSupplierInvoiceFile, poStatusKind, poStatusOptions, statusAfterSupplierInvoice, supplierInvoiceFileProblem, supplierInvoicePath,
+    unfinishedDelivery, withStatusDates,
+} from '../lib/poLifecycle.ts';
 import { buildDuplicateDocumentData } from '../lib/documents.ts';
+import { deriveDocNotifications, docInputOf } from '../lib/notifications/model.ts';
 import { FormType, type Job } from '../types.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -316,6 +323,165 @@ const FERG = normalizeSupplier({ id: 's_fe', name: 'Ferguson', email: 'po@fergus
     eq('stage: partly received', purchaseOrderStage(withReceipt(po, partial)), 'receiving');
     eq('stage: received', purchaseOrderStage(received), 'received');
     eq('stage: cancelled', purchaseOrderStage({ status: 'Cancelled' }), 'cancelled');
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 7b. roadmap N2: lifecycle statuses, Record delivery (partial deliveries, once per delivery id), supplier invoice
+// ---------------------------------------------------------------------------------------------------------------
+{
+    const DOC = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const T0 = '2026-11-14T10:00:00.000Z';
+    const po: Record<string, unknown> = {
+        poNumber: 'PO-2026-11-008', vendorName: 'Ferguson', status: 'Sent',
+        lineItems: [
+            { id: 'l1', inventoryItemId: PIPE.id, description: PIPE.name, quantity: 7, rate: 12 },
+            { id: 'l2', description: 'copper PIPE ½"', quantity: 3, rate: 12 },
+            { id: 'l3', description: 'Junction box', quantity: 2, rate: 3 },
+            { id: 'l4', description: 'Gravel', quantity: 1, rate: 40 },
+            { id: 'l5', description: 'Note line', quantity: 0, rate: 0 },
+        ],
+    };
+
+    // statuses
+    eq('status kinds (old Received = delivered, Accepted = confirmed)', ['Draft', 'Sent', 'Confirmed', 'Accepted', 'Partially delivered', 'Delivered', 'Received', 'Invoiced', 'Paid', 'Cancelled', 'Rejected', ''].map(poStatusKind),
+        ['draft', 'sent', 'confirmed', 'confirmed', 'partial', 'delivered', 'delivered', 'invoiced', 'paid', 'cancelled', 'cant-fill', 'draft']);
+    eq('status options: the lifecycle', poStatusOptions('Sent'), [...PO_STATUSES]);
+    eq('status options keep an older status next to its new name', poStatusOptions('Received'), ['Draft', 'Sent', 'Confirmed', 'Partially delivered', 'Delivered', 'Received', 'Invoiced', 'Paid', 'Cancelled']);
+    eq('Paid sets the paid date (today) once', [withStatusDates<Record<string, unknown>>({ status: 'Invoiced' }, 'Paid', '2026-11-14').paidDate, withStatusDates({ paidDate: '2026-11-01' }, 'Paid', '2026-11-14').paidDate], ['2026-11-14', '2026-11-01']);
+    eq('other statuses leave the paid date alone', withStatusDates<Record<string, unknown>>({ status: 'Sent' }, 'Delivered', '2026-11-14').paidDate, undefined);
+    eq('the supplier invoice # moves the order to Invoiced', statusAfterSupplierInvoice('Delivered', { supplierInvoiceNumber: 'INV-1' }), 'Invoiced');
+    eq('an amount alone does too', statusAfterSupplierInvoice('Partially delivered', { supplierInvoiceAmount: 120 }), 'Invoiced');
+    eq('Paid / Cancelled stay', [statusAfterSupplierInvoice('Paid', { supplierInvoiceNumber: 'x' }), statusAfterSupplierInvoice('Cancelled', { supplierInvoiceNumber: 'x' })], ['Paid', 'Cancelled']);
+    eq('no invoice data → unchanged', statusAfterSupplierInvoice('Sent', {}), 'Sent');
+
+    // first delivery: part of the order
+    const plan1 = planDelivery({ data: po, items: ITEMS, documentId: DOC });
+    eq('delivery plan: ready', plan1.status, 'ready');
+    eq('lines: ordered / remaining, inventory item per line', plan1.lines.map((l) => [l.ordered, l.remaining, l.itemId || l.reason]), [[7, 7, PIPE.id], [3, 3, PIPE.id], [2, 2, BOX.id], [1, 1, 'not-in-inventory'], [0, 0, 'not-in-inventory']]);
+    eq('a delivery needs a quantity', makeDelivery(plan1, { id: 'dlv_first1', date: '2026-11-14', qty: { 0: 0, 1: 0, 2: 0, 3: 0 } }, T0).error, 'Enter a delivered quantity on at least one line.');
+    const capped = makeDelivery(plan1, { id: 'dlv_first1', date: '2026-11-14', qty: { 0: 99, 1: 0, 2: 0, 3: 0 } }, T0).delivery!;
+    eq('a quantity above what is still to come is capped', capped.lines.map((l) => l.qty), [7]);
+    const { delivery: d1 } = makeDelivery(plan1, { id: 'dlv_first1', date: '2026-11-13', note: ' Slip  #44 ', qty: { 0: 4, 1: 0, 2: 2, 3: 1 } }, T0);
+    eq('delivery lines per PO line (ids kept)', d1!.lines.map((l) => [l.lineId, l.qty]), [['l1', 4], ['l3', 2], ['l4', 1]]);
+    eq('ONLY this delivery’s quantities go into stock, summed per item', d1!.items.map((m) => [m.itemId, m.qty]), [[PIPE.id, 4], [BOX.id, 2]]);
+    eq('a line not in inventory is tracked on the order only', d1!.unmatched, [{ description: 'Gravel', qty: 1, reason: 'not-in-inventory' }]);
+    eq('the claim: receiving, nothing applied yet, date + note kept', [d1!.state, d1!.applied, d1!.date, d1!.note], ['receiving', [], '2026-11-13', 'Slip #44']);
+    const claimed1 = withDelivery(po, d1!, { rev: 'r1' });
+    eq('the claim moves the status to Partially delivered', claimed1.status, 'Partially delivered');
+    const done1 = finishDelivery(d1!, [PIPE.id, BOX.id], [], T0);
+    eq('finish: done when every item is in', [done1.state, done1.doneAt], ['done', T0]);
+    const after1 = withDelivery(claimed1, done1, { rev: 'r2' });
+    eq('the delivery replaces its claim (one record per id)', parseDeliveries(after1)?.list.map((x) => [x.id, x.state]), [['dlv_first1', 'done']]);
+    eq('deliveries survive a JSON round trip', parseDeliveries(JSON.parse(JSON.stringify(after1))), parseDeliveries(after1));
+    const prog1 = deliveryProgress(after1);
+    eq('remaining per line after the first delivery', prog1.lines.map((l) => l.remaining), [3, 3, 0, 0, 0]);
+    eq('progress totals', [prog1.orderedQty, prog1.deliveredQty, prog1.remainingQty, prog1.anyDelivered, prog1.allDelivered], [13, 7, 6, true, false]);
+    eq('stage: partially delivered', purchaseOrderStage(after1), 'partial');
+
+    // second delivery: the default is everything still to come → Delivered
+    const plan2 = planDelivery({ data: after1, items: ITEMS, documentId: DOC });
+    eq('second plan: only what is still to come', plan2.lines.map((l) => l.remaining), [3, 3, 0, 0, 0]);
+    const { delivery: d2 } = makeDelivery(plan2, { id: 'dlv_second', date: '2026-11-14' }, T0);
+    eq('default quantity = remaining; stock adds only the rest', d2!.items.map((m) => [m.itemId, m.qty]), [[PIPE.id, 6]]);
+    const after2 = withDelivery(after1, finishDelivery(d2!, [PIPE.id], [], T0), { rev: 'r3' });
+    eq('all delivered → status Delivered', [after2.status, purchaseOrderStage(after2)], ['Delivered', 'received']);
+    eq('nothing left → a new delivery has nothing to add', planDelivery({ data: after2, items: ITEMS, documentId: DOC }).status, 'already');
+    eq('an Invoiced order keeps its status after a delivery', withDelivery({ ...after1, status: 'Invoiced' }, finishDelivery(d2!, [PIPE.id], [], T0), { rev: 'r4' }).status, 'Invoiced');
+    eq('delivery without inventory lines is done at once (no stock to add)', makeDelivery(plan1, { id: 'dlv_gravel', date: '2026-11-14', qty: { 0: 0, 1: 0, 2: 0, 3: 1 } }, T0).delivery?.state, 'done');
+
+    // idempotent per delivery id
+    eq('the same delivery id again adds nothing', [planDelivery({ data: after1, items: ITEMS, documentId: DOC, deliveryId: 'dlv_first1' }).status, planDelivery({ data: after1, items: ITEMS, documentId: DOC, deliveryId: 'dlv_first1' }).moves.length], ['already', 0]);
+    // two receivers: device A claimed delivery 1 and is still adding stock; device B opens the same delivery
+    const reason = deliveryReason(po, DOC, 'dlv_first1');
+    check('history note names the PO and ends with both markers', reason.startsWith('Delivery of PO PO-2026-11-008 from Ferguson') && reason.endsWith(`${receiptMarker(DOC)} ${deliveryMarker('dlv_first1')}`));
+    eq('both markers are hidden in the history list', stripReceiptMarker(reason), 'Delivery of PO PO-2026-11-008 from Ferguson');
+    const histA = [{ item_id: PIPE.id, quantity_change: 4, notes: reason, created_at: '2026-11-14T10:00:05.000Z' }];
+    const busy = planDelivery({ data: claimed1, items: ITEMS, documentId: DOC, deliveryId: 'dlv_first1', history: histA, now: '2026-11-14T10:00:30.000Z' });
+    eq('two receivers: B waits while A is still adding this delivery', [busy.status, busy.moves.length], ['busy', 0]);
+    const resume = planDelivery({ data: claimed1, items: ITEMS, documentId: DOC, deliveryId: 'dlv_first1', history: histA, now: '2026-11-14T10:10:00.000Z' });
+    eq('a delivery left half-way (tab closed): Finish adds only the missing item', [resume.status, resume.moves.map((m) => [m.itemId, m.qty]), resume.skipped.map((m) => m.itemId)], ['finish', [[BOX.id, 2]], [PIPE.id]]);
+    eq('finish claim keeps what was added', claimDeliveryFinish(resume, T0)?.applied, [PIPE.id]);
+    eq('the half-way delivery is offered as Finish delivery', unfinishedDelivery(claimed1, '2026-11-14T10:10:00.000Z')?.id, 'dlv_first1');
+    eq('…but not while it is fresh', unfinishedDelivery(claimed1, '2026-11-14T10:00:30.000Z'), null);
+    const failedPart = withDelivery(po, finishDelivery(d1!, [PIPE.id], [BOX.id], T0), { rev: 'r9' });
+    eq('a failed item → partial, Finish adds only that item', planDelivery({ data: failedPart, items: ITEMS, documentId: DOC, deliveryId: 'dlv_first1' }).moves.map((m) => m.itemId), [BOX.id]);
+    // B records a NEW delivery while A's claim is in flight: A's quantities already count as delivered
+    const planB = planDelivery({ data: claimed1, items: ITEMS, documentId: DOC, history: histA, now: '2026-11-14T10:00:30.000Z' });
+    eq('two receivers, new delivery: A’s claimed quantities are not offered again', planB.lines.map((l) => l.remaining), [3, 3, 0, 0, 0]);
+    // a stale open form saved the PO without its deliveries: the stock history brings them back (no double stock)
+    const lostHistory = [
+        { item_id: PIPE.id, quantity_change: 4, notes: reason, created_at: '2026-11-14T10:00:05.000Z' },
+        { item_id: BOX.id, quantity_change: 2, notes: reason, created_at: '2026-11-14T10:00:06.000Z' },
+        { item_id: WIRE.id, quantity_change: 5, notes: 'Manual restock' },
+    ];
+    const stale = planDelivery({ data: po, items: ITEMS, documentId: DOC, history: lostHistory });
+    eq('stale form: the lost delivery is recovered from the history', [stale.recovered.map((r) => r.id), stale.recovered[0]?.state], [['dlv_first1'], 'done']);
+    eq('stale form: its quantities count as delivered', stale.lines.map((l) => l.remaining), [3, 3, 0, 1, 0]);
+    const healed = withDelivery(po, makeDelivery(stale, { id: 'dlv_third1', date: '2026-11-15', qty: { 0: 3, 1: 0, 3: 0 } }, T0).delivery!, { rev: 'r5', recovered: stale.recovered });
+    eq('the next delivery writes the recovered one back', parseDeliveries(healed)?.list.map((x) => x.id), ['dlv_first1', 'dlv_third1']);
+    eq('history split per delivery id, corrections netted', (() => {
+        const h = deliveryHistory([...lostHistory, { item_id: BOX.id, quantity_change: -2, notes: `Fix ${receiptMarker(DOC)} ${deliveryMarker('dlv_first1')}` }], DOC);
+        return [Array.from(h.byDelivery.get('dlv_first1')?.keys() || []), h.legacy.size];
+    })(), [[PIPE.id], 0]);
+
+    // older purchase orders behave as before
+    const oldReceived = { ...po, status: 'Received', [RECEIPT_KEY]: { v: 1, at: T0, state: 'done', items: [{ itemId: PIPE.id, qty: 10 }, { itemId: BOX.id, qty: 2 }], applied: [PIPE.id, BOX.id], doneAt: T0 } };
+    eq('older Received (Mark received done): everything delivered, nothing to add', [planDelivery({ data: oldReceived, items: ITEMS, documentId: DOC }).status, deliveryProgress(oldReceived).allDelivered], ['already', true]);
+    eq('older Received: stage unchanged', purchaseOrderStage(oldReceived), 'received');
+    const oldPartial = { ...po, [RECEIPT_KEY]: { v: 1, at: T0, state: 'partial', items: [{ itemId: PIPE.id, qty: 10 }], applied: [] } };
+    eq('older half-way Mark received: finish it the older way first', [planDelivery({ data: oldPartial, items: ITEMS, documentId: DOC }).status, purchaseOrderStage(oldPartial)], ['legacy', 'receiving']);
+    eq('older status Received set by hand (no stock added): Add to stock offers the whole order', planDelivery({ data: { ...po, status: 'Received' }, items: ITEMS, documentId: DOC }).lines.map((l) => l.remaining), [7, 3, 2, 1, 0]);
+    const legacyRows = [{ item_id: PIPE.id, quantity_change: 10, notes: receiveReason(po, DOC) }, { item_id: BOX.id, quantity_change: 2, notes: receiveReason(po, DOC) }];
+    const legacyLost = planDelivery({ data: po, items: ITEMS, documentId: DOC, history: legacyRows });
+    eq('older receipt lost by a stale save: its stock history still blocks a second add', [legacyLost.lines.map((l) => l.remaining), legacyLost.recovered.map((r) => r.id)], [[0, 0, 0, 1, 0], ['dlv_legacyreceipt']]);
+    eq('a cancelled order takes no delivery', planDelivery({ data: { ...po, status: 'Cancelled' }, items: ITEMS, documentId: DOC }).status, 'closed');
+    eq('no quantities → nothing', planDelivery({ data: { lineItems: [{ description: 'x', quantity: 0 }] }, items: ITEMS, documentId: DOC }).status, 'nothing');
+
+    // lines without ids (very old POs) get one when a delivery is claimed; position is the fallback
+    const ensured = ensureLineIds([{ id: 'a' }, {}, { id: 'a' }, { id: 'c' }], (() => { let n = 0; return () => `n${++n}`; })());
+    eq('ensureLineIds keeps ids, fills missing / duplicate ones', [ensured.lines.map((l) => l.id), ensured.changed], [['a', 'n1', 'n2', 'c'], true]);
+    eq('a delivery line finds its PO line by id, else by position', [lineIndexFor([{ id: 'x' }, { id: 'y' }], { lineId: 'y', index: 0 }), lineIndexFor([{}, {}], { lineId: '', index: 1 }), lineIndexFor([{ id: 'x' }], { lineId: 'gone', index: 0 })], [1, 1, -1]);
+
+    // on order: a partly delivered order counts only what is still to come
+    check('open statuses include Confirmed and Partially delivered', ['confirmed', 'partially delivered'].every((s) => (OPEN_PO_STATUSES as readonly string[]).includes(s)));
+    const partialOpen = { id: 'po7', poNumber: 'PO-7', status: after1.status, lineItems: after1.lineItems, internalDeliveries: after1[DELIVERIES_KEY] };
+    eq('on order: partly delivered PO counts the rest only', onOrderByItem([partialOpen], ITEMS).get(PIPE.id), { qty: 6, orders: ['PO-7'] });
+    check('a fully delivered order is not open', !isOpenPurchaseOrder({ id: 'po8', status: 'Partially delivered', lineItems: after2.lineItems, internalDeliveries: after2[DELIVERIES_KEY] }));
+    eq('stages: invoiced, paid', [purchaseOrderStage({ ...after2, status: 'Invoiced' }), purchaseOrderStage({ ...oldReceived, status: 'Paid' })], ['invoiced', 'paid']);
+
+    // supplier invoice file: owner folder in the private bucket, same limits as the papers vault
+    const path = supplierInvoicePath('11111111-2222-4333-8444-555555555555', DOC, 'abc123', 'Invoice 7.PDF', 'application/pdf');
+    eq('invoice file path: <user>/purchase-orders/<document>/<random>.pdf', path, `11111111-2222-4333-8444-555555555555/purchase-orders/${DOC}/abc123.pdf`);
+    const policy = read('supabase/migrations/20261112000300_billing_storage_privileges.sql');
+    check('bucket policy: document-assets is private, first folder = the owner', /\('document-assets',\s*'document-assets',\s*false/.test(policy) && policy.includes('(storage.foldername(name))[1] = (select auth.uid())::text'));
+    eq('file checks: type, size, empty', [
+        supplierInvoiceFileProblem({ type: 'application/pdf', size: 1000, name: 'a.pdf' }), supplierInvoiceFileProblem({ type: 'text/plain', size: 10, name: 'a.txt' }),
+        supplierInvoiceFileProblem({ type: 'image/jpeg', size: 16 * 1024 * 1024, name: 'a.jpg' }), supplierInvoiceFileProblem({ type: '', size: 0, name: 'a.pdf' }),
+    ], ['', 'Use a PDF or a photo (JPG, PNG, WebP).', 'The file is larger than 15 MB.', 'The file is empty.']);
+    eq('stored file read back; a path outside the PO folder is refused', [parseSupplierInvoiceFile({ internalSupplierInvoiceFile: { path, name: 'Invoice 7.PDF', size: 10 } })?.path, parseSupplierInvoiceFile({ internalSupplierInvoiceFile: { path: 'other/papers/x.pdf' } })], [path, null]);
+
+    // a copy starts fresh
+    const dup = buildDuplicateDocumentData({ ...after2, supplierInvoiceNumber: 'INV-9', supplierInvoiceAmount: 99, supplierInvoiceDate: '2026-11-14', paidDate: '2026-11-14', internalSupplierInvoiceFile: { path } });
+    check('a duplicated PO has no deliveries, supplier invoice or paid date', ['internalDeliveries', 'internalSupplierInvoiceFile', 'supplierInvoiceNumber', 'supplierInvoiceAmount', 'supplierInvoiceDate', 'paidDate'].every((k) => !(k in dup)) && dup.status === 'Draft');
+    check('deliveries and the file are internal keys (hidden from supplier pages)', /internal/.test(DELIVERIES_KEY) && /internal/.test(SUPPLIER_INVOICE_FILE_KEY));
+
+    // wiring
+    const api = read('lib/suppliersApi.ts');
+    check('Record delivery claims with compare-and-set on the deliveries rev, never next to an older receipt', api.includes('->>rev`, plan.record.rev)') && /update\(\{ data: claimData \}\)\.eq\('id', documentId\)\.is\(`data->\$\{RECEIPT_KEY\}`, null\);\s+claim = plan\.record\?\.rev/.test(api));
+    check('Record delivery: busy / legacy / closed refused before any stock moves', /plan\.status === 'busy'\) throw[\s\S]*?rpc\('adjust_inventory'/.test(api.split('export async function recordDelivery')[1] || ''));
+    check('finishing a delivery merges into the freshest copy (never drops one recorded elsewhere)', api.includes('async function saveDelivery') && api.includes('fetchFullDocument(documentId, { force: true })'));
+    check('invoice files go to document-assets', api.includes("PO_FILES_BUCKET = 'document-assets'") && api.includes('createSignedUrl(path, 3600)'));
+    const form = read('components/PurchaseOrderForm.tsx');
+    check('PO form: Record delivery, deliveries log, supplier invoice, status list', ['<RecordDeliveryDialog', '<DeliveriesLog', '<SupplierInvoiceFields', 'poStatusOptions(d.status)', 'onMarkPaid={markPaid}'].every((s) => form.includes(s)));
+    check('PO PDF unchanged (template prints the status as saved)', read('utils/templates/model.ts').includes("model.status = badge(d.status, /^(draft|)$/i);"));
+    const notifications = read('lib/notifications/sources.ts');
+    check('notifications: deliveries are selected', notifications.includes("'deliveries:data->internalDeliveries->list'"));
+    const nowMs = Date.parse('2026-11-14T12:00:00.000Z');
+    const row = docInputOf({ id: 'p9', user_id: 'u1', job_id: 'j1', type: 'Purchase Order', created_at: '2026-11-10T10:00:00.000Z', poNumber: 'PO-9', vendorName: 'Ferguson', deliveries: (parseDeliveries(after2)?.list || []) });
+    eq('notifications: one per finished delivery', deriveDocNotifications([row], { uid: 'u1', now: nowMs }).map((n) => n.text), [
+        'PO-9 from Ferguson: delivery recorded, 2 items added to stock', 'PO-9 from Ferguson: delivery recorded, 1 item added to stock',
+    ]);
+    eq('notifications: a delivery still being added says nothing yet', deriveDocNotifications([docInputOf({ id: 'p9', type: 'Purchase Order', poNumber: 'PO-9', deliveries: [{ ...d1, state: 'receiving' }] })], { uid: 'u1', now: nowMs }), []);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

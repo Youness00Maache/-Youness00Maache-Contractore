@@ -15,6 +15,9 @@
  *   received into stock       documents.data.internalStockReceipt = StockReceipt (once-only guard), plus one
  *                             inventory_history row per item (RPC adjust_inventory) whose note ends with
  *                             "[po:<document id>]": a second guard that survives a stale form overwriting `data`.
+ *   deliveries (roadmap N2)   documents.data.internalDeliveries (lib/poLifecycle.ts): "Record delivery" adds only that
+ *                             delivery's quantities, once per delivery id; history notes end with
+ *                             "[po:<document id>] [dlv:<delivery id>]". The older receipt above stays for POs that have it.
  * Keys containing "internal" are never sent to client / supplier pages (public._client_safe_doc_data strips them).
  */
 import { FormType, type Job, type LineItem, type UserProfile } from '../types.ts';
@@ -22,6 +25,10 @@ import { toNumber, roundMoney } from '../utils/money.ts';
 import { DOC_NUMBER_CONFIG, newId, nextDocumentNumber } from '../components/forms/formUtils.ts';
 import { makeDocumentDefaults } from '../src/ai/planDocuments.ts';
 import { lowStockThreshold, stockStatus } from '../utils/stockMath.ts';
+import {
+    DELIVERIES_KEY, deliveryIdInNote, deliveryMarker, deliveryProgress, isClaimFresh, legacyReceiptState, parseDeliveries, poStatusKind,
+    statusAfterDelivery, type DeliveriesRecord, type LineProgress, type PoDelivery, type PoDeliveryLine,
+} from './poLifecycle.ts';
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v)).trim();
 const clip = (v: unknown, max: number): string => str(v).replace(/\s+/g, ' ').slice(0, max);
@@ -329,8 +336,11 @@ const linesOf = (data: unknown): Record<string, unknown>[] => {
 // =====================================================================================================================
 // Open purchase orders ("on order")
 // =====================================================================================================================
-/** Statuses of a purchase order whose goods have not arrived yet (Accepted = confirmed by the supplier). */
-export const OPEN_PO_STATUSES = ['draft', 'sent', 'accepted', 'approved', ''] as const;
+/**
+ * Statuses of a purchase order whose goods have not (all) arrived yet (Accepted / Approved = confirmed by the supplier
+ * through the confirm link; Confirmed and Partially delivered: roadmap N2).
+ */
+export const OPEN_PO_STATUSES = ['draft', 'sent', 'accepted', 'approved', '', 'confirmed', 'partially delivered'] as const;
 
 export interface PurchaseOrderLike {
     id: string;
@@ -340,13 +350,18 @@ export interface PurchaseOrderLike {
     lineItems?: unknown;
     /** data.internalStockReceipt (or the whole data object's) */
     internalStockReceipt?: unknown;
+    /** data.internalDeliveries (lib/poLifecycle.ts) */
+    internalDeliveries?: unknown;
     createdAt?: unknown;
 }
 
 export const isOpenPurchaseOrder = (po: PurchaseOrderLike): boolean => {
     if (!(OPEN_PO_STATUSES as readonly string[]).includes(normName(po.status))) return false;
     const receipt = parseStockReceipt({ internalStockReceipt: po.internalStockReceipt });
-    return !receipt;
+    if (receipt) return false;
+    // partly delivered: open while something is still to come
+    const deliveries = parseDeliveries(po);
+    return !deliveries?.list.length || deliveryProgress(po).remainingQty > 0;
 };
 
 export interface OnOrder {
@@ -355,22 +370,26 @@ export interface OnOrder {
     orders: string[];
 }
 
-/** How much of each item is already on an open purchase order (linked lines, else exact-name lines). */
+/**
+ * How much of each item is already on an open purchase order (linked lines, else exact-name lines). A partly
+ * delivered order counts only what is still to come.
+ */
 export const onOrderByItem = (pos: readonly PurchaseOrderLike[], items: readonly StockItemLike[]): Map<string, OnOrder> => {
     const index = buildItemIndex(items);
     const out = new Map<string, OnOrder>();
     for (const po of pos) {
         if (!isOpenPurchaseOrder(po)) continue;
         const label = str(po.poNumber) || 'PO';
-        for (const line of linesOf({ lineItems: po.lineItems })) {
-            const qty = toNumber(line.quantity);
-            if (!(qty > 0)) continue;
+        const progress = parseDeliveries(po) ? deliveryProgress(po).lines : null;
+        linesOf({ lineItems: po.lineItems }).forEach((line, i) => {
+            const qty = progress ? (progress[i]?.remaining ?? toNumber(line.quantity)) : toNumber(line.quantity);
+            if (!(qty > 0)) return;
             const m = matchLineToItem(line, index);
-            if (!m.item) continue;
+            if (!m.item) return;
             const key = String(m.item.id).toLowerCase();
             const prev = out.get(key) || { qty: 0, orders: [] };
             out.set(key, { qty: q3(prev.qty + qty), orders: prev.orders.includes(label) ? prev.orders : [...prev.orders, label] });
-        }
+        });
     }
     return out;
 };
@@ -632,7 +651,7 @@ export const receiveReason = (po: { poNumber?: unknown; vendorName?: unknown }, 
     return `Received ${num ? `PO ${num}` : 'purchase order'}${vendor ? ` from ${vendor}` : ''} ${receiptMarker(documentId)}`;
 };
 
-const MARKER_RE = /\s*\[po:[0-9a-f-]{36}\]/gi;
+const MARKER_RE = /\s*\[(?:po:[0-9a-f-]{36}|dlv:dlv_[a-z0-9]{6,32})\]/gi;
 /** The note without the guard marker (for display). */
 export const stripReceiptMarker = (note: unknown): string => str(note).replace(MARKER_RE, '').trim();
 
@@ -747,25 +766,270 @@ export const withReceipt = <T extends Record<string, unknown>>(data: T, receipt:
     ...(receipt.state === 'done' ? { status: 'Received' } : {}),
 });
 
-/** A copy of a PO (Duplicate) starts un-received and is not a reorder record. */
-export const SUPPLIER_INTERNAL_KEYS = [RECEIPT_KEY, 'internalReorder'] as const;
+/** A copy of a PO (Duplicate) starts un-received and is not a reorder record (lib/documents.ts strips these). */
+export const SUPPLIER_INTERNAL_KEYS = [RECEIPT_KEY, 'internalReorder', DELIVERIES_KEY, 'internalSupplierInvoiceFile'] as const;
+
+// =====================================================================================================================
+// "Record delivery" (roadmap N2): per-line delivered quantities; each delivery adds ONLY its quantities, once
+// =====================================================================================================================
+export interface PoHistoryRow {
+    item_id?: string | null;
+    quantity_change?: unknown;
+    notes?: string | null;
+    created_at?: string | null;
+}
+
+/** This PO's stock-history rows, split per delivery id ([dlv:…]) and the older receipt's rows (no delivery marker). */
+export const deliveryHistory = (rows: readonly PoHistoryRow[], documentId: string) => {
+    const marker = receiptMarker(documentId);
+    const byDelivery = new Map<string, Map<string, number>>();
+    const legacy = new Map<string, number>();
+    const firstAt = new Map<string, string>();
+    for (const r of rows) {
+        const id = str(r.item_id).toLowerCase();
+        const note = str(r.notes).toLowerCase();
+        if (!id || !note.includes(marker)) continue;
+        const dlv = deliveryIdInNote(note);
+        const bucket = dlv ? (byDelivery.get(dlv) || new Map<string, number>()) : legacy;
+        bucket.set(id, q3((bucket.get(id) || 0) + toNumber(r.quantity_change)));
+        if (dlv) {
+            byDelivery.set(dlv, bucket);
+            const at = str(r.created_at);
+            if (at && (!firstAt.has(dlv) || at < (firstAt.get(dlv) as string))) firstAt.set(dlv, at);
+        }
+    }
+    const positive = (m: Map<string, number>) => new Map(Array.from(m.entries()).filter(([, n]) => n > 0));
+    return {
+        byDelivery: new Map(Array.from(byDelivery.entries()).map(([k, m]) => [k, positive(m)] as const).filter(([, m]) => m.size > 0)),
+        legacy: positive(legacy),
+        firstAt,
+    };
+};
+
+/** Stock-history note of one delivered item (ends with both guard markers). */
+export const deliveryReason = (po: { poNumber?: unknown; vendorName?: unknown }, documentId: string, deliveryId: string): string => {
+    const num = clip(po.poNumber, 60);
+    const vendor = clip(po.vendorName, 80);
+    return `Delivery of ${num ? `PO ${num}` : 'purchase order'}${vendor ? ` from ${vendor}` : ''} ${receiptMarker(documentId)} ${deliveryMarker(deliveryId)}`;
+};
+
+export interface DeliveryLinePlan extends LineProgress {
+    /** inventory item the line goes into ('' = tracked on the order only) */
+    itemId: string;
+    itemName: string;
+    reason: UnmatchedLine['reason'] | null;
+}
+
+export interface DeliveryPlan {
+    /**
+     * ready = something is still to come (a new delivery can be recorded); finish = this delivery stopped half-way
+     * (only its missing items are added); busy = this delivery is being added on another device / tab right now;
+     * already = nothing left (this delivery is done, or every line arrived); nothing = no line has a quantity;
+     * legacy = the order has an older unfinished "Mark received" (finish that first); closed = cancelled
+     */
+    status: 'ready' | 'finish' | 'busy' | 'already' | 'nothing' | 'legacy' | 'closed';
+    lines: DeliveryLinePlan[];
+    /** the deliveries as stored on the PO (null = none yet); its rev is what the claim compares */
+    record: DeliveriesRecord | null;
+    /** the delivery with the requested id */
+    existing: PoDelivery | null;
+    /** deliveries found only in the stock history (an older open form saved over the PO): they count as delivered */
+    recovered: PoDelivery[];
+    /** finish: stock still to add / already added */
+    moves: ReceiveMove[];
+    skipped: ReceiveMove[];
+}
+
+/** Item quantities recovered from the history, spread over the lines of that item (in order, up to what's left). */
+const allocateRecovered = (lines: readonly DeliveryLinePlan[], perItem: Map<string, number>): PoDeliveryLine[] => {
+    const left = new Map(lines.map((l) => [l.index, l.remaining]));
+    const out: PoDeliveryLine[] = [];
+    for (const [itemId, qty] of perItem) {
+        let rest = qty;
+        for (const l of lines) {
+            if (rest <= 0) break;
+            if (l.itemId !== itemId) continue;
+            const take = q3(Math.min(rest, left.get(l.index) || 0));
+            if (take <= 0) continue;
+            left.set(l.index, q3((left.get(l.index) || 0) - take));
+            rest = q3(rest - take);
+            out.push({ lineId: l.lineId, index: l.index, description: l.description, qty: take });
+        }
+    }
+    return out;
+};
+
+/**
+ * What "Record delivery" can do on this PO: per line ordered / delivered / remaining and the inventory item it goes
+ * into; for an existing delivery id, what is left of it. `history` = this PO's stock-history rows (the guard that
+ * survives a stale form overwriting `data`): a delivery that is in the history but not on the PO is recovered and
+ * counts as delivered, so it is never added twice.
+ */
+export const planDelivery = (args: {
+    data: unknown;
+    items: readonly StockItemLike[];
+    documentId: string;
+    history?: readonly PoHistoryRow[];
+    deliveryId?: string | null;
+    now?: string | number | Date;
+}): DeliveryPlan => {
+    const data = (args.data && typeof args.data === 'object' ? args.data : {}) as Record<string, unknown>;
+    const record = parseDeliveries(data);
+    const hist = deliveryHistory(args.history || [], args.documentId);
+    const index = buildItemIndex(args.items);
+    const base = { record, existing: null, recovered: [] as PoDelivery[], moves: [] as ReceiveMove[], skipped: [] as ReceiveMove[] };
+    const legacy = legacyReceiptState(data);
+    const rawLines = linesOf(data);
+    const describe = (progress: LineProgress[]): DeliveryLinePlan[] => progress.map((p) => {
+        const m = matchLineToItem(rawLines[p.index], index);
+        return {
+            ...p,
+            unit: p.unit || (m.item ? str(m.item.unit) : ''),
+            itemId: m.item ? String(m.item.id).toLowerCase() : '',
+            itemName: m.item ? str(m.item.name) : '',
+            reason: m.item ? null : ('reason' in m ? m.reason : 'not-in-inventory'),
+        };
+    });
+    if (legacy === 'receiving' || legacy === 'partial') return { ...base, status: 'legacy', lines: describe(deliveryProgress(data).lines) };
+
+    // deliveries in the stock history but not on the PO (+ an older receipt's stock whose record was lost)
+    const known = new Set((record?.list || []).map((d) => d.id));
+    let lines = describe(deliveryProgress(data).lines);
+    const recovered: PoDelivery[] = [];
+    const lost: Array<[string, Map<string, number>]> = Array.from(hist.byDelivery.entries()).filter(([id]) => !known.has(id));
+    if (!legacy && hist.legacy.size) lost.unshift(['dlv_legacyreceipt', hist.legacy]);
+    for (const [id, perItem] of lost) {
+        const dl = allocateRecovered(lines, perItem);
+        const first = hist.firstAt.get(id);
+        const at = first && Number.isFinite(Date.parse(first)) ? new Date(first).toISOString() : '';
+        const items = Array.from(perItem.entries()).map(([itemId, qty]) => {
+            const it = index.byId.get(itemId);
+            return { itemId, name: str(it?.name), unit: str(it?.unit), qty };
+        });
+        recovered.push({
+            id, date: at.slice(0, 10), note: 'Recovered from the stock history', at, claimedAt: at, state: 'done', lines: dl, items,
+            applied: items.map((m) => m.itemId), ...(at ? { doneAt: at } : {}), recovered: true,
+        });
+        lines = describe(deliveryProgress(data, recovered).lines);
+    }
+
+    const existing = args.deliveryId ? record?.list.find((d) => d.id === str(args.deliveryId).toLowerCase()) || null : null;
+    if (existing) {
+        if (existing.state === 'done') return { ...base, status: 'already', lines, existing, recovered, skipped: existing.items };
+        const inHistory = hist.byDelivery.get(existing.id) || new Map<string, number>();
+        const applied = new Set([...existing.applied, ...inHistory.keys()]);
+        const moves = existing.items.filter((m) => !applied.has(m.itemId));
+        const skipped = existing.items.filter((m) => applied.has(m.itemId));
+        if (moves.length && existing.state === 'receiving' && isClaimFresh(existing, args.now ?? Date.now())) {
+            return { ...base, status: 'busy', lines, existing, recovered, skipped };
+        }
+        return { ...base, status: moves.length ? 'finish' : 'already', lines, existing, recovered, moves, skipped };
+    }
+    if (poStatusKind(data.status) === 'cancelled') return { ...base, status: 'closed', lines, recovered };
+    const withQty = lines.filter((l) => l.ordered > 0);
+    const status = !withQty.length ? 'nothing' : withQty.some((l) => l.remaining > 0) ? 'ready' : 'already';
+    return { ...base, status, lines, recovered };
+};
+
+export interface DeliveryInput {
+    /** the idempotency key: the same id never adds stock twice */
+    id: string;
+    /** delivered on (YYYY-MM-DD) */
+    date: string;
+    note?: string;
+    /** delivered quantity per line position (missing = everything still to come on that line) */
+    qty?: Record<number, number | string | null | undefined>;
+}
+
+/**
+ * The new delivery (state receiving, the claim) from what the user entered: quantities are capped at what is still
+ * to come on each line; inventory lines become stock moves (summed per item), the others are tracked on the order only.
+ */
+export const makeDelivery = (plan: DeliveryPlan, input: DeliveryInput, now: string): { delivery: PoDelivery | null; error?: string } => {
+    const lines: PoDeliveryLine[] = [];
+    const per = new Map<string, ReceiveMove>();
+    const unmatched: NonNullable<PoDelivery['unmatched']> = [];
+    for (const l of plan.lines) {
+        if (!(l.remaining > 0)) continue;
+        const raw = input.qty?.[l.index];
+        const wanted = raw === undefined || raw === null || raw === '' ? l.remaining : toNumber(raw);
+        const qty = q3(Math.min(l.remaining, Math.max(0, wanted)));
+        if (!(qty > 0)) continue;
+        lines.push({ lineId: l.lineId, index: l.index, description: l.description.slice(0, 200), qty });
+        if (l.itemId) {
+            const prev = per.get(l.itemId);
+            per.set(l.itemId, { itemId: l.itemId, name: l.itemName, unit: l.unit, qty: q3((prev?.qty || 0) + qty) });
+        } else if (l.description) unmatched.push({ description: l.description.slice(0, 200), qty, reason: l.reason || 'not-in-inventory' });
+    }
+    if (!lines.length) return { delivery: null, error: 'Enter a delivered quantity on at least one line.' };
+    const items = Array.from(per.values());
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(str(input.date)) ? str(input.date) : now.slice(0, 10);
+    const delivery: PoDelivery = {
+        id: str(input.id).toLowerCase(), date, note: str(input.note).replace(/\s+/g, ' ').slice(0, 300), at: now, claimedAt: now,
+        state: items.length ? 'receiving' : 'done', lines, items, applied: [],
+        ...(unmatched.length ? { unmatched } : {}), ...(items.length ? {} : { doneAt: now }),
+    };
+    return { delivery };
+};
+
+/** Taking over a delivery that stopped half-way (a new claim with its own time). */
+export const claimDeliveryFinish = (plan: DeliveryPlan, now: string): PoDelivery | null => plan.existing
+    ? { ...plan.existing, state: 'receiving', claimedAt: now, applied: Array.from(new Set([...plan.existing.applied, ...plan.skipped.map((m) => m.itemId)])) }
+    : null;
+
+/** After the stock moves: done when every item is in, partial otherwise (Finish delivery adds the rest). */
+export const finishDelivery = (delivery: PoDelivery, appliedNow: readonly string[], failedNow: readonly string[], now: string): PoDelivery => {
+    const applied = Array.from(new Set([...delivery.applied, ...appliedNow.map((id) => id.toLowerCase())]));
+    const left = delivery.items.filter((m) => !applied.includes(m.itemId));
+    const next: PoDelivery = { ...delivery, applied, state: left.length ? 'partial' : 'done' };
+    if (failedNow.length) next.failed = failedNow.map((id) => id.toLowerCase()); else delete next.failed;
+    if (!left.length) next.doneAt = now;
+    return next;
+};
+
+/**
+ * PO data with this delivery written in (added, or replacing the one with the same id), the recovered deliveries put
+ * back, a new rev, and the status moved to Partially delivered / Delivered.
+ */
+export const withDelivery = <T extends Record<string, unknown>>(
+    data: T, delivery: PoDelivery, opts: { rev: string; recovered?: readonly PoDelivery[] },
+): T => {
+    const prev = parseDeliveries(data)?.list || [];
+    const list = prev.some((d) => d.id === delivery.id) ? prev.map((d) => (d.id === delivery.id ? delivery : d)) : [...prev, delivery];
+    for (const r of [...(opts.recovered || [])].reverse()) if (!list.some((d) => d.id === r.id)) list.unshift(r);
+    const record: DeliveriesRecord = { v: 1, rev: opts.rev, list };
+    const next = { ...data, [DELIVERIES_KEY]: record } as T;
+    return { ...next, status: statusAfterDelivery(data.status, deliveryProgress(next)) };
+};
 
 // =====================================================================================================================
 // Purchase-order status line (form header strip)
 // =====================================================================================================================
-export type PoStage = 'draft' | 'sent' | 'confirmed' | 'cant-fill' | 'receiving' | 'received' | 'cancelled';
+export type PoStage = 'draft' | 'sent' | 'confirmed' | 'cant-fill' | 'receiving' | 'partial' | 'received' | 'invoiced' | 'paid' | 'cancelled';
 
-/** Where a purchase order stands, for the status strip in the form. */
+/**
+ * Where a purchase order stands, for the status strip in the form. 'received' = Delivered (also the older Received);
+ * 'receiving' = an older "Mark received" that stopped half-way; 'partial' = Partially delivered.
+ */
 export const purchaseOrderStage = (data: Record<string, unknown> | null | undefined): PoStage => {
     const d = data || {};
     const receipt = parseStockReceipt(d);
+    const kind = poStatusKind(d.status);
+    if (receipt && receipt.state !== 'done') return 'receiving';
+    if (kind === 'paid') return 'paid';
+    if (kind === 'invoiced') return 'invoiced';
     if (receipt?.state === 'done') return 'received';
-    if (receipt) return 'receiving';
+    if (kind === 'cancelled') return 'cancelled';
+    if (kind === 'delivered') return 'received';
+    if (kind === 'partial') return 'partial';
+    if (parseDeliveries(d)?.list.length) {
+        const progress = deliveryProgress(d);
+        if (progress.allDelivered) return 'received';
+        if (progress.anyDelivered) return 'partial';
+    }
     const s = normName(d.status);
-    if (s === 'cancelled' || s === 'canceled') return 'cancelled';
-    if (s === 'received') return 'received';
     if (s === 'rejected' || s === 'declined' || str(d.clientDeclinedAt)) return 'cant-fill';
-    if (s === 'accepted' || s === 'approved' || str(d.clientSignedAt)) return 'confirmed';
+    if (kind === 'confirmed' || str(d.clientSignedAt)) return 'confirmed';
     if (s === 'sent') return 'sent';
     return 'draft';
 };
