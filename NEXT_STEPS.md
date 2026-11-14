@@ -265,6 +265,15 @@ fixing the owner's click-test findings and the publish. Pacing job deleted. Ship
 (1) owner click-test on localhost:3010; (2) Kelviq secrets in Supabase (D1); (3) Vercel env vars VITE_SUPABASE_URL,
 VITE_SUPABASE_ANON_KEY, VITE_SITE_URL=https://www.contractordocs.app, VITE_KELVIQ_*, VITE_SUPPORT_EMAIL;
 (4) price promise wording -> TermsOfService; (5) apply the options SQL (above); (6) "publish" -> push + merge (E).
+**12:30 OWNER FEEDBACK BATCH (2026-11-14):** logo missing in the phone app bar + job page "New Document" wrong place
+→ FIXED (90cd4e6). AI failed on the test prompt (client + job + 3 docs): MAX_TOKENS on flash-lite → backup timeout →
+546 → FIXED + DEPLOYED (3cc23c5: same-model compact retry, compact JSON rule, better logs). Copy a document to another
+job as a draft → DONE (0edd167). Running (resume with SendMessage if stopped; each leaves PROGRESS.md in its scratch
+folder): notifications acc86775768bf741d (scratchpad/notif), templates rework a0b2903ffd888a515 (scratchpad/tpl2:
+Basic vs Premium groups, Premium only for paid plans, customization beyond colors, professional premium redesign,
+better thumbnails), AI credit top-ups a591f3dddbe37d852 (scratchpad/credits: buy credits $5+, auto-recharge if Kelviq
+supports it; draft SQL + feature flag OFF; nothing applied). Weekly budget ~93%: if it runs out, continue after the
+weekly reset (Nov 19 17:00 UTC). AI test prompt for the owner is in the chat (Maria Lopez / Lopez Bathroom Remodel).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
