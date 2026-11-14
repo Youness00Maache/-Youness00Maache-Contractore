@@ -74,6 +74,9 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+**PAUSED 2026-11-14 18:13 UTC at 95% (resume timer 18:54 UTC).** Only thing left from the owner's 5 steps: when the
+post-merge test run (scratchpad tests2.log) is all rc=0, push my-branch + main (6f80e51 templates merge, 76b0025
+offline message, NEXT_STEPS) and curl the live /templates page. Then delete the two empty worktree folders if free.
 **UPDATE 2026-11-14 ~18:10 UTC (owner: stop at 95% of the 5-hour limit):**
 - DONE step 1: all suites passed (estimate-options-check fixed for CRLF checkouts); pushed my-branch + main (a9ddaed).
 - DONE step 2: review verdicts: 0100 crew OK (+ added: punch timesheet_id must be the owner's document); 0200 punch OK;
@@ -83,8 +86,14 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   definer RPCs with search_path, anon can't run the cron tick or read punches). Headers added; pushed (f295d1d).
 - DONE step 3: `reminders` (86 KB, papers expiry emails; JWT verification still OFF) and `ai-assistant` (342 KB, new
   screens + offline help) redeployed from the esbuild bundles; live code checked in the editor; both boot.
-- NEXT: step 4 templates branch a300aae907df5b66c; step 5 shared offline
-  message on field screens + remove finished worktrees (incl. .claude/worktrees/agent-ab4b5d1fee0b54215).
+- DONE step 4: the templates helper had finished its whole scope (browser QA of the 15 Premium designs x 12 kinds,
+  marketing previews of the 26 designs, line units on PDFs, isShortSection backspace fix, totals at page breaks); its
+  notes + compare images committed, merged into my-branch (6f80e51; one test conflict resolved). Full suite rerun.
+- DONE step 5: punch lists / papers / lien waiver / service plans use NEEDS_CONNECTION (lib/offline/connection.ts)
+  (76b0025). Worktrees a1a42b37360684bec + abbb5deadbe96121d removed (junction first), a300aae907df5b66c dropped from
+  git; folders .claude/worktrees/agent-a300aae907df5b66c and agent-ab4b5d1fee0b54215 are EMPTY but "busy" (another
+  process has them as its folder): delete them after the app restarts (`rmdir`). Not touched: the worktree
+  ...\Temp\claude\0525b7dc1b82fde1\2fce5d51-...\scratchpad\base (another session's scratch, detached f57e051).
 
 **PAUSED 2026-11-14 ~15:50 at 80% of the 5-hour limit (resume timer 18:57 UTC).** State (steps 1-2 below now DONE):
 - my-branch has, merged + tested but NOT pushed yet: crew clock-in (6ed0745), punch lists + papers vault + service plans,
