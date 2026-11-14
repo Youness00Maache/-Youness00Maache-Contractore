@@ -1,3 +1,4 @@
+import type { OptionChoice, OptionSet } from './lib/estimateOptions.ts';
 
 export enum FormType {
   WorkOrder = "Work Order",
@@ -360,6 +361,12 @@ export interface EstimateData extends DocumentStyle {
   clientSignedAt?: string; // Timestamp when client signed
   clientSignedBy?: string; // Client name who signed
   ai_visual_data?: AIVisualData;
+  /** good / better / best options (lib/estimateOptions.ts); option lines are stored without private fields */
+  estimateOptions?: OptionSet;
+  /** private fields (unit cost, inventory links) of the option lines, by line id; never sent to client pages */
+  estimateOptionsInternal?: Record<string, Record<string, unknown>>;
+  /** the client's pick, written by the database when the client signs with an option (draft SQL) */
+  clientOptionChoice?: OptionChoice | '';
 }
 
 export interface ExpenseLogData extends DocumentStyle {

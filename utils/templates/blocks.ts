@@ -10,7 +10,7 @@
  *  - data-optional="1"      → decorative; dropped when it would need a page of its own
  *  - anything else          → kept in one piece (moved to the next page when it doesn't fit)
  */
-import type { DocModel, Section, Signature, TotalLine } from './model.ts';
+import type { ChoicesModel, DocModel, Section, Signature, TotalLine } from './model.ts';
 import type { PaperSize, TemplateId, TemplateMeta } from './registry.ts';
 
 export interface Palette {
@@ -178,6 +178,34 @@ export const itemsBlock = (ctx: RenderCtx, fillRows = 0) => {
   return `<section class="cd-block cd-items" data-split="rows"><table class="cd-table">${colgroup}${head}<tbody>${rows}</tbody></table></section>`;
 };
 
+/**
+ * Good/better/best options of an estimate (model.choices), shared by every design in place of the items table:
+ *   1. "Choose one option": one line per option (tick box, letter, name, Recommended / Chosen, total);
+ *   2. the lines included in every option, printed once;
+ *   3. per option: a heading (letter, name, tag, description) + its lines as the design's own items table
+ *      (data-split="rows", so long options break across pages like any table), then its totals.
+ */
+export const choicesBlocks = (ctx: RenderCtx): string => {
+  const ch: ChoicesModel | null = ctx.m.choices;
+  if (!ch) return '';
+  const tag = (rec: boolean, chosen: boolean) =>
+    chosen ? '<span class="cd-opt-tag cd-opt-tag-chosen">Chosen</span>' : rec ? '<span class="cd-opt-tag">Recommended</span>' : '';
+  const table = (items: NonNullable<DocModel['items']>, cls: string, head: string) =>
+    itemsBlock({ ...ctx, m: { ...ctx.m, items } }).replace(
+      '<section class="cd-block cd-items" data-split="rows">',
+      `<section class="cd-block cd-items cd-opt ${cls}" data-split="rows">${head}`,
+    );
+  const list = ch.cards.map((c) => `<div class="cd-opts-row${c.chosen ? ' cd-is-chosen' : ''}${c.recommended ? ' cd-is-rec' : ''}"><span class="cd-opts-box"></span><span class="cd-opts-letter">${c.letter}</span><span class="cd-opts-name">${c.name}${tag(c.recommended, c.chosen)}</span><span class="cd-opts-total cd-num">${c.total}</span></div>`).join('');
+  const intro = block('cd-opts', `<div class="cd-opts-top"><h3 class="cd-h">${ch.title}</h3><div class="cd-opts-note">${ch.note}</div></div><div class="cd-opts-list">${list}</div>`);
+  const cards = ch.cards.map((c) => {
+    const head = `<div class="cd-opt-head"><span class="cd-opt-letter">Option ${c.letter}</span><span class="cd-opt-name">${c.name}</span>${tag(c.recommended, c.chosen)}</div>${c.description ? `<div class="cd-opt-desc">${c.description}</div>` : ''}`;
+    const cls = `${c.recommended ? 'cd-is-rec' : ''}${c.chosen ? ' cd-is-chosen' : ''}`.trim();
+    return table(c.items, cls, head) + block(`cd-opt-sum${cls ? ' ' + cls : ''}`, totalsHtml(c.totals));
+  }).join('');
+  const shared = ch.shared ? table(ch.shared, 'cd-opt-shared', '<div class="cd-opt-head"><span class="cd-opt-name">Included in every option</span></div>') : '';
+  return intro + shared + cards;
+};
+
 export const totalsHtml = (totals: TotalLine[], cls = 'cd-totals') =>
   totals.length
     ? `<div class="${cls}">${totals.map((r) => `<div class="cd-tot cd-tot-${r.kind || 'normal'}"><span class="cd-tot-label">${r.label}</span><span class="cd-tot-value cd-num">${r.value}</span></div>`).join('')}</div>`
@@ -252,7 +280,8 @@ export const defaultParts = (ctx: RenderCtx, theme: ThemeDef): Parts => {
     facts: factsBlock(m),
     tags: tagsBlock(m),
     before: m.before.map((s) => sectionBlock(s, 'cd-before')),
-    items: itemsBlock(ctx, theme.fillRows || 0),
+    // an estimate with good/better/best options shows its options instead of one items table (every design)
+    items: m.choices ? choicesBlocks(ctx) : itemsBlock(ctx, theme.fillRows || 0),
     summary: theme.summary ? theme.summary(ctx) : defaultSummary(ctx, !theme.closingBlock),
     visuals: visualsBlock(m),
     after: signoff ? [] : afterSections(m.after, !!theme.sectionsGrid),
@@ -403,6 +432,28 @@ font-family:var(--font-body);color:var(--ink);font-size:12.5px;line-height:1.5;-
 .cd-sig-meta{font-size:11px;margin-top:2px;}
 .cd-sig-fill{color:var(--faint);}
 .cd-closing-text{font-family:var(--font-head);font-size:14px;font-weight:700;color:var(--accent-ink);}
+.cd-opts{border:1px solid var(--rule-strong);border-radius:6px;padding:12px 14px 6px;}
+.cd-opts-top{display:flex;justify-content:space-between;align-items:baseline;gap:18px;margin-bottom:6px;}
+.cd-opts .cd-h{margin:0;flex:none;}
+.cd-opts-note{font-size:10.5px;line-height:1.45;color:var(--muted);text-align:right;min-width:0;}
+.cd-opts-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--rule);font-size:12.5px;}
+.cd-opts-box{flex:none;width:13px;height:13px;border:1.5px solid var(--ink);border-radius:2px;position:relative;}
+.cd-opts-row.cd-is-chosen .cd-opts-box{background:var(--accent);border-color:var(--accent);}
+.cd-opts-row.cd-is-chosen .cd-opts-box::after{content:'';position:absolute;left:3.5px;top:0.5px;width:3px;height:7px;border:solid var(--on-accent);border-width:0 1.6px 1.6px 0;transform:rotate(45deg);}
+.cd-opts-letter{flex:none;width:12px;font-weight:800;color:var(--muted);}
+.cd-opts-name{flex:1 1 auto;min-width:0;font-weight:700;overflow-wrap:anywhere;}
+.cd-opts-name .cd-opt-tag{margin-left:8px;vertical-align:1px;}
+.cd-opts-total{flex:none;font-weight:800;}
+.cd-opt-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;padding:0 0 6px;margin-bottom:6px;border-bottom:2px solid var(--rule-strong);}
+.cd-opt.cd-is-rec .cd-opt-head,.cd-opt.cd-is-chosen .cd-opt-head{border-bottom-color:var(--accent);}
+.cd-opt-letter{font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}
+.cd-opt-name{font-family:var(--font-head);font-size:15px;font-weight:800;color:var(--ink);overflow-wrap:anywhere;}
+.cd-opt-tag{display:inline-block;padding:2px 8px;border-radius:999px;font-family:var(--font-body);font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;line-height:1.4;background:var(--accent);color:var(--on-accent);white-space:nowrap;}
+.cd-opt-head .cd-opt-tag{margin-left:auto;}
+.cd-opt-tag.cd-opt-tag-chosen{background:#15803d;color:#ffffff;}
+.cd-opt-desc{font-size:11px;line-height:1.5;color:var(--muted);margin:0 0 8px;overflow-wrap:anywhere;}
+.cd-block.cd-opt-sum{display:flex;justify-content:flex-end;margin-top:-6px;}
+.cd-opt-sum .cd-totals{flex:0 0 290px;max-width:290px;}
 .cd-visuals-body{display:block;}
 .cd-widget{border:1px solid var(--rule);border-radius:8px;padding:12px 14px;margin-bottom:10px;}
 .cd-w-title{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:8px;}

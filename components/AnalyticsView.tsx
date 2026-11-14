@@ -6,6 +6,7 @@ import { EmptyState, InlineError, PageHeader, StatCard, fetchAllPages, friendlyE
 import { computeAnalytics, presetRange, previousRange, relativeChange, type AnalyticsDoc, type AnalyticsResult, type Bucket, type RangePreset } from '../utils/analyticsMath.ts';
 import { formatYMD } from '../utils/localDates.ts';
 import { COLLECTED_DEFINITION, PROFIT_DEFINITION, PROFIT_FORMULA, resolveLaborRate } from '../lib/finance.ts';
+import { OPTION_SELECT_PATHS } from '../lib/estimateOptions.ts';
 
 interface AnalyticsViewProps {
   jobs?: Job[];
@@ -24,6 +25,8 @@ const DOC_SELECT = [
   'isProgressBilling:data->isProgressBilling', 'amountPaid:data->amountPaid', 'amount:data->amount', 'tax:data->tax',
   'items:data->items', 'materials:data->materials', 'hoursWorked:data->hoursWorked', 'overtimeHours:data->overtimeHours',
   'invoiceNumber:data->>invoiceNumber', 'invoiceId:data->>invoiceId', 'description:data->>description', 'title:data->>title',
+  // good/better/best options: an estimate is worth the option that counts (lib/estimateOptions.ts)
+  'clientSignedAt:data->>clientSignedAt', ...OPTION_SELECT_PATHS,
 ].join(',');
 // Same documents as Job financials, so income, collected, costs and profit follow one definition (lib/finance.ts).
 const DOC_TYPES = ['Invoice', 'Estimate', 'Expense Log', 'Receipt', 'Material Log', 'Time Sheet'];
@@ -209,6 +212,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRa
           isProgressBilling: d.isProgressBilling, amountPaid: d.amountPaid, amount: d.amount, tax: d.tax,
           items: d.items, materials: d.materials, hoursWorked: d.hoursWorked, overtimeHours: d.overtimeHours,
           invoiceNumber: d.invoiceNumber, invoiceId: d.invoiceId, description: d.description, title: d.title,
+          clientSignedAt: d.clientSignedAt, estimateOptions: d.estimateOptions, clientOptionChoice: d.clientOptionChoice, clientSignedBy: d.clientSignedBy,
         };
       };
     }

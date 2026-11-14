@@ -165,6 +165,39 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "estimate-options",
+        "title": "Good / better / best options",
+        "summary": "Offer 2 to 4 priced options on one estimate; the client picks one when they sign.",
+        "where": [
+            "Job",
+            "Estimate",
+            "Items"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Turn options on",
+                "text": "In an estimate, click [[Good / better / best]] next to Items. Good, Better and Best start with your current lines, and Better is marked Recommended."
+            },
+            {
+                "title": "Build each option",
+                "text": "Click an option to rename it, add a short description and change its lines. Start from copies another option’s lines, Copy lines to adds them to another option, and [[Add option]] makes up to 4. Lines the client gets with any option go under In every option. Discount and tax apply to every option."
+            },
+            {
+                "title": "Send it",
+                "text": "The PDF lists every option with its lines and total, marks the Recommended one and asks the client to choose one. On the approval link or in the portal the client taps an option, then signs with [[Approve & sign]]."
+            },
+            {
+                "title": "Apply the choice",
+                "text": "The estimate shows which option the client chose. Click [[Apply chosen option]]: the estimate becomes that option with one total, ready for [[Convert to invoice]]. If the client told you by phone, pick it under Client told you?."
+            }
+        ],
+        "tips": [
+            "Until the client chooses, invoices, the job budget, the pipeline and Insights use the Recommended option (or the lowest total when none is Recommended).",
+            "[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged."
+        ]
+    },
+    {
         "id": "payments",
         "title": "Getting paid",
         "summary": "A Pay now link on invoices, client “I’ve paid” notices, and one-click receipts.",

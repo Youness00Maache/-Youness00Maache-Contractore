@@ -13,6 +13,7 @@
  *   Contract value = accepted (or client-signed) estimates + approved (or client-signed) change orders.
  */
 import { computeDocumentTotals, roundMoney, toNumber, type DocumentTotals, type MoneyLineItem } from '../utils/money.ts';
+import { effectiveEstimateLines } from './estimateOptions.ts';
 
 export const PROFIT_FORMULA = 'Profit = income − costs';
 export const PROFIT_DEFINITION =
@@ -76,6 +77,11 @@ export interface FinanceDoc {
     description?: string | null;
     title?: string | null;
     clientSignedAt?: string | null;
+    /** good/better/best options of an estimate (lib/estimateOptions.ts OPTION_SELECT_PATHS) */
+    estimateOptions?: unknown;
+    estimateOptionsInternal?: unknown;
+    clientOptionChoice?: unknown;
+    clientSignedBy?: string | null;
 }
 
 const norm = (s: unknown) => String(s ?? '').trim().toLowerCase();
@@ -94,8 +100,15 @@ export const isAcceptedDoc = (doc: Pick<FinanceDoc, 'status' | 'clientSignedAt'>
     return s === 'accepted' || s === 'approved' || s === 'signed' || Boolean(doc.clientSignedAt);
 };
 
+/**
+ * Lines the money of a document comes from: its lineItems; for an estimate with good/better/best options the option
+ * that counts (applied / chosen / Recommended / lowest total, lib/estimateOptions.ts).
+ */
+export const moneyLines = (doc: FinanceDoc): MoneyLineItem[] =>
+    doc.estimateOptions ? effectiveEstimateLines(doc) as MoneyLineItem[] : Array.isArray(doc.lineItems) ? doc.lineItems : [];
+
 export const documentTotals = (doc: FinanceDoc): DocumentTotals => computeDocumentTotals({
-    lineItems: Array.isArray(doc.lineItems) ? doc.lineItems : [],
+    lineItems: moneyLines(doc),
     discount: doc.discount,
     shipping: doc.shipping,
     taxRate: doc.taxRate,

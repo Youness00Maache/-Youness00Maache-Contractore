@@ -6,6 +6,7 @@
  * Secrets are never exported: no client-portal keys, approval tokens or Gmail data.
  */
 import { computeDocumentTotals, lineItemAmount, roundMoney, toNumber } from '../../utils/money.ts';
+import { withEffectiveLines } from '../estimateOptions.ts';
 import { expenseTotal, isBilledInvoiceStatus, materialCost } from '../finance.ts';
 import { instantToLocalYMD, normalizeYMD } from '../../utils/localDates.ts';
 import { money, plainText, qty, type CsvValue } from './csv.ts';
@@ -157,7 +158,9 @@ const LINE_ITEM_TYPES = new Set(['Invoice', 'Estimate', 'Change Order', 'Purchas
 export const documentMoney = (type: string, d: Record<string, any> | null | undefined): DocMoney => {
     const data = d || {};
     if (LINE_ITEM_TYPES.has(type)) {
-        const t = computeDocumentTotals({ ...data, isProgressBilling: data.isProgressBilling === true || str(data.isProgressBilling).toLowerCase() === 'true' });
+        // an estimate with good/better/best options: the option that counts (lib/estimateOptions.ts)
+        const money = type === 'Estimate' ? withEffectiveLines(data) : data;
+        const t = computeDocumentTotals({ ...money, isProgressBilling: data.isProgressBilling === true || str(data.isProgressBilling).toLowerCase() === 'true' });
         const paid = type === 'Invoice' && /^paid$/i.test(str(data.status));
         return {
             subtotal: t.subtotal, discount: t.discount, tax: t.tax, shipping: t.shipping, total: t.total,

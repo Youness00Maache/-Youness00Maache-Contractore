@@ -191,7 +191,7 @@ export const hashString = (text: string): string => {
 export const SERVER_OWNED_KEYS = [
     'clientSignatureUrl', 'clientSignedAt', 'clientSignedBy', 'clientSignerName', 'clientDeclinedAt', 'clientDeclineReason',
     'viewedByProvider', 'paymentReportedAt', 'paymentReportNote', 'paymentReportAmount', 'approvedAt', 'inventoryDeductedAt',
-    'reviewRequestedAt',
+    'reviewRequestedAt', 'clientOptionChoice',
 ] as const;
 const IGNORED_FOR_HASH = new Set<string>([...SERVER_OWNED_KEYS, '__lightweight']);
 

@@ -7,9 +7,8 @@ import {
     WarrantyIcon, NoteIcon, ReceiptIcon, ChangeOrderIcon, TruckIcon, FileTextIcon,
 } from './Icons.tsx';
 import { FormType, type FormData as FormDataType } from '../types.ts';
-import { formatMoney } from '../utils/money.ts';
 import { StatusBadge } from './forms/FormShell.tsx';
-import { documentNumberOf, documentTotalOf } from './ShareModal.tsx';
+import { documentNumberOf, documentTotalTextOf } from './ShareModal.tsx';
 
 interface DocumentCardProps {
     form: FormDataType;
@@ -54,7 +53,8 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, o
     const Icon = ICONS[form.type] || FileTextIcon;
     const title = getDocTitle(form);
     const number = documentNumberOf(d);
-    const total = documentTotalOf(d);
+    // "3 options from $…" for a good/better/best estimate without a choice yet
+    const totalText = documentTotalTextOf(d);
     const signed = Boolean(d.clientSignatureUrl);
     const meta = [form.type, number && number !== title ? number : '', d.clientName, formatDate(form.createdAt)].filter(Boolean).join(' · ');
 
@@ -82,7 +82,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, o
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                    {total !== null && <span className="hidden text-sm font-semibold tabular-nums text-foreground sm:inline">{formatMoney(total)}</span>}
+                    {totalText && <span className="hidden text-sm font-semibold tabular-nums text-foreground sm:inline">{totalText}</span>}
                     <div onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
                         <DropdownMenu
                             align="right"
@@ -112,7 +112,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({ form, highlightAi, o
                         </DropdownMenu>
                     </div>
                 </div>
-                {total !== null && <span className="sr-only">Total {formatMoney(total)}</span>}
+                {totalText && <span className="sr-only">Total {totalText}</span>}
             </div>
         </div>
     );

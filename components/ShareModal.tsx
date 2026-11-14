@@ -6,6 +6,7 @@ import { approvalUrl, copyToClipboard, ensureApprovalToken, ensurePortalKey, por
 import { shareLinkKind } from '../utils/clientPortalRules.ts';
 import { fillEmailPlaceholders, payNowLine, senderIdentity, withPayLine } from '../utils/emailTemplates.ts';
 import { payLinkFor } from '../lib/payments.ts';
+import { choiceOf, optionRange } from '../lib/estimateOptions.ts';
 import { shortShareMessage } from '../lib/messaging.ts';
 import { MessageAppButtons } from './MessageAppButtons.tsx';
 import { useOfflineDoc } from './offline/OfflineContext.tsx';
@@ -55,6 +56,17 @@ export const documentTotalOf = (data: any): number | null => {
     if (data.amount !== undefined && data.amount !== null && data.amount !== '') return toNumber(data.amount);
     if (Array.isArray(data.lineItems) && data.lineItems.length) return computeDocumentTotals(data).total;
     return null;
+};
+
+/**
+ * The total as words for messages and lists: "$1,250.00"; an estimate with good/better/best options and no choice yet
+ * reads "3 options from $6,749.00". '' when there is no total.
+ */
+export const documentTotalTextOf = (data: any): string => {
+    const range = data?.estimateOptions ? optionRange(data) : null;
+    if (range && !choiceOf(data)) return `${range.count} options from ${formatMoney(range.min)}`;
+    const total = documentTotalOf(data);
+    return total !== null ? formatMoney(total) : '';
 };
 
 const defaultTemplate = (docType: string, hasLink: boolean): EmailTemplate => {
@@ -142,7 +154,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
     const supplierLinkMode = supplierConfirm && /^purchase order$/i.test(docType);
     const [supplierLink, setSupplierLink] = useState('');
     const shareLink = clientFacing ? approvalLink : supplierLinkMode ? supplierLink : '';
-    const total = documentTotalOf(data);
+    const totalText = documentTotalTextOf(data);
     const number = documentNumberOf(data);
     const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
     // invoice "Pay now": the contractor's own pay link with the amount still due (deposit / progress / balance)
@@ -152,7 +164,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
     const textMessage = shortShareMessage({
         docType,
         number: number || String(data?.title || '').trim(),
-        total: total !== null ? formatMoney(total) : '',
+        total: totalText,
         clientName: recipientName || data?.clientName || client?.name,
         company: sender.company,
         link: shareLink,
@@ -204,7 +216,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
             '[My Name]': sender.name,
             // documents without a number (notes, time sheets) use their title, never the type twice ("Note Note")
             '[Document Number]': number || String(data?.title || '').trim(),
-            '[Total Amount]': total !== null ? formatMoney(total) : '',
+            '[Total Amount]': totalText,
             '[Link]': shareLink,
             '[Pay Now]': payLine,
             '[Pay Link]': pay?.href || '',
@@ -299,7 +311,7 @@ const ShareModal: React.FC<ShareModalProps> = ({
                     <div className="min-w-0">
                         <h3 id="share-title" className="text-lg font-semibold">Share {docType.toLowerCase()}</h3>
                         <p className="truncate text-sm text-muted-foreground">
-                            {[number || data?.title, recipientName || data?.clientName, total !== null ? formatMoney(total) : ''].filter(Boolean).join(' · ')}
+                            {[number || data?.title, recipientName || data?.clientName, totalText].filter(Boolean).join(' · ')}
                         </p>
                     </div>
                     <button type="button" onClick={onClose} className="btn btn-ghost h-10 w-10 shrink-0 p-0" aria-label="Close"><XCircleIcon className="h-5 w-5" /></button>

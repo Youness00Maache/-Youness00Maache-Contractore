@@ -3,7 +3,8 @@
  * scripts/costing-check.ts tests it under Node. Shown in Job financials (components/JobFinancialsModal.tsx →
  * components/costing/JobCostingPanel.tsx).
  *
- *   Budget  = contract value (lib/finance.ts): accepted (or client-signed) estimates + approved change orders.
+ *   Budget  = contract value (lib/finance.ts): accepted (or client-signed) estimates + approved change orders
+ *             (an estimate with good/better/best options counts its chosen option, else Recommended, else lowest).
  *             Split by kind from their lines (price-book type, inventory link, then the words of the line);
  *             a line that mixes labor and materials stays "not split".
  *   Actual  = the costs of the shared profit definition (lib/finance.ts: material logs + expense logs + labor at the
@@ -14,7 +15,7 @@
  */
 import { lineItemAmount, roundMoney, toNumber, type MoneyLineItem } from '../utils/money.ts';
 import {
-    documentTotals, expenseTotal, isAcceptedDoc, isType, laborOf, materialCost, type FinanceDoc,
+    documentTotals, expenseTotal, isAcceptedDoc, isType, laborOf, materialCost, moneyLines, type FinanceDoc,
 } from './finance.ts';
 
 export type CostCategory = 'labor' | 'materials' | 'expenses' | 'other';
@@ -323,7 +324,8 @@ export const summarizeJobCosting = (
         if (isEstimate) estimateCount++; else changeOrderCount++;
         const total = documentTotals(d).total;
         budget += total;
-        const lines = (Array.isArray(d.lineItems) ? d.lineItems : []) as LineLike[];
+        // an estimate with options: the lines of the option that counts (lib/estimateOptions.ts)
+        const lines = moneyLines(d) as LineLike[];
         const amounts = lines.map(li => lineItemAmount(li));
         const sum = amounts.reduce((a, b) => a + b, 0);
         if (Math.abs(sum) < 0.005) { unsplit += total; continue; }

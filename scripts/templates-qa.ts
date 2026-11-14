@@ -42,7 +42,7 @@ import {
 } from '../utils/templates/registry.ts';
 import { THEMES } from '../utils/templates/themes.ts';
 import { modelFieldChecks, renderFieldChecks } from './templates-fields.ts';
-import { visualStage } from './templates-visual.ts';
+import { optionsEstimate, visualStage } from './templates-visual.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Map(process.argv.slice(2).map((a) => {
@@ -117,6 +117,9 @@ const xssVariant = (base: any) => {
 const unicodeVariant = (base: any) => deepMapStrings(clone(base), (s, key) =>
   (/url$|signature|date|At$|templateId|status|Number$/i.test(key) ? s : `${s} — Crème brûlée façade, Ñandú, Zürich, 東京 ✓`));
 
+/** good/better/best estimate variants (null = not for this kind) */
+const isOptionsVariant = (id: string) => id.startsWith('options');
+
 const VARIANTS: Array<{ id: string; make: (kind: DocKind, base: any) => any }> = [
   { id: 'sample', make: (_k, b) => clone(b) },
   { id: 'long', make: (k, b) => longVariant(k, b) },
@@ -124,6 +127,9 @@ const VARIANTS: Array<{ id: string; make: (kind: DocKind, base: any) => any }> =
   { id: 'unicode', make: (_k, b) => unicodeVariant(b) },
   { id: 'empty', make: () => ({}) },
   { id: 'legacy-colors', make: (_k, b) => ({ ...clone(b), themeColors: { primary: '#000000', secondary: '#666666' }, templateId: 'standard' }) },
+  { id: 'options', make: (k, b) => (k === 'estimate' ? optionsEstimate(clone(b)) : null) },
+  { id: 'options-chosen', make: (k, b) => (k === 'estimate' ? optionsEstimate(clone(b), { chosen: true }) : null) },
+  { id: 'options-long', make: (k, b) => (k === 'estimate' ? optionsEstimate(clone(b), { long: true }) : null) },
 ];
 
 const REQUIRED_TEXT: Record<DocKind, (d: any) => string[]> = {
@@ -267,7 +273,9 @@ const renderMatrix = () => {
     for (const kind of kinds) {
       for (const variant of VARIANTS) {
         const base = SAMPLE_DOCUMENTS[kind];
-        const data = { ...variant.make(kind, base) };
+        const made = variant.make(kind, base);
+        if (made === null) continue;
+        const data = { ...made };
         if (variant.id !== 'legacy-colors') data.templateId = template;
         const type = KIND_TO_FORM_TYPE[kind];
         const tag = `[${template}/${kind}/${variant.id}]`;
@@ -298,6 +306,25 @@ const renderMatrix = () => {
             check(text.includes(probe), `${tag} missing field text "${probe}"`);
           }
         }
+        if (isOptionsVariant(variant.id)) {
+          // good/better/best: every option with its name and total, the shared lines once, one to choose
+          const cards = r.model.choices?.cards || [];
+          check(cards.length === 3 && !r.model.items && !r.model.totals.length, `${tag} options model (3 cards, no single table)`);
+          check(html.includes('class="cd-opts-list"') && (html.match(/<section class="cd-block[^"]*\bcd-opt-sum\b/g) || []).length === 3, `${tag} options blocks missing`);
+          for (const c of cards) {
+            check(text.includes(decode(c.name)) && html.includes(c.total), `${tag} option ${c.letter} name / total ${c.total} missing`);
+            check(cards.filter((x) => x.recommended).length === 1, `${tag} exactly one Recommended option`);
+          }
+          check(text.includes('Included in every option') && text.includes('Site protection'), `${tag} shared lines missing`);
+          const chosen = variant.id === 'options-chosen';
+          check(chosen ? text.includes('Your options') && text.includes('Chosen') && text.includes('(chose B: Better)') : text.includes('Choose one option') && text.includes('Recommended'), `${tag} choice wording`);
+          for (const value of REQUIRED_TEXT[kind](data).filter(Boolean)) {
+            const probe = String(value).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+            check(text.includes(probe), `${tag} missing field text "${probe}"`);
+          }
+          if (data.signatureUrl) check(html.includes(data.signatureUrl), `${tag} contractor signature missing`);
+          if (data.clientSignatureUrl) check(html.includes(data.clientSignatureUrl), `${tag} client signature missing`);
+        }
         if (variant.id === 'long' && (kind === 'dailyReport' || kind === 'note')) {
           check((html.match(/LAST_CONTENT_MARKER/g) || []).length === 1, `${tag} rich content must appear exactly once`);
         }
@@ -306,7 +333,7 @@ const renderMatrix = () => {
         mkdirSync(dir, { recursive: true });
         const file = join(dir, `${kind}-${variant.id}.html`);
         writeFileSync(file, html, 'utf8');
-        rendered.push({ template, kind, variant: variant.id, file, expectPages: variant.id === 'long' ? 'many' : undefined });
+        rendered.push({ template, kind, variant: variant.id, file, expectPages: variant.id === 'long' || variant.id === 'options-long' ? 'many' : undefined });
       }
     }
   }
@@ -470,8 +497,8 @@ const browserStage = async () => {
     const shotDir = join(OUT, 'png');
     mkdirSync(shotDir, { recursive: true });
     const wantShot = (r: Rendered) => shotsMode === 'all'
-      || (shotsMode === 'sample' && (r.variant === 'sample' || (r.variant === 'long' && (r.kind === 'invoice' || r.kind === 'dailyReport'))));
-    const targets = rendered.filter((r) => r.variant !== 'xss' && (wantShot(r) || r.variant === 'long' || r.variant === 'unicode'));
+      || (shotsMode === 'sample' && (r.variant === 'sample' || r.variant === 'options' || (r.variant === 'long' && (r.kind === 'invoice' || r.kind === 'dailyReport'))));
+    const targets = rendered.filter((r) => r.variant !== 'xss' && (wantShot(r) || r.variant === 'long' || r.variant === 'unicode' || isOptionsVariant(r.variant)));
     let shots = 0;
     let textLayerJs = '';
     for (const r of targets) {
@@ -537,6 +564,8 @@ const browserStage = async () => {
         cdp, navigate: (url) => navigate(cdp, url), bundle, out: OUT, templates, kinds, check, log: (m) => console.log(m),
         samples: SAMPLE_DOCUMENTS, sampleProfile: SAMPLE_PROFILE, sampleJob: SAMPLE_JOB,
         diffThreshold: Number(args.get('diff-threshold') || 1.5),
+        // good/better/best estimate: no empty boxes, and the PDF matches the preview (--pdfdiff)
+        extraCases: (kind) => (kind === 'estimate' ? [{ variant: 'options', data: optionsEstimate(clone(SAMPLE_DOCUMENTS.estimate)) }] : []),
       }, { pdfDiff: args.has('pdfdiff'), emptyBoxes: !args.has('no-emptyboxes') });
     }
 

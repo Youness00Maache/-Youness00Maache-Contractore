@@ -10,6 +10,7 @@ import { supabase } from './supabase.ts';
 import { FormType } from '../types.ts';
 import type { FormData as FormDataType } from '../types.ts';
 import { resolveFormType } from '../src/config/docTypeMap.ts';
+import { optionsForCopy } from './estimateOptions.ts';
 
 export const LIGHTWEIGHT_DOCUMENT_FLAG = '__lightweight';
 export const DOCUMENT_PAGE_SIZE = 20;
@@ -354,6 +355,8 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
         payments: _payments, paidAt: _paidAt, reviewRequestedAt: _review,
         // a copy of a purchase order starts un-received (lib/suppliers.ts RECEIPT_KEY) and is not a reorder record
         internalStockReceipt: _stockReceipt, internalReorder: _reorder,
+        // the client's pick of a good/better/best option belongs to the original's signature
+        clientOptionChoice: _optionChoice,
         [LIGHTWEIGHT_DOCUMENT_FLAG]: _flag,
         ...rest
     } = (data || {}) as any;
@@ -369,6 +372,12 @@ export const buildDuplicateDocumentData = (data: Record<string, any>, overrides:
         if (next[key]) next[key] = `${next[key]}-COPY`;
     }
     if (typeof next.deductInventory === 'boolean') next.deductInventory = false;
+    // good/better/best options are offered again with no choice (an applied estimate is copied as its option)
+    if (next.estimateOptions) {
+        delete next.estimateOptions;
+        delete next.estimateOptionsInternal;
+        Object.assign(next, optionsForCopy(data));
+    }
     // payments recorded with "Mark as paid" are not copied (a deposit typed on the original stays)
     if (Array.isArray(_payments) && _payments.length && next.amountPaid !== undefined) {
         const recorded = _payments.reduce((s: number, p: any) => s + (Number(p?.amount) || 0), 0);

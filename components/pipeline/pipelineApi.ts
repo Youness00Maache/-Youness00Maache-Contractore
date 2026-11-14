@@ -10,6 +10,7 @@ import { FormType } from '../../types.ts';
 import type { FormData as FormDataType } from '../../types.ts';
 import { LIGHTWEIGHT_DOCUMENT_FLAG, normalizeDocumentType } from '../../lib/documents.ts';
 import { mapPipelineRow, type PipelineDoc, type PipelineRequestInput } from '../../lib/pipeline.ts';
+import { OPTION_SELECT_PATHS } from '../../lib/estimateOptions.ts';
 import { fetchAllPages, getCurrentUserId } from '../viewKit.tsx';
 import { listQuoteRequests } from '../requests/requestsApi.ts';
 import type { QuoteRequest } from '../requests/requestLogic.ts';
@@ -29,6 +30,8 @@ const DOC_SELECT = [
     'isProgressBilling:data->isProgressBilling', 'amountPaid:data->amountPaid', 'amount:data->amount',
     'clientSignedAt:data->>clientSignedAt', 'clientSignatureUrl:data->>clientSignatureUrl', 'clientDeclinedAt:data->>clientDeclinedAt',
     'paymentReportedAt:data->>paymentReportedAt', 'revisionOf:data->>revisionOf',
+    // good/better/best options: an estimate is worth the option that counts (lib/estimateOptions.ts)
+    ...OPTION_SELECT_PATHS,
 ].join(',');
 
 export interface PipelineData {

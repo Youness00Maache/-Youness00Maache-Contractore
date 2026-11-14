@@ -325,6 +325,25 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
     return true;
   };
 
+  /**
+   * Good/better/best option totals (blocks.ts choicesBlocks) stay with their option: a long option pulls its last rows
+   * along (like the totals above); a short one (fewer than 4 rows, heading included) moves to the next page whole.
+   */
+  const pullOptionWith = (block: HTMLElement): boolean => {
+    const prev = block.previousElementSibling as HTMLElement | null;
+    if (!prev || !prev.classList.contains('cd-opt')) return false;
+    const tb = (prev.querySelector('table') as HTMLTableElement | null)?.tBodies[0];
+    if (!tb) return false;
+    if (tb.rows.length >= 4) return pullRowsWith(block);
+    if (prev.getAttribute('data-cont') === '1' || blocksOnPage()[0] === prev) return false;
+    prev.remove();
+    block.remove();
+    newPage();
+    body.appendChild(prev);
+    body.appendChild(block);
+    return true;
+  };
+
   // --- main loop ----------------------------------------------------------------
   for (const block of blocks) {
     body.appendChild(block);
@@ -335,7 +354,9 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
     if (split === 'rows') { splitRows(block); continue; }
     if (split === 'children') { splitChildren(block); continue; }
     if (blocksOnPage().length > 1) {
-      if (!(block.classList.contains('cd-summary') && pullRowsWith(block))) moveToNewPage(block);
+      const pulled = block.classList.contains('cd-summary') ? pullRowsWith(block)
+        : block.classList.contains('cd-opt-sum') ? pullOptionWith(block) : false;
+      if (!pulled) moveToNewPage(block);
     }
     if (!fits(block)) constrainImages(block);
   }

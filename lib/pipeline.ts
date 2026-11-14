@@ -15,6 +15,7 @@
  * Pure (no network, no React), so scripts/pipeline-check.ts tests the stage mapping and the stale rules.
  */
 import { computeDocumentTotals, roundMoney, toNumber, type MoneyLineItem } from '../utils/money.ts';
+import { effectiveEstimateLines } from './estimateOptions.ts';
 import { daysBetween, instantToLocalYMD, normalizeYMD, parseLocalDate } from '../utils/localDates.ts';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -136,7 +137,15 @@ export const mapPipelineRow = (row: any): PipelineDoc => {
     const d = row?.data && typeof row.data === 'object' ? row.data : row || {};
     const pick = (k: string) => (d?.[k] !== undefined && d?.[k] !== null ? d[k] : row?.[k] ?? null);
     const text = (k: string) => str(pick(k)) || null;
-    const items = jsonish<MoneyLineItem[]>(pick('lineItems'));
+    const rawItems = jsonish<MoneyLineItem[]>(pick('lineItems'));
+    // an estimate with good/better/best options is worth the option that counts (lib/estimateOptions.ts)
+    const options = pick('estimateOptions');
+    const items = options
+        ? effectiveEstimateLines({
+            lineItems: rawItems, estimateOptions: options, clientOptionChoice: pick('clientOptionChoice'),
+            clientSignedBy: pick('clientSignedBy'), clientSignedAt: pick('clientSignedAt'), clientSignatureUrl: pick('clientSignatureUrl'),
+        }) as MoneyLineItem[]
+        : rawItems;
     return {
         id: str(row?.id),
         type: str(row?.type),

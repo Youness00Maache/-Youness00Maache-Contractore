@@ -34,7 +34,7 @@ const CONTROL_KEYS = new Set([
     'secondary_color', 'signatureRequested', 'deductInventory', 'inventoryDeductedAt', 'showPaymentLink',
     'paymentLinkRequested', 'document_type', 'documentType', 'formType', 'missing_fields', 'partial_draft',
     'clientSignatureUrl', 'clientSignedAt', 'clientSignedBy', 'clientSignerName', 'public_token', 'id',
-    'createdAt', 'created_at', 'viewedByProvider', '__lightweight',
+    'createdAt', 'created_at', 'viewedByProvider', '__lightweight', 'clientOptionChoice',
 ]);
 
 const VOLATILE_KEYS = new Set(['ai_open_mode', 'auto_submit', 'start_page', '__autoSave']);

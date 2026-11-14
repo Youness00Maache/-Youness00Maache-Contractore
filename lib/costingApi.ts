@@ -10,6 +10,7 @@ import { describeError, isMissingColumnError, isPlanLimitError, planLimitMessage
 import { DOCUMENT_DETAIL_COLUMNS, ID_CHUNK, assertFullDocument, chunk, mapDocumentRow, primeDocumentCache, stripLightweightFlag } from './documents.ts';
 import { newId, todayISO } from '../components/forms/formUtils.ts';
 import type { CostingDoc } from './costing.ts';
+import { OPTION_SELECT_PATHS } from './estimateOptions.ts';
 import { buildTmInvoiceData, nextInvoiceNumber, withBilledMarker, type TmRecord } from './tmInvoice.ts';
 
 /** Only the JSON paths job money, costing and T&M need: never downloads photos / signatures (CORE-011). */
@@ -46,6 +47,9 @@ export const COSTING_COLUMNS = [
     'billedInvoiceNumber:data->>billedInvoiceNumber',
     'billedDocId:data->>billedDocId',
     'billedItems:data->billedItems',
+    // good/better/best options: the budget counts the option that counts (lib/estimateOptions.ts)
+    ...OPTION_SELECT_PATHS,
+    'estimateOptionsInternal:data->estimateOptionsInternal',
 ].join(', ');
 
 export const COSTING_TYPES: FormType[] = [

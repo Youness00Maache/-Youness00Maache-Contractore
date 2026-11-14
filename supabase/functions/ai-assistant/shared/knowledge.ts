@@ -668,6 +668,7 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     jobs: ['job'],
     documents: ['document', 'doctypes'],
     estimates: ['estimate', 'sign'],
+    'estimate-options': ['estimate', 'sign'],
     payments: ['pay', 'paylink', 'markpaid', 'receipt'],
     pipeline: ['pipeline', 'job'],
     'job-costing': ['costing', 'financials'],

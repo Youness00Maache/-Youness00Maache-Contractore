@@ -595,7 +595,8 @@ const gradient: ThemeDef = {
     if (p.parties) pieces.push([p.parties, '']);
     for (const k of order) if (p[k]) pieces.push([p[k], 'gb-pad']);
     for (const b of p.before) if (b) pieces.push([b, 'gb-pad']);
-    if (p.items) pieces.push([p.items, '']);
+    // good/better/best options are several blocks (blocks.ts choicesBlocks): each one is a piece of the card
+    if (p.items) for (const piece of p.items.split(/(?=<section class="cd-block )/).filter(Boolean)) pieces.push([piece, /cd-opts"|cd-opt-sum/.test(piece) ? 'gb-pad' : '']);
     if (p.summary) pieces.push([p.summary, '']);
     const card = pieces.map(([html, extra], i) => addClass(html, ['gb-card', extra, i === 0 ? 'gb-card-top' : '', i === pieces.length - 1 ? 'gb-card-end' : ''].filter(Boolean).join(' ')));
     const closing = m.closing ? block('cd-closing gb-closing', `<div class="gb-bar cd-deco"></div><div class="cd-closing-text">${m.closing}</div>`) : '';
@@ -650,6 +651,8 @@ const gradient: ThemeDef = {
 .cd-t-template_html_4 .cd-table{border-collapse:separate;border-spacing:0;}
 .cd-t-template_html_4 .cd-table th{background:#ffffff;color:#000;font-size:11.5px;font-weight:800;padding:16px 15px;border-bottom:2px solid #000;}
 .cd-t-template_html_4 .cd-table th:first-child,.cd-t-template_html_4 .cd-table td:first-child{padding-left:20px;}
+.cd-t-template_html_4 .cd-opt.gb-card{padding-top:22px;}
+.cd-t-template_html_4 .cd-opt .cd-opt-head,.cd-t-template_html_4 .cd-opt .cd-opt-desc{margin-left:20px;margin-right:20px;}
 .cd-t-template_html_4 .cd-table th:last-child,.cd-t-template_html_4 .cd-table td:last-child{padding-right:20px;}
 .cd-t-template_html_4 .cd-table td{padding:16px 15px;border-bottom:1px solid #E5E7EB;color:#6B7280;font-size:12.5px;}
 ${tightCss('template_html_4')}

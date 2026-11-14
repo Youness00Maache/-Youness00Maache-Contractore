@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase.ts';
 import { FormType } from '../../types.ts';
 import type { JobDocumentRow } from './contractValue.ts';
 import { computeDocumentTotals } from '../../utils/money.ts';
+import { OPTION_SELECT_PATHS } from '../../lib/estimateOptions.ts';
 
 export interface JobInvoiceOption { id: string; number: string; status: string; total: number; balanceDue: number }
 
@@ -45,6 +46,8 @@ export async function fetchJobContractRows(jobId: string): Promise<JobDocumentRo
                 'status:data->>status', 'clientSignedAt:data->>clientSignedAt', 'revisionOf:data->>revisionOf',
                 'estimateNumber:data->>estimateNumber', 'changeOrderNumber:data->>changeOrderNumber',
                 'lineItems:data->lineItems', 'taxRate:data->taxRate', 'discount:data->discount', 'shipping:data->shipping',
+                // good/better/best options: the option that counts (lib/estimateOptions.ts)
+                ...OPTION_SELECT_PATHS,
             ].join(','))
             .eq('job_id', jobId)
             .in('type', [FormType.Estimate, FormType.ChangeOrder])
@@ -59,6 +62,7 @@ export async function fetchJobContractRows(jobId: string): Promise<JobDocumentRo
                 status: r.status, clientSignedAt: r.clientSignedAt, revisionOf: r.revisionOf,
                 estimateNumber: r.estimateNumber, changeOrderNumber: r.changeOrderNumber,
                 lineItems: Array.isArray(r.lineItems) ? r.lineItems : [], taxRate: r.taxRate, discount: r.discount, shipping: r.shipping,
+                ...(r.estimateOptions ? { estimateOptions: r.estimateOptions, clientOptionChoice: r.clientOptionChoice, clientSignedBy: r.clientSignedBy } : {}),
             },
         }));
     } catch {

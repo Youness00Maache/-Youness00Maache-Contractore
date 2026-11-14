@@ -16,6 +16,38 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FormType } from '../types.ts';
 import { KIND_TO_FORM_TYPE, PAPER, renderDocument, type DocKind } from '../utils/templates/index.ts';
+import { packOptionsForSave, syncMirror, type OptionSet } from '../lib/estimateOptions.ts';
+
+/**
+ * Good / better / best sample (lib/estimateOptions.ts) built from the sample estimate: 3 options + 2 lines in every
+ * option, saved exactly like the form saves it. `chosen`: signed with option B picked (today's signer-name form);
+ * `long`: option C has 40 lines (pagination of an option across pages).
+ */
+export const optionsEstimate = (base: Record<string, any>, opts: { chosen?: boolean; long?: boolean } = {}): Record<string, any> => {
+  const src: any[] = Array.isArray(base.lineItems) ? base.lineItems : [];
+  const line = (id: string, description: string, quantity: number, rate: number) => ({ id, description, quantity, rate });
+  const set: OptionSet = {
+    version: 1,
+    kind: 'estimate',
+    options: [
+      { id: 'opt-good', name: 'Good', description: 'Paint-grade finishes, standard LVP', lineItems: src.slice(1, 4).map((l, i) => ({ ...l, id: `g${i}` })) },
+      { id: 'opt-better', name: 'Better', description: 'Solid-core pocket door, premium LVP with 25-year wear layer', lineItems: [...src.slice(1, 4).map((l, i) => ({ ...l, id: `b${i}`, rate: Math.round(Number(l.rate) * 1.25 * 100) / 100 })), line('b9', 'Soft-close pocket door hardware', 1, 185)] },
+      {
+        id: 'opt-best', name: 'Best', description: 'Custom millwork and engineered hardwood',
+        lineItems: opts.long
+          ? Array.from({ length: 40 }, (_, i) => line(`x${i}`, `Millwork item ${i + 1}: ${['Shaker panel', 'Crown moulding', 'Hardwood plank', 'Custom shelf', 'Brass pull'][i % 5]}`, (i % 4) + 1, 45 + i * 9.5))
+          : [line('x1', 'Custom pantry millwork with pocket door', 1, 5400), line('x2', 'Engineered white-oak flooring (sq ft)', 260, 13.8), line('x3', 'Drywall, level-5 finish and paint', 380, 6.1)],
+      },
+    ],
+    sharedLineItems: [src[0], src[4]].filter(Boolean).map((l, i) => ({ ...l, id: `s${i}` })),
+    recommendedId: 'opt-better',
+  };
+  const { clientSignatureUrl: _a, clientSignedAt: _b, clientSignedBy: _c, clientSignerName: _d, ...rest } = base;
+  const signed = opts.chosen
+    ? { status: 'Accepted', clientSignatureUrl: base.clientSignatureUrl, clientSignedAt: base.clientSignedAt, clientSignedBy: `${base.clientSignedBy || 'Client'} (chose B: Better)` }
+    : { status: 'Sent' };
+  return packOptionsForSave(syncMirror({ ...rest, ...signed, estimateOptions: set, lineItems: [] }));
+};
 
 /** Only what each form requires (or what a hurried user fills in), with a bare-bones profile. */
 export const SPARSE_PROFILE = { id: 'sparse', email: '', name: '', companyName: 'Acme Builders' };
@@ -48,6 +80,8 @@ export interface VisualEnv {
   sampleProfile: Record<string, any>;
   sampleJob: Record<string, any>;
   diffThreshold: number;
+  /** extra cases per kind (good/better/best estimate), checked for empty boxes and, with --pdfdiff, preview vs PDF */
+  extraCases?: (kind: DocKind) => Array<{ variant: string; data: Record<string, any> }>;
 }
 
 /** Bordered/filled boxes without content, and headings without content (runs in the page after pagination). */
@@ -175,6 +209,7 @@ export const visualStage = async (env: VisualEnv, opts: { pdfDiff: boolean; empt
       const cases: Array<{ variant: string; data: any; profile: any; job: any }> = [];
       if (opts.pdfDiff) cases.push({ variant: 'sample', data: env.samples[kind], profile: env.sampleProfile, job: env.sampleJob });
       cases.push({ variant: 'sparse', data: SPARSE_DOCUMENTS[kind], profile: SPARSE_PROFILE, job: null });
+      for (const x of env.extraCases?.(kind) || []) cases.push({ ...x, profile: env.sampleProfile, job: env.sampleJob });
       for (const c of cases) {
         const r = renderDocument(type, { ...c.data, templateId: template }, c.profile, c.job, { templateId: template, bare: true });
         const { width, height } = PAPER[r.paper];

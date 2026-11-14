@@ -3,11 +3,14 @@
  * accepted estimate total(s) + net change of the approved change orders.
  * - an estimate counts when the client signed it or its status is Accepted;
  * - a change order counts when the client signed it or its status is Approved (the approval link stores "Accepted");
- * - a signed document replaced by an accepted revision ("Revise" → new revision, `revisionOf`) is not counted twice.
+ * - a signed document replaced by an accepted revision ("Revise" → new revision, `revisionOf`) is not counted twice;
+ * - an estimate with good/better/best options counts the option of lib/estimateOptions.ts (chosen, else Recommended,
+ *   else the lowest).
  * Money comes from utils/money.ts, exactly like the PDFs.
  */
 import { computeDocumentTotals, roundMoney } from '../../utils/money.ts';
 import { isClientSigned } from './signedLock.ts';
+import { withEffectiveLines } from '../../lib/estimateOptions.ts';
 
 export interface JobDocumentRow {
     id: string;
@@ -56,7 +59,7 @@ export const computeContractValue = (rows: JobDocumentRow[], opts: { excludeId?:
     const estimates = withoutSuperseded(rows.filter(r => r.type === 'Estimate' && isAcceptedEstimate(r.data)));
     const cos = withoutSuperseded(rows.filter(r => r.type === 'Change Order' && r.id !== opts.excludeId && isApprovedChangeOrder(r.data)
         && (!opts.createdBefore || !r.created_at || r.created_at < opts.createdBefore)));
-    const est = estimates.map(r => ({ id: r.id, number: s(r.data?.estimateNumber), total: computeDocumentTotals(r.data).total }));
+    const est = estimates.map(r => ({ id: r.id, number: s(r.data?.estimateNumber), total: computeDocumentTotals(withEffectiveLines(r.data)).total }));
     const co = cos.map(r => ({ id: r.id, number: s(r.data?.changeOrderNumber), change: changeOrderNetChange(r.data) }));
     const estimateTotal = roundMoney(est.reduce((a, e) => a + e.total, 0));
     const changeOrdersTotal = roundMoney(co.reduce((a, c) => a + c.change, 0));

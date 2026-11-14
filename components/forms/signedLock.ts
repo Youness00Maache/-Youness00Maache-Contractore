@@ -9,6 +9,7 @@
 import { computeDocumentTotals, roundMoney, toNumber } from '../../utils/money.ts';
 import { formatDate } from '../../utils/templates/format.ts';
 import { addDaysISO } from './formUtils.ts';
+import { effectiveEstimateLines, optionsForCopy, readOptionSet } from '../../lib/estimateOptions.ts';
 
 export type SignableKind = 'estimate' | 'changeOrder';
 
@@ -40,16 +41,22 @@ export const docLabelOf = (kind: SignableKind) => (kind === 'estimate' ? 'estima
 /** What the client agreed to: lines, money and terms (never internal costs, the status or the design). */
 export const signedContent = (d: unknown, kind: SignableKind) => {
     const r = rec(d);
-    const items = Array.isArray(r.lineItems) ? r.lineItems : [];
-    const lines = items.map((li: any) => [s(li?.description), toNumber(li?.quantity), roundMoney(toNumber(li?.rate)), toNumber(li?.percentComplete)]);
-    const totals = computeDocumentTotals(kind === 'changeOrder' ? { lineItems: items } : r);
+    // an estimate with good/better/best options: the option that counts (lib/estimateOptions.ts) + every option offered
+    const items = kind === 'estimate' ? effectiveEstimateLines(r) : Array.isArray(r.lineItems) ? r.lineItems : [];
+    const lineKey = (list: unknown[]) => list.map((li: any) => [s(li?.description), toNumber(li?.quantity), roundMoney(toNumber(li?.rate)), toNumber(li?.percentComplete)]);
+    const lines = lineKey(items);
+    const totals = computeDocumentTotals(kind === 'changeOrder' ? { lineItems: items } : { ...r, lineItems: items });
     const base = {
         lines,
         subtotal: totals.subtotal, discount: totals.discount, taxRate: totals.taxRate, tax: totals.tax, total: totals.total,
         terms: s(r.terms),
     };
+    const set = kind === 'estimate' ? readOptionSet(r) : null;
+    const offered = set
+        ? { options: set.options.map(o => [s(o.name), s(o.description), lineKey(o.lineItems)]), shared: lineKey(set.sharedLineItems) }
+        : {};
     return kind === 'estimate'
-        ? { ...base, notes: s(r.notes) }
+        ? { ...base, notes: s(r.notes), ...offered }
         : { ...base, currentContractSum: roundMoney(toNumber(r.currentContractSum)), description: s(r.description), reason: s(r.reason) };
 };
 
@@ -118,6 +125,8 @@ export const buildRevisionSeed = (d: unknown, kind: SignableKind, sourceId: stri
         return {
             ...common,
             ...pick(r, ['notes', 'taxRate', 'discount']),
+            // good/better/best options are offered again (no choice yet); an applied estimate stays its chosen option
+            ...optionsForCopy(r),
             estimateNumber: revisionNumber(r.estimateNumber),
             issueDate: today,
             expiryDate: addDaysISO(validDays, today),
@@ -142,7 +151,8 @@ export const buildInvoiceSeedFromEstimate = (est: unknown, sourceId: string | un
     return {
         ...pick(r, BRANDING_KEYS), ...pick(r, CLIENT_KEYS),
         ...(s(r.title) ? { title: s(r.title) } : {}),
-        lineItems: copyLines(r.lineItems),
+        // an estimate with options: the option that counts (applied / chosen / Recommended / lowest)
+        lineItems: copyLines(effectiveEstimateLines(r)),
         taxRate: toNumber(r.taxRate),
         discount: toNumber(r.discount),
         ...(deposit > 0 ? { amountPaid: deposit } : {}),

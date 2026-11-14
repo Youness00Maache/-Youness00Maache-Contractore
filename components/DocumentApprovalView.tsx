@@ -18,6 +18,9 @@ import type { Job, UserProfile } from '../types.ts';
 import { financingFor, payAmountOf, payLinkFor, paymentReportOf, isPayableStatus } from '../lib/payments.ts';
 import { reportPaymentPublic, type ReportTarget } from '../lib/paymentsApi.ts';
 import {
+    choiceOf, findOption, optionLetter, optionName, optionRange, planChoiceSigning, readOptionSet, summarizeOptions, type OptionSet,
+} from '../lib/estimateOptions.ts';
+import {
     AlertTriangleIcon, CheckCircleIcon, ClockIcon, CreditCardIcon, DownloadIcon, ExternalLinkIcon, GlobeIcon, MailIcon,
     MapPinIcon, PenIcon, ShieldCheckIcon, SmartphoneIcon, XCircleIcon,
 } from './Icons.tsx';
@@ -50,6 +53,8 @@ export interface SigningOutcome {
     kind: 'signed' | 'declined';
     name: string;
     at: string;
+    /** good/better/best: the option the client signed for ("B · Better") */
+    option?: string;
 }
 
 /** A state the link/document is in that replaces the normal review UI. */
@@ -191,6 +196,42 @@ export async function callSigningRpc(fn: string, args: Record<string, unknown>, 
     if (res.error) throw new Error(res.error.message || 'Request failed');
     throwIfPayloadError(res.data);
     return res.data;
+}
+
+/** Options of an estimate the client chooses from (null when it has none, or one was applied). */
+export const openOptionSet = (doc: PublicDocument): OptionSet | null => {
+    if (doc.type !== 'Estimate') return null;
+    const set = readOptionSet(doc.data);
+    return set && !set.appliedId ? set : null;
+};
+
+/** "B · Better" */
+export const optionLabelOf = (set: OptionSet, id: string | null | undefined): string => {
+    const i = set.options.findIndex((o) => o.id === id);
+    return i < 0 ? '' : `${optionLetter(i)} · ${optionName(set.options[i], i)}`;
+};
+
+/**
+ * Signs an options estimate with the chosen option. Uses the database function that stores the choice
+ * (docs/work/DRAFT_estimate_options_choice.sql) when it exists; until then the existing signing function is used and
+ * the choice is written in the signer's name ("Jane Doe (chose B: Better)"), which the contractor's app reads.
+ */
+export async function signWithOption(
+    target: { portalKey: string; documentId: string } | { token: string },
+    set: OptionSet,
+    optionId: string,
+    signerName: string,
+    signature: string,
+): Promise<'stored' | 'in-signer-name'> {
+    const plan = planChoiceSigning(target, set, optionId, signerName, signature);
+    const res = await supabase.rpc(plan.rpc.name, plan.rpc.args);
+    if (!res.error) {
+        throwIfPayloadError(res.data);
+        return 'stored';
+    }
+    if (!isMissingFunctionError(res.error)) throw new Error(res.error.message || 'Request failed');
+    await callSigningRpc(plan.fallback.name, plan.fallback.args, plan.fallback.signerName);
+    return 'in-signer-name';
 }
 
 /** Calls a decline RPC. Returns 'unsupported' when the function is not deployed. */
@@ -533,6 +574,106 @@ export const FinancingNotice: React.FC<{ doc: PublicDocument; contractor: Public
 };
 
 /* =====================================================================================
+   Good / better / best options (estimates): the client picks one, then signs
+   ===================================================================================== */
+
+/**
+ * The options of an estimate as cards (one column on phones). With `onChoose` the client picks one (radio cards);
+ * without it they are shown read-only, the chosen one marked.
+ */
+export const OptionCards: React.FC<{
+    doc: PublicDocument;
+    set: OptionSet;
+    value?: string | null;
+    onChoose?: (optionId: string) => void;
+}> = ({ doc, set, value, onChoose }) => {
+    const d = doc.data;
+    const money = (v: number) => formatMoney(v, currencyOf(d));
+    const summaries = summarizeOptions(d, set);
+    const shared = set.sharedLineItems.filter((li) => str(li.description) || toNumber(li.rate));
+    const picking = !!onChoose;
+    const lineRow = (it: any, i: number) => (
+        <li key={str(it.id) || i} className="flex items-start justify-between gap-3 py-2">
+            <span className="min-w-0">
+                <span className="block whitespace-pre-wrap break-words text-sm text-foreground">{str(it.description) || '—'}</span>
+                <span className="block text-xs tabular-nums text-muted-foreground">{toNumber(it.quantity)} × {money(toNumber(it.rate))}</span>
+            </span>
+            <span className="shrink-0 text-sm font-medium tabular-nums">{money(lineItemAmount(it, false))}</span>
+        </li>
+    );
+    return (
+        <section aria-label="Options">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
+                <h3 className="label mb-0">{picking ? 'Choose one option' : 'Options'}</h3>
+                <p className="text-xs text-muted-foreground">{summaries.length} options{shared.length ? ' · each includes the lines in every option' : ''}</p>
+            </div>
+            <div role={picking ? 'radiogroup' : undefined} aria-label={picking ? 'Options' : undefined} className={cx('grid gap-3', summaries.length === 2 || summaries.length === 4 ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
+                {summaries.map((s) => {
+                    const on = picking ? value === s.option.id : s.chosen;
+                    const lines = s.option.lineItems.filter((li) => str(li.description) || toNumber(li.rate));
+                    return (
+                        <div
+                            key={s.option.id}
+                            className={cx(
+                                'flex flex-col rounded-2xl border p-4 transition',
+                                on ? 'border-primary bg-primary/5 ring-2 ring-primary/25' : 'border-border',
+                            )}
+                        >
+                            <label className={cx('flex items-start gap-3', picking && 'cursor-pointer')}>
+                                {picking && (
+                                    <input
+                                        type="radio"
+                                        name={`options-${doc.id}`}
+                                        className="mt-1 h-5 w-5 shrink-0 accent-primary"
+                                        checked={value === s.option.id}
+                                        onChange={() => onChoose!(s.option.id)}
+                                    />
+                                )}
+                                <span className="min-w-0 flex-1">
+                                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        <span className="text-xs font-bold text-muted-foreground">{s.letter}</span>
+                                        <span className="break-words font-semibold text-foreground">{optionName(s.option, s.index)}</span>
+                                        {s.chosen ? <span className="badge badge-success">Chosen</span> : s.recommended && <span className="badge badge-primary">Recommended</span>}
+                                    </span>
+                                    {s.option.description && <span className="mt-1 block break-words text-sm text-muted-foreground">{s.option.description}</span>}
+                                    <span className="mt-2 block text-2xl font-bold tabular-nums text-foreground">{money(s.totals.total)}</span>
+                                    {s.totals.tax > 0 && <span className="block text-xs text-muted-foreground">incl. {money(s.totals.tax)} tax</span>}
+                                </span>
+                            </label>
+                            <details className="mt-3 border-t border-border pt-1">
+                                <summary className="flex min-h-[40px] cursor-pointer items-center text-sm font-medium text-primary">
+                                    What’s included ({lines.length + shared.length})
+                                </summary>
+                                <ul className="divide-y divide-border">{lines.map(lineRow)}</ul>
+                                {shared.length > 0 && (
+                                    <p className="border-t border-border pt-2 text-xs text-muted-foreground">
+                                        + {shared.length} line{shared.length === 1 ? '' : 's'} included in every option ({money(shared.reduce((a, li) => a + lineItemAmount(li, false), 0))})
+                                    </p>
+                                )}
+                                <dl className="mt-2 space-y-1 text-sm">
+                                    <MoneyRow label="Subtotal" value={money(s.totals.subtotal)} />
+                                    {s.totals.discount > 0 && <MoneyRow label="Discount" value={`−${money(s.totals.discount)}`} />}
+                                    {s.totals.tax > 0 && <MoneyRow label={`Tax (${s.totals.taxRate}%)`} value={money(s.totals.tax)} />}
+                                    <MoneyRow label="Total" value={money(s.totals.total)} strong />
+                                </dl>
+                            </details>
+                        </div>
+                    );
+                })}
+            </div>
+            {shared.length > 0 && (
+                <details className="mt-3 rounded-2xl border border-dashed border-border px-4 py-1">
+                    <summary className="flex min-h-[40px] cursor-pointer items-center text-sm font-medium text-foreground">
+                        Included in every option ({shared.length})
+                    </summary>
+                    <ul className="divide-y divide-border pb-2">{shared.map(lineRow)}</ul>
+                </details>
+            )}
+        </section>
+    );
+};
+
+/* =====================================================================================
    Document detail (parties, line items, totals, text sections, signature state)
    ===================================================================================== */
 
@@ -577,12 +718,19 @@ export const DocumentDetail: React.FC<{
     /** enables "I've paid" on invoices */
     onReportPayment?: ReportPaymentFn;
     onPaymentReported?: () => void;
-}> = ({ doc, contractor, clientName = '', onReportPayment, onPaymentReported }) => {
+    /** good/better/best estimate: the option picked on this page, and how to pick one (only while it can be signed) */
+    chosenOptionId?: string | null;
+    onChooseOption?: (optionId: string) => void;
+}> = ({ doc, contractor, clientName = '', onReportPayment, onPaymentReported, chosenOptionId, onChooseOption }) => {
     const d = doc.data;
     const currency = currencyOf(d);
     const money = (v: number) => formatMoney(v, currency);
     const totals = documentTotals(d);
-    const items: any[] = Array.isArray(d.lineItems) ? d.lineItems.filter((it: unknown) => it && typeof it === 'object') : [];
+    const optionSet = openOptionSet(doc);
+    const range = optionSet ? optionRange(d) : null;
+    const signedChoice = optionSet ? choiceOf(d, optionSet) : null;
+    const choiceTotal = optionSet && signedChoice ? summarizeOptions(d, optionSet).find((x) => x.chosen)?.totals.total ?? 0 : 0;
+    const items: any[] = optionSet ? [] : Array.isArray(d.lineItems) ? d.lineItems.filter((it: unknown) => it && typeof it === 'object') : [];
     const isProgress = !!d.isProgressBilling;
     const state = getDocState(doc);
     const label = documentLabel(doc.type, d);
@@ -648,7 +796,16 @@ export const DocumentDetail: React.FC<{
                         </p>
                     )}
                 </div>
-                {totals.hasMoney && (
+                {optionSet && range ? (
+                    <div className="shrink-0 rounded-2xl bg-muted/60 px-4 py-3 sm:text-right">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {signedChoice ? 'Chosen option' : `${range.count} options`}
+                        </p>
+                        <p className="text-2xl font-bold tabular-nums text-foreground">
+                            {signedChoice ? money(choiceTotal) : range.min === range.max ? money(range.min) : `${money(range.min)}–${money(range.max)}`}
+                        </p>
+                    </div>
+                ) : totals.hasMoney && (
                     <div className="shrink-0 rounded-2xl bg-muted/60 px-4 py-3 sm:text-right">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             {totals.amountPaid > 0 ? 'Balance due' : 'Total'}
@@ -731,8 +888,18 @@ export const DocumentDetail: React.FC<{
                 </section>
             )}
 
+            {/* good/better/best options: cards (picked here while the estimate can be signed) */}
+            {optionSet && (
+                <OptionCards
+                    doc={doc}
+                    set={optionSet}
+                    value={state === 'open' ? chosenOptionId ?? null : null}
+                    onChoose={state === 'open' ? onChooseOption : undefined}
+                />
+            )}
+
             {/* Totals */}
-            {totals.hasMoney && (
+            {totals.hasMoney && !optionSet && (
                 <dl className="ml-auto w-full space-y-1.5 text-sm sm:max-w-xs">
                     {items.length > 0 && <MoneyRow label="Subtotal" value={money(totals.subtotal)} />}
                     {totals.discount > 0 && <MoneyRow label="Discount" value={`−${money(totals.discount)}`} />}
@@ -801,7 +968,10 @@ export const SigningPanel: React.FC<{
     onProblem?: (problem: LinkProblem) => void;
     onBusyChange?: (busy: boolean) => void;
     id?: string;
-}> = ({ doc, contractor, defaultName = '', onSign, onDecline, onComplete, onProblem, onBusyChange, id }) => {
+    /** good/better/best estimate: the option picked above (signing needs one) and how to go back to the cards */
+    chosenOptionId?: string | null;
+    onShowOptions?: () => void;
+}> = ({ doc, contractor, defaultName = '', onSign, onDecline, onComplete, onProblem, onBusyChange, id, chosenOptionId, onShowOptions }) => {
     const [mode, setMode] = useState<'sign' | 'decline'>('sign');
     const [name, setName] = useState(defaultName);
     const [signature, setSignature] = useState('');
@@ -819,7 +989,11 @@ export const SigningPanel: React.FC<{
     const company = contractorName(contractor);
     const po = isPurchaseOrder(doc.type);
     const trimmedName = name.trim();
-    const canSign = trimmedName.length >= 2 && signature.startsWith('data:image/') && consent && !busy;
+    const optionSet = openOptionSet(doc);
+    const chosen = optionSet ? findOption(optionSet, chosenOptionId) : null;
+    const chosenTotal = optionSet && chosen ? summarizeOptions(d, optionSet).find((x) => x.option.id === chosen.id)?.totals.total ?? 0 : 0;
+    const needsOption = !!optionSet && !chosen;
+    const canSign = trimmedName.length >= 2 && signature.startsWith('data:image/') && consent && !busy && !needsOption;
 
     const setBusy = (b: boolean) => { setBusyState(b); onBusyChange?.(b); };
     const resetPad = () => { setSignature(''); setPadKey((k) => k + 1); };
@@ -845,7 +1019,7 @@ export const SigningPanel: React.FC<{
         setError('');
         try {
             await onSign(trimmedName, signature);
-            onComplete({ kind: 'signed', name: trimmedName, at: new Date().toISOString() });
+            onComplete({ kind: 'signed', name: trimmedName, at: new Date().toISOString(), ...(optionSet && chosen ? { option: optionLabelOf(optionSet, chosen.id) } : {}) });
         } catch (e) {
             handleFailure(e);
         } finally {
@@ -873,9 +1047,25 @@ export const SigningPanel: React.FC<{
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">{mode === 'sign' ? (po ? 'Confirm order' : 'Review & sign') : (po ? 'Can’t fill this order' : 'Decline')}</p>
                 <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                     <h3 className="min-w-0 break-words text-lg font-semibold text-foreground">{label}</h3>
-                    {totals.hasMoney && <p className="text-lg font-bold tabular-nums text-foreground">{formatMoney(totals.total, currencyOf(d))}</p>}
+                    {optionSet
+                        ? chosen && <p className="text-lg font-bold tabular-nums text-foreground">{formatMoney(chosenTotal, currencyOf(d))}</p>
+                        : totals.hasMoney && <p className="text-lg font-bold tabular-nums text-foreground">{formatMoney(totals.total, currencyOf(d))}</p>}
                 </div>
                 <p className="text-sm text-muted-foreground">From {company}</p>
+                {optionSet && mode === 'sign' && (
+                    <div className={cx('mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm', chosen ? 'border-primary/30 bg-card' : 'border-warning/40 bg-warning/10')}>
+                        <span className="min-w-0">
+                            {chosen
+                                ? <>You’re signing for option <span className="font-semibold text-foreground">{optionLabelOf(optionSet, chosen.id)}</span></>
+                                : <span className="font-medium text-foreground">Choose one of the {optionSet.options.length} options first.</span>}
+                        </span>
+                        {onShowOptions && (
+                            <button type="button" className="btn btn-ghost btn-sm min-h-[36px] text-primary" onClick={onShowOptions}>
+                                {chosen ? 'Change' : 'See options'}
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {mode === 'sign' ? (
@@ -927,7 +1117,7 @@ export const SigningPanel: React.FC<{
                     </div>
                     {!canSign && !busy && (
                         <p className="text-center text-xs text-muted-foreground sm:text-right">
-                            {trimmedName.length < 2 ? 'Enter your full name' : !signature ? 'Add your signature' : !consent ? 'Tick the box to confirm' : ''}
+                            {needsOption ? 'Choose an option' : trimmedName.length < 2 ? 'Enter your full name' : !signature ? 'Add your signature' : !consent ? 'Tick the box to confirm' : ''}
                             {' '}to continue.
                         </p>
                     )}
@@ -1015,6 +1205,9 @@ export const CompletionCard: React.FC<{
             <p className="mx-auto mt-2 max-w-md text-muted-foreground">
                 Thanks, {outcome.name}. {company} has been notified{signed ? '' : ' of your decision'}.
             </p>
+            {signed && outcome.option && (
+                <p className="mx-auto mt-1 max-w-md text-sm font-medium text-foreground">You chose option {outcome.option}.</p>
+            )}
             <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
                 <ClockIcon className="h-4 w-4" /> {fmtDateTime(outcome.at)}
             </p>
@@ -1097,7 +1290,10 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
     const [signInView, setSignInView] = useState(false);
     /** false when the link itself can't sign (already used by the client); null when the database didn't say */
     const [linkCanSign, setLinkCanSign] = useState<boolean | null>(null);
+    /** good/better/best: the option the client picked on this page */
+    const [pick, setPick] = useState<string | null>(null);
     const signRef = useRef<HTMLDivElement>(null);
+    const optionsRef = useRef<HTMLDivElement>(null);
 
     const load = useCallback(async (silent = false) => {
         if (!TOKEN_RE.test(token)) {
@@ -1188,6 +1384,10 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
     }
 
     const totals = documentTotals(doc.data);
+    const optionSet = openOptionSet(doc);
+    const pickedTotal = optionSet && pick ? summarizeOptions(doc.data, optionSet).find((x) => x.option.id === pick)?.totals.total ?? null : null;
+    const range = optionSet ? optionRange(doc.data) : null;
+    const showOptions = () => optionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const payBar = doc.type === 'Invoice' && str(doc.data.status) !== 'Draft' && !paymentReportOf(doc.data) ? payLinkFor(doc.data) : null;
 
     return (
@@ -1204,13 +1404,15 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
 
                 {pageError && <Notice tone="danger" onClose={() => setPageError('')}>{pageError}</Notice>}
 
-                <div className="card card-pad">
+                <div className="card card-pad scroll-mt-24" ref={optionsRef}>
                     <DocumentDetail
                         doc={doc}
                         contractor={contractor}
                         clientName={clientName}
                         onReportPayment={makeReportPayment({ token })}
                         onPaymentReported={() => load(true)}
+                        chosenOptionId={pick}
+                        onChooseOption={canSign ? setPick : undefined}
                     />
                     <div className="mt-6 flex flex-wrap gap-2 border-t border-border pt-4">
                         <DownloadPdfButton doc={doc} contractor={contractor} clientName={clientName} onError={setPageError} />
@@ -1224,8 +1426,11 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                             doc={doc}
                             contractor={contractor}
                             defaultName={clientName}
+                            chosenOptionId={pick}
+                            onShowOptions={optionSet ? showOptions : undefined}
                             onSign={async (name, signature) => {
-                                await callSigningRpc('approve_document_by_token', { doc_token: token, p_signature: signature }, name);
+                                if (optionSet && pick) await signWithOption({ token }, optionSet, pick, name, signature);
+                                else await callSigningRpc('approve_document_by_token', { doc_token: token, p_signature: signature }, name);
                             }}
                             onDecline={(reason, name) => callDeclineRpcWithName(
                                 'decline_document_by_token',
@@ -1264,15 +1469,19 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                 <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 px-4 py-3 shadow-lift backdrop-blur sm:hidden">
                     <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                            <p className="truncate text-xs text-muted-foreground">{documentLabel(doc.type, doc.data)}</p>
-                            {totals.hasMoney && <p className="text-base font-bold tabular-nums">{formatMoney(totals.total, currencyOf(doc.data))}</p>}
+                            <p className="truncate text-xs text-muted-foreground">
+                                {optionSet ? (pick ? `Option ${optionLabelOf(optionSet, pick)}` : `${optionSet.options.length} options, choose one`) : documentLabel(doc.type, doc.data)}
+                            </p>
+                            {optionSet
+                                ? <p className="text-base font-bold tabular-nums">{pickedTotal !== null ? formatMoney(pickedTotal, currencyOf(doc.data)) : range ? `from ${formatMoney(range.min, currencyOf(doc.data))}` : ''}</p>
+                                : totals.hasMoney && <p className="text-base font-bold tabular-nums">{formatMoney(totals.total, currencyOf(doc.data))}</p>}
                         </div>
                         <button
                             type="button"
                             className="btn btn-primary min-h-[44px] shrink-0"
-                            onClick={() => signRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            onClick={() => (optionSet && !pick ? showOptions() : signRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}
                         >
-                            <PenIcon className="h-4 w-4" /> {isPurchaseOrder(doc.type) ? 'Review & confirm' : <>Review &amp; sign</>}
+                            {optionSet && !pick ? 'Choose an option' : <><PenIcon className="h-4 w-4" /> {isPurchaseOrder(doc.type) ? 'Review & confirm' : <>Review &amp; sign</>}</>}
                         </button>
                     </div>
                 </div>

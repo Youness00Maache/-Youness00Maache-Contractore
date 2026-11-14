@@ -15,6 +15,7 @@ import {
 import { renderVisualsHtml } from './widgets.ts';
 import { financingFor, httpsLink, isPayableStatus, payLinkFor } from '../../lib/payments.ts';
 import { qrSvg } from '../../lib/qrcode.ts';
+import { choiceOf, readOptionSet, summarizeOptions, findOption, optionLetter, optionName, plainSignerName } from '../../lib/estimateOptions.ts';
 
 /** "Scan to pay" QR (generated locally, no network); '' when the link can't be encoded. */
 const payQr = (href: string): string => {
@@ -82,6 +83,25 @@ export interface Fact { label: string; value: string; sub?: string }
 export interface Section { id: string; title: string; html: string; rich?: boolean }
 export interface Signature { label: string; imageUrl: string; name: string; date: string }
 export interface StatusBadge { text: string; tone: 'good' | 'bad' | 'warn' | 'neutral' }
+/** One good/better/best option of an estimate (lib/estimateOptions.ts), render-ready. */
+export interface ChoiceCard {
+  letter: string;
+  name: string;
+  description: string;
+  items: ItemsTable;
+  totals: TotalLine[];
+  total: string;
+  recommended: boolean;
+  chosen: boolean;
+}
+/** Good/better/best options of an estimate: the client chooses ONE (replaces `items` + `totals`). */
+export interface ChoicesModel {
+  title: string;
+  note: string;
+  cards: ChoiceCard[];
+  /** lines included in every option (printed once) */
+  shared: ItemsTable | null;
+}
 
 export interface DocModel {
   kind: DocKind;
@@ -114,6 +134,8 @@ export interface DocModel {
   before: Section[];
   items: ItemsTable | null;
   totals: TotalLine[];
+  /** estimate with good/better/best options (then `items` is null and `totals` empty) */
+  choices: ChoicesModel | null;
   summaryNotes: Section[];
   /** "Pay now" button; `qr` = inline SVG "Scan to pay" (https links only), `caption` its label */
   paymentLink: { url: string; label: string; qr?: string; caption?: string } | null;
@@ -332,6 +354,7 @@ export const buildDocumentModel = (
     before: [],
     items: null,
     totals: [],
+    choices: null,
     summaryNotes: [],
     paymentLink: null,
     financing: null,
@@ -433,6 +456,58 @@ export const buildDocumentModel = (
       model.items = lineItemsTable(d.lineItems, fmt);
       model.totals = lines;
       model.highlight = { label: 'Estimate total', value: esc(money(tot.total, fmt)) };
+      // good/better/best options (lib/estimateOptions.ts): every option with its lines and total, one to choose
+      const optSet = readOptionSet(d);
+      if (optSet && !optSet.appliedId) {
+        const sums = summarizeOptions(d, optSet);
+        const choice = choiceOf(d, optSet);
+        const chosen = sums.find((x) => x.chosen);
+        const sharedSum = computeDocumentTotals({ lineItems: optSet.sharedLineItems }).subtotal;
+        const optTotals = (o: (typeof sums)[number]): TotalLine[] => {
+          const tl: TotalLine[] = [];
+          // the lines in every option are printed once (above the options) and added to each option here
+          if (optSet.sharedLineItems.some((li) => isMeaningfulLine(li as unknown as LineLike))) tl.push({ label: 'In every option', value: money(sharedSum, fmt), kind: 'muted' });
+          tl.push({ label: 'Subtotal', value: money(o.totals.subtotal, fmt) });
+          if (o.totals.discount > 0) tl.push({ label: 'Discount', value: negMoney(o.totals.discount, fmt) });
+          if (o.totals.taxRate > 0 || o.totals.tax > 0) tl.push({ label: `Tax (${formatNumber(o.totals.taxRate, 3)}%)`, value: money(o.totals.tax, fmt) });
+          tl.push({ label: `${esc(optionName(o.option, o.index))} total`, value: money(o.totals.total, fmt), kind: 'grand' });
+          return tl;
+        };
+        const sharedTable = lineItemsTable(optSet.sharedLineItems, fmt);
+        const who = choice?.by === 'client' ? plainSignerName(choice.name || d.clientSignedBy || clientName) : '';
+        const when = choice?.at ? formatDate(choice.at, fmt) : '';
+        model.items = null;
+        model.totals = [];
+        model.choices = {
+          title: chosen ? 'Your options' : 'Choose one option',
+          note: chosen
+            ? esc(`Chosen${who ? ` by ${who}` : ''}${when ? ` on ${when}` : ''}: option ${chosen.letter}, ${optionName(chosen.option, chosen.index)}.`)
+            : esc(`Tick one option and sign below, or choose it when you sign online.${sharedTable.rows.length ? ' Each total includes the lines in every option.' : ''}`),
+          cards: sums.map((o) => {
+            const table = lineItemsTable(o.option.lineItems, fmt);
+            return {
+              letter: optionLetter(o.index),
+              name: esc(optionName(o.option, o.index)),
+              description: t(o.option.description),
+              items: { ...table, emptyText: sharedTable.rows.length ? 'Only the lines in every option.' : 'No line items.' },
+              totals: optTotals(o),
+              total: money(o.totals.total, fmt),
+              recommended: o.recommended,
+              chosen: o.chosen,
+            };
+          }),
+          shared: sharedTable.rows.length ? sharedTable : null,
+        };
+        const min = Math.min(...sums.map((o) => o.totals.total));
+        model.highlight = chosen
+          ? { label: 'Chosen option', value: esc(money(chosen.totals.total, fmt)) }
+          : { label: 'Options from', value: esc(money(min, fmt)) };
+      } else if (optSet?.appliedId) {
+        // the estimate became one of its options ("Apply chosen option")
+        const applied = findOption(optSet, optSet.appliedId);
+        const idx = optSet.options.findIndex((o) => o.id === optSet.appliedId);
+        if (applied) model.meta.push({ label: 'Option', value: esc(`${optionLetter(idx)} · ${optionName(applied, idx)}`) });
+      }
       const fin = financingFor(d);
       const finUrl = fin ? safeUrl(fin.url) : '';
       if (finUrl) model.financing = { url: finUrl, label: 'Financing available', note: 'Pay over time with our financing partner. Check your options online:' };

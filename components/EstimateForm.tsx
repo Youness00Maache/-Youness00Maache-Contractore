@@ -22,6 +22,11 @@ import { makeStockLookup } from './forms/inventory.ts';
 import { buildInvoiceSeedFromEstimate, isClientSigned, signedChangeProblem } from './forms/signedLock.ts';
 import { LockedFieldset, SignedLockBanner, makeSignatureCheck, useSignedLock } from './forms/SignedLock.tsx';
 import { fetchInvoicesFromEstimate } from './forms/jobDocuments.ts';
+import {
+    adoptLineItemsIntoOption, applyChosenOption, canUndoApply, createOptionSet, effectiveOption, packOptionsForSave, readOptionSet,
+    recordContractorChoice, removeOptions, syncMirror, undoApply, unpackOptionsForEdit, type OptionSet,
+} from '../lib/estimateOptions.ts';
+import { AppliedOptionStrip, EstimateOptionsEditor, OptionChoiceBar, optionTitle } from './options/EstimateOptionsEditor.tsx';
 
 interface Props {
     job: Job;
@@ -61,6 +66,9 @@ const ConvertDialog: React.FC<{
     }, [open, jobId, estimateId]);
     if (!open) return null;
     const lines = (estimate.lineItems || []).filter(li => String(li.description || '').trim() || toNumber(li.rate)).length;
+    // good/better/best: the invoice gets the option that counts (applied / chosen / Recommended / lowest)
+    const set = readOptionSet(estimate);
+    const eff = set && !set.appliedId ? effectiveOption(estimate, set) : null;
     return (
         <div className="modal-backdrop" onClick={() => !busy && onCancel()}>
             <div className="modal-panel p-6" role="dialog" aria-modal="true" aria-labelledby="convert-title" onClick={e => e.stopPropagation()}>
@@ -68,6 +76,12 @@ const ConvertDialog: React.FC<{
                 <p className="mt-2 text-sm text-muted-foreground">
                     Opens a new draft invoice{estimate.clientName ? ` for ${estimate.clientName}` : ''} with the {lines} line{lines === 1 ? '' : 's'}, tax and discount of this estimate ({formatMoney(total)}). You can review it before saving.
                 </p>
+                {set && eff && (
+                    <p className="mt-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                        Uses option <span className="font-semibold">{optionTitle(set, eff.id)}</span>
+                        {eff.reason === 'chosen' ? ', the client’s choice.' : eff.reason === 'recommended' ? ' (Recommended): no choice recorded yet.' : ' (lowest total): no choice recorded yet.'}
+                    </p>
+                )}
                 {existing.length > 0 && (
                     <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
                         <p className="flex items-start gap-2 font-medium"><AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" /> Already converted: {existing.map(i => i.number || 'an invoice').join(', ')}.</p>
@@ -145,7 +159,9 @@ const EstimateForm: React.FC<Props> = ({
                 ...(profile.financingLink ? { financingLink: profile.financingLink, financingMinAmount: toNumber(profile.financingMinAmount) } : {}),
             };
         },
-        hydrate: d => backfillCompany({
+        // good/better/best options (unpackOptionsForEdit): private line fields back on the option lines, lineItems =
+        // the option that counts
+        hydrate: d => unpackOptionsForEdit(backfillCompany({
             ...d,
             lineItems: normalizeLineItems(d.lineItems, false),
             discount: toNumber(d.discount),
@@ -157,7 +173,9 @@ const EstimateForm: React.FC<Props> = ({
             ...(d.financingLink === undefined && profile.financingLink && !isClientSigned(d)
                 ? { financingLink: profile.financingLink, financingMinAmount: toNumber(profile.financingMinAmount) }
                 : {}),
-        }, profile),
+        }, profile), lines => normalizeLineItems(lines, false)),
+        // saved: option lines without private fields (estimateOptionsInternal), lineItems mirroring the option that counts
+        prepare: d => packOptionsForSave(d),
         validate: d => {
             if (!String(d.estimateNumber || '').trim()) return 'Add an estimate number.';
             if (!isISODate(d.issueDate)) return 'Add a valid issue date.';
@@ -186,6 +204,30 @@ const EstimateForm: React.FC<Props> = ({
     const accepted = isClientSigned(d) || d.status === 'Accepted';
     const showFinancing = financingOpen || Boolean(d.financingLink);
     const financing = financingFor(d);
+    const optionSet = readOptionSet(d);
+    const optionsOn = !!optionSet && !optionSet.appliedId;
+
+    // good/better/best options (lib/estimateOptions.ts): every option edit re-syncs lineItems to the option that counts
+    const changeOptions = (fn: (set: OptionSet) => OptionSet) => update(prev => {
+        const set = readOptionSet(prev);
+        return set ? syncMirror({ ...prev, estimateOptions: fn(set) }) : prev;
+    });
+    const turnOnOptions = () => {
+        update(prev => syncMirror({ ...prev, estimateOptions: createOptionSet(prev.lineItems) }));
+        form.setFeedback({ tone: 'info', message: 'Options on: Good, Better and Best start with your current lines. Change each one, then send it. The client picks one when they sign.' });
+    };
+    const applyChoice = async () => {
+        const next = applyChosenOption(form.data);
+        if (!next) return;
+        update(next);
+        if (await form.save()) form.setFeedback({ tone: 'success', message: 'Chosen option applied: this estimate now has one total.' });
+    };
+    const applyAiDraft = (payload: unknown) => {
+        const before = form.data.lineItems;
+        const n = form.applyDraft(payload);
+        if (n) update(prev => adoptLineItemsIntoOption(prev, before));
+        return n;
+    };
 
     const openConvert = async () => {
         // the invoice links back to the SAVED estimate
@@ -225,7 +267,7 @@ const EstimateForm: React.FC<Props> = ({
             preview={{ formType: FormType.Estimate, data: d, profile, job }}
             actions={(
                 <>
-                    {!locked && <AIFillButton jobId={job.id} formType={FormType.Estimate} onApply={form.applyDraft} compact />}
+                    {!locked && <AIFillButton jobId={job.id} formType={FormType.Estimate} onApply={applyAiDraft} compact />}
                     {!locked && accepted && convertButton}
                     <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
                 </>
@@ -264,15 +306,51 @@ const EstimateForm: React.FC<Props> = ({
 
             <FormSection
                 title="Items"
-                description="Prices the client will see. Turn on profit tools to track your costs (never printed)."
+                description={optionsOn
+                    ? 'Good / better / best: the client picks one option when they sign. Profit tools track your costs (never printed).'
+                    : 'Prices the client will see. Turn on profit tools to track your costs (never printed).'}
                 icon={TrendingUpIcon}
                 actions={(
-                    <button type="button" className={`btn btn-sm min-h-[40px] ${showCosts ? 'btn-secondary' : 'btn-outline'}`} onClick={() => setShowCosts(s => !s)} aria-pressed={showCosts}>
-                        {showCosts ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />} {showCosts ? 'Hide costs' : 'Profit tools'}
-                    </button>
+                    <>
+                        {!locked && !optionSet && (
+                            <button type="button" className="btn btn-outline btn-sm min-h-[40px]" onClick={turnOnOptions} title="Offer 2 to 4 options (Good / Better / Best); the client picks one">
+                                Good / better / best
+                            </button>
+                        )}
+                        <button type="button" className={`btn btn-sm min-h-[40px] ${showCosts ? 'btn-secondary' : 'btn-outline'}`} onClick={() => setShowCosts(s => !s)} aria-pressed={showCosts}>
+                            {showCosts ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />} {showCosts ? 'Hide costs' : 'Profit tools'}
+                        </button>
+                    </>
                 )}
             >
+                {optionsOn && optionSet ? (
+                    <>
+                        <EstimateOptionsEditor
+                            data={d}
+                            set={optionSet}
+                            onSetChange={changeOptions}
+                            onAdjust={patch => update(prev => syncMirror({ ...prev, ...patch }))}
+                            onTurnOff={() => update(prev => removeOptions(prev))}
+                            locked={locked}
+                            showCosts={showCosts}
+                            savedItems={savedItems}
+                            inventoryItems={inventoryItems}
+                            availableStock={stockLookup}
+                        />
+                        <OptionChoiceBar
+                            data={d}
+                            set={optionSet}
+                            canRecord={!locked}
+                            onRecord={id => changeOptions(set => recordContractorChoice(set, id))}
+                            onApply={() => void applyChoice()}
+                            busy={form.busy}
+                        />
+                    </>
+                ) : (
                 <LockedFieldset locked={locked} className="space-y-5">
+                    {optionSet?.appliedId && (
+                        <AppliedOptionStrip data={d} onUndo={!locked && canUndoApply(d) ? () => update(prev => undoApply(prev)) : undefined} />
+                    )}
                     <LineItemsEditor
                         items={d.lineItems}
                         onChange={items => update({ lineItems: items })}
@@ -296,6 +374,7 @@ const EstimateForm: React.FC<Props> = ({
                         adjustments={{ discount: d.discount, taxRate: d.taxRate, fields: ['discount', 'taxRate'], onChange: patch => update(patch) }}
                     />
                 </LockedFieldset>
+                )}
             </FormSection>
 
             {/* automatic estimate follow-ups (components/reminders); outside the signed lock */}

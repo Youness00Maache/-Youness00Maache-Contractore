@@ -13,11 +13,12 @@ import { formatMoney } from '../utils/money.ts';
 import { payLinkFor, paymentReportOf } from '../lib/payments.ts';
 import { groupPortalDocuments } from '../utils/clientPortalRules.ts';
 import PortalPhotos from './photos/PortalPhotos.tsx';
+import { choiceOf, optionRange, withEffectiveLines } from '../lib/estimateOptions.ts';
 import {
     BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
     PublicPageSkeleton, SIGNABLE_TYPES, SigningPanel, callDeclineRpcWithName, callSigningRpc, contractorName, currencyOf,
-    documentTotals, fmtDate, getDocState, isNetworkMessage, makeReportPayment, normalizeContractor, normalizeDocument, parseRpcPayload, str,
-    throwIfPayloadError,
+    documentTotals, fmtDate, getDocState, isNetworkMessage, makeReportPayment, normalizeContractor, normalizeDocument, openOptionSet, parseRpcPayload,
+    signWithOption, str, throwIfPayloadError,
     type LinkProblem, type PublicContractor, type PublicDocument, type SigningOutcome,
 } from './DocumentApprovalView.tsx';
 import {
@@ -100,13 +101,17 @@ const DocumentRow: React.FC<{
 }> = ({ doc, contractor, clientName, onView, onSign, onDownloadError }) => {
     const d = doc.data;
     const state = getDocState(doc);
-    const totals = documentTotals(d);
+    // good/better/best: the chosen option's total once the client chose
+    const totals = documentTotals(doc.type === 'Estimate' ? withEffectiveLines(d) : d);
     const label = documentLabel(doc.type, d);
     const date = fmtDate(d.issueDate || d.date || doc.createdAt);
     const title = str(d.title);
     const showBalance = doc.type === 'Invoice' && totals.amountPaid > 0;
     const pay = doc.type === 'Invoice' && str(d.status) !== 'Draft' ? payLinkFor(d) : null;
     const reported = doc.type === 'Invoice' ? paymentReportOf(d) : null;
+    // good/better/best: "3 options from $X" until one is chosen
+    const optionSet = openOptionSet(doc);
+    const range = optionSet && !choiceOf(d, optionSet) ? optionRange(d) : null;
     return (
         <article className="card card-pad flex flex-col gap-4 transition hover:shadow-card sm:flex-row sm:items-center">
             <button type="button" onClick={onView} className="flex min-w-0 flex-1 items-start gap-3 text-left">
@@ -123,7 +128,12 @@ const DocumentRow: React.FC<{
                 </span>
             </button>
             <div className="flex flex-col gap-3 sm:items-end">
-                {totals.hasMoney && (
+                {range ? (
+                    <div className="flex items-baseline justify-between gap-3 sm:block sm:text-right">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{range.count} options from</p>
+                        <p className="text-lg font-bold tabular-nums text-foreground">{formatMoney(range.min, currencyOf(d))}</p>
+                    </div>
+                ) : totals.hasMoney && (
                     <div className="flex items-baseline justify-between gap-3 sm:block sm:text-right">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{showBalance ? 'Balance due' : 'Total'}</p>
                         <p className="text-lg font-bold tabular-nums text-foreground">
@@ -175,6 +185,9 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
     const [outcomes, setOutcomes] = useState<Record<string, SigningOutcome>>({});
     const [problems, setProblems] = useState<Record<string, LinkProblem>>({});
     const [modalBusy, setModalBusy] = useState(false);
+    /** good/better/best: the option picked per estimate */
+    const [picks, setPicks] = useState<Record<string, string>>({});
+    const optionsRef = useRef<HTMLDivElement>(null);
     const [pageError, setPageError] = useState('');
     const sessionRef = useRef(0);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -398,13 +411,17 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                 {currentProblem !== 'signed' && ` Contact ${company} if you have questions.`}
                             </Notice>
                         )}
-                        <DocumentDetail
-                            doc={current}
-                            contractor={contractor}
-                            clientName={clientName}
-                            onReportPayment={makeReportPayment({ portalKey: key, documentId: current.id })}
-                            onPaymentReported={() => load(true)}
-                        />
+                        <div ref={optionsRef} className="scroll-mt-4">
+                            <DocumentDetail
+                                doc={current}
+                                contractor={contractor}
+                                clientName={clientName}
+                                onReportPayment={makeReportPayment({ portalKey: key, documentId: current.id })}
+                                onPaymentReported={() => load(true)}
+                                chosenOptionId={picks[current.id] ?? null}
+                                onChooseOption={currentSignable ? (id) => setPicks((prev) => ({ ...prev, [current.id]: id })) : undefined}
+                            />
+                        </div>
                         <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                             <DownloadPdfButton doc={current} contractor={contractor} clientName={clientName} />
                         </div>
@@ -415,8 +432,13 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                     doc={current}
                                     contractor={contractor}
                                     defaultName={clientName}
+                                    chosenOptionId={picks[current.id] ?? null}
+                                    onShowOptions={openOptionSet(current) ? () => optionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined}
                                     onSign={async (name, signature) => {
-                                        await callSigningRpc('sign_document_via_portal', { p_key: key, p_doc_id: current.id, p_signature: signature }, name);
+                                        const set = openOptionSet(current);
+                                        const pick = picks[current.id];
+                                        if (set && pick) await signWithOption({ portalKey: key, documentId: current.id }, set, pick, name, signature);
+                                        else await callSigningRpc('sign_document_via_portal', { p_key: key, p_doc_id: current.id, p_signature: signature }, name);
                                     }}
                                     onDecline={(reason, name) => callDeclineRpcWithName(
                                         'decline_document_via_portal',
