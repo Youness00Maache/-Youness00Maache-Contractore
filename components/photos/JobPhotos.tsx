@@ -708,7 +708,7 @@ const JobPhotos: React.FC<JobPhotosProps> = ({ job, profile, plan, isOnline, onU
     const pairsPossible = list.some(p => p.tag === 'before') || list.some(p => p.tag === 'after');
     const working = busy || !!uploading || !!report;
     const deviceNote = !online && offline
-        ? `Offline: ${fromDevice ? 'the photos below are the copy saved on this device. ' : ''}New photos stay on this device and upload when you’re back online.`
+        ? `Offline: ${fromDevice && (photos || []).length ? 'the photos below are the copy saved on this device. ' : ''}New photos stay on this device and upload when you’re back online.`
         : pendingCount && offline?.jobWaiting
             ? 'This job hasn’t synced yet: its photos upload right after it.'
             : '';

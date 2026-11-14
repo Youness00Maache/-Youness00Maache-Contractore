@@ -5,11 +5,27 @@
   a refused job wait, plan-limit/stock refusals keep their reason, "Waiting to sync" chips (job cards, job page, clients).
 - Install-app banner on phones (f396496). AI "fill every box" (a0f9410) -> REDEPLOY the ai-assistant edge function.
 - Offline inventory items, stock changes, price-book items (9dbd8c5); client notes (1266293).
-- OFFLINE AUDIT: works offline = field documents, estimate/invoice drafts, jobs (create/status), clients (add/edit/notes),
-  inventory items + stock +/-, price book items, profit calculator / labor rate / theme / language / signature (device
-  pending, uploaded later). Needs a connection (clear "You're offline, this needs a connection" message): email/send,
-  portal links, payments, photos upload, job delete/duplicate, inventory checkout to a job, forum posts, settings
-  profile save, imports/exports, AI. Possible next: queue job photos and profile settings offline.
+- OFFLINE AUDIT (updated 2026-11-14 evening, branch worktree-agent-ab4b5d1fee0b54215: "offline everywhere").
+  Source of truth: lib/offline/writePathAudit.ts = one row per write call (140 calls); scripts/offline-drafts-check.ts
+  scans the code and FAILS when a new write isn't in the table (307 checks).
+  WORKS OFFLINE (saved on the device, "Waiting to sync", synced in order when back online):
+  field documents + estimate/invoice drafts; jobs (create from "New job" — the button no longer blocks offline —,
+  status); clients (add, edit, notes, temporary/regular); inventory items, stock +/-, CHECK-OUT to a job/client (same
+  stock moves); price-book items (add, edit, duplicate, "save line to price book" from a form); JOB PHOTOS (take/pick,
+  stage, caption, show in portal, mark up; files kept per user, max 200 photos / 200 MB on the device; uploaded to the
+  same paths as online; plan photo limit checked offline and again by the database, refusal keeps its reason);
+  SETTINGS (profile, company, logo/picture, payment + review links: last write wins + "changed on another device");
+  reminder settings. Device-pending (uploaded at next login): profit calculator, labor rate, theme, language, signature.
+  OPENS OFFLINE (also after a reload, last copy + outbox items on top): dashboard, jobs, job page documents + photos
+  (with previews), clients, inventory, price book, calendar, pipeline, analytics, settings, document reminders.
+  Installed app: sw.js keeps the shell with its own files; the main screens' files load once per session after sign-in.
+  NEEDS A CONNECTION (says "You're offline. This needs a connection; try again when you're back online."; the Supabase
+  client fails offline requests with that sentence, edge functions/Gmail too): sending email, client links/portal,
+  Mark as paid / payments, deleting jobs/documents/clients/uploaded photos/items, duplicating jobs/documents, copy to
+  job, bill time & materials, purchase orders + receiving, quote requests, CSV import/export, reminders on/off per
+  document + skip, billing/AI credits, AI (assistant, photo updates, form fill), community, account deletion.
+  Not redeployed: helpGuides.generated.ts (help text now mentions photos/settings offline) -> next ai-assistant deploy.
+  To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
 Site is LIVE (main = production). Every fix: test, commit, push my-branch AND main (owner asked to keep production updated).

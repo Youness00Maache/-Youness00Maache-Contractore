@@ -219,7 +219,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 <div className="mb-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground" role="status">
                     <WifiOffIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     {canCreateOffline
-                        ? "You're offline. Daily reports, time sheets, material and expense logs, notes and receipts save on this device and sync when you reconnect; estimates and invoices can be drafted."
+                        ? "You're offline. Daily reports, time sheets, material and expense logs, notes, receipts and photos save on this device and sync when you reconnect; estimates and invoices can be drafted."
                         : "You're offline. You can view saved documents; creating and editing are paused until you reconnect."}
                 </div>
             )}

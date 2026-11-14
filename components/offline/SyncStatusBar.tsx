@@ -45,7 +45,7 @@ const SyncStatusBar: React.FC<Props> = ({ online, usingCachedData, items, notice
                         <WifiOffIcon className="mr-1.5 inline h-3.5 w-3.5 align-[-2px] text-warning sm:h-4 sm:w-4 sm:align-[-3px]" />
                         {count
                             ? <><span className="sm:hidden">Offline · </span><span className="hidden sm:inline">You're offline. </span><strong className="font-semibold">{plural(count, noun)}</strong><span className="hidden sm:inline"> saved on this device,</span> waiting to sync.</>
-                            : <><span className="sm:hidden">Offline: your work saves on this device and syncs later.</span><span className="hidden sm:inline">You're offline. Daily reports, time sheets, logs, notes and receipts still save on this device; estimates and invoices can be drafted.</span></>}
+                            : <><span className="sm:hidden">Offline: your work saves on this device and syncs later.</span><span className="hidden sm:inline">You're offline. Your work saves on this device and syncs when you're back online: documents, jobs, clients, photos, stock, price book and settings.</span></>}
                     </span>
                     {count > 0 && <LinkButton onClick={onOpen}>View</LinkButton>}
                 </div>

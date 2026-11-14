@@ -619,6 +619,90 @@ function writePathAuditChecks() {
     console.log(`write-path audit: ${hits.length} calls, ${WRITE_PATHS.length} rows — queue ${count('queue')}, device ${count('device')}, sync ${count('sync')}, needs connection ${count('needs_connection')}, background ${count('background')}, public ${count('public')}`);
 }
 
+// =====================================================================================================================
+// public/sw.js: the installed app opens offline (shell + its files, screens' files once loaded)
+// =====================================================================================================================
+async function serviceWorkerChecks() {
+    const ORIGIN = 'https://app.test';
+    const SHELL = '<!doctype html><script type="module" crossorigin src="/assets/index-AAA.js"></script><link rel="modulepreload" href="/assets/react-BBB.js"><link rel="stylesheet" href="/assets/index-CCC.css">';
+    const server = new Map<string, string>([
+        ['/app.html', SHELL], ['/assets/index-AAA.js', 'entry'], ['/assets/react-BBB.js', 'react'], ['/assets/index-CCC.css', 'css'],
+        ['/assets/InventoryView-DDD.js', 'inventory'], ['/assets/Settings-EEE.js', 'settings'], ['/dashboard', 'page'],
+        ['/manifest.webmanifest', '{}'], ['/icon-192.png', 'png'], ['/icon-512.png', 'png'], ['/favicon.ico', 'ico'],
+    ]);
+    let networkUp = true;
+    const fetched: string[] = [];
+    const basic = (body: string, status = 200) => { const r = new Response(body, { status }); Object.defineProperty(r, 'type', { value: 'basic' }); return r; };
+    const fakeFetch = async (input: any) => {
+        const url = new URL(typeof input === 'string' ? input : input.url, ORIGIN);
+        if (!networkUp) throw new TypeError('Failed to fetch');
+        fetched.push(url.pathname);
+        const body = server.get(url.pathname);
+        return body === undefined ? basic('missing', 404) : basic(body);
+    };
+    const stores = new Map<string, Map<string, Response>>();
+    const keyOf = (req: any) => new URL(typeof req === 'string' ? req : req.url, ORIGIN).href;
+    const cacheApi = (name: string) => {
+        if (!stores.has(name)) stores.set(name, new Map());
+        const m = stores.get(name)!;
+        return {
+            match: async (req: any) => m.get(keyOf(req))?.clone(),
+            put: async (req: any, res: Response) => { m.set(keyOf(req), res); },
+            keys: async () => Array.from(m.keys()).map(url => ({ url })),
+            delete: async (req: any) => m.delete(keyOf(req)),
+        };
+    };
+    const caches = { open: async (n: string) => cacheApi(n), keys: async () => Array.from(stores.keys()), delete: async (n: string) => stores.delete(n) };
+    const listeners = new Map<string, (e: any) => void>();
+    const self: any = {
+        location: { origin: ORIGIN }, addEventListener: (t: string, fn: (e: any) => void) => listeners.set(t, fn),
+        skipWaiting: () => undefined, clients: { claim: async () => undefined },
+    };
+    // eslint-disable-next-line no-new-func
+    new Function('self', 'caches', 'fetch', readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8'))(self, caches, fakeFetch);
+    const fire = async (type: string, extra: Record<string, unknown>) => {
+        const waits: Promise<unknown>[] = [];
+        let responded: Promise<Response> | null = null;
+        listeners.get(type)!({ ...extra, waitUntil: (p: Promise<unknown>) => waits.push(p), respondWith: (p: Promise<Response>) => { responded = p; } });
+        const res = responded ? await (responded as Promise<Response>).catch((e: unknown) => e) : null;
+        await Promise.all(waits);
+        return res;
+    };
+    const cached = (name: string) => Array.from(stores.get(name)?.keys() || []).map(u => new URL(u).pathname).sort();
+
+    await fire('install', {});
+    eq('sw install: shell kept', cached('cd-shell-v1').includes('/app.html'), true);
+    eq('sw install: the files the shell starts with kept with it', cached('cd-assets-v1'), ['/assets/index-AAA.js', '/assets/index-CCC.css', '/assets/react-BBB.js']);
+    eq('sw install: app icon + manifest kept', ['/manifest.webmanifest', '/icon-192.png'].every(p => cached('cd-shell-v1').includes(p)), true);
+
+    // online: pages from the network (unchanged behaviour); a screen's file is kept once loaded
+    const page = await fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/dashboard`, mode: 'navigate' } }) as Response;
+    eq('sw online: page from the network', await page.text(), 'page');
+    await fire('fetch', { request: new Request(`${ORIGIN}/assets/InventoryView-DDD.js`) });
+    eq('sw online: loaded screen file kept', cached('cd-assets-v1').includes('/assets/InventoryView-DDD.js'), true);
+    // the app's background prefetch posts the files it loaded
+    await fire('message', { data: { type: 'cd-warm', urls: [`${ORIGIN}/assets/Settings-EEE.js`, 'https://cdn.example/x.js'] } });
+    eq('sw warm: posted screen files kept (other sites ignored)', cached('cd-assets-v1').includes('/assets/Settings-EEE.js'), true);
+
+    // offline: the app opens from the copy, screens' files come from the cache
+    networkUp = false;
+    const offlinePage = await fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/jobs/abc`, mode: 'navigate' } }) as Response;
+    eq('sw offline: any app page opens the shell', await offlinePage.text(), SHELL);
+    const inv = await fire('fetch', { request: new Request(`${ORIGIN}/assets/InventoryView-DDD.js`) }) as Response;
+    eq('sw offline: inventory screen file from the cache', await inv.text(), 'inventory');
+    const settingsFile = await fire('fetch', { request: new Request(`${ORIGIN}/assets/Settings-EEE.js`) }) as Response;
+    eq('sw offline: settings screen file from the cache', await settingsFile.text(), 'settings');
+    const icon = await fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/icon-192.png`, mode: 'no-cors' } }) as Response;
+    eq('sw offline: app icon from the cache', await icon.text(), 'png');
+    const other = await fire('fetch', { request: { method: 'GET', url: 'https://iauteblvljppwzsxloyd.supabase.co/rest/v1/jobs', mode: 'cors' } });
+    eq('sw: account requests are never touched', other, null);
+    const post = await fire('fetch', { request: { method: 'POST', url: `${ORIGIN}/assets/x.js`, mode: 'cors' } });
+    eq('sw: only GET', post, null);
+    // a shell refresh while offline keeps the copy
+    await fire('message', { data: { type: 'cd-warm', urls: [] } });
+    eq('sw offline warm: copy kept', cached('cd-shell-v1').includes('/app.html'), true);
+}
+
 const run = async () => {
     // ---------------------------------------------------------------- which documents work offline
     {
@@ -1132,6 +1216,7 @@ const run = async () => {
     await listCacheChecks();
     await connectionChecks();
     writePathAuditChecks();
+    await serviceWorkerChecks();
 
     // ---------------------------------------------------------------- chips
     {
