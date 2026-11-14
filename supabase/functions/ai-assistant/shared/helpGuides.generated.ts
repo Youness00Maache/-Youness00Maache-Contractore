@@ -622,6 +622,47 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "papers",
+        "title": "Papers: insurance, licenses, permits and lien waivers",
+        "summary": "Keep your COI, licenses, permits, bonds and W-9 with their expiry dates, get reminded before they expire, send them in two taps, and make lien waivers.",
+        "where": [
+            "Tools",
+            "Papers"
+        ],
+        "appPath": "/papers",
+        "steps": [
+            {
+                "title": "Open Papers",
+                "text": "Open [[Tools]] › [[Papers]] (phone: [[More]] › [[Papers]])."
+            },
+            {
+                "title": "Add a paper",
+                "text": "Click [[Add paper]], pick the kind (COI, License, Permit, Bond, W-9, Other), type the number, who issued it and the dates, then [[Upload PDF or photo]] and [[Save]]. A permit can be linked to its job, with the next inspection date: it then shows on the job page."
+            },
+            {
+                "title": "Get reminded",
+                "text": "Each paper reminds you 30, 7 and 1 days before it expires (tap the chips to change the days): in the bell, and by email to yourself from your Gmail. The list puts what expires first at the top, in red once expired."
+            },
+            {
+                "title": "Renew",
+                "text": "In the ⋯ menu, [[Renew (new date and file)]] keeps the paper and starts the reminders again from the new date."
+            },
+            {
+                "title": "Send a certificate",
+                "text": "Click [[Send]] (or [[Send by email]] in the ⋯ menu), type the client’s or GC’s email, check the message and click [[Send with Gmail]]. The file is attached."
+            },
+            {
+                "title": "Make a lien waiver",
+                "text": "Click [[Lien waiver]] here or on a job page. Pick Conditional or Unconditional and Progress or Final; the invoice and the payment recorded with [[Mark as paid]] fill in the amount and dates. Check the names and address, then [[Create waiver]]: it is saved on the job as a document you can print, email or share."
+            }
+        ],
+        "tips": [
+            "The vault and its reminders are part of Premium. Lien waivers work on every plan.",
+            "Switch on “Show in client portal” on a COI, license or bond: the portal shows “Licensed & insured” with the name, number and expiry date (never the file).",
+            "Lien waivers use general wording. Some states (for example California, Texas, Florida and Georgia) require their own statutory form; use it where required."
+        ]
+    },
+    {
         "id": "inventory",
         "title": "Inventory",
         "summary": "Track stock, check it out to jobs, get low-stock alerts and print QR labels.",

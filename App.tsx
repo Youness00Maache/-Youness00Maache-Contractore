@@ -18,7 +18,7 @@ import { Toaster, toast } from './components/Toast.tsx';
 import { AuthMessage, AppSplash, LoadErrorScreen } from './components/AppStates.tsx';
 import { PageSkeleton } from './components/ui/Skeleton.tsx';
 import { EmptyState } from './components/ui/EmptyState.tsx';
-import { WifiOffIcon, AlertTriangleIcon, BriefcaseIcon, SparklesIcon } from './components/Icons.tsx';
+import { WifiOffIcon, AlertTriangleIcon, BriefcaseIcon, SparklesIcon, FileTextIcon } from './components/Icons.tsx';
 
 // ── AI (owned by the AI engineer) ────────────────────────────────────────────
 import { DashboardMasterAIButton, InlineAIButton } from './components/DashboardMasterAIButton.tsx';
@@ -113,6 +113,10 @@ const RequestsInbox = lazy(() => import('./components/requests/RequestsInbox.tsx
 const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
 // Punch lists (#18): job page tab; hidden until migration 20261115000200 is applied
 const PunchList = lazy(() => import('./components/punch/PunchList.tsx'));
+// Papers vault + lien waivers (#17): /papers, the job page's permits line and its Lien waiver button
+const PapersView = lazy(() => import('./components/papers/PapersView.tsx'));
+const JobPapersStrip = lazy(() => import('./components/papers/JobPapersStrip.tsx'));
+const LienWaiverModal = lazy(() => import('./components/papers/LienWaiverModal.tsx'));
 // Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
 const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
 const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
@@ -236,14 +240,14 @@ const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
 
 const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
 const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
-const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline', 'papers', 'servicePlans'];
 
 const navSectionFor = (screen: AppView['screen']): NavSection => {
     switch (screen) {
         case 'dashboard': case 'jobDetails': case 'createJob': case 'selectDocType': return 'dashboard';
         case 'clients': return 'clients';
         case 'communication': return 'communication';
-        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': return 'tools';
+        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': case 'papers': case 'servicePlans': return 'tools';
         case 'forum': return 'forum';
         case 'settings': case 'profile': return 'settings';
         default: return 'none';
@@ -281,6 +285,8 @@ const App: React.FC = () => {
             case 'pricebook': navigate('/pricebook'); break;
             case 'profitCalculator': navigate('/calculator'); break;
             case 'pipeline': navigate('/pipeline'); break;
+            case 'papers': navigate('/papers'); break;
+            case 'servicePlans': navigate('/service-plans'); break;
             case 'help': navigate('/tutorials'); break;
             case 'forum': navigate(newView.postId ? `/forum/${encodeURIComponent(newView.postId)}` : '/forum'); break;
             case 'gmailCallback': navigate('/gmail-callback'); break;
@@ -399,6 +405,8 @@ const App: React.FC = () => {
     const showDeleteDocModal = docToDelete !== null;
     const [showJobFinancials, setShowJobFinancials] = useState(false);
     const [showBillTimeMaterials, setShowBillTimeMaterials] = useState(false);
+    /** job id of an open Lien waiver window (job page) */
+    const [lienWaiverJobId, setLienWaiverJobId] = useState<string | null>(null);
     const [markPaidDoc, setMarkPaidDoc] = useState<FormDataType | null>(null);
 
     // Refs that callbacks read (avoid stale closures in long-lived listeners)
@@ -1256,6 +1264,8 @@ const App: React.FC = () => {
             case 'billing': navigate('/settings#billing'); break;
             case 'export': navigate('/settings#data'); break;
             case 'pipeline': navigate('/pipeline'); break;
+            case 'papers': navigate('/papers'); break;
+            case 'servicePlans': navigate('/service-plans'); break;
             case 'help': navigate('/tutorials'); break;
         }
     };
@@ -1358,6 +1368,14 @@ const App: React.FC = () => {
         clearUserBrowserStorage();
         try { await dbApi.clearAll(); } catch { /* ignore */ }
         window.location.replace('/');
+    };
+
+    /** A lien waiver (Note) was saved on a job: show it in the job's documents and open it. */
+    const handleWaiverCreated = (form: FormDataType, jobId: string | null) => {
+        setForms(prev => mergeDocuments(prev.filter(f => f.id !== form.id), [form]));
+        if (jobId) void loadDocumentsForJob(jobId, true);
+        bumpDocUsage(form.jobId);
+        openDocument(form, true);
     };
 
     const handleEmailSent = () => {
@@ -2331,6 +2349,16 @@ const App: React.FC = () => {
                     </Suspense>
                 ) : undefined}
                 punchLabel={(() => { const p = punchState.map.get(job.id); return p && p.total ? `${p.closed}/${p.total}` : undefined; })()}
+                toolsSlot={(
+                    <button type="button" onClick={() => (isOnline ? setLienWaiverJobId(job.id) : toast.error("You're offline, this needs a connection."))} className="btn btn-outline h-10" title="Lien waiver from this job's invoice and payment">
+                        <FileTextIcon className="h-4 w-4" /> <span className="hidden sm:inline">Lien waiver</span><span className="sm:hidden">Waiver</span>
+                    </button>
+                )}
+                papersSlot={isOnline ? (
+                    <Suspense fallback={null}>
+                        <JobPapersStrip jobId={job.id} onOpenPapers={() => navigate('/papers')} />
+                    </Suspense>
+                ) : undefined}
             />
         );
     };
@@ -2626,6 +2654,20 @@ const App: React.FC = () => {
                     onDraftEstimate={handleDraftEstimate}
                     punchProgress={punchState.available ? punchState.map : undefined}
                 />;
+            case 'papers':
+                return <PapersView
+                    userId={session.user.id}
+                    profile={profile}
+                    plan={plan}
+                    jobs={jobs}
+                    clients={clients}
+                    isOnline={isOnline}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onUpgrade={openUpgrade}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onEmailSent={handleEmailSent}
+                    onWaiverCreated={(form) => handleWaiverCreated(form, form.jobId)}
+                />;
             case 'help':
                 return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;
             case 'analytics':
@@ -2819,6 +2861,21 @@ const App: React.FC = () => {
                         savedItems={savedItems}
                         onBillTimeMaterials={() => { setShowJobFinancials(false); setShowBillTimeMaterials(true); }}
                         onClose={() => setShowJobFinancials(false)}
+                    />
+                </Suspense>
+            )}
+
+            {lienWaiverJobId && session && profile && (
+                <Suspense fallback={null}>
+                    <LienWaiverModal
+                        userId={session.user.id}
+                        profile={profile}
+                        jobs={jobs}
+                        clients={clients}
+                        jobId={lienWaiverJobId}
+                        isOnline={isOnline}
+                        onClose={() => setLienWaiverJobId(null)}
+                        onCreated={(form) => { const jobId = lienWaiverJobId; setLienWaiverJobId(null); handleWaiverCreated(form, jobId); }}
                     />
                 </Suspense>
             )}

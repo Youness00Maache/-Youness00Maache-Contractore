@@ -17,7 +17,7 @@ import { HELP_GUIDES_SNAPSHOT, type GuideSnapshot } from './helpGuides.generated
 
 /** Every in-app screen and Settings section the assistant can open ("Take me there"). */
 export const NAV_ROUTES = [
-    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/inventory', '/pricebook', '/calendar', '/analytics',
+    '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/papers', '/inventory', '/pricebook', '/calendar', '/analytics',
     '/calculator', '/forum', '/settings', '/settings#profile', '/settings#company', '/settings#payments', '/settings#requests',
     '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
     '/profile', '/tutorials',
@@ -31,6 +31,7 @@ export const NAV_LABELS: Record<NavRoute, string> = {
     '/clients': 'Clients',
     '/communication': 'Messages',
     '/pipeline': 'Pipeline',
+    '/papers': 'Papers (insurance, licenses, permits)',
     '/inventory': 'Inventory',
     '/pricebook': 'Price book',
     '/calendar': 'Calendar',
@@ -551,6 +552,38 @@ const FEATURES: KnowledgeEntry[] = [
             'Free on every plan. The pipeline board shows “Punch 3/8” on a job card while items are open.',
         ],
         steps: ['Open the job and click [[Punch list]].', 'Type an item (e.g. “Bath: caulk tub @Sam”) and press Enter.', 'Tap the ring when it is done; switch on [[Show in client portal]] so the client can approve.'],
+    },
+    {
+        id: 'papers-vault',
+        title: 'Papers vault: insurance certificates (COI), licenses, permits, bonds, W-9 and expiry reminders',
+        where: ['Tools', 'Papers'],
+        route: '/papers',
+        concepts: ['papers'],
+        keywords: ['coi', 'certificate of insurance', 'insurance certificate', 'license', 'licence', 'permit', 'bond', 'w-9', 'w9', 'expire', 'expiry', 'expiration', 'renew', 'send my insurance', 'licensed and insured'],
+        facts: [
+            'Open [[Tools]] › [[Papers]] (phone: [[More]] › [[Papers]]). [[Add paper]]: kind (COI, License, Permit, Bond, W-9, Other), number, issuer, issued and expiry dates, [[Upload PDF or photo]], then [[Save]]. Permits can be linked to a job with the next inspection date; they then show on that job page.',
+            'Reminders 30, 7 and 1 days before expiry (change the days with the chips): in the notification bell, and by email to yourself from your connected Gmail at your reminder hour (Settings › Reminders). The list shows the most urgent first; expired papers are red.',
+            '[[Renew (new date and file)]] in the ⋯ menu updates the same paper and restarts the reminders from the new date.',
+            '[[Send]] / [[Send by email]] emails the file to a client or general contractor from your Gmail ([[Send with Gmail]]).',
+            '“Show in client portal” on a COI, license or bond adds a “Licensed & insured” line to the client portal (name, number, coverage, valid until; never the file).',
+        ],
+        steps: ['Open [[Tools]] › [[Papers]].', 'Click [[Add paper]], fill in the dates and upload the file, then [[Save]].', 'To send it: [[Send]], type the email, [[Send with Gmail]].'],
+        limits: [`The papers vault and its reminders are part of ${P.name}. Lien waivers are on every plan.`],
+    },
+    {
+        id: 'lien-waivers',
+        title: 'Lien waivers (conditional / unconditional, progress / final)',
+        where: ['Job', 'Lien waiver'],
+        route: '/papers',
+        concepts: ['lien'],
+        keywords: ['lien waiver', 'lien release', 'release of lien', 'conditional waiver', 'unconditional waiver', 'final waiver', 'progress waiver', 'waiver'],
+        facts: [
+            'On a job page click [[Lien waiver]] (phone: Waiver), or [[Lien waiver]] on the Papers screen and pick the job.',
+            'Pick Conditional (takes effect when the payment clears, safe to send before you are paid) or Unconditional (says you have been paid), and Progress (covers work through a date) or Final (the last payment). The invoice and the payment recorded with [[Mark as paid]] fill in the amount, the dates, the client and the job address; everything can be edited.',
+            '[[Create waiver]] saves it on the job as a Note document (title such as “Conditional Waiver and Release on Progress Payment”) that opens, prints, emails and shares like any document. With a saved default signature it can be signed with it; otherwise it has a signature line.',
+            'It is a general form. Some states (for example California, Texas, Florida and Georgia) require their own statutory wording; say so and suggest using the state form where required. On every plan.',
+        ],
+        steps: ['Open the job and click [[Lien waiver]].', 'Choose Conditional or Unconditional and Progress or Final, pick the invoice and payment.', 'Check the names and address, then [[Create waiver]].'],
     },
     {
         id: 'notifications',

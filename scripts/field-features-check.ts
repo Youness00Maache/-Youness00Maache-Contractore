@@ -21,7 +21,13 @@ import { applyEntityOverlay, orderForSync, remapItem, ENTITY_TYPE, type OutboxIt
 import { createMemoryOutboxStore } from '../lib/offline/outboxStore.ts';
 import { queueOfflineSave } from '../lib/offline/outboxActions.ts';
 import { runOutboxSync, type SyncDeps } from '../lib/offline/syncEngine.ts';
-import { derivePunchNotifications } from '../lib/notifications/model.ts';
+import { derivePaperNotifications, derivePunchNotifications } from '../lib/notifications/model.ts';
+import {
+    blankPaper, expiryPhrase, expiryState, mapPaperRow, nextPaperStep, normalizePaperOffsets, paperFilePath, paperFileProblem, paperProblems,
+    paperRowOf, papersSummary, sendPaperEmail, sortPapers,
+} from '../lib/papers.ts';
+import { duePaperStep, paperDedupeKey, paperReminderEmail, paperReminderSteps } from '../supabase/functions/reminders/shared/papers.ts';
+import { buildLienWaiverHtml, lienWaiverTitle, waiverCheck, waiverInvoices, waiverPrefill } from '../lib/lienWaiver.ts';
 
 let passes = 0;
 let failures = 0;
@@ -221,6 +227,118 @@ async function offlinePunch() {
     ok('punch sql: portal key validated like get_portal_photos', (code.match(/p_key !~ '\^\[A-Za-z0-9_-\]\{32,128\}\$'/g) || []).length === 2);
     ok('punch sql: additive only (no drop table / alter of existing tables / delete)', !/drop table|alter table public\.(jobs|documents|clients|job_photos)|delete from|truncate (table )?public/i.test(code));
     ok('punch sql: client verification only from the portal function', /Only the client can verify an item as the client/.test(code));
+}
+
+// =====================================================================================================================
+// 2. Papers vault + lien waivers
+// =====================================================================================================================
+{
+    // expiry states
+    eq('states around the expiry date', ['2026-11-14', '2026-11-15', '2026-11-16', '2026-11-22', '2026-11-23', '2026-12-15', '2026-12-16', ''].map(d => expiryState(d, TODAY).state),
+        ['expired', 'urgent', 'urgent', 'urgent', 'soon', 'soon', 'ok', 'none']);
+    eq('days left', [expiryState('2026-11-22', TODAY).days, expiryState('2026-11-10', TODAY).days], [7, -5]);
+    eq('phrases', [expiryPhrase(0), expiryPhrase(1), expiryPhrase(7), expiryPhrase(-1), expiryPhrase(-3), expiryPhrase(null)], ['expires today', 'expires tomorrow', 'expires in 7 days', 'expired yesterday', 'expired 3 days ago', 'no expiry date']);
+
+    // reminder schedule 30 / 7 / 1
+    const exp = '2026-12-31';
+    eq('steps of a paper', paperReminderSteps(exp).map(s => [s.offset, s.date]), [[30, '2026-12-01'], [7, '2026-12-24'], [1, '2026-12-30']]);
+    eq('offsets: cleaned, largest first, max 4, defaults when missing', [normalizePaperOffsets([7, '30', 7, 0, 500, 1, 14, 60]), normalizePaperOffsets(undefined), normalizePaperOffsets([])], [[60, 30, 14, 7], [30, 7, 1], []]);
+    const due = (today: string, sent: number[] = [], addedOn = '2026-01-01', offsets?: number[]) => duePaperStep({ expiresOn: exp, today, sent, addedOn, offsets })?.offset ?? null;
+    eq('nothing before the 30-day step', due('2026-11-30'), null);
+    eq('30 days before', due('2026-12-01'), 30);
+    eq('a few days late still sends the 30-day step', due('2026-12-05'), 30);
+    eq('never twice', due('2026-12-05', [30]), null);
+    eq('7 days before (30 already sent)', due('2026-12-24', [30]), 7);
+    eq('only the latest due step (30 missed → 7)', due('2026-12-25'), 7);
+    eq('1 day before', due('2026-12-30', [30, 7]), 1);
+    eq('on the expiry day the 1-day step can still go', due('2026-12-31', [30, 7]), 1);
+    eq('after expiry: no more reminders', due('2027-01-01'), null);
+    eq('added 5 days before expiry: steps before that day are dropped', due('2026-12-26', [], '2026-12-26'), null);
+    eq('… and the 1-day reminder still comes', due('2026-12-30', [], '2026-12-26'), 1);
+    eq('a later step went out: never go back to an earlier one', due('2026-12-24', [1]), null);
+    eq('custom offsets', due('2026-11-01', [], '2026-01-01', [60, 14]), 60);
+    eq('switched off', duePaperStep({ expiresOn: exp, today: '2026-12-30', enabled: false }), null);
+    eq('dedupe key', paperDedupeKey('p-1', '2026-12-31T00:00:00Z', 7), 'paper:p-1:2026-12-31:-7');
+    eq('next planned step', nextPaperStep({ expiresOn: exp, today: '2026-12-02', sent: [30] })?.date, '2026-12-24');
+    const mail = paperReminderEmail({ title: 'GL <insurance>', kind: 'coi', number: 'A1', issuer: 'Acme Mutual', expiresOn: exp, today: '2026-12-24', appUrl: 'https://www.contractordocs.app/' });
+    ok('email: subject says when', mail.subject.startsWith('Reminder: GL <insurance> expires in 7 days'));
+    ok('email: html escaped, link to /papers', mail.html.includes('GL &lt;insurance&gt;') && mail.html.includes('https://www.contractordocs.app/papers') && !mail.html.includes('<insurance>'));
+    ok('email: text has the details', mail.text.includes('Number: A1') && mail.text.includes('Issued by: Acme Mutual'));
+
+    // the bell
+    const now = Date.parse('2026-12-24T15:00:00');
+    const n = derivePaperNotifications([
+        { id: 'a', title: 'General liability', kind: 'coi', expiresOn: exp },
+        { id: 'b', title: 'License', kind: 'license', expiresOn: '2026-12-20' },
+        { id: 'c', title: 'Bond', kind: 'bond', expiresOn: '2027-03-01' },
+        { id: 'd', title: 'Off', kind: 'permit', expiresOn: exp, remind: false },
+        { id: 'e', title: 'Other user', kind: 'coi', expiresOn: exp, userId: 'someone-else' },
+    ], { uid: 'me', now });
+    eq('bell: expiring (at its step) and expired; far, switched-off and other users left out', n.map(x => [x.kind, x.id]), [['paper_expiring', 'paper:a:2026-12-31:-7'], ['paper_expired', 'paper:b:expired:2026-12-20']]);
+    ok('bell: new item at each step (30 → 7)', derivePaperNotifications([{ id: 'a', title: 'GL', kind: 'coi', expiresOn: exp }], { uid: 'me', now: Date.parse('2026-12-10T12:00:00') })[0].id.endsWith(':-30'));
+
+    // rows, sort, summary, files
+    const p = mapPaperRow({ id: 'x', kind: 'nope', title: '', expires_on: '2026-12-31', reminder_offsets: [7, 30], coverage_amount: '1000000' });
+    eq('odd rows are safe', [p.kind, p.title, p.reminderOffsets, p.coverageAmount], ['other', 'Document', [30, 7], 1000000]);
+    const row = paperRowOf({ ...blankPaper('id-1', 'permit'), showInPortal: true, coverageAmount: 12.345 }, 'u1');
+    eq('row: permits never show in the portal; money rounded', [row.show_in_portal, row.coverage_amount, row.title], [false, 12.35, 'Building permit']);
+    eq('blank W-9 has no reminder', blankPaper('w', 'w9').remind, false);
+    eq('problems', [paperProblems({ ...blankPaper('1', 'coi'), title: '' }).length > 0, paperProblems({ ...blankPaper('1', 'coi'), expiresOn: '' })[0], paperProblems({ ...blankPaper('1', 'coi'), issuedOn: '2027-01-01', expiresOn: '2026-01-01' })[0], paperProblems({ ...blankPaper('1', 'w9') }).length],
+        [true, 'Add the expiry date, or switch reminders off.', 'The expiry date is before the issue date.', 0]);
+    const list = [mapPaperRow({ id: '1', title: 'B', expires_on: '2027-06-01' }), mapPaperRow({ id: '2', title: 'A', expires_on: '' }), mapPaperRow({ id: '3', title: 'C', expires_on: '2026-11-01' }), mapPaperRow({ id: '4', title: 'D', expires_on: '2026-11-20' })];
+    eq('sort: expired, closest, later, no date', sortPapers(list, TODAY).map(x => x.id), ['3', '4', '1', '2']);
+    eq('summary', papersSummary(list, TODAY), { expired: 1, expiring: 1, valid: 1, noDate: 1, total: 4 });
+    const path = paperFilePath('0e4d6c1a-1111-4222-8333-444455556666', 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'r4nd0m!', 'Cert.PDF', '');
+    ok('file path matches the database check', /^[0-9a-f-]{36}\/papers\/[A-Za-z0-9_-]{6,100}\.(pdf|jpg|jpeg|png|webp)$/.test(path) && path.endsWith('.pdf'));
+    eq('file checks', [paperFileProblem({ type: 'application/pdf', size: 1000, name: 'a.pdf' }), paperFileProblem({ type: '', size: 1000, name: 'a.pdf' }), paperFileProblem({ type: 'image/heic', size: 1000, name: 'a.heic' }), paperFileProblem({ type: 'image/png', size: 16 * 1024 * 1024, name: 'a.png' })],
+        ['', '', 'Use a PDF or a photo (JPG, PNG, WebP).', 'The file is larger than 15 MB.']);
+    const em = sendPaperEmail(mapPaperRow({ id: '1', kind: 'coi', title: 'General liability', number: 'GL-9', expires_on: '2027-01-01' }), 'Atlas Builders', 'Morgan Client');
+    ok('send COI email', em.subject === 'Certificate of insurance · Atlas Builders' && em.body.startsWith('Hi Morgan,') && em.body.includes('Number: GL-9') && em.body.trim().endsWith('Atlas Builders'));
+}
+{
+    // lien waivers
+    const forms = [
+        { id: 'inv-1', type: 'Invoice', createdAt: '2026-10-01T00:00:00Z', data: { invoiceNumber: 'INV-2026-10-001', issueDate: '2026-10-01', status: 'Paid', lineItems: [{ quantity: 1, rate: 1000 }], taxRate: 10, payments: [{ id: 'pay-1', amount: 600, date: '2026-10-10', method: 'Check' }, { id: 'pay-2', amount: 500, date: '2026-10-20', method: 'Zelle' }] } },
+        { id: 'inv-2', type: 'Invoice', createdAt: '2026-11-01T00:00:00Z', data: { invoiceNumber: 'INV-2026-11-002', issueDate: '2026-11-01', status: 'Sent', lineItems: [{ quantity: 2, rate: 250 }] } },
+        { id: 'est', type: 'Estimate', data: {} },
+    ];
+    const inv = waiverInvoices(forms);
+    eq('invoices: newest first, totals and payments', inv.map(i => [i.number, i.total, i.payments.length]), [['INV-2026-11-002', 500, 0], ['INV-2026-10-001', 1100, 2]]);
+    const job = { name: 'Kitchen remodel', clientName: 'Morgan Client', clientAddress: '456 Oak Ave' };
+    const profile = { companyName: 'Atlas Builders', name: 'Jordan Mitchell', defaultSignatureUrl: 'data:image/png;base64,AAAA' };
+    const base = { job, profile, client: { name: 'Morgan Client', address: '456 Oak Ave' }, today: TODAY };
+    const latest = waiverPrefill({ ...base, type: 'unconditional', scope: 'progress', invoice: inv[1] });
+    eq('prefill: the latest payment by default', [latest.amount, latest.paymentDate, latest.throughDate, latest.paymentMethod, latest.invoiceNumber], [500, '2026-10-20', '2026-10-20', 'Zelle', 'INV-2026-10-001']);
+    const first = waiverPrefill({ ...base, type: 'conditional', scope: 'progress', invoice: inv[1], paymentId: 'pay-1' });
+    eq('prefill: a chosen payment', [first.amount, first.paymentDate], [600, '2026-10-10']);
+    const none = waiverPrefill({ ...base, type: 'conditional', scope: 'final', invoice: inv[0], paymentId: null });
+    eq('prefill: no payment → invoice total, no through date on a final waiver', [none.amount, none.paymentDate, none.throughDate], [500, '', '']);
+    eq('prefill: names, address, claimant, signer, signature', [latest.claimant, latest.customer, latest.owner, latest.maker, latest.jobLocation, latest.signerName, latest.signatureDataUrl.startsWith('data:image/png')],
+        ['Atlas Builders', 'Morgan Client', 'Morgan Client', 'Morgan Client', '456 Oak Ave', 'Jordan Mitchell', true]);
+    eq('prefill: an https signature is not embedded (PDF needs data:)', waiverPrefill({ ...base, profile: { ...profile, defaultSignatureUrl: 'https://x/s.png' }, type: 'conditional', scope: 'final' }).signatureDataUrl, '');
+    eq('prefill: without an invoice', [waiverPrefill({ ...base, type: 'conditional', scope: 'progress' }).amount, waiverPrefill({ ...base, type: 'conditional', scope: 'progress' }).throughDate], [0, TODAY]);
+    eq('check: missing amount / address', waiverCheck({ ...latest, amount: 0, jobLocation: '' }).problems, ['Add the job address.', 'Add the payment amount.']);
+    eq('check: unconditional without a payment warns', waiverCheck({ ...none, type: 'unconditional' }).warnings.length, 1);
+    eq('titles', [lienWaiverTitle('conditional', 'progress'), lienWaiverTitle('unconditional', 'final')], ['Conditional Waiver and Release on Progress Payment', 'Unconditional Waiver and Release on Final Payment']);
+    const html = buildLienWaiverHtml({ ...latest, customer: '<b>Evil</b>', exceptions: 'retention & CO-3' });
+    ok('waiver html: escaped', !html.includes('<b>Evil</b>') && html.includes('&lt;b&gt;Evil&lt;/b&gt;') && html.includes('retention &amp; CO-3'));
+    ok('waiver html: amount, through date, unconditional notice, signature image, state note', html.includes('$500.00') && html.includes('October 20, 2026') && html.includes('Do not sign it if you have not been paid') && html.includes('<img src="data:image/png;base64,AAAA"') && html.includes('statutory'));
+    const cond = buildLienWaiverHtml({ ...none, signatureDataUrl: 'javascript:alert(1)' });
+    ok('waiver html: conditional final wording, no unsafe signature', cond.includes('final payment') && !cond.includes('javascript:') && cond.includes('______________________________') && !cond.includes('Do not sign it'));
+}
+{
+    const sql = readMigration('20261115000300_papers_vault.sql');
+    const code = sql.replace(/--.*$/gm, '');
+    ok('papers sql: RLS + owner policies', /alter table public\.company_papers\s+enable row level security/.test(code) && ['select', 'insert', 'update', 'delete'].every(op => new RegExp(`create policy company_papers_${op}_own on public\\.company_papers for ${op} to authenticated`).test(code)));
+    ok('papers sql: reminder log written by the server only', /revoke insert, update, delete, truncate on public\.paper_reminders from authenticated/.test(code) && /constraint paper_reminders_user_dedupe_key unique \(user_id, dedupe_key\)/.test(code));
+    ok('papers sql: Premium on insert (PLAN_LIMIT, hint papers)', /user_effective_tier\(new\.user_id\) not in \('premium', 'ai'\)/.test(code) && /hint = 'papers'/.test(code));
+    ok('papers sql: reuses the document-assets bucket (no new bucket / storage policy)', !/insert into storage\.buckets|on storage\.objects/.test(code) && /\[0-9a-f-\]\{36\}\/papers\//.test(code));
+    ok('papers sql: portal function is SECURITY DEFINER, anon-callable, no file paths', /function public\.get_portal_credentials\(p_key text\)[\s\S]*?security definer[\s\S]*?set search_path = ''/.test(code) && /grant execute on function public\.get_portal_credentials\(text\) to anon, authenticated/.test(code) && !/'file_path', p\.file_path/.test(code));
+    ok('papers sql: additive only', !/drop table|alter table public\.(jobs|documents|clients|profiles|reminders)|delete from|truncate (table )?public/i.test(code));
+    const fn = readFileSync(join(here, '..', 'supabase', 'functions', 'reminders', 'index.ts'), 'utf8');
+    ok('reminders function runs the paper reminders (needs a redeploy)', /import \{ runPaperReminders \} from '\.\/papers\.ts'/.test(fn) && /await runPaperReminders\(admin, accounts, now/.test(fn));
+    const pf = readFileSync(join(here, '..', 'supabase', 'functions', 'reminders', 'papers.ts'), 'utf8');
+    ok('paper reminders: claim before send, to the sender address, paid plans only, quiet before the migration', /insert\(\{ \.\.\.base, status: 'sending' \}\)/.test(pf) && /to: sender\.gmail_address/.test(pf) && /=== 'free'\) continue/.test(pf) && /MISSING\.test/.test(pf));
 }
 
 // =====================================================================================================================
