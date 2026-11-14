@@ -12,7 +12,7 @@ import { FREE_LIMITS, PAID_AI_LIMITS, PLANS } from '../../lib/plans.ts';
 
 export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
-  | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings';
+  | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing';
 
 export interface HelpStep {
   title: string;
@@ -54,7 +54,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Start a new job', text: 'Click [[New Job]] at the top. On a phone, tap [[New job]] in the middle of the bottom bar.' },
       { title: 'Act on what clients send you', text: 'When a client taps “I’ve paid” or sends a quote request, a card appears here: Payments reported by clients, or Quote requests with [[Inbox]] and [[Link & QR code]].' },
     ],
-    tips: ['Recent documents (your last 5) and the next job start are in the side column.', 'Your search and filters are kept while the browser tab stays open.'],
+    tips: ['Recent documents (your last 5) and the next job start are in the side column.', 'Your search and filters are kept while the browser tab stays open.', 'The Pipeline bar counts your jobs by stage and what needs you; click it to open the [[Pipeline]] board.'],
   },
   {
     id: 'jobs',
@@ -68,7 +68,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Pick the client', text: 'Choose a Saved client, or type a new Client name: it is added to your clients. Tick [[Mark as temporary client]] for a one-off job. Add the Job site address.' },
       { title: 'Set the dates and crew', text: 'The Start date is today by default. Add an End date and an Assigned worker if you like, then click [[Create job]].' },
       { title: 'Work from the job page', text: 'Change the status (Active, Paused, Completed, Inactive) next to the job name. Documents are under [[Project Documents]], pictures under [[Photos]].' },
-      { title: 'Check the job’s profit', text: '[[Financials]] shows income from invoices minus materials, expenses and labor (time-sheet hours × your labor rate, overtime at 1.5×). The labor rate you type there is saved to your account.' },
+      { title: 'Check the job’s profit', text: '[[Financials]] shows income from invoices minus materials, expenses and labor (time-sheet hours × your labor rate, overtime at 1.5×). The labor rate you type there is saved to your account. Budget vs actual and billing hours are in Job costing and T&M invoices.' },
     ],
     tips: [`Free plan: ${FREE_LIMITS.jobs} new jobs a month.`, 'To reuse a job, open the ⋮ menu on its dashboard card and choose [[Duplicate job]]. You can copy its documents too.'],
   },
@@ -120,6 +120,40 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Ask for a review (Premium)', text: 'Right after marking an invoice paid, send your Google review link by Gmail, text or WhatsApp. You can make it automatic in Settings.' },
     ],
     tips: ['ContractorDocs never touches the money: the button opens your own payment provider.'],
+  },
+  {
+    id: 'pipeline',
+    title: 'Pipeline board',
+    summary: 'Every job and quote request by stage, from request to paid. Cards move by themselves as your documents change.',
+    where: ['Tools', 'Pipeline'],
+    group: 'Documents & getting paid',
+    appPath: '/pipeline',
+    steps: [
+      { title: 'Open the board', text: 'Click the Pipeline bar on the dashboard, or open [[Tools]] and choose [[Pipeline]] (on a phone: [[More]], then [[Pipeline]]).' },
+      { title: 'Read the columns', text: 'Requests (quote requests and jobs with nothing sent yet), Estimate sent, Approved, In progress, Invoiced and Paid. Each card shows the client, the value and the days in that stage; each column adds up its money.' },
+      { title: 'Let it move by itself', text: 'There is nothing to drag. Mark an estimate Sent and the job moves to Estimate sent; the client’s signature moves it to Approved. Once work is logged (a time sheet, daily report, material log or a work order In Progress) or the job is Completed, it is In progress. A sent invoice moves it to Invoiced, and [[Mark as paid]] to Paid.' },
+      { title: 'Catch what is stuck', text: 'A badge shows what waits too long: a quote request with no reply after 2 days, a job with nothing sent after 7, an estimate with no answer after 7 days (or expired), an approved job not started after 14, a finished job not invoiced, an overdue invoice. [[Needs attention]] shows only those.' },
+      { title: 'Act in one tap', text: '[[Follow up]] opens the Share window to resend the estimate or invoice, [[Reminders]] shows its automatic reminders, [[Mark as paid]] records a payment, [[Create job]] turns a quote request into a client and a job, and [[Open job]] opens the job. [[Mark job completed]] and [[Move to Inactive]] (off the board) are in the card’s ⋯ menu.' },
+      { title: 'On a phone', text: 'You see one column at a time: swipe sideways, or tap a stage at the top.' },
+    ],
+    tips: ['Paid jobs stay on the board for 30 days; the Paid column can show the older ones.', 'Inactive jobs and jobs whose estimates were all declined are left off the board. The board is on every plan, Free included.'],
+  },
+  {
+    id: 'job-costing',
+    title: 'Job costing and T&M invoices',
+    summary: 'See what a job has cost against its budget, and turn unbilled hours and materials into an invoice in one tap.',
+    where: ['Job', 'Financials'],
+    group: 'Documents & getting paid',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open the numbers', text: 'Open a job and click [[Financials]]. Budget vs actual is under the profit.' },
+      { title: 'Read the budget', text: 'The budget is the accepted estimate plus approved change orders, split into Labor, Materials, Expenses and Subs & other by the kind of each line (its price-book type, an inventory item, or words such as labor, install or permit). A line that mixes both stays Not split.' },
+      { title: 'Read what it has cost', text: 'Actual uses the same costs as profit (time sheets × your labor rate with overtime at 1.5×, material logs, expense logs) plus sent purchase orders. A purchase-order line that is also on a material log counts once.' },
+      { title: 'Say how far along the job is', text: 'With a progress-billing invoice, % complete comes from its lines. Otherwise type it in Job complete. When more of the budget is used than the job is complete, “Costs are ahead of the work” shows in red, with the profit you would end with at this pace.' },
+      { title: 'Bill time & materials', text: 'Click [[Bill time & materials]] on the job page (on a phone, [[Bill T&M]]) or under Not billed yet in Financials. Unbilled time sheets and material-log lines are listed and ticked; tick Bill expense logs too to add those. Set Labor $/h, the Materials markup (items in your price book keep their price) and Bill through, pick [[Per worker]] or [[Per day]], check the Invoice preview, then click [[Create draft invoice]].' },
+      { title: 'After billing', text: 'The Draft invoice opens so you can check it and send it. The time sheets and material lines on it are marked billed and are not offered again; cancel or delete the invoice and they can be billed again.' },
+    ],
+    tips: [`Free plan: the T&M invoice is one of the ${FREE_LIMITS.docs} new documents per job each month.`, 'The billing rate and markups you use are remembered for next time. The labor rate in Financials is your cost, not what you bill.'],
   },
   {
     id: 'ai',

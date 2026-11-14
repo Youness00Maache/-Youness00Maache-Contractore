@@ -6,6 +6,8 @@
  *   label sheet (Print labels) → public.user_settings 'labels.sheet' (migration 20261113000500)
  *   first-run tour seen        → public.user_settings 'help.tour'    (components/help/AppTour.tsx)
  *   bookkeeper email           → public.user_settings 'export.bookkeeper' (Settings → Your data)
+ *   job % complete (manual)    → public.user_settings 'costing.progress:<job id>' (Job financials → Budget vs actual)
+ *   T&M billing rates          → public.user_settings 'billing.tm' (Bill time & materials)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -209,6 +211,97 @@ export async function saveBookkeeperEmail(uid: string, email: string): Promise<S
     try { if (value) browserStore.setItem(bookkeeperLocalKey(uid), value); else browserStore.removeItem(bookkeeperLocalKey(uid)); } catch { /* storage unavailable */ }
     return saveSetting(browserStore, settingsRemote, uid, BOOKKEEPER_SETTING, { email: value, updatedAt: new Date().toISOString() });
 }
+
+// ----------------------------------------------------------------------- job costing + T&M
+/**
+ * Small JSON settings with a device copy (offline, or before the user_settings table exists): the account wins,
+ * except a device save that never reached it (pending), which is uploaded again.
+ */
+async function loadJsonSetting(key: string, localKey: (uid: string) => string): Promise<unknown> {
+    const uid = activeUserId || await signedInUserId();
+    if (!uid) return null;
+    const readLocal = (): unknown => {
+        const raw = browserStore.getItem(localKey(uid));
+        if (!raw) return null;
+        try { return JSON.parse(raw); } catch { return null; }
+    };
+    if (offline()) return readLocal();
+    const res = await readSetting(settingsRemote, uid, key);
+    if (res.mode !== 'account') return readLocal();
+    if (browserStore.getItem(pendingFieldKey(key, uid)) === '1') {
+        const local = readLocal();
+        if (local !== null) void saveSetting(browserStore, settingsRemote, uid, key, local);
+        return local;
+    }
+    try {
+        if (res.value === null || res.value === undefined) browserStore.removeItem(localKey(uid));
+        else browserStore.setItem(localKey(uid), JSON.stringify(res.value));
+    } catch { /* storage unavailable */ }
+    return res.value ?? null;
+}
+
+async function saveJsonSetting(key: string, localKey: (uid: string) => string, value: unknown): Promise<SyncMode> {
+    const uid = activeUserId || await signedInUserId();
+    if (!uid) return 'failed';
+    try { browserStore.setItem(localKey(uid), JSON.stringify(value)); } catch { /* storage unavailable */ }
+    return saveSetting(browserStore, settingsRemote, uid, key, value);
+}
+
+/** public.user_settings key of a job's manual % complete (Job financials → Budget vs actual): { percent, updatedAt }. */
+export const jobProgressSettingKey = (jobId: string) => `costing.progress:${String(jobId).toLowerCase().replace(/[^a-z0-9_.:-]/g, '')}`.slice(0, 64);
+const jobProgressLocalKey = (jobId: string) => (uid: string) => `cd.costing.progress:${uid}:${jobId}`;
+
+const percentOf = (v: unknown): number | null => {
+    const p = v && typeof v === 'object' ? (v as { percent?: unknown }).percent : null;
+    const n = typeof p === 'number' ? p : typeof p === 'string' && p.trim() ? Number(p) : NaN;
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null;
+};
+
+/** The % complete typed for a job (null = none). Used when the job has no progress-billing invoice. */
+export async function loadJobProgress(jobId: string): Promise<number | null> {
+    if (!jobId) return null;
+    return percentOf(await loadJsonSetting(jobProgressSettingKey(jobId), jobProgressLocalKey(jobId)));
+}
+
+let progressTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+/** Saves a job's % complete (null clears it); the account write waits until typing pauses. */
+export function saveJobProgress(jobId: string, percent: number | null): void {
+    if (!jobId) return;
+    const value = { percent: percent === null ? null : Math.min(100, Math.max(0, percent)), updatedAt: new Date().toISOString() };
+    // device copy + "pending" right away: reopening Job financials (or a closed tab) never loses the typed value
+    if (activeUserId) {
+        try {
+            browserStore.setItem(jobProgressLocalKey(jobId)(activeUserId), JSON.stringify(value));
+            browserStore.setItem(pendingFieldKey(jobProgressSettingKey(jobId), activeUserId), '1');
+        } catch { /* storage unavailable */ }
+    }
+    if (progressTimers[jobId]) clearTimeout(progressTimers[jobId]);
+    progressTimers[jobId] = setTimeout(() => {
+        const { [jobId]: _done, ...rest } = progressTimers;
+        progressTimers = rest;
+        void saveJsonSetting(jobProgressSettingKey(jobId), jobProgressLocalKey(jobId), value);
+    }, 600);
+}
+
+/** public.user_settings key of the rates last used for a T&M invoice: { laborRate, materialMarkup, expenseMarkup, groupLabor }. */
+export const TM_RATES_SETTING = 'billing.tm';
+const tmRatesLocalKey = (uid: string) => `cd.billing.tm:${uid}`;
+
+export interface SavedTmRates { laborRate?: number; materialMarkup?: number; expenseMarkup?: number; groupLabor?: 'worker' | 'entry' }
+
+export async function loadTmRates(): Promise<SavedTmRates | null> {
+    const v = await loadJsonSetting(TM_RATES_SETTING, tmRatesLocalKey);
+    if (!v || typeof v !== 'object') return null;
+    const r = v as Record<string, unknown>;
+    const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : undefined);
+    return {
+        laborRate: num(r.laborRate), materialMarkup: num(r.materialMarkup), expenseMarkup: num(r.expenseMarkup),
+        groupLabor: r.groupLabor === 'entry' ? 'entry' : r.groupLabor === 'worker' ? 'worker' : undefined,
+    };
+}
+
+export const saveTmRates = (rates: SavedTmRates): Promise<SyncMode> =>
+    saveJsonSetting(TM_RATES_SETTING, tmRatesLocalKey, { ...rates, updatedAt: new Date().toISOString() });
 
 // -------------------------------------------------------------------------------- login
 const syncedUsers = new Set<string>();

@@ -10,10 +10,13 @@ import {
 import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
 import { HelpCircleIcon } from './help/HelpText.tsx';
+import { PipelineIcon } from './pipeline/PipelineIcon.tsx';
 
 export type NavDestination =
     | 'dashboard' | 'clients' | 'communication' | 'inventory' | 'pricebook' | 'calendar'
     | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing' | 'help'
+    /** pipeline board (/pipeline) */
+    | 'pipeline'
     /** Settings → Your data (export everything, bookkeeper CSV) */
     | 'export';
 
@@ -40,6 +43,7 @@ interface AppNavProps {
 }
 
 const TOOLS: { dest: NavDestination; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; description: string }[] = [
+    { dest: 'pipeline', label: 'Pipeline', icon: PipelineIcon, description: 'Every job by stage, from request to paid' },
     { dest: 'inventory', label: 'Inventory', icon: BoxIcon, description: 'Stock, QR tags and job allocations' },
     { dest: 'pricebook', label: 'Price book', icon: TagIcon, description: 'Saved items and assemblies' },
     { dest: 'calendar', label: 'Calendar', icon: CalendarIcon, description: 'Job schedule' },

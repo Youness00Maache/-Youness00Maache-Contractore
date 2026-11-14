@@ -56,6 +56,8 @@ const Settings = lazy(() => import('./components/Settings.tsx'));
 const BillingSuccess = lazy(() => import('./components/BillingSuccess.tsx'));
 const UpgradeModal = lazy(() => import('./components/UpgradeModal.tsx'));
 const JobFinancialsModal = lazy(() => import('./components/JobFinancialsModal.tsx'));
+// "Bill time & materials" (job page / Job financials): NEXT_STEPS 0c #12
+const BillTimeMaterialsModal = lazy(() => import('./components/costing/BillTimeMaterialsModal.tsx'));
 const InvoiceForm = lazy(() => import('./components/InvoiceForm.tsx'));
 const DailyJobReportForm = lazy(() => import('./components/DailyJobReportForm.tsx'));
 const NoteForm = lazy(() => import('./components/NoteForm.tsx'));
@@ -87,6 +89,9 @@ const PaymentReportsCard = lazy(() => import('./components/payments/PaymentRepor
 // Request-a-quote inbox (dashboard) and job photo timeline (job page): NEXT_STEPS 0c #5 / #11
 const RequestsInbox = lazy(() => import('./components/requests/RequestsInbox.tsx'));
 const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
+// Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
+const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
+const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
@@ -184,14 +189,14 @@ const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
 
 const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
 const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
-const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline'];
 
 const navSectionFor = (screen: AppView['screen']): NavSection => {
     switch (screen) {
         case 'dashboard': case 'jobDetails': case 'createJob': case 'selectDocType': return 'dashboard';
         case 'clients': return 'clients';
         case 'communication': return 'communication';
-        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': return 'tools';
+        case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': return 'tools';
         case 'forum': return 'forum';
         case 'settings': case 'profile': return 'settings';
         default: return 'none';
@@ -228,6 +233,7 @@ const App: React.FC = () => {
             case 'inventory': navigate('/inventory'); break;
             case 'pricebook': navigate('/pricebook'); break;
             case 'profitCalculator': navigate('/calculator'); break;
+            case 'pipeline': navigate('/pipeline'); break;
             case 'help': navigate('/tutorials'); break;
             case 'forum': navigate(newView.postId ? `/forum/${encodeURIComponent(newView.postId)}` : '/forum'); break;
             case 'gmailCallback': navigate('/gmail-callback'); break;
@@ -292,6 +298,7 @@ const App: React.FC = () => {
     const showDeleteJobModal = jobToDelete !== null;
     const showDeleteDocModal = docToDelete !== null;
     const [showJobFinancials, setShowJobFinancials] = useState(false);
+    const [showBillTimeMaterials, setShowBillTimeMaterials] = useState(false);
     const [markPaidDoc, setMarkPaidDoc] = useState<FormDataType | null>(null);
 
     // Refs that callbacks read (avoid stale closures in long-lived listeners)
@@ -974,6 +981,7 @@ const App: React.FC = () => {
             case 'profile': navigate('/profile'); break;
             case 'billing': navigate('/settings#billing'); break;
             case 'export': navigate('/settings#data'); break;
+            case 'pipeline': navigate('/pipeline'); break;
             case 'help': navigate('/tutorials'); break;
         }
     };
@@ -1348,6 +1356,19 @@ const App: React.FC = () => {
         if (uid && saved.some(doc => doc.type === FormType.Invoice)) loadInventory(uid).catch(() => undefined);
     };
 
+    /** "Bill time & materials" created a Draft invoice and marked its entries billed: update the lists, then open it. */
+    const handleTimeMaterialsBilled = ({ invoice, updated, markFailed }: { invoice: FormDataType; updated: FormDataType[]; markFailed: number }) => {
+        const saved = [invoice, ...updated].map(doc => ({ ...doc, createdAt: doc.createdAt || forms.find(f => f.id === doc.id)?.createdAt || new Date().toISOString() }));
+        saved.forEach(primeDocumentCache);
+        setForms(prev => mergeDocuments(prev.filter(f => !saved.some(s => s.id === f.id)), saved));
+        bumpDocUsage(invoice.jobId);
+        refreshUsage();
+        setShowBillTimeMaterials(false);
+        toast.success(`Draft invoice ${(invoice.data as any)?.invoiceNumber || ''} created. Check it, then send it.`);
+        if (markFailed) toast.error(`${markFailed} entr${markFailed === 1 ? 'y' : 'ies'} could not be marked as billed. The invoice keeps the list, so ${markFailed === 1 ? 'it' : 'they'} won't be billed twice.`);
+        openDocument(invoice, true);
+    };
+
     const handleDuplicateDoc = async (form: FormDataType) => {
         const uid = sessionUserIdRef.current;
         if (!uid) return;
@@ -1677,6 +1698,11 @@ const App: React.FC = () => {
                     />
                 </Suspense>
             )}
+            pipelineSlot={(
+                <Suspense fallback={null}>
+                    <PipelineStrip jobs={jobs} refreshKey={forms} onOpen={() => navigate('/pipeline')} />
+                </Suspense>
+            )}
             onNewJob={() => navigateToCreateJob('dashboard')}
             onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
             onOpenDocument={openDocument}
@@ -1719,6 +1745,7 @@ const App: React.FC = () => {
                 onStatusChange={(status) => handleUpdateJobStatus(job.id, status)}
                 onLoadMore={() => loadDocumentsForJob(job.id)}
                 onOpenFinancials={() => setShowJobFinancials(true)}
+                onBillTimeMaterials={() => setShowBillTimeMaterials(true)}
                 onUpgrade={() => openUpgrade(`Free plan: ${effectiveUsage.limits.docs} documents per job each month.`)}
                 onMarkPaid={setMarkPaidDoc}
                 photosSlot={(
@@ -1970,6 +1997,25 @@ const App: React.FC = () => {
                 />;
             case 'profitCalculator':
                 return <ProfitCalculatorView onBack={navigateToDashboard} profile={profile} />;
+            case 'pipeline':
+                return <PipelineView
+                    jobs={jobs}
+                    clients={clients}
+                    profile={profile}
+                    plan={plan}
+                    isOnline={isOnline}
+                    refreshKey={forms}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onNewJob={() => navigateToCreateJob('dashboard')}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onOpenDocument={(form) => openDocument(form, true)}
+                    onMarkPaid={setMarkPaidDoc}
+                    onJobStatusChange={handleUpdateJobStatus}
+                    checkJobLimit={() => checkLimit('jobs')}
+                    onRequestConverted={handleRequestConverted}
+                    onUpgrade={openUpgrade}
+                    onDraftEstimate={handleDraftEstimate}
+                />;
             case 'help':
                 return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;
             case 'analytics':
@@ -2099,7 +2145,31 @@ const App: React.FC = () => {
 
             {showJobFinancials && viewJob && (
                 <Suspense fallback={null}>
-                    <JobFinancialsModal job={viewJob} defaultLaborRate={profile?.defaultLaborRate} onClose={() => setShowJobFinancials(false)} />
+                    <JobFinancialsModal
+                        job={viewJob}
+                        defaultLaborRate={profile?.defaultLaborRate}
+                        savedItems={savedItems}
+                        onBillTimeMaterials={() => { setShowJobFinancials(false); setShowBillTimeMaterials(true); }}
+                        onClose={() => setShowJobFinancials(false)}
+                    />
+                </Suspense>
+            )}
+
+            {showBillTimeMaterials && viewJob && session && (
+                <Suspense fallback={null}>
+                    <BillTimeMaterialsModal
+                        job={viewJob}
+                        userId={session.user.id}
+                        profile={profile}
+                        savedItems={savedItems}
+                        inventory={inventory}
+                        isOnline={isOnline}
+                        ensureDocSlot={() => ensureDocSlot(viewJob.id)}
+                        onUpgrade={openUpgrade}
+                        knownInvoiceNumbers={forms.filter(f => f.type === FormType.Invoice).map(f => String((f.data as any)?.invoiceNumber || '')).filter(Boolean)}
+                        onClose={() => setShowBillTimeMaterials(false)}
+                        onCreated={handleTimeMaterialsBilled}
+                    />
                 </Suspense>
             )}
 

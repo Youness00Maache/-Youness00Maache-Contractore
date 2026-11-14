@@ -32,6 +32,8 @@ interface DashboardScreenProps {
     paymentsSlot?: React.ReactNode;
     /** Quote requests from the public request page (rendered by App; nothing until the feature exists in the database). */
     requestsSlot?: React.ReactNode;
+    /** Pipeline strip (jobs per stage, what needs you) linking to the board (rendered by App; nothing without jobs). */
+    pipelineSlot?: React.ReactNode;
     onNewJob: () => void;
     onOpenJob: (jobId: string) => void;
     onOpenDocument: (form: FormDataType) => void;
@@ -110,7 +112,7 @@ const StatCard: React.FC<{
 };
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({
-    userName, plan, jobs, forms, clientsCount, lowStockCount, usage, loading, t, aiSlot, paymentsSlot, requestsSlot,
+    userName, plan, jobs, forms, clientsCount, lowStockCount, usage, loading, t, aiSlot, paymentsSlot, requestsSlot, pipelineSlot,
     onNewJob, onOpenJob, onOpenDocument, onDuplicateJob, onDeleteJob, onUpgrade, onOpenClients, onOpenInventory, onOpenCalendar,
 }) => {
     const initial = useMemo(readFilters, []);
@@ -256,6 +258,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
             {/* things to act on first (e.g. payments reported by clients); renders nothing when empty */}
             {paymentsSlot}
             {requestsSlot}
+            {!loading && pipelineSlot}
 
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_320px]">
                 {/* Jobs */}

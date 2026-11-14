@@ -7,7 +7,7 @@ import { Skeleton } from './ui/Skeleton.tsx';
 import { DropdownMenu, DropdownItem, DropdownSeparator } from './ui/DropdownMenu.tsx';
 import {
     BackArrowIcon, PlusIcon, SearchIcon, CalculatorIcon, MapPinIcon, CalendarIcon, UserIcon, MailIcon, PhoneIcon,
-    MoreVerticalIcon, CopyIcon, TrashIcon, FileTextIcon, SparklesIcon, CheckCircleIcon, StarIcon, WifiOffIcon,
+    MoreVerticalIcon, CopyIcon, TrashIcon, FileTextIcon, SparklesIcon, CheckCircleIcon, StarIcon, WifiOffIcon, ClockIcon,
 } from './Icons.tsx';
 import { getDocumentTitle } from '../lib/documents.ts';
 import HelpButton from './help/HelpButton.tsx';
@@ -38,6 +38,8 @@ interface JobDetailsScreenProps {
     onStatusChange: (status: Job['status']) => void;
     onLoadMore: () => void;
     onOpenFinancials: () => void;
+    /** "Bill time & materials": unbilled time sheets and material lines → a Draft invoice (optional) */
+    onBillTimeMaterials?: () => void;
     onUpgrade: () => void;
     /** "Mark as paid" in an invoice's menu (optional) */
     onMarkPaid?: (form: FormDataType) => void;
@@ -114,7 +116,7 @@ const DocumentTile: React.FC<{
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onDeleteDocument, onStatusChange,
-    onLoadMore, onOpenFinancials, onUpgrade, onMarkPaid, photosSlot,
+    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot,
 }) => {
     // Documents / Photos switch (kept in the URL hash so Back from a photo or a refresh stays on Photos).
     const [tab, setTabState] = useState<'docs' | 'photos'>(() => (typeof window !== 'undefined' && window.location.hash === '#photos' ? 'photos' : 'docs'));
@@ -182,6 +184,11 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                         <button type="button" onClick={onOpenFinancials} className="btn btn-outline h-10" title="Job financials">
                             <CalculatorIcon className="h-4 w-4" /> <span className="hidden sm:inline">Financials</span>
                         </button>
+                        {onBillTimeMaterials && (
+                            <button type="button" onClick={onBillTimeMaterials} className="btn btn-outline h-10" title="Bill time & materials" disabled={!isOnline}>
+                                <ClockIcon className="h-4 w-4" /> <span className="sm:hidden">Bill T&amp;M</span><span className="hidden sm:inline">Bill time &amp; materials</span>
+                            </button>
+                        )}
                         {aiButton}
                         <HelpButton topic="jobs" />
                         <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 sm:inline-flex" disabled={!isOnline}>
