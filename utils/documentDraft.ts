@@ -75,9 +75,10 @@ export function finalizeDraft(docType: DocKey, rawPrefill: Record<string, unknow
 /**
  * Good / better / best options of an estimate draft (not AI "fields": the assistant builds them, see
  * supabase/functions/ai-assistant/shared/estimateOptionsDraft.ts). Passed on as they are; the form merge
- * (hooks/useDocumentDraftPrefill.ts) validates them and opens them like a saved estimate.
+ * (hooks/useDocumentDraftPrefill.ts) validates them and opens them like a saved estimate. Also used by the form's
+ * AI fill (src/hooks/useContractorAI.ts).
  */
-function estimateOptionKeys(docType: DocKey, raw: Record<string, unknown> | null | undefined): Record<string, unknown> {
+export function estimateOptionKeys(docType: DocKey, raw: Record<string, unknown> | null | undefined): Record<string, unknown> {
     if (docType !== 'ESTIMATE' || !raw) return {};
     const isObject = (v: unknown) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
     if (!isObject(raw.estimateOptions)) return {};

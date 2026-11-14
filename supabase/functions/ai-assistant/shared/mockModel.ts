@@ -6,9 +6,11 @@
  */
 import { DOC_LABELS, escapeHtml, normalizeDate, parseLineItemsText, resolveDocKey, toLocalYmd, type DocKey } from './documentSchema.ts';
 import {
-    isSampleRequest, isSendOnlyRequest, SCOPE_ACTIONS, type AppRoute, type ModelOutput, type ModelPlanStep, type RouterRequest,
+    isSampleRequest, isSendOnlyRequest, requestHasEstimateOptions, SCOPE_ACTIONS,
+    type AppRoute, type ContextFormEstimate, type ContextFormLine, type ModelOutput, type ModelPlanStep, type RouterRequest,
 } from './routerContract.ts';
 import { scoreKnowledge } from './knowledge.ts';
+import { isEstimateOptionsRequest } from './estimateOptionsDraft.ts';
 
 const DOC_PATTERNS: Array<[DocKey, RegExp]> = [
     ['DAILY_REPORT', /\b(daily\s+(?:job\s+|construction\s+|site\s+)?report|site\s+report|field\s+report|job\s+report|daily\s+log)\b/i],
@@ -194,17 +196,8 @@ function extractFields(docType: DocKey, text: string, today: string): { fields: 
 
 // ───────────────────────────── good / better / best estimate options ─────────────────────────────
 
-/** "good/better/best", "3 options", "basic and premium" … in English, Spanish, French, German, Italian, Portuguese. */
-const OPTIONS_REQUEST_RE = new RegExp([
-    'good\\s*[,/&-]?\\s*(?:and\\s+)?better\\s*[,/&-]?\\s*(?:and\\s+|&\\s*)?best',
-    '(?:2|3|4|two|three|four|dos|tres|cuatro|deux|trois|quatre|zwei|drei|vier|due|tre|quattro|duas|tres|quatro)\\s+(?:pricing\\s+|price\\s+)?(?:options|opciones|opcoes|optionen|opzioni|choices|tiers|price\\s+levels|niveles|niveaux|formules|versions|versiones|varianten|pakete)',
-    '(?:basic|standard|budget|economy)\\s+(?:and|or|&|vs\\.?)\\s+(?:premium|deluxe|luxury|pro)\\b(?:\\s+(?:version|option|package)s?)?',
-    'basic[oa]s?\\s+(?:y|o)\\s+premium',
-    'bueno\\s*,?\\s*mejor\\s+y\\s+optimo',
-    '(?:de\\s+base|basique|essentiel(?:le)?)\\s+(?:et|ou)\\s+(?:premium|luxe|confort)',
-    'bon\\s*,?\\s*meilleur\\s+(?:et|,)\\s+excellent',
-    'gut\\s*,?\\s*besser\\s*(?:und|,)\\s*(?:am\\s+)?best(?:en|e)?',
-].map(s => `\\b${s}`).join('|'), 'i');
+// isEstimateOptionsRequest lives in estimateOptionsDraft.ts (routerContract.ts needs it too); exported here as before.
+export { isEstimateOptionsRequest };
 
 /** Option labels a user types before an option's lines ("Better: …"), longest first. */
 const OPTION_LABELS = [
@@ -222,10 +215,6 @@ const SHARED_LABELS = [
 const LABEL_RE = new RegExp(`(?:^|[\\s.;,(])(${[...SHARED_LABELS, ...OPTION_LABELS].sort((a, b) => b.length - a.length).join('|')})\\s*(?:\\((?:recommended|recomendad[oa]|recommand[ée]e?|empfohlen)\\))?\\s*:`, 'gi');
 const RECOMMENDED_RE = /\((?:recommended|recomendad[oa]|recommand[ée]e?|empfohlen)\)/i;
 const fold = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '');
-
-export function isEstimateOptionsRequest(text: string): boolean {
-    return OPTIONS_REQUEST_RE.test(fold(text || ''));
-}
 
 /**
  * Options the user wrote out ("good/better/best. Good: 200 sq ft pine decking at 12. Better: … All options: 1 permit at
@@ -254,6 +243,73 @@ export function extractEstimateOptions(text: string): Pick<ModelOutput, 'estimat
     return {
         estimate_options: names.map(name => ({ name, description: null, recommended: recommended.has(name.toLowerCase()) || null })),
         line_items: lines,
+    };
+}
+
+/** Lines a contractor keeps in every option (permit, haul-away, cleanup, demolition…). */
+const SHARED_WORK_RE = /\b(?:permits?|permiso|permis|licen[cs]a|haul[- ]?away|disposal|debris|dumpster|clean[- ]?up|cleaning|limpieza|nettoyage|limpeza|demo|demolition|demolicion|demolizione|mobili[sz]ation|travel)\b/i;
+const OPTION_COUNT_WORDS: Record<string, number> = { two: 2, three: 3, four: 4, dos: 2, tres: 3, cuatro: 4, deux: 2, trois: 3, quatre: 4, zwei: 2, drei: 3, vier: 4, due: 2, tre: 3, quattro: 4, duas: 2, dois: 2, quatro: 4 };
+const ADD_OPTION_RE = /\b(?:add|agrega|agregue|agregar|anade|anadir|anada|incluye|suma|ajoute|ajouter|ajoutez|adicione|adiciona|adicionar|acrescente|acrescenta|inclua|aggiungi|aggiungere|fuge|erganze)\b/;
+const ADDED_NAMES: Array<[RegExp, string]> = [
+    [/\bpremium\b/, 'Premium'], [/\bdeluxe\b/, 'Deluxe'], [/\b(?:luxury|luxe|lujo|luxo|lusso|luxus)\b/, 'Luxury'], [/\bhigh[- ]end|haut de gamme|top[- ]tier\b/, 'High-end'],
+    [/\b(?:budget|cheaper|less expensive|economy|economica|economique|economico|mas barata|moins chere|mais barata|gunstig\w*)\b/, 'Budget'],
+    [/\b(?:basic|basica|basique|basis|base)\b/, 'Basic'], [/\b(?:better|mejor|meilleure?|melhor)\b/, 'Better'], [/\b(?:best)\b/, 'Best'],
+];
+
+/**
+ * Form fill of an open estimate that asks for options (the edge function's mock and the QA script): options written
+ * out in the message win; otherwise the form's current lines are the base, like the form's "Good / better / best"
+ * button: shared work (permit, haul-away…) in every option, the other lines in each option, and each further option
+ * gets one upgrade line WITHOUT a price (prices are never made up). "Add a premium option": the current lines are the
+ * first option and stay Recommended. A form that already has options gets them back unchanged plus the new one.
+ */
+export function mockOpenEstimateOptions(text: string, form: ContextFormEstimate | undefined): Pick<ModelOutput, 'estimate_options' | 'line_items'> | null {
+    const written = extractEstimateOptions(text);
+    if (written) return written;
+    const t = fold(text);
+    const line = (l: ContextFormLine, option: string) => ({
+        description: l.desc, quantity: l.qty ?? 1, ...(l.price !== undefined ? { rate: l.price } : {}), unit_cost: l.cost ?? null, supplier: null, option,
+    });
+    const upgrade = (name: string) => ({ description: `${name} upgrade`, quantity: 1, unit_cost: null, supplier: null, option: name });
+    const adding = !isEstimateOptionsRequest(text) && ADD_OPTION_RE.test(t);
+    const addedName = adding ? ADDED_NAMES.find(([re]) => re.test(t))?.[1] || '' : '';
+    if (form?.options && form.options.length >= 2) {
+        // every current option as it is; "add …" puts the new one after them
+        const taken = new Set(form.options.map(o => o.name.toLowerCase()));
+        const name = !adding ? '' : addedName && !taken.has(addedName.toLowerCase()) ? addedName : ['Good', 'Better', 'Best', 'Premium', 'Option E'].find(n => !taken.has(n.toLowerCase()))!;
+        const base = form.options.find(o => o.recommended) || form.options[0];
+        return {
+            estimate_options: [
+                ...form.options.map(o => ({ name: o.name, description: null, recommended: o.recommended ? true : null })),
+                ...(name ? [{ name, description: null, recommended: null }] : []),
+            ],
+            line_items: [
+                ...form.options.flatMap(o => o.lines.map(l => line(l, o.name))),
+                ...(form.shared || []).map(l => line(l, 'ALL')),
+                ...(name ? [...base.lines.map(l => line(l, name)), upgrade(name)] : []),
+            ],
+        };
+    }
+    const lines = form?.lines || [];
+    if (!lines.length) return null;
+    const own = lines.filter(l => !SHARED_WORK_RE.test(l.desc));
+    const base = own.length ? own : lines;
+    const shared = own.length ? lines.filter(l => SHARED_WORK_RE.test(l.desc)) : [];
+    let names: string[];
+    if (adding) {
+        const added = addedName || 'Option B';
+        names = [added === 'Standard' ? 'Current' : 'Standard', added];
+    } else {
+        const count = t.match(/\b(2|3|4|two|three|four|dos|tres|cuatro|deux|trois|quatre|zwei|drei|vier|due|tre|quattro|duas|dois|quatro)\s+(?:pricing\s+|price\s+)?(?:options|opciones|opcoes|optionen|opzioni|choices|tiers|packages|paquetes|pacotes|formules|niveaux|niveles|versions|versiones)\b/)?.[1];
+        const n = count ? Number(count) || OPTION_COUNT_WORDS[count] || 3 : /\bbasic\w*\s+(?:and|or|y|o|et|ou|e)\s+premium\b/.test(t) ? 2 : 3;
+        names = n === 2 && /\bpremium\b/.test(t) ? ['Basic', 'Premium'] : ['Good', 'Better', 'Best', 'Premium'].slice(0, Math.max(2, Math.min(4, n)));
+    }
+    return {
+        estimate_options: names.map((name, i) => ({ name, description: null, recommended: adding && i === 0 ? true : null })),
+        line_items: [
+            ...names.flatMap((name, i) => [...base.map(l => line(l, name)), ...(i > 0 ? [upgrade(name)] : [])]),
+            ...shared.map(l => line(l, 'ALL')),
+        ],
     };
 }
 
@@ -463,6 +519,18 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
         if (!docType) return { action_type: 'CHAT', reply_text: 'Open a document first.' };
         if (isSampleRequest([...(req.history || []).filter(h => h.role === 'user').map(h => h.text), text].join('\n'))) {
             return { action_type: 'GENERATE_DOCUMENT', reply_text: `I filled the ${DOC_LABELS[docType].toLowerCase()} with sample data. Check it before you send it.`, document_type: docType, ...sampleDocument(docType, 0) };
+        }
+        // The open estimate asks for options ("turn this into good / better / best", "add a premium option").
+        const options = requestHasEstimateOptions(req) ? mockOpenEstimateOptions(text, c.form_estimate) : null;
+        if (options) {
+            const names = (options.estimate_options || []).map(o => String(o.name));
+            return {
+                action_type: 'GENERATE_DOCUMENT',
+                reply_text: `I made ${names.length} options from your estimate: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}. Lines without a price are left empty for you to fill.`,
+                document_type: docType,
+                fields: extractFields(docType, text, today).fields,
+                ...options,
+            };
         }
         return { action_type: 'GENERATE_DOCUMENT', reply_text: `I filled the ${DOC_LABELS[docType]} with what you told me.`, document_type: docType, ...extractFields(docType, text, today) };
     }

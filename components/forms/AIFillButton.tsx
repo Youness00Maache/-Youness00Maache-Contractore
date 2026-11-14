@@ -7,7 +7,14 @@ import { AIDocumentModal } from '../AIDocumentModal.tsx';
  * "AI fill" header action. The AI result goes through the same normalizer as router prefill
  * (mergeDraftIntoForm), so every returned field lands in its matching input.
  */
-const AIFillButton: React.FC<{ jobId: string; formType: FormType; onApply: (payload: unknown) => void; compact?: boolean }> = ({ jobId, formType, onApply, compact }) => {
+const AIFillButton: React.FC<{
+    jobId: string;
+    formType: FormType;
+    onApply: (payload: unknown) => void;
+    compact?: boolean;
+    /** the form's current data (Estimate: "turn this into good / better / best options" builds on its lines) */
+    formData?: unknown;
+}> = ({ jobId, formType, onApply, compact, formData }) => {
     const [open, setOpen] = useState(false);
     return (
         <>
@@ -18,6 +25,7 @@ const AIFillButton: React.FC<{ jobId: string; formType: FormType; onApply: (payl
                 <AIDocumentModal
                     jobId={jobId}
                     formTypeRestriction={formType}
+                    formData={formData}
                     saveToDb={false}
                     onClose={() => setOpen(false)}
                     onSuccess={(docs: any[]) => {

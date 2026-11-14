@@ -515,6 +515,47 @@ export const adoptLineItemsIntoOption = <T extends Rec>(d: T, previousLines: unk
     return syncMirror({ ...d, estimateOptions: updateOption(set, eff.id, { lineItems: own }) });
 };
 
+/**
+ * The form's AI fill on an estimate, after the draft was merged (EstimateForm): nothing the user had is lost.
+ * - The draft brought options ("turn this into good / better / best", "add a premium option", built from the form's
+ *   lines). On an estimate that already HAS options, those stay exactly as they are (lines, shared lines, Recommended,
+ *   choice): only the drafted options with a new name are added, up to OPTION_MAX. Otherwise the drafted options are
+ *   used, and every drafted line that is one of the user's own lines (same description and price) gets back what the
+ *   AI never sees or may have dropped (unit, unit cost, inventory and price-book links, kit parts).
+ * - No options in the draft: adoptLineItemsIntoOption, as before.
+ * `added` = the names of the options that are new on the estimate.
+ */
+export const applyAiOptionsDraft = <T extends Rec>(d: T, before: Rec): { data: T; added: string[] } => {
+    const drafted = d.estimateOptions !== before.estimateOptions ? readOptionSet(d) : null;
+    if (!drafted) return { data: adoptLineItemsIntoOption(d, before.lineItems), added: [] };
+    const had = readOptionSet(before);
+    const theirs = [...linesOf(before.lineItems), ...(had ? [...had.options.flatMap(o => o.lineItems), ...had.sharedLineItems] : [])];
+    const key = (li: LineItem) => `${str(li.description).toLowerCase().replace(/\s+/g, ' ')}|${roundMoney(toNumber(li.rate))}`;
+    const byKey = new Map<string, LineItem>();
+    for (const li of theirs) if (str(li.description) && !byKey.has(key(li))) byKey.set(key(li), li);
+    const restore = (lines: LineItem[]): LineItem[] => lines.map(li => {
+        const own = byKey.get(key(li));
+        if (!own) return li;
+        const { id: _id, description: _d, quantity: _q, rate: _r, ...details } = own as Rec;
+        return { ...li, ...details } as LineItem;
+    });
+    const nameKey = (o: DocOption, i: number) => optionName(o, i).toLowerCase().replace(/\s+/g, ' ');
+    if (had && !had.appliedId) {
+        const taken = new Set(had.options.map(nameKey));
+        const fresh = drafted.options
+            .filter((o, i) => !taken.has(nameKey(o, i)))
+            .slice(0, Math.max(0, OPTION_MAX - had.options.length))
+            .map(o => ({ ...o, lineItems: restore(o.lineItems) }));
+        return { data: syncMirror({ ...d, estimateOptions: { ...had, options: [...had.options, ...fresh] } }), added: fresh.map((o, i) => optionName(o, had.options.length + i)) };
+    }
+    const set: OptionSet = {
+        ...drafted,
+        options: drafted.options.map(o => ({ ...o, lineItems: restore(o.lineItems) })),
+        sharedLineItems: restore(drafted.sharedLineItems),
+    };
+    return { data: syncMirror({ ...d, estimateOptions: set }), added: set.options.map((o, i) => optionName(o, i)) };
+};
+
 /** Turns options off: the estimate keeps the effective option's lines + shared lines. */
 export const removeOptions = <T extends Rec>(d: T): T => {
     const lines = effectiveEstimateLines(d);

@@ -71,6 +71,51 @@ const keyOf = (s: string): string => fold(s).replace(FILLER, ' ').replace(/[^\p{
 const SHARED_RE = /^(?:in |en |dans |em |im |nel |в )?(?:all|any|every|each|both|shared|common|included|always|everything|todas?|todos|ambas|ambos|comun|compartid[ao]s?|toutes|tous|commun(?:es)?|partagee?s?|alle|allen|jede|gemeinsam|tutte|tutti|comuni|compartilhad[ao]s?|все|общ)\b|^(?:全部|所有|共通|共享|すべて|全て|모두|공통)/;
 export const isSharedTag = (tag: string): boolean => SHARED_RE.test(fold(tag));
 
+/** "good/better/best", "3 options", "basic and premium" … in English, Spanish, French, German, Italian, Portuguese. */
+const OPTIONS_REQUEST_RE = new RegExp([
+    'good\\s*[,/&-]?\\s*(?:and\\s+)?better\\s*[,/&-]?\\s*(?:and\\s+|&\\s*)?best',
+    '(?:2|3|4|two|three|four|dos|tres|cuatro|deux|trois|quatre|zwei|drei|vier|due|tre|quattro|duas|tres|quatro)\\s+(?:pricing\\s+|price\\s+)?(?:options|opciones|opcoes|optionen|opzioni|choices|tiers|price\\s+levels|niveles|niveaux|formules|versions|versiones|varianten|pakete)',
+    '(?:basic|standard|budget|economy)\\s+(?:and|or|&|vs\\.?)\\s+(?:premium|deluxe|luxury|pro)\\b(?:\\s+(?:version|option|package)s?)?',
+    'basic[oa]s?\\s+(?:y|o)\\s+premium',
+    'bueno\\s*,?\\s*mejor\\s+y\\s+optimo',
+    '(?:de\\s+base|basique|essentiel(?:le)?)\\s+(?:et|ou)\\s+(?:premium|luxe|confort)',
+    'bon\\s*,?\\s*meilleur\\s+(?:et|,)\\s+excellent',
+    'gut\\s*,?\\s*besser\\s*(?:und|,)\\s*(?:am\\s+)?best(?:en|e)?',
+].map(s => `\\b${s}`).join('|'), 'i');
+
+/** A request for good / better / best options on ONE estimate (the assistant drafts them). */
+export function isEstimateOptionsRequest(text: string): boolean {
+    return OPTIONS_REQUEST_RE.test(fold(text || ''));
+}
+
+/**
+ * Said with an estimate already open (the form's AI fill): "turn this into options", "make options from these lines",
+ * "add a premium option", "add another option" (English, Spanish, French, Portuguese, German, Italian; text folded).
+ */
+const OPEN_ESTIMATE_OPTIONS_RE = new RegExp([
+    '(?:turn|convert|make|split|change|break|divide|transform)\\s+(?:(?:this|it|these|that|the|my)\\s+)?(?:(?:estimate|quote|lines?|items?)\\s+)?(?:up\\s+)?(?:into|in|to)\\s+(?:(?:2|3|4|two|three|four|some|several)\\s+)?(?:pricing\\s+|price\\s+)?(?:options|tiers|packages|choices|price\\s+levels)\\b',
+    '(?:options|tiers|packages|choices)\\s+(?:from|out\\s+of|based\\s+on|with)\\s+(?:these|this|the|my|those)\\b',
+    'add\\s+(?:an?\\s+|one\\s+)?(?:(?:premium|deluxe|luxury|high[- ]end|top[- ]tier|upgraded?|better|best|good|basic|budget|cheaper|less\\s+expensive|economy|standard|mid[- ]range|another|extra|second|third|fourth|new)\\s+)+(?:option|tier|package|version|choice)\\b',
+    '(?:convierte|convertir|transforma|transformar|haz|hacer|divide|dividir|pasa|pasar|separa)\\s+(?:(?:esto|este|esta|el|la|las|los|mis)\\s+)?(?:(?:presupuesto|cotizacion|estimado|lineas|partidas)\\s+)?(?:en|a)\\s+(?:(?:2|3|4|dos|tres|cuatro|varias)\\s+)?(?:opciones|paquetes|niveles)\\b',
+    '(?:agrega|agregue|agregar|anade|anadir|anada|incluye|suma)\\s+(?:una\\s+)?(?:otra\\s+)?(?:opcion|paquete)\\b',
+    '(?:transforme|transformer|transformez|convertis|convertir|convertissez|fais|faire|faites|decoupe|decouper|divise|diviser)\\s+(?:(?:ce|cette|ca|cela|ceci|les|mes)\\s+)?(?:(?:devis|lignes|postes)\\s+)?en\\s+(?:(?:2|3|4|deux|trois|quatre|plusieurs)\\s+)?(?:options|formules|niveaux|forfaits)\\b',
+    '(?:ajoute|ajouter|ajoutez)\\s+(?:une\\s+)?(?:autre\\s+)?(?:option|formule)\\b',
+    '(?:transforme|transforma|transformar|converta|converte|converter|faca|faz|fazer|divida|dividir)\\s+(?:(?:isto|isso|este|esta|o|a|as|os|meu|minhas)\\s+)?(?:(?:orcamento|cotacao|linhas|itens)\\s+)?em\\s+(?:(?:2|3|4|duas|dois|tres|quatro|varias)\\s+)?(?:opcoes|pacotes|niveis)\\b',
+    '(?:adicione|adiciona|adicionar|acrescente|acrescenta|acrescentar|inclua)\\s+(?:uma\\s+)?(?:outra\\s+)?(?:opcao|pacote)\\b',
+    '(?:fuge|erganze)\\s+(?:eine\\s+)?(?:weitere\\s+)?(?:[a-z]+-?)?option\\b',
+    '(?:aggiungi|aggiungere)\\s+(?:un[\\s\']*)?(?:altra\\s+)?opzione\\b',
+    '(?:trasforma|trasformare|converti|convertire|dividi)\\s+(?:(?:questo|il|le)\\s+)?(?:(?:preventivo|righe|voci)\\s+)?in\\s+(?:(?:2|3|4|due|tre|quattro)\\s+)?opzioni\\b',
+].map(s => `\\b${s}`).join('|'), 'i');
+
+/**
+ * Options asked for on an estimate: every isEstimateOptionsRequest request, plus what people say with an estimate
+ * open ("turn this into good / better / best options", "make 3 options from these lines", "add a premium option").
+ * The form's AI fill sends its current lines only then, and only then the form fill may answer with options.
+ */
+export function asksForEstimateOptions(text: string): boolean {
+    return isEstimateOptionsRequest(text) || OPEN_ESTIMATE_OPTIONS_RE.test(fold(text || ''));
+}
+
 /** Text that would tell the client the contractor's costs or margin: never kept in an option description. */
 const COST_TALK_RE = /\b(?:margin|markup|mark-up|profit|our cost|my cost|internal cost|unit cost|cost price|wholesale|margen|beneficio|coste interno|costo interno|marge|benefice|cout interne|gewinn|einkaufspreis|margine|custo interno|lucro)\b/;
 

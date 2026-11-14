@@ -16,17 +16,19 @@ import { applyPlanEdits, runPlan, stepsNeedingJob, summarizePlanRun, type PlanIO
 import { computeDocumentTotals } from '../utils/money.ts';
 import { DOC_TYPE_TO_FORM_TYPE } from '../src/config/docTypeMap.ts';
 import { extractEstimateOptions, isEstimateOptionsRequest, mockModelOutput } from '../supabase/functions/ai-assistant/shared/mockModel.ts';
-import { DRAFT_OPTION_MAX, draftEstimateOptions, isSharedTag } from '../supabase/functions/ai-assistant/shared/estimateOptionsDraft.ts';
-import { optionRange, optionsActive, packOptionsForSave, readOptionSet, summarizeOptions } from '../lib/estimateOptions.ts';
+import { asksForEstimateOptions, DRAFT_OPTION_MAX, draftEstimateOptions, isSharedTag } from '../supabase/functions/ai-assistant/shared/estimateOptionsDraft.ts';
+import {
+    applyAiOptionsDraft, createOptionSet, optionRange, optionsActive, packOptionsForSave, readOptionSet, summarizeOptions, syncMirror, updateOption,
+} from '../lib/estimateOptions.ts';
 import { buildSystemPrompt, buildUserTurn } from '../supabase/functions/ai-assistant/shared/prompt.ts';
 import { BACKUP_MODELS, DEFAULT_MODEL, MODEL_TIMEOUT_MS, createHandler, geminiGeneration } from '../supabase/functions/ai-assistant/handler.ts';
-import { summarizeDocument, summarizeDocumentData, DOCUMENT_SUMMARY_COLUMNS } from '../src/ai/documentSummary.ts';
+import { formEstimateContext, summarizeDocument, summarizeDocumentData, DOCUMENT_SUMMARY_COLUMNS } from '../src/ai/documentSummary.ts';
 import { REQUEST_LIMITS, RESPONSE_SCHEMA_TYPES } from '../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { RouterInputError } from '../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { buildPriceBookBlock, PRICE_BOOK_LIMITS, sanitizePriceBook, wantsPriceBook } from '../supabase/functions/ai-assistant/shared/priceBook.ts';
 import { buildPriceBookSlice, linkDraftToPriceBook, PRICE_BOOK_SLICE, priceBookForRequest, rankPriceBook, type PriceBookSource } from '../src/ai/priceBookContext.ts';
 import { buildEstimatePrompt } from '../components/requests/requestLogic.ts';
-import { finalizeDraft, toFormPrefill } from '../utils/documentDraft.ts';
+import { estimateOptionKeys, finalizeDraft, toFormPrefill } from '../utils/documentDraft.ts';
 import { normalizeDocumentSetupPayload, inferSingleMissingFieldSetup, getSetupFieldSpecsForDocument } from '../utils/documentSetupPayload.ts';
 import { userAllowsEmptyOrProceed, buildGatherInfoReply } from '../utils/documentMetadata.ts';
 import { parseSetupFieldsFromPrompt } from '../utils/parseDocumentSetup.ts';
@@ -1579,9 +1581,12 @@ async function estimateOptionsTests() {
         const inv = buildProposal(answer({ document_type: 'INVOICE', estimate_options: [O('Good'), O('Better')], line_items: [L('a', 100, 'Good'), L('b', 200, 'Better')] }), { request: R });
         const invPlain = buildProposal(answer({ document_type: 'INVOICE', line_items: [{ description: 'a', quantity: 1, rate: 100 }, { description: 'b', quantity: 1, rate: 200 }] }), { request: R });
         ok(!('estimateOptions' in (inv.prefill || {})) && JSON.stringify(flat(inv)) === JSON.stringify(flat(invPlain)), 'options only exist on estimates (an invoice gets its normal lines)');
+        const formPlainR = req('fill it: a at 100 and b at 200', 'form', { form_document_type: 'ESTIMATE', active_job_id: job.id });
+        const formPlain = build({ estimate_options: [O('Good'), O('Better')], line_items: [L('a', 100, 'Good'), L('b', 200, 'Better')] }, formPlainR);
+        ok(formPlain.action_type === 'GENERATE_DOCUMENT' && !('estimateOptions' in (formPlain.prefill || {})) && flat(formPlain).length === 2, 'the form fill (AI fill) without an options request keeps one total (options sent anyway are ignored)');
         const formR = req('3 options please', 'form', { form_document_type: 'ESTIMATE', active_job_id: job.id });
         const formP = build({ estimate_options: [O('Good'), O('Better')], line_items: [L('a', 100, 'Good'), L('b', 200, 'Better')] }, formR);
-        ok(formP.action_type === 'GENERATE_DOCUMENT' && !('estimateOptions' in (formP.prefill || {})) && flat(formP).length === 2, 'the form fill (AI fill) keeps one total: no options there');
+        eq([formP.action_type, names(formP)], ['GENERATE_DOCUMENT', ['Good', 'Better']], 'the form fill of an open estimate that asks for options ("3 options please") gets them');
         for (const junk of [{ estimate_options: 'three' }, { estimate_options: [null, 5, []], line_items: [null, 'x', { option: 'Good' }] }, { estimate_options: [{ name: {} }], line_items: [{ description: 'a', option: ['x'] }] }]) {
             let p: any = null;
             try { p = build(junk as any); } catch { p = null; }
@@ -1769,6 +1774,154 @@ async function estimateOptionsTests() {
         ok(planCard.includes('2 options · $1,400.00–$3,200.00'), 'plan card: the estimate step shows its options and price range');
         const normal = render(runLocalMockRouter('Make an estimate: 1 demo and haul away at $1,200; 120 sq ft of tile at $14', 'job', jobCtx));
         ok(!normal.includes('options') && normal.includes('Subtotal'), 'a normal estimate card is unchanged');
+    }
+
+    // 20i. The OPEN estimate → options (the form's AI fill: "turn this into good / better / best", "add a premium option").
+    {
+        const formLines = [
+            { id: 'l1', description: 'Vanity with sink', quantity: 1, rate: 900, unitCost: 600, inventoryItemId: 'inv-van', itemSource: 'inventory' },
+            { id: 'l2', description: 'Floor tile', quantity: 60, rate: 14, unit: 'sq ft', unitCost: 6 },
+            { id: 'l3', description: 'Faucet', quantity: 1, rate: 250 },
+            { id: 'l4', description: 'Building permit', quantity: 1, rate: 150 },
+        ];
+        const defaults = makeDocumentDefaults(FormType.Estimate, job as any, profile as any, TODAY) as Record<string, unknown>;
+        const formData: Record<string, any> = { ...defaults, title: 'Bathroom refresh', notes: 'Typed by the user', taxRate: 8, lineItems: formLines };
+        const totalBefore = computeDocumentTotals(formData as any).total;
+
+        // detection (the browser and the server decide the same way)
+        for (const t of [
+            'turn this into good/better/best options', 'Turn this estimate into good, better and best options', 'make 3 options from these lines', 'add a premium option',
+            'Add a cheaper option for the client', 'split it into packages', 'convierte esto en opciones bueno, mejor y óptimo', 'agrega una opción premium',
+            'haz 3 opciones con estas líneas', 'transforme ce devis en 3 options', 'ajoute une option premium', 'transforme isso em opções', 'adicione uma opção premium',
+        ]) ok(asksForEstimateOptions(t), `"${t}" asks for options on the open estimate`);
+        for (const t of ['fill it: 2 doors at 450', 'Add 2 doors at $450 each', 'what payment options do I have?', 'add the permit line at 150', 'turn on profit tools',
+            'add a financing link', 'agrega una línea de permiso a 150', 'Demo and haul-away $1,200; 120 sq ft of tile at $14; valid 30 days'])
+            ok(!asksForEstimateOptions(t), `"${t}" is not an options request`);
+
+        // what the browser sends: compact lines, no ids or links
+        const fe = formEstimateContext(formData)!;
+        eq(fe, { lines: [
+            { desc: 'Vanity with sink', qty: 1, price: 900, cost: 600 }, { desc: 'Floor tile', qty: 60, price: 14, cost: 6, unit: 'sq ft' },
+            { desc: 'Faucet', qty: 1, price: 250 }, { desc: 'Building permit', qty: 1, price: 150 },
+        ] }, 'form lines sent compact: description, quantity, price, the user\'s cost, unit');
+        ok(!/inv-van|"l1"|inventory/.test(JSON.stringify(fe)), '… no ids, no inventory links');
+        eq(formEstimateContext({ ...formData, lineItems: [{ id: 'x', description: '', quantity: 1, rate: 0 }] }), undefined, 'an empty estimate sends nothing');
+        const fctx = (extra: Record<string, unknown> = {}): RouterRequestContext => ({ today: TODAY, form_document_type: 'ESTIMATE', active_job_id: job.id, form_estimate: fe, ...extra } as RouterRequestContext);
+
+        // server: kept only for an options request on an open estimate, clamped
+        eq(req('turn this into good/better/best options', 'form', fctx()).context?.form_estimate, fe, 'kept for an options request on the open estimate');
+        for (const [msg, scope, type] of [['fill it: 2 doors at 450', 'form', 'ESTIMATE'], ['turn this into good/better/best options', 'form', 'INVOICE'], ['turn this into good/better/best options', 'job', 'ESTIMATE']] as const)
+            ok(!('form_estimate' in (req(msg, scope, fctx({ form_document_type: type })).context || {})), `dropped for "${msg}" (${scope}, ${type})`);
+        const many = { lines: [...Array.from({ length: 60 }, (_, i) => ({ desc: `Line ${i}`, qty: 1, price: 10 })), { desc: 'x' }] };
+        eq(req('add a premium option', 'form', fctx({ form_estimate: many })).context?.form_estimate?.lines?.length, REQUEST_LIMITS.formEstimateLines, `at most ${REQUEST_LIMITS.formEstimateLines} lines`);
+        eq(req('add a premium option', 'form', fctx({ form_estimate: { lines: [{ desc: '<b>Tile</b>', qty: '3', price: -5, cost: 0, evil: 'x' }, null, 'junk', { desc: '' }] } })).context?.form_estimate,
+            { lines: [{ desc: 'Tile', qty: 3 }] }, 'junk cleaned: HTML stripped, negative price / zero cost / unknown keys dropped');
+
+        // schema and prompt: options only for that request; a plain fill is exactly as before
+        const optReq = req('turn this into good/better/best options', 'form', fctx());
+        const s = buildResponseSchema('form', { estimateOptions: true }) as any;
+        ok(s.properties.estimate_options && s.properties.line_items.items.properties.option && !s.properties.plan_steps, 'form schema with options: estimate_options + a line\'s option, still no plans');
+        eq(schemaProblems(s), [], 'form schema with options follows Gemini\'s Schema rules');
+        const sys = buildSystemPrompt(optReq);
+        ok(/^22\. Estimate OPTIONS/m.test(sys) && /THE OPEN ESTIMATE/.test(sys) && /never drop a current line/.test(sys) && /stay recommended/.test(sys) && /unchanged/.test(sys), 'form prompt: the options rule + how to build on the open estimate');
+        ok(!sys.includes('Vanity with sink') && buildUserTurn(optReq).includes('"form_estimate":{"lines":[{"desc":"Vanity with sink"'), 'the lines are in the untrusted context block, never in the instruction');
+        const plainReq = req('fill it: 2 doors at 450', 'form', fctx());
+        const plainNoLines = req('fill it: 2 doors at 450', 'form', { form_document_type: 'ESTIMATE', active_job_id: job.id });
+        ok(buildSystemPrompt(plainReq) === buildSystemPrompt(plainNoLines) && buildUserTurn(plainReq) === buildUserTurn(plainNoLines), 'a plain fill of the open estimate: prompt and context exactly as before');
+
+        // mock end to end: "turn this into good / better / best options"
+        const gbb = runLocalMockRouter('Turn this into good/better/best options', 'form', fctx());
+        const gs = setOf(gbb)!;
+        eq([gbb.action_type, names(gbb), recName(gbb)], ['GENERATE_DOCUMENT', ['Good', 'Better', 'Best'], 'Better'], 'EN: 3 options from the lines, Better Recommended (like the form button)');
+        eq(descs(gs.sharedLineItems), ['Building permit'], 'the permit is in every option');
+        eq(gs.options[0].lineItems.map(l => [l.description, l.quantity, l.rate]), [['Vanity with sink', 1, 900], ['Floor tile', 60, 14], ['Faucet', 1, 250]], 'Good = the current lines exactly as typed');
+        ok(gs.options.every(o => descs(o.lineItems).slice(0, 3).join() === 'Vanity with sink,Floor tile,Faucet'), 'Better and Best build on the same lines');
+        eq([...gs.options.flatMap(o => o.lineItems), ...gs.sharedLineItems].filter(l => !l.rate).map(l => l.description), ['Better upgrade', 'Best upgrade'], 'the lines that differ have no price (never invented, flagged for the user)');
+        ok(clientSafe(gs) && Object.values(gbb.prefill?.estimateOptionsInternal as Record<string, { unitCost?: number }>).filter(x => x.unitCost === 600).length === 3, 'option lines client-safe; the user\'s cost kept apart for every copy');
+        eq(names(runLocalMockRouter('make 3 options from these lines', 'form', fctx())), ['Good', 'Better', 'Best'], '"make 3 options from these lines" → 3 options');
+
+        // "add a premium option": the current lines stay the first option and Recommended
+        const prem = runLocalMockRouter('add a premium option', 'form', fctx());
+        eq([prem.action_type, names(prem), recName(prem)], ['GENERATE_DOCUMENT', ['Standard', 'Premium'], 'Standard'], '"add a premium option" → Standard (current lines, Recommended) + Premium');
+        ok(/2 options/.test(prem.reply_text) && /without a price/.test(prem.reply_text), 'the reply says what was made and that unpriced lines stay empty');
+        for (const [lang, msg, expectNames] of [
+            ['Spanish', 'agrega una opción premium', ['Standard', 'Premium']], ['Spanish', 'convierte esto en opciones bueno, mejor y óptimo', ['Good', 'Better', 'Best']],
+            ['French', 'transforme ce devis en 3 options', ['Good', 'Better', 'Best']], ['French', 'ajoute une option premium', ['Standard', 'Premium']],
+            ['Portuguese', 'adicione uma opção premium', ['Standard', 'Premium']], ['Portuguese', 'transforme isso em opções', ['Good', 'Better', 'Best']],
+        ] as const) eq(names(runLocalMockRouter(msg, 'form', fctx())), [...expectNames], `${lang} "${msg}" → ${expectNames.join(' / ')}`);
+
+        // applied in the form exactly as the AI fill does it (useContractorAI prefill → mergeDraftIntoForm → applyAiOptionsDraft)
+        const toPayload = (p: any) => ({ ...normalizePrefill('ESTIMATE', p.prefill || {}, { today: TODAY }), ...estimateOptionKeys('ESTIMATE', p.prefill) });
+        const applyToForm = (p: any, data: Record<string, any> = formData) => applyAiOptionsDraft(mergeDraftIntoForm(FormType.Estimate, data, toPayload(p)).data as Record<string, any>, data);
+        const pa = applyToForm(prem);
+        const pd = pa.data;
+        const pset = readOptionSet(pd)!;
+        ok(optionsActive(pd) && pa.added.join() === 'Standard,Premium', 'the form opens in Options mode with Standard and Premium');
+        eq(computeDocumentTotals(pd as any).total, totalBefore, '"add a premium option" keeps the estimate total (the current lines still count)');
+        const vanity = pset.options[0].lineItems.find(l => l.description === 'Vanity with sink') as any;
+        eq([vanity.unitCost, vanity.inventoryItemId, vanity.itemSource, pset.options[0].lineItems.find(l => l.description === 'Floor tile')?.unit], [600, 'inv-van', 'inventory', 'sq ft'], 'the user\'s own lines keep their cost, inventory link and unit');
+        ok(pd.title === 'Bathroom refresh' && pd.notes === 'Typed by the user' && pd.taxRate === 8 && pd.isAiGenerated === true, 'everything else the user typed stays; the AI flag is set');
+        const saved = packOptionsForSave(pd) as any;
+        ok(!/unitCost|inventoryItemId|itemSource|inv-van/.test(JSON.stringify(saved.estimateOptions)) && Object.values(saved.estimateOptionsInternal).some((x: any) => x.inventoryItemId === 'inv-van'), 'saved like the form saves it (private fields only in estimateOptionsInternal)');
+        const ga = applyToForm(gbb);
+        eq([readOptionSet(ga.data)!.options.map(o => o.name), descs(ga.data.lineItems)], [['Good', 'Better', 'Best'], ['Vanity with sink', 'Floor tile', 'Faucet', 'Better upgrade', 'Building permit']], 'good / better / best in the form: lineItems mirror Better + the permit');
+
+        // a form that already HAS options: they stay exactly as they are, only the new one is added
+        let set0 = createOptionSet(formLines as any);
+        set0 = updateOption(set0, set0.options[1].id, { lineItems: set0.options[1].lineItems.map((l, i) => (i === 0 ? { ...l, description: 'Vanity with stone top', rate: 1400 } : l)) });
+        const optFormData: Record<string, any> = syncMirror({ ...formData, estimateOptions: set0 });
+        const fe2 = formEstimateContext(optFormData)!;
+        eq([fe2.lines, fe2.options!.map(o => [o.name, o.recommended === true, o.lines.length])], [undefined, [['Good', false, 4], ['Better', true, 4], ['Best', false, 4]]], 'a form with options sends its options (Recommended marked), not the mirror');
+        const add = runLocalMockRouter('add a premium option', 'form', fctx({ form_estimate: fe2 }));
+        eq(names(add), ['Good', 'Better', 'Best', 'Premium'], 'the answer has every current option + the new one');
+        const ca = applyToForm(add, optFormData);
+        const cset = readOptionSet(ca.data)!;
+        eq([ca.added, cset.recommendedId], [['Premium'], set0.recommendedId], 'only Premium is new; Recommended unchanged');
+        eq(cset.options.slice(0, 3), readOptionSet(optFormData)!.options, 'the three options the user had are kept exactly (ids, names, lines)');
+        eq(ca.data.lineItems, optFormData.lineItems, 'the lines that count (and the total) are unchanged');
+        const same = applyToForm(runLocalMockRouter('turn this into good/better/best options', 'form', fctx({ form_estimate: fe2 })), optFormData);
+        ok(same.added.length === 0 && readOptionSet(same.data)!.options.length === 3, 'asking again for good / better / best adds nothing (already there)');
+
+        // options asked but none came back: the lines are never replaced by a flat list
+        const flatAnswer = buildProposal({ action_type: 'GENERATE_DOCUMENT', reply_text: 'Done', document_type: 'ESTIMATE', line_items: [{ description: 'Premium vanity', quantity: 1, rate: 2000 }] }, { request: req('add a premium option', 'form', fctx()) });
+        ok(flatAnswer.action_type === 'CHAT' && /unchanged/.test(flatAnswer.reply_text) && !flatAnswer.prefill, 'no options in the answer → a message, the open estimate is not touched');
+        const empty = runLocalMockRouter('Good/better/best. Good: 1 vanity at 900. Better: 1 vanity with stone top at 1400. Best: 1 custom vanity at 2600.', 'form', { today: TODAY, form_document_type: 'ESTIMATE' });
+        eq(names(empty), ['Good', 'Better', 'Best'], 'an empty estimate: the options written out in the message');
+
+        // a non-options request on the open estimate, and other document types: exactly as before
+        const plainWith = runLocalMockRouter('fill it: 2 doors at 450', 'form', fctx());
+        const plainWithout = runLocalMockRouter('fill it: 2 doors at 450', 'form', { today: TODAY, form_document_type: 'ESTIMATE', active_job_id: job.id });
+        ok(!setOf(plainWith) && JSON.stringify([plainWith.action_type, plainWith.reply_text, flat(plainWith)]) === JSON.stringify([plainWithout.action_type, plainWithout.reply_text, flat(plainWithout)]), 'a non-options fill of the open estimate: the same draft as before');
+        for (const type of ['INVOICE', 'CHANGE_ORDER'] as const) {
+            const p = runLocalMockRouter('turn this into good/better/best options', 'form', fctx({ form_document_type: type }));
+            ok(!setOf(p) && buildSystemPrompt(req('turn this into good/better/best options', 'form', { form_document_type: type })) === buildSystemPrompt(req('x', 'form', { form_document_type: type })), `${type} form: no options, prompt unchanged`);
+        }
+
+        // edge function end to end (fake Gemini)
+        const answer3 = {
+            action_type: 'GENERATE_DOCUMENT', reply_text: 'Three options built from your lines.', document_type: 'ESTIMATE',
+            estimate_options: [{ name: 'Good' }, { name: 'Better', recommended: true }, { name: 'Best' }],
+            line_items: [
+                { description: 'Vanity with sink', quantity: 1, rate: 900, unit_cost: 600, option: 'Good' }, { description: 'Vanity with stone top', quantity: 1, option: 'Better' },
+                { description: 'Custom vanity', quantity: 1, option: 'Best' }, { description: 'Building permit', quantity: 1, rate: 150, option: 'ALL' },
+            ],
+        };
+        const g = makeFetch({ modelResponses: [geminiOk(answer3)] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: g.f, log: quiet, sleep: noWait })(post({ message: 'Turn this into good/better/best options', scope: 'form', context: { today: TODAY, form_document_type: 'ESTIMATE', form_estimate: fe } }, 'Bearer user-jwt'));
+        const json = await res.json() as any;
+        eq([res.status, json.proposal.action_type, names(json.proposal), recName(json.proposal)], [200, 'GENERATE_DOCUMENT', ['Good', 'Better', 'Best'], 'Better'], 'Gemini answer on the open estimate → validated options');
+        const body = JSON.parse(String(g.calls.find(c => c.url.includes('generativelanguage'))?.init?.body));
+        ok(body.generationConfig.responseSchema.properties.estimate_options && /THE OPEN ESTIMATE/.test(body.systemInstruction.parts[0].text) && JSON.stringify(body.contents).includes('Vanity with sink'), 'the request carries the options schema, the rule and the form lines');
+        const g2 = makeFetch({ modelResponses: [geminiOk({ action_type: 'GENERATE_DOCUMENT', reply_text: '', document_type: 'ESTIMATE', line_items: [{ description: 'Door', quantity: 1, rate: 450 }] })] });
+        await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: g2.f, log: quiet, sleep: noWait })(post({ message: 'fill it: 1 door at 450', scope: 'form', context: { today: TODAY, form_document_type: 'ESTIMATE', form_estimate: fe } }, 'Bearer user-jwt'));
+        const body2 = JSON.parse(String(g2.calls.find(c => c.url.includes('generativelanguage'))?.init?.body));
+        ok(!body2.generationConfig.responseSchema.properties.estimate_options && !JSON.stringify(body2.contents).includes('Vanity with sink'), 'a plain fill: no options schema and no form lines, even if the browser sent them');
+
+        // the form and the hook are wired that way
+        const formSrc = readFileSync('components/EstimateForm.tsx', 'utf8');
+        ok(/formData=\{d\}/.test(formSrc) && /applyAiOptionsDraft\(prev, before\)/.test(formSrc), 'EstimateForm: AI fill gets the form data and applies options without losing anything');
+        const hookSrc = readFileSync('src/hooks/useContractorAI.ts', 'utf8');
+        ok(/asksForEstimateOptions\(inputData\) \? formEstimateContext\(formData\)/.test(hookSrc) && /estimateOptionKeys\(docType, proposal\.prefill\)/.test(hookSrc), 'AI fill hook: lines only for options requests; the options kept in the prefill');
     }
 }
 
