@@ -1,3 +1,23 @@
+# >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+Site is LIVE (main = production). Every fix: test, commit, push my-branch AND main (owner asked to keep production updated).
+1. OFFLINE EVERYWHERE (top priority). Documents already work offline (create/edit, sync later). Make the rest work offline
+   with the same outbox (lib/offline/*): create/edit JOBS (owner could not create a job offline), clients, inventory
+   items + stock moves, price book items, notes/photos queue, time punches, profit calculator, settings. Temporary ids
+   remapped on sync (a document created offline inside a job created offline must land in the real job). Audit EVERY
+   feature that writes data; list which work offline and make each one queue + sync with a "Waiting to sync" chip.
+2. "INSTALL THE APP" prompt on phones: when a phone user is using the site (e.g. after creating a document), show a
+   friendly banner "Add ContractorDocs to your home screen — works offline" with the real install prompt
+   (beforeinstallprompt on Android/Chrome; iOS Safari instructions: Share → Add to Home Screen). Dismissible, not
+   pushy; manifest.webmanifest + sw.js already exist (check icons/start_url/display standalone).
+3. PHONE DASHBOARD HEADER CROWDED when the offline banner shows: the logo + "Good morning…" + offline badge crowd the
+   app bar. Re-layout (e.g. move the offline state to a thin strip under the bar, shorten the greeting on phones).
+4. COMMUNITY MISSING ON PHONE: add Community to the phone navigation (Dock "More" sheet or bottom bar) with its badge.
+5. AI MUST FILL EVERY BOX: owner asked the AI to create two documents and fill every box; it filled only a couple.
+   Make the assistant fill all fields the user gives (and sensible defaults/sample data when asked "fill everything"):
+   check documentSchema/field keys per doc type, prompt rules, compact-schema fallback (it may drop fields), prefill
+   mapping (hooks/useDocumentDraftPrefill.ts); add QA cases "fill every field" for all 12 types; redeploy ai-assistant.
+Then continue the leftovers below (SEO pages, IndexNow, templates leftovers, live payment test).
+
 # ContractorDocs: paused on 2026-11-13 (~12:00). Progress and exact next steps
 
 Work is paused at the owner's request. Nothing has been pushed to GitHub. The local test site is
