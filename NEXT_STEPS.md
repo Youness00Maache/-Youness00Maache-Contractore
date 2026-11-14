@@ -254,6 +254,17 @@ descriptions/kit parts now go to Gemini with drafting requests (never costs); ma
 **11:35:** Smoke test (local dev, signed out): landing, /help, /pricing, /login load with no console errors;
 /dashboard redirects to login. Started a bug-review helper ad857e90fabe20e37 on the riskiest new code (offline sync,
 options in portal/PDF, supplier Mark received, photo AI); it fixes only bugs it can reproduce with a test.
+**11:55:** Bug review DONE. Fixed + committed (325851a): Mark received could add stock twice when two devices/tabs
+received the same PO (6 new tests). Nothing else reproducible in offline sync, options, photo AI.
+IMPORTANT before launch: when a client signs choosing a NON-recommended option, the saved line items still hold the
+Recommended option until the contractor clicks Apply chosen option, so stock taken on acceptance can follow the wrong
+option. Fix = apply docs/work/DRAFT_estimate_options_choice.sql (switches lines at signing). Recommend applying it
+before launch (needs the owner's OK).
+**12:00: NEW FEATURE WORK PAUSED** (weekly 92%; owner asked "is the site ready to ship?"). Remaining budget is kept for
+fixing the owner's click-test findings and the publish. Pacing job deleted. Ship checklist given to the owner:
+(1) owner click-test on localhost:3010; (2) Kelviq secrets in Supabase (D1); (3) Vercel env vars VITE_SUPABASE_URL,
+VITE_SUPABASE_ANON_KEY, VITE_SITE_URL=https://www.contractordocs.app, VITE_KELVIQ_*, VITE_SUPPORT_EMAIL;
+(4) price promise wording -> TermsOfService; (5) apply the options SQL (above); (6) "publish" -> push + merge (E).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
