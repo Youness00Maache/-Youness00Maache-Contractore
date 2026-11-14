@@ -7,6 +7,7 @@ import { resolveFormType, resolveMasterDocumentType } from '../src/config/docTyp
 import { DOC_LABELS, getSchema, toPlainText, type DocKey, type FieldSpec } from '../src/config/documentFieldRequirements.ts';
 import { dispatchUpgradeEvent, isAiLimitCode } from '../src/ai/events.ts';
 import { formatMoney } from '../utils/money.ts';
+import { optionLetter, optionName, readOptionSet } from '../lib/estimateOptions.ts';
 
 interface AIDocumentModalProps {
     jobId: string;
@@ -14,6 +15,8 @@ interface AIDocumentModalProps {
     formTypeRestriction?: string;
     /** Ignored: the AI never saves; the form saves when the user presses Save. */
     saveToDb?: boolean;
+    /** The open form's data (an estimate asked for options builds them from its current lines). */
+    formData?: unknown;
     onClose: () => void;
     /** docs[0].data is Partial<TypeData> with exact form field names. */
     onSuccess: (newDocuments: AIGeneratedDocument[], inputText?: string) => void;
@@ -72,7 +75,7 @@ function previewValue(spec: FieldSpec, value: unknown): string {
  * dialog inside the header (the "stuck at the top" bug). Bottom sheet on phones, centered dialog on
  * larger screens.
  */
-export const AIDocumentModal: React.FC<AIDocumentModalProps> = ({ jobId, formTypeRestriction, onClose, onSuccess }) => {
+export const AIDocumentModal: React.FC<AIDocumentModalProps> = ({ jobId, formTypeRestriction, formData, onClose, onSuccess }) => {
     const { processAIData, cancel, isProcessing, error, errorCode } = useContractorAI();
     const [input, setInput] = useState('');
     const [result, setResult] = useState<AIGeneratedDocument | null>(null);
@@ -99,7 +102,7 @@ export const AIDocumentModal: React.FC<AIDocumentModalProps> = ({ jobId, formTyp
 
     const generate = async () => {
         if (!input.trim() || isProcessing) return;
-        const docs = await processAIData(input, formTypeRestriction, jobId);
+        const docs = await processAIData(input, formTypeRestriction, jobId, false, formData);
         if (docs?.length) setResult(docs[0]);
     };
     const apply = () => { if (result) onSuccess([result], input); };
@@ -127,6 +130,9 @@ export const AIDocumentModal: React.FC<AIDocumentModalProps> = ({ jobId, formTyp
         return { rows, items, itemsLabel };
     }, [result, docType]);
     const boxCount = filled.rows.length + (filled.items.length ? 1 : 0);
+    // Estimate turned into good / better / best options: review every option instead of the flat lines.
+    const optionSet = useMemo(() => (result && docType === 'ESTIMATE' ? readOptionSet(result.data) : null), [result, docType]);
+    const unpriced = optionSet ? [...optionSet.options.flatMap(o => o.lineItems), ...optionSet.sharedLineItems].filter(li => !Number(li.rate)).length : 0;
     const stillEmpty = result && docType ? (result.missing_fields || []).map(k => getSchema(docType)[k]?.label).filter(Boolean) : [];
 
     // Phones: the sheet opens without the keyboard covering it (tap the box or an example to type).
@@ -305,7 +311,39 @@ export const AIDocumentModal: React.FC<AIDocumentModalProps> = ({ jobId, formTyp
                                         ))}
                                     </dl>
                                 )}
-                                {filled.items.length > 0 && (
+                                {optionSet ? (
+                                    <div className="rounded-2xl ring-1 ring-inset ring-border">
+                                        <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-2.5 text-[13px]">
+                                            <span className="flex items-center gap-1.5 text-muted-foreground"><CheckIcon className="h-3.5 w-3.5 text-success" />Options</span>
+                                            <span className="font-semibold text-foreground">{optionSet.options.length} options · the client picks one</span>
+                                        </div>
+                                        <ul className="divide-y divide-border/50">
+                                            {optionSet.options.map((o, i) => (
+                                                <li key={o.id} className="flex items-baseline gap-3 px-4 py-2 text-[13px]">
+                                                    <span className="min-w-0 flex-1 break-words text-foreground">
+                                                        <span className="font-semibold">{optionLetter(i)}. {optionName(o, i)}</span>
+                                                        {o.id === optionSet.recommendedId && <span className="ml-2 text-xs font-medium text-primary">Recommended</span>}
+                                                        <span className="block text-xs text-muted-foreground">
+                                                            {o.lineItems.slice(0, 3).map(li => li.description).join(', ')}{o.lineItems.length > 3 ? ` + ${o.lineItems.length - 3} more` : ''}
+                                                        </span>
+                                                    </span>
+                                                    <span className="shrink-0 tabular-nums text-muted-foreground">{formatMoney([...o.lineItems, ...optionSet.sharedLineItems].reduce((s, li) => s + lineTotal(li as unknown as Record<string, unknown>), 0))}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        {optionSet.sharedLineItems.length > 0 && (
+                                            <p className="border-t border-border/70 px-4 py-2 text-xs text-muted-foreground">
+                                                In every option: {optionSet.sharedLineItems.slice(0, 4).map(li => li.description).join(', ')}{optionSet.sharedLineItems.length > 4 ? ` + ${optionSet.sharedLineItems.length - 4} more` : ''}
+                                            </p>
+                                        )}
+                                        {unpriced > 0 && (
+                                            <p className="flex items-start gap-2 border-t border-border/70 bg-warning/10 px-4 py-2 text-xs text-foreground">
+                                                <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                                                <span>{unpriced} line{unpriced === 1 ? ' has' : 's have'} no price yet. Add {unpriced === 1 ? 'it' : 'them'} in the estimate.</span>
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : filled.items.length > 0 && (
                                     <div className="rounded-2xl ring-1 ring-inset ring-border">
                                         <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-2.5 text-[13px]">
                                             <span className="flex items-center gap-1.5 text-muted-foreground"><CheckIcon className="h-3.5 w-3.5 text-success" />{filled.itemsLabel}</span>

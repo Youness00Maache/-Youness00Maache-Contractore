@@ -3,7 +3,7 @@
  * user or account data goes into the user turn inside a clearly delimited, untrusted block.
  */
 import { DOC_LABELS, DOC_TYPES, getSchema, resolveDocKey, type DocKey, type FieldSpec } from './documentSchema.ts';
-import { APP_ROUTES, hasPriceBook, isSampleRequest, PLAN_MAX_STEPS, SCOPE_ACTIONS, scopeHasEstimateOptions, type RouterRequest } from './routerContract.ts';
+import { APP_ROUTES, hasPriceBook, isSampleRequest, PLAN_MAX_STEPS, requestHasEstimateOptions, SCOPE_ACTIONS, type RouterRequest } from './routerContract.ts';
 import { buildKnowledgeBlock, HOW_TO_DO_ACTIONS } from './knowledge.ts';
 import { DRAFT_OPTION_MAX, DRAFT_OPTION_MIN } from './estimateOptionsDraft.ts';
 import { buildPriceBookBlock, PRICE_BOOK_RULE } from './priceBook.ts';
@@ -84,14 +84,19 @@ export function buildSystemPrompt(req: RouterRequest): string {
 19. Mention plan limits or prices only when the question is about them or a limit blocks what the user wants.
 20. If PRODUCT KNOWLEDGE does not describe it, the app cannot do it: say so plainly in one sentence and point to the closest real feature from the knowledge. Never invent features, buttons, menus, settings, integrations, routes or limits.
 21. When the user asks you to DO it ("create…", "add…", "open…", "take me to…", "do it for me"), use the action itself (CREATE_CLIENT, CREATE_JOB, GENERATE_DOCUMENT, RUN_PLAN, NAVIGATE_TO, …), not HOW_TO.` : '';
-    // Good / better / best estimate options: dashboard and job assistant only (the form fill keeps one total).
-    const optionRules = scopeHasEstimateOptions(scope) ? `
+    // Good / better / best estimate options: dashboard and job assistant, and the form fill of an open estimate that
+    // asks for options (every other form fill keeps one total).
+    const optionRules = requestHasEstimateOptions(req) ? `
 22. Estimate OPTIONS: only when the user asks for choices on ONE estimate ("good/better/best", "3 options", "basic and premium versions", "two price levels", "a cheaper and a better version", in any language), draft ONE estimate (document_type ESTIMATE) with ${DRAFT_OPTION_MIN} to ${DRAFT_OPTION_MAX} options; the client picks one when signing:
    - estimate_options = [{name, description, recommended}]: name short (the user's names, else Good / Better / Best in the user's language); description = one short sentence for the client saying what this option includes or changes; recommended = true on exactly ONE option (the one the user prefers, else the second one).
    - line_items: every line has option = the name of its option. A line that belongs to every option (permit, cleanup, haul-away) is written ONCE with option "ALL". Every option needs at least one line of its own.
    - Prices follow rule 3${priceBook ? ' and rule 23 (price-book items get their price-book price)' : ''}: copy the user's prices; when the user gave no price for a line${priceBook ? ' and it is not in the price book' : ''}, leave rate out (the user fills it in). Never invent prices or price differences (exception: rule 15).
    - Names and descriptions are printed for the client: never mention costs, margins, markups or suppliers in them (unit_cost stays on the line).
-   - Without such a request never send estimate_options or option: a normal estimate has one list of line_items.` : '';
+   - Without such a request never send estimate_options or option: a normal estimate has one list of line_items.${scope === 'form' ? `
+   - THE OPEN ESTIMATE: form_estimate in CONTEXT DATA is what the form holds now (desc, qty, price, cost = the user's internal unit cost, unit). Build the options FROM it and copy every current line exactly (same description, quantity and price; cost goes in unit_cost); never drop a current line.
+   - "turn this into options" / "good, better, best": current lines that every option needs (permit, cleanup, haul-away, demolition) once with option "ALL"; the other current lines are the FIRST option; each further option repeats the current lines that stay the same and changes or adds the lines that differ (upgrades, other materials).
+   - "add a premium / cheaper / another option": the current lines are the first option (the user's name for it, else "Standard" in the user's language) and stay recommended; the new option comes after it.
+   - form_estimate.options (the form already has options): return EVERY current option with its exact name and its lines unchanged (shared lines with option "ALL"), then the new option(s); at most ${DRAFT_OPTION_MAX} options in all.` : ''}` : '';
     return `You are the ContractorDocs assistant for construction contractors. Today is ${today} (the user's local date).
 ${scopeLine}${sampleNow}
 
@@ -136,6 +141,8 @@ export function buildContextBlock(req: RouterRequest): string {
         inventory: (c.inventory || []).map(x => ({ id: x.id, name: x.name, quantity: x.quantity, unit: x.unit })),
         pending_draft: c.pending_draft || null,
         user_said_skip_missing: c.proceed === true,
+        // the open estimate's lines, only on its options request (rule 22)
+        ...(c.form_estimate ? { form_estimate: c.form_estimate } : {}),
     };
     // Drafting with a price book: its own block, refs instead of ids, sell prices only (absent otherwise).
     const priceBook = buildPriceBookBlock(c.price_book);

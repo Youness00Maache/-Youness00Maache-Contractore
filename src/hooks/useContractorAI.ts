@@ -11,6 +11,9 @@ import { resolveFormType, resolveMasterDocumentType } from '../config/docTypeMap
 import { normalizePrefill, toLocalYmd, type DocKey } from '../config/documentFieldRequirements.ts';
 import { inferTemplateIdFromIntent } from '../utils/aiTemplateUtils.ts';
 import { isSampleRequest, type RouterResponse } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
+import { asksForEstimateOptions } from '../../supabase/functions/ai-assistant/shared/estimateOptionsDraft.ts';
+import { formEstimateContext } from '../ai/documentSummary.ts';
+import { estimateOptionKeys } from '../../utils/documentDraft.ts';
 import { dispatchUpgradeEvent, isAiLimitCode } from '../ai/events.ts';
 import { errorText } from '../../lib/offline/connection.ts';
 
@@ -42,6 +45,8 @@ export const useContractorAI = () => {
         formTypeRestriction?: string,
         jobId?: string,
         _saveToDb?: boolean,
+        /** the open form's data: an estimate whose fill asks for options sends its current lines (compact) */
+        formData?: unknown,
     ): Promise<AIGeneratedDocument[] | null> => {
         const docType = resolveMasterDocumentType(formTypeRestriction || '');
         const formType = resolveFormType(formTypeRestriction || '');
@@ -56,12 +61,15 @@ export const useContractorAI = () => {
         setError(null);
         setErrorCode(null);
         setGeneratedDocs([]);
+        // "turn this into good / better / best", "add a premium option": the estimate's current lines are the base
+        // (the server keeps them only for such a request; every other fill sends exactly what it sent before)
+        const formEstimate = docType === 'ESTIMATE' && asksForEstimateOptions(inputData) ? formEstimateContext(formData) : undefined;
         try {
             const { data, error: fnError } = await supabase.functions.invoke<RouterResponse>('ai-assistant', {
                 body: {
                     message: inputData.trim().slice(0, 4000),
                     scope: 'form',
-                    context: { today: toLocalYmd(), form_document_type: docType, active_job_id: jobId },
+                    context: { today: toLocalYmd(), form_document_type: docType, active_job_id: jobId, ...(formEstimate ? { form_estimate: formEstimate } : {}) },
                 },
                 signal: controller.signal,
                 timeout: 130_000,
@@ -90,9 +98,13 @@ export const useContractorAI = () => {
             }
             // Sample data: no daily-report fact guards (the made-up weather / crew are what the user asked for).
             const sample = proposal.sample_data === true || isSampleRequest(inputData);
-            const prefill = normalizePrefill(docType, proposal.prefill || {}, {
-                today: toLocalYmd(), resolveTemplate: inferTemplateIdFromIntent, userText: sample ? undefined : inputData,
-            });
+            const prefill = {
+                ...normalizePrefill(docType, proposal.prefill || {}, {
+                    today: toLocalYmd(), resolveTemplate: inferTemplateIdFromIntent, userText: sample ? undefined : inputData,
+                }),
+                // good / better / best options drafted from the open estimate (the form merge validates them)
+                ...estimateOptionKeys(docType, proposal.prefill),
+            };
             if (!Object.keys(prefill).length) throw new Error('I could not find anything to fill in. Add a few details (work done, items, prices) and try again.');
             const doc: AIGeneratedDocument = {
                 id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `ai-${Date.now()}`,

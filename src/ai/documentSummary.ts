@@ -11,9 +11,10 @@ import type { FormData } from '../../types.ts';
 import { computeDocumentTotals, lineItemAmount, roundMoney, toNumber } from '../../utils/money.ts';
 import { toPlainText } from '../../supabase/functions/ai-assistant/shared/documentSchema.ts';
 import {
-    REQUEST_LIMITS, type ContextDocumentLine, type ContextDocumentSummary,
+    REQUEST_LIMITS, type ContextDocumentLine, type ContextDocumentSummary, type ContextFormEstimate, type ContextFormLine,
 } from '../../supabase/functions/ai-assistant/shared/routerContract.ts';
 import { resolveFormType } from '../config/docTypeMap.ts';
+import { optionName, readOptionSet } from '../../lib/estimateOptions.ts';
 
 /** Same marker as lib/documents.ts LIGHTWEIGHT_DOCUMENT_FLAG (list rows without the full `data`). */
 const LIGHTWEIGHT_FLAG = '__lightweight';
@@ -201,4 +202,39 @@ export function summarizeDocumentData(
 export function summarizeDocument(form: FormData, fresh?: Record<string, unknown> | null): ContextDocumentSummary | undefined {
     if (fresh) return summarizeDocumentData(form.type, fresh, { lightweight: false });
     return summarizeDocumentData(form.type, (form.data || {}) as unknown as Record<string, unknown>);
+}
+
+/**
+ * The open Estimate form, compact, for its AI fill when the user asks for options ("turn this into good / better /
+ * best", "add a premium option"): the lines (or the options it already has, each with its lines, + the lines in every
+ * option). Description, quantity, unit price, the user's internal unit cost and unit only; empty lines left out.
+ * Undefined when the form has nothing to build on.
+ */
+export function formEstimateContext(data: unknown): ContextFormEstimate | undefined {
+    let budget: number = REQUEST_LIMITS.formEstimateLines;
+    const compact = (raw: unknown): ContextFormLine[] => {
+        const out: ContextFormLine[] = [];
+        for (const li of Array.isArray(raw) ? raw : []) {
+            if (budget <= 0 || !li || typeof li !== 'object') continue;
+            const r = li as Record<string, unknown>;
+            const desc = text(r.description ?? r.name, 120);
+            if (!desc) continue;
+            const line: ContextFormLine = { desc, qty: roundMoney(toNumber(r.quantity)), price: roundMoney(toNumber(r.rate)) };
+            const cost = roundMoney(toNumber(r.unitCost));
+            if (cost > 0) line.cost = cost;
+            if (typeof r.unit === 'string' && r.unit.trim()) line.unit = r.unit.trim().slice(0, 20);
+            out.push(line);
+            budget--;
+        }
+        return out;
+    };
+    const set = readOptionSet(data);
+    if (set && !set.appliedId) {
+        return {
+            options: set.options.map((o, i) => ({ name: optionName(o, i), ...(o.id === set.recommendedId ? { recommended: true } : {}), lines: compact(o.lineItems) })),
+            ...(set.sharedLineItems.length ? { shared: compact(set.sharedLineItems) } : {}),
+        };
+    }
+    const lines = compact((data as Record<string, unknown> | null)?.lineItems);
+    return lines.length ? { lines } : undefined;
 }

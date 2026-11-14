@@ -12,7 +12,7 @@ import {
     resolveDocKey, toLocalYmd, toNumberOrUndefined, toPlainText, type DocKey, type NormalizeOptions,
 } from './documentSchema.ts';
 import { HOW_TO_DO_ACTIONS, KNOWN_LABELS, NAV_ROUTES, scoreKnowledge, type HowToDoAction } from './knowledge.ts';
-import { draftEstimateOptions, type ModelEstimateOption } from './estimateOptionsDraft.ts';
+import { asksForEstimateOptions, draftEstimateOptions, type ModelEstimateOption } from './estimateOptionsDraft.ts';
 import {
     isOversizePriceBook, linkOutputToPriceBook, PRICE_BOOK_LIMITS, sanitizePriceBook, settlePriceBookLines, wantsPriceBook,
     type ContextPriceBookItem,
@@ -140,6 +140,19 @@ export interface ContextDocumentSummary {
 }
 export interface ContextInventoryItem { id: string; name: string; quantity?: number; unit?: string }
 export interface ContextMention { kind: 'client' | 'document' | 'job'; id: string }
+/** One line of the open estimate: description, quantity, unit price, the user's internal unit cost, unit. */
+export interface ContextFormLine { desc: string; qty?: number; price?: number; cost?: number; unit?: string }
+/**
+ * What the open Estimate form holds when its AI fill asks for options ("turn this into good / better / best", "add a
+ * premium option"). Built in the browser (src/ai/documentSummary.ts formEstimateContext), clamped here; sent only then.
+ *   lines    the form's lines (no options yet)
+ *   options  the options the form already has (each with its own lines) + `shared` = the lines in every option
+ */
+export interface ContextFormEstimate {
+    lines?: ContextFormLine[];
+    options?: Array<{ name: string; recommended?: boolean; lines: ContextFormLine[] }>;
+    shared?: ContextFormLine[];
+}
 
 export interface RouterRequestContext {
     /** user's local date, YYYY-MM-DD */
@@ -162,6 +175,11 @@ export interface RouterRequestContext {
      * (shared/priceBook.ts). Left out for every other request; requests without it behave exactly as before.
      */
     price_book?: ContextPriceBookItem[];
+    /**
+     * Form fill of an open estimate that asks for options (asksForEstimateOptions): the form's current lines, the base
+     * of the options. Left out for every other request; requests without it behave exactly as before.
+     */
+    form_estimate?: ContextFormEstimate;
 }
 
 export interface RouterHistoryMessage { role: 'user' | 'assistant'; text: string }
@@ -193,6 +211,8 @@ export const REQUEST_LIMITS = {
     /** price book slice (drafting requests): items and JSON chars; far bigger lists are refused (shared/priceBook.ts) */
     priceBookItems: PRICE_BOOK_LIMITS.items,
     priceBookChars: PRICE_BOOK_LIMITS.chars,
+    /** open estimate sent with an options request: lines in all (options + shared together) */
+    formEstimateLines: 40,
 } as const;
 
 const str = (v: unknown, max = 300): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -251,6 +271,43 @@ function capDocumentSummaries(docs: ContextDocument[]): ContextDocument[] {
     });
 }
 
+/** Clamps the open estimate of an options request (unknown keys dropped, at most REQUEST_LIMITS.formEstimateLines lines). */
+function cleanFormEstimate(raw: unknown): ContextFormEstimate | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const r = raw as Record<string, unknown>;
+    let budget: number = REQUEST_LIMITS.formEstimateLines;
+    const lines = (v: unknown): ContextFormLine[] => {
+        const out: ContextFormLine[] = [];
+        for (const item of Array.isArray(v) ? v : []) {
+            if (budget <= 0) break;
+            if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+            const l = item as Record<string, unknown>;
+            const desc = toPlainText(typeof l.desc === 'string' ? l.desc : '').replace(/\s+/g, ' ').trim().slice(0, 120);
+            if (!desc) continue;
+            const line: ContextFormLine = { desc };
+            const qty = money(l.qty); const price = money(l.price); const cost = money(l.cost);
+            if (qty !== undefined && qty >= 0) line.qty = qty;
+            if (price !== undefined && price >= 0) line.price = price;
+            if (cost !== undefined && cost > 0) line.cost = cost;
+            const unit = str(l.unit, 20);
+            if (unit) line.unit = unit;
+            out.push(line);
+            budget--;
+        }
+        return out;
+    };
+    const options = (Array.isArray(r.options) ? r.options : []).slice(0, 4)
+        .filter((o): o is Record<string, unknown> => Boolean(o) && typeof o === 'object' && !Array.isArray(o))
+        .map(o => ({ name: toPlainText(typeof o.name === 'string' ? o.name : '').replace(/\s+/g, ' ').trim().slice(0, 40), ...(o.recommended === true ? { recommended: true } : {}), lines: lines(o.lines) }))
+        .filter(o => o.name);
+    if (options.length >= 2) {
+        const shared = lines(r.shared);
+        return { options, ...(shared.length ? { shared } : {}) };
+    }
+    const flat = lines(r.lines);
+    return flat.length ? { lines: flat } : undefined;
+}
+
 /** Clamp and clean an incoming request. Throws `RouterInputError` on unusable input. */
 export class RouterInputError extends Error {
     constructor(message: string, public status = 400, public code = 'BAD_REQUEST') { super(message); }
@@ -277,6 +334,8 @@ export function sanitizeRequest(body: unknown): RouterRequest {
     // Only for drafting in the dashboard / job assistant (the browser decides the same way): never for questions or the form fill.
     const priceBook = scope !== 'form' && wantsPriceBook(message, pending ? resolveDocKey(pending.document_type) : null)
         ? sanitizePriceBook(c.price_book) : [];
+    // Only for the form fill of an open estimate that asks for options (the browser decides the same way).
+    const formEstimate = isFormOptionsRequest(scope, c.form_document_type, message) ? cleanFormEstimate(c.form_estimate) : undefined;
     const cleanImages: RouterImage[] = [];
     for (const img of images.slice(0, REQUEST_LIMITS.images)) {
         const i = img as Record<string, unknown>;
@@ -312,12 +371,26 @@ export function sanitizeRequest(body: unknown): RouterRequest {
                 : null,
             proceed: c.proceed === true,
             ...(priceBook.length ? { price_book: priceBook } : {}),
+            ...(formEstimate ? { form_estimate: formEstimate } : {}),
         },
     };
 }
 
 /** The request carries a price book (rule 23 in the prompt, `price_book_ref` in the response schema). */
 export const hasPriceBook = (req: RouterRequest): boolean => Boolean(req.context?.price_book?.length);
+
+/** Form fill of an open Estimate whose message asks for options ("turn this into good / better / best", "add a premium option"). */
+function isFormOptionsRequest(scope: RouterScope, formDocumentType: unknown, message: string): boolean {
+    return scope === 'form' && resolveDocKey(formDocumentType) === 'ESTIMATE' && asksForEstimateOptions(message);
+}
+
+/**
+ * The answer may draft good / better / best options (rule 22, `estimate_options` in the schema): the dashboard and job
+ * assistant, and the form fill of an open estimate when the user asks for options (its current lines are the base).
+ * Every other form fill keeps one total, exactly as before.
+ */
+export const requestHasEstimateOptions = (req: RouterRequest): boolean =>
+    scopeHasEstimateOptions(req.scope) || isFormOptionsRequest(req.scope, req.context?.form_document_type, req.message);
 
 // ───────────────────────────── model output ─────────────────────────────
 
@@ -392,11 +465,14 @@ export interface ModelPlanStep {
  * each line item, flat on purpose (option → lines → line inside a plan step would nest deeper than 6 levels).
  */
 export const RESPONSE_SCHEMA_TYPES = ['STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY', 'OBJECT', 'NULL'] as const;
-/** Scopes where the assistant drafts good / better / best estimate options (the form fill keeps one total). */
+/**
+ * Scopes where the assistant drafts good / better / best estimate options. The form fill keeps one total, except an
+ * open estimate whose fill asks for options (`estimateOptions: true`, see requestHasEstimateOptions).
+ */
 export const scopeHasEstimateOptions = (scope: RouterScope): boolean => scope !== 'form';
-export function buildResponseSchema(scope: RouterScope, options: { compact?: boolean; priceBook?: boolean } = {}): Record<string, unknown> {
+export function buildResponseSchema(scope: RouterScope, options: { compact?: boolean; priceBook?: boolean; estimateOptions?: boolean } = {}): Record<string, unknown> {
     const compact = options.compact === true;
-    const withOptions = scopeHasEstimateOptions(scope);
+    const withOptions = scopeHasEstimateOptions(scope) || options.estimateOptions === true;
     // Requests with a price book (dashboard / job): lines say which item they are. Without one the schema is unchanged.
     const withPriceBook = options.priceBook === true && scope !== 'form';
     const S = (extra: Record<string, unknown> = {}) => ({ type: 'STRING', ...extra });
@@ -796,13 +872,14 @@ function fieldsToObject(output: ModelOutput, docType: DocKey): Record<string, un
 /**
  * Good / better / best (estimateOptionsDraft.ts): an estimate answer with 2–4 options gets `estimateOptions` (+ the
  * internal costs in `estimateOptionsInternal`) in its prefill, and `lineItems` becomes the Recommended option + the
- * shared lines. Any other answer (other types, the form fill, fewer than 2 usable options) is left exactly as it was.
- * Returns what was left out, for the reply or the plan card.
+ * shared lines. Any other answer (other types, a form fill that did not ask for options, fewer than 2 usable options) is
+ * left exactly as it was. `enabled` = requestHasEstimateOptions. Returns what was left out (for the reply or the plan
+ * card), or null when no options were drafted.
  */
-function applyEstimateOptions(prefill: Record<string, unknown>, docType: DocKey, source: unknown, scope: RouterScope, ctx: BuildProposalContext): string[] {
-    if (docType !== 'ESTIMATE' || !scopeHasEstimateOptions(scope)) return [];
+function applyEstimateOptions(prefill: Record<string, unknown>, docType: DocKey, source: unknown, enabled: boolean, ctx: BuildProposalContext): string[] | null {
+    if (docType !== 'ESTIMATE' || !enabled) return null;
     const draft = draftEstimateOptions(source as Parameters<typeof draftEstimateOptions>[0], { newId: ctx.normalize?.newId });
-    if (!draft) return [];
+    if (!draft) return null;
     prefill.lineItems = draft.lineItems;
     prefill.estimateOptions = draft.estimateOptions;
     if (Object.keys(draft.estimateOptionsInternal).length) prefill.estimateOptionsInternal = draft.estimateOptionsInternal;
@@ -1024,7 +1101,7 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
                 const linked = linkOutputToPriceBook(raw, docType, c.price_book);
                 const prefill = normalizePrefill(docType, fieldsToObject(linked as unknown as ModelOutput, docType), normalizeOpts);
                 // An estimate step may carry good / better / best options like the single draft.
-                for (const note of applyEstimateOptions(prefill, docType, linked, req.scope, ctx)) notes.push(`Step ${index + 1}: ${note}`);
+                for (const note of applyEstimateOptions(prefill, docType, linked, requestHasEstimateOptions(req), ctx) || []) notes.push(`Step ${index + 1}: ${note}`);
                 settlePriceBookLines(prefill, docType, c.price_book, userText);
                 const step: PlanStep = {
                     id, action_type: action, ref: makeRef(raw.ref, `doc_${steps.length + 1}`), document_type: docType, prefill,
@@ -1144,8 +1221,17 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
         const linked = linkOutputToPriceBook(output, docType, c.price_book);
         const fresh = normalizePrefill(docType, fieldsToObject(linked, docType), normalizeOpts);
         const prefill = mergeDraft(pending, sample ? dropSampleGuesses(docType, fresh, userText) : fresh);
-        // Good / better / best estimate (dashboard / job): the options, and lineItems = the Recommended option.
-        const optionNotes = applyEstimateOptions(prefill, docType, linked, req.scope, ctx);
+        // Good / better / best estimate (dashboard / job, or the open estimate asked for options): the options, and
+        // lineItems = the Recommended option.
+        const optionsOn = requestHasEstimateOptions(req);
+        const optionNotes = applyEstimateOptions(prefill, docType, linked, optionsOn, ctx) || [];
+        if (optionsOn && req.scope === 'form' && !prefill.estimateOptions && (c.form_estimate?.lines?.length || c.form_estimate?.options?.length)) {
+            // The open estimate asked for options but none came back: never replace the user's lines with a flat list.
+            return {
+                action_type: 'CHAT',
+                reply_text: 'I could not turn these lines into options this time, so your estimate is unchanged. Try again, for example "turn this into good / better / best options" or "add a premium option with a quartz top at 2,400".',
+            };
+        }
         settlePriceBookLines(prefill, docType, c.price_book, userText);
         if (sample) proposal.sample_data = true;
         const schema = getSchema(docType);

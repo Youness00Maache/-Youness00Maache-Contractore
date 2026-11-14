@@ -24,7 +24,7 @@ import { LockedFieldset, SignedLockBanner, makeSignatureCheck, useSignedLock } f
 import { useEnsureDocSlot } from './forms/DocSlotContext.ts';
 import { fetchInvoicesFromEstimate } from './forms/jobDocuments.ts';
 import {
-    adoptLineItemsIntoOption, applyChosenOption, canUndoApply, createOptionSet, effectiveOption, packOptionsForSave, readOptionSet,
+    applyAiOptionsDraft, applyChosenOption, canUndoApply, createOptionSet, effectiveOption, packOptionsForSave, readOptionSet,
     recordContractorChoice, removeOptions, syncMirror, undoApply, unpackOptionsForEdit, type OptionSet,
 } from '../lib/estimateOptions.ts';
 import { AppliedOptionStrip, EstimateOptionsEditor, OptionChoiceBar, optionTitle } from './options/EstimateOptionsEditor.tsx';
@@ -224,10 +224,29 @@ const EstimateForm: React.FC<Props> = ({
         update(next);
         if (await form.save()) form.setFeedback({ tone: 'success', message: 'Chosen option applied: this estimate now has one total.' });
     };
+    // AI fill: plain lines go into the option that counts; options drafted from this estimate's lines ("turn this into
+    // good / better / best", "add a premium option") keep the user's own lines and options (applyAiOptionsDraft)
     const applyAiDraft = (payload: unknown) => {
-        const before = form.data.lineItems;
+        const before = form.data;
+        const hadOptions = !!readOptionSet(before) && !readOptionSet(before)!.appliedId;
         const n = form.applyDraft(payload);
-        if (n) update(prev => adoptLineItemsIntoOption(prev, before));
+        if (!n) return n;
+        const outcome = { drafted: false, added: [] as string[] };
+        update(prev => {
+            outcome.drafted = prev.estimateOptions !== before.estimateOptions;
+            const result = applyAiOptionsDraft(prev, before);
+            outcome.added = result.added;
+            return result.data;
+        });
+        const { drafted, added } = outcome;
+        if (drafted) {
+            const list = added.length > 1 ? `${added.slice(0, -1).join(', ')} and ${added[added.length - 1]}` : added[0];
+            form.setFeedback(!added.length
+                ? { tone: 'info', message: 'This estimate already has these options, so none were added. Your options are unchanged.' }
+                : hadOptions
+                    ? { tone: 'info', message: `Added ${list}. Your other options are unchanged. Review, then save.` }
+                    : { tone: 'info', message: `Options on: ${list}, built from your lines. Lines without a price are empty: add them, then save.` });
+        }
         return n;
     };
 
@@ -271,7 +290,7 @@ const EstimateForm: React.FC<Props> = ({
             preview={{ formType: FormType.Estimate, data: d, profile, job }}
             actions={(
                 <>
-                    {!locked && <AIFillButton jobId={job.id} formType={FormType.Estimate} onApply={applyAiDraft} compact />}
+                    {!locked && <AIFillButton jobId={job.id} formType={FormType.Estimate} onApply={applyAiDraft} formData={d} compact />}
                     {!locked && accepted && convertButton}
                     <ShareButton ensureSaved={form.ensureSaved} onOpen={() => setShareOpen(true)} />
                 </>
