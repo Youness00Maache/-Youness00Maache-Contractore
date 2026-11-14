@@ -74,7 +74,19 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
-**PAUSED 2026-11-14 ~15:50 at 80% of the 5-hour limit (resume timer 18:57 UTC).** State:
+**UPDATE 2026-11-14 ~18:10 UTC (owner: stop at 95% of the 5-hour limit):**
+- DONE step 1: all suites passed (estimate-options-check fixed for CRLF checkouts); pushed my-branch + main (a9ddaed).
+- DONE step 2: review verdicts: 0100 crew OK (+ added: punch timesheet_id must be the owner's document); 0200 punch OK;
+  0300 papers had a BUG (guard_company_paper missing `as $$`, the file would not run) -> fixed; 0400 service plans OK.
+  field-features-check now checks every function body opens with `as $$`. All 4 APPLIED to production in the SQL
+  editor and verified (12 tables + RLS, cron contractordocs-service-visits, private crew-photos bucket, link key, 12
+  definer RPCs with search_path, anon can't run the cron tick or read punches). Headers added; pushed (f295d1d).
+- DONE step 3: `reminders` (86 KB, papers expiry emails; JWT verification still OFF) and `ai-assistant` (342 KB, new
+  screens + offline help) redeployed from the esbuild bundles; live code checked in the editor; both boot.
+- NEXT: step 4 templates branch a300aae907df5b66c; step 5 shared offline
+  message on field screens + remove finished worktrees (incl. .claude/worktrees/agent-ab4b5d1fee0b54215).
+
+**PAUSED 2026-11-14 ~15:50 at 80% of the 5-hour limit (resume timer 18:57 UTC).** State (steps 1-2 below now DONE):
 - my-branch has, merged + tested but NOT pushed yet: crew clock-in (6ed0745), punch lists + papers vault + service plans,
   merge 7f72eff + fix 8b43b21 (all suites pass: offline 307, crew 255, field 173, notifications 162, qa:document-ai 1315,
   forms 945, views 804, seo 51 pages). These features stay hidden until their tables exist, so pushing is safe.
