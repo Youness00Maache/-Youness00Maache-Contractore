@@ -54,7 +54,9 @@ import { DOC_NUMBER_CONFIG, nextDocumentNumber } from './components/forms/formUt
 import { upsertDocumentRecord, fetchDocumentForSync, fetchDocumentNumbers } from './lib/documentSave.ts';
 import { useOutbox, type OutboxDeps } from './lib/offline/useOutbox.ts';
 import type { SyncReport } from './lib/offline/syncEngine.ts';
-import { OFFLINE_CREATE_TYPES, applyOutboxOverlay, canCreateOffline, contentHash, numberRuleFor, offlineSavePolicy, pendingCreatesByJob, type OutboxItem, type OutboxKind } from './lib/offline/outboxModel.ts';
+import { OFFLINE_CREATE_TYPES, ENTITY_TYPE, applyEntityOverlay, applyOutboxOverlay, canCreateOffline, contentHash, entityOf, numberRuleFor, offlineSavePolicy, pendingCreatesByJob, pendingEntityCreates, type OutboxItem, type OutboxKind } from './lib/offline/outboxModel.ts';
+import { setOfflineEntityQueue } from './lib/offline/offlineEntities.ts';
+import { TEMP_TAG } from './utils/clientPortalRules.ts';
 import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
 import { OfflineDocContext, OutboxStatusContext, sendBlockedReasonFor } from './components/offline/OfflineContext.tsx';
@@ -308,13 +310,15 @@ const App: React.FC = () => {
      * the document is saved (0b.15), so a discarded document doesn't use one of the Free plan's jobs.
      */
     const [draftJob, setDraftJob] = useState<AppJob | null>(null);
-    const [jobs, setJobs] = useState<AppJob[]>([]);
+    /** Jobs loaded from the account; `jobs` below adds the ones created / changed offline (outbox). */
+    const [serverJobs, setJobs] = useState<AppJob[]>([]);
     const [jobsLoaded, setJobsLoaded] = useState(false);
     /** Documents loaded from the account (or the read cache). `forms` below adds the offline outbox on top. */
     const [serverForms, setForms] = useState<FormDataType[]>([]);
     const serverFormsRef = useRef(serverForms);
     serverFormsRef.current = serverForms;
-    const [clients, setClients] = useState<Client[]>([]);
+    /** Clients loaded from the account; `clients` below adds the ones created / edited offline (outbox). */
+    const [serverClients, setClients] = useState<Client[]>([]);
 
     // ── Offline outbox (lib/offline): documents saved without a connection, per user, synced in order ─────────
     const outboxDepsRef = useRef<() => OutboxDeps | null>(() => null);
@@ -330,6 +334,26 @@ const App: React.FC = () => {
         [serverForms, outbox.items, session?.user?.id],
     );
     const pendingCreates = useMemo(() => pendingCreatesByJob(outbox.items, session?.user?.id), [outbox.items, session?.user?.id]);
+    /** Jobs and clients the screens show: the account's, with the ones created / changed offline on top. */
+    const jobs = useMemo(() => applyEntityOverlay(serverJobs, outbox.items, session?.user?.id, 'job', (row, prev) => (prev
+        ? { ...prev, ...(row.status ? { status: normalizeJobStatus(row.status as string) } : {}), ...('client_id' in row ? { clientId: (row.client_id as string | null) ?? null } : {}) }
+        : mapJobRow({ created_at: new Date().toISOString(), ...row }))), [serverJobs, outbox.items, session?.user?.id]);
+    const clients = useMemo(() => applyEntityOverlay(serverClients, outbox.items, session?.user?.id, 'client', (row, prev) => (
+        { ...(prev || { created_at: new Date().toISOString() }), ...row } as Client)), [serverClients, outbox.items, session?.user?.id]);
+    const outboxRef = useRef(outbox);
+    outboxRef.current = outbox;
+    // insertClient / updateClient (Clients screen, inventory...) keep offline saves in this outbox (lib/offline/offlineEntities)
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid) { setOfflineEntityQueue(null); return; }
+        setOfflineEntityQueue({
+            queue: async (entity, kind, id, row) => {
+                await outboxRef.current.queue({ entity, userId: uid, docId: id, jobId: entity === 'job' ? id : '', type: ENTITY_TYPE[entity], kind, data: row });
+            },
+            isWaiting: id => outboxRef.current.items.some(i => i.docId === id && entityOf(i) !== 'document'),
+        });
+        return () => setOfflineEntityQueue(null);
+    }, [session?.user?.id]);
     const [outboxOpen, setOutboxOpen] = useState(false);
     const [logoutGuard, setLogoutGuard] = useState<{ count: number; problem: string | null } | null>(null);
 
@@ -443,11 +467,12 @@ const App: React.FC = () => {
         let limit: number | null = null;
         let message = '';
         if (type === 'jobs') {
-            count = effectiveUsage.jobsThisMonth;
+            // jobs / clients created offline take their slot when they sync
+            count = effectiveUsage.jobsThisMonth + pendingEntityCreates(outbox.items, session?.user?.id, 'job');
             limit = limits.jobs;
             message = `You've created ${count} of ${limit} jobs this month on the Free plan.`;
         } else if (type === 'clients') {
-            count = effectiveUsage.clientsThisMonth;
+            count = effectiveUsage.clientsThisMonth + pendingEntityCreates(outbox.items, session?.user?.id, 'client');
             limit = limits.clients;
             message = `You've added ${count} of ${limit} new clients this month on the Free plan.`;
         } else {
@@ -1377,7 +1402,14 @@ const App: React.FC = () => {
         if (!JOB_STATUSES.includes(newStatus)) return;
         const prevJob = jobs.find(j => j.id === jobId);
         if (!prevJob || prevJob.status === newStatus) return;
-        if (!navigator.onLine) { toast.error("You're offline. Reconnect to change the job status."); return; }
+        // offline (or a job still waiting to sync): the change waits in the outbox and syncs later
+        if (!navigator.onLine || outbox.itemFor(jobId)) {
+            const uid = sessionUserIdRef.current;
+            if (!uid) return;
+            await outbox.queue({ entity: 'job', userId: uid, docId: jobId, jobId, type: ENTITY_TYPE.job, kind: 'edit', data: { status: newStatus } });
+            toast.success("Status saved on this device. It syncs when you're back online.");
+            return;
+        }
         setJobs(p => p.map(j => (j.id === jobId ? { ...j, status: newStatus } : j)));
         const { error } = await supabase.from('jobs').update({ status: newStatus }).eq('id', jobId);
         if (error) {
@@ -1397,7 +1429,7 @@ const App: React.FC = () => {
             if (jobData.status) await handleUpdateJobStatus(jobData.id, normalizeJobStatus(jobData.status));
             return jobData.id;
         }
-        if (!navigator.onLine) throw new Error("You're offline. Reconnect to create the job.");
+        const offline = !navigator.onLine;
         if (!checkLimit('jobs')) throw new Error('You have reached the Free plan job limit for this month.');
 
         const name = String(jobData?.name || '').trim();
@@ -1432,6 +1464,32 @@ const App: React.FC = () => {
         // Link a saved client: the one picked, else one with the same name (case-insensitive).
         const clientId: string | null = jobData?.clientId || (clientName ? (await findClientByName(clientName))?.id ?? null : null);
         if (clientId) row.client_id = clientId;
+
+        // Offline: the job (and a new client typed in it) wait on this device and sync later, in that order. Its id is
+        // final already, so documents created in it offline land in it on the account.
+        if (offline) {
+            try {
+                let linkId = clientId;
+                if (!linkId && clientName) {
+                    const clientRow = {
+                        id: crypto.randomUUID(), user_id: uid, name: clientName.replace(/\s+/g, ' '), email: '', phone: '', address: clientAddress,
+                        notes: jobData?.clientTemporary === true ? TEMP_TAG : '',
+                    };
+                    await outbox.queue({ entity: 'client', userId: uid, docId: clientRow.id, jobId: '', type: ENTITY_TYPE.client, kind: 'create', data: clientRow });
+                    linkId = clientRow.id;
+                }
+                if (linkId) row.client_id = linkId;
+                await outbox.queue({ entity: 'job', userId: uid, docId: row.id as string, jobId: row.id as string, type: ENTITY_TYPE.job, kind: 'create', data: row, clientId: linkId });
+            } catch (error) {
+                throw new Error(`The job couldn't be kept on this device. ${describeError(error)}`);
+            }
+            toast.success(`Job "${name}" saved on this device. It syncs when you're back online.`);
+            if (!skipNavigation) {
+                if (view.screen === 'createJob' && view.returnTo === 'calendar') navigate('/calendar', { replace: true });
+                else navigate(`/jobs/${row.id}`, { replace: true });
+            }
+            return row.id as string;
+        }
 
         let created: AppJob;
         try {
@@ -1816,10 +1874,12 @@ const App: React.FC = () => {
         // Offline, or a document still waiting in the outbox: the save goes through the outbox (lib/offline).
         const knownId = view.formId || (newFormIdRef.current?.key === location.key ? newFormIdRef.current.id : null);
         const waitingItem = outbox.itemFor(knownId);
-        if (!navigator.onLine || waitingItem) {
+        // a document of a job created offline that isn't on the account yet waits with it
+        const jobWaiting = outbox.itemFor(view.jobId)?.kind === 'create';
+        if (!navigator.onLine || waitingItem || jobWaiting) {
             const kind: OutboxKind = waitingItem ? waitingItem.kind : view.formId ? 'edit' : 'create';
             const policy = offlineSavePolicy(view.formType, kind);
-            if (!policy.ok && !waitingItem) {
+            if (!policy.ok && !waitingItem && !(jobWaiting && navigator.onLine)) {
                 toast.error(policy.reason);
                 return false;
             }
@@ -1925,8 +1985,34 @@ const App: React.FC = () => {
                 return uploadFile('logos', file, uid, 'doc');
             },
             isOnline: () => navigator.onLine !== false,
+            saveEntity: async (entity, kind, row) => {
+                const duplicate = (e: unknown) => String((e as { code?: unknown } | null)?.code || '') === '23505';
+                if (kind === 'create') {
+                    if (entity === 'job') {
+                        try { return { id: (await insertJobRow(row)).id, error: null }; } catch (e) { return { error: duplicate(e) ? null : e }; }
+                    }
+                    const { error } = await supabase.from('clients').insert(row);
+                    return { error: error && !duplicate(error) ? error : null };
+                }
+                const { id, user_id: _owner, created_at: _created, ...patch } = row;
+                const { error } = await supabase.from(entity === 'job' ? 'jobs' : 'clients').update(patch).eq('id', id as string);
+                return { error };
+            },
             onSynced: (doc) => {
                 if (sessionUserIdRef.current !== uid) return;
+                if (doc.entity === 'job') {
+                    const status = doc.data.status ? normalizeJobStatus(doc.data.status as string) : null;
+                    setJobs(prev => (prev.some(j => j.id === doc.docId)
+                        ? prev.map(j => (j.id === doc.docId ? { ...j, ...(status ? { status } : {}) } : j))
+                        : [mapJobRow({ created_at: new Date().toISOString(), ...doc.data }), ...prev]));
+                    return;
+                }
+                if (doc.entity === 'client') {
+                    setClients(prev => (prev.some(c => c.id === doc.docId)
+                        ? prev.map(c => (c.id === doc.docId ? { ...c, ...doc.data } as Client : c))
+                        : [...prev, { created_at: new Date().toISOString(), ...doc.data } as Client].sort(byClientName)));
+                    return;
+                }
                 const known = serverFormsRef.current.find(f => f.id === doc.docId);
                 const savedForm = mapDocumentRow({
                     id: doc.docId, job_id: doc.jobId, type: doc.type, data: doc.data,
@@ -1946,10 +2032,11 @@ const App: React.FC = () => {
         if (report.synced.length) refreshUsage();
         if (trigger === 'save') return; // the form's own save shows the outcome
         const n = report.synced.length;
-        if (n && !report.refused.length) toast.success(`${n} ${n === 1 ? 'document' : 'documents'} saved offline ${n === 1 ? 'is' : 'are'} now on your account.`);
+        const noun = (k: number) => (report.synced.every(s => s.entity === 'document') ? (k === 1 ? 'document' : 'documents') : (k === 1 ? 'change' : 'changes'));
+        if (n && !report.refused.length) toast.success(`${n} ${noun(n)} saved offline ${n === 1 ? 'is' : 'are'} now on your account.`);
         if (report.refused.length) {
             const first = report.refused[0];
-            toast.error(`${report.refused.length} ${report.refused.length === 1 ? 'document' : 'documents'} couldn't sync: ${first.message}`, {
+            toast.error(`${report.refused.length} ${report.refused.length === 1 ? 'item' : 'items'} couldn't sync: ${first.message}`, {
                 duration: 10000, action: { label: 'View', onClick: () => setOutboxOpen(true) },
             });
         }
@@ -1960,6 +2047,8 @@ const App: React.FC = () => {
     /** "Open" in the outbox panel: the document form (it opens from the outbox, online or not). */
     const openOutboxDocument = (item: OutboxItem) => {
         setOutboxOpen(false);
+        if (entityOf(item) === 'job') { navigate(`/jobs/${item.docId}`); return; }
+        if (entityOf(item) === 'client') { navigate('/clients'); return; }
         navigate(`/jobs/${item.jobId}/forms/${encodeURIComponent(item.type)}/${item.docId}`, { state: { fromJob: false } });
     };
 

@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.ts';
+import { offlineEntityQueueFor } from '../lib/offline/offlineEntities.ts';
 import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
 import { portalShareMessage } from '../lib/messaging.ts';
 import { MessageAppButtons } from './MessageAppButtons.tsx';
@@ -160,6 +161,12 @@ export function validateClientDraft(d: ClientDraft): Partial<Record<keyof Client
 /** Inserts a client and returns the saved row. Keeps the DB message (so `PLAN_LIMIT:` is detectable). */
 export async function insertClient(draft: ClientDraft, userId: string): Promise<Client> {
     const row = { id: crypto.randomUUID(), user_id: userId, ...cleanDraft(draft) };
+    // offline: kept on this device and added to the account when the connection is back (lib/offline)
+    const outbox = offlineEntityQueueFor();
+    if (outbox) {
+        await outbox.queue('client', 'create', row.id, row);
+        return { ...row, created_at: new Date().toISOString() } as Client;
+    }
     const { data, error } = await supabase.from('clients').insert(row).select(CLIENT_COLUMNS).single();
     if (error) throw new Error(error.message || 'Could not save the client.');
     return data as Client;
@@ -167,6 +174,12 @@ export async function insertClient(draft: ClientDraft, userId: string): Promise<
 
 /** Updates only the editable columns. */
 export async function updateClient(id: string, draft: ClientDraft): Promise<Client> {
+    const outbox = offlineEntityQueueFor(id);
+    if (outbox) {
+        const patch = cleanDraft(draft);
+        await outbox.queue('client', 'edit', id, { ...patch });
+        return { id, user_id: '', ...patch } as Client;
+    }
     const { data, error } = await supabase
         .from('clients')
         .update(cleanDraft(draft))

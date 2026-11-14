@@ -123,7 +123,7 @@ const OutboxPanel: React.FC<Props> = ({
                             <ul className="divide-y divide-border rounded-xl border border-border">
                                 {items.map(item => {
                                     const state = docSyncState(item, syncingDocId);
-                                    const job = jobNameById.get(item.jobId);
+                                    const job = item.entity === 'job' ? null : jobNameById.get(item.jobId);
                                     return (
                                         <li key={item.id} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-start">
                                             <div className="min-w-0 flex-1">

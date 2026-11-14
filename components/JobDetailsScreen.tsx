@@ -173,6 +173,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <h1 className="page-title break-words">{job.name || 'Untitled job'}</h1>
                                 <JobStatusBadge status={job.status} />
+                                <DocSyncChip docId={job.id} />
                             </div>
                             <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 shrink-0 sm:inline-flex" disabled={!canCreate}>
                                 <PlusIcon className="h-4 w-4" /> {t.newDocument || 'New document'}

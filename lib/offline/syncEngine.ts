@@ -13,13 +13,15 @@
  *      connection stops the run and keeps everything pending.
  */
 import {
-    classifySyncError, contentHash, detectConflict, makeHistoryEntry, mergeForUpload, offlinePhotosIn, orderForSync, outboxTitle,
+    classifySyncError, contentHash, detectConflict, entityOf, remapItem, makeHistoryEntry, mergeForUpload, offlinePhotosIn, orderForSync, outboxTitle,
     PHOTO_REGISTRY_TTL_MS, replaceDataUrls, resolveOfflineNumber, shouldSync, statusForError,
-    type OutboxErrorKind, type OutboxHistoryEntry, type OutboxItem, type ServerCopy,
+    type OutboxEntity, type OutboxErrorKind, type OutboxHistoryEntry, type OutboxItem, type OutboxKind, type ServerCopy,
 } from './outboxModel.ts';
 import type { OutboxStore } from './outboxStore.ts';
 
 export interface SyncedDoc {
+    /** what was saved ('document' for documents) */
+    entity: OutboxEntity;
     docId: string;
     jobId: string;
     type: string;
@@ -43,6 +45,11 @@ export interface SyncDeps {
     fetchNumbers: (type: string, field: string) => Promise<Array<{ id: string; number: string }>>;
     /** uploads one photo added offline and returns its public URL */
     uploadPhoto: (dataUrl: string) => Promise<string>;
+    /**
+     * Saves a job / client row (insert for 'create', update of the row's own id for 'edit'). `id` is the account's id
+     * of the row when it differs from the one given offline (later items are remapped to it).
+     */
+    saveEntity?: (entity: Exclude<OutboxEntity, 'document'>, kind: OutboxKind, row: Record<string, unknown>) => Promise<{ id?: string | null; error: unknown }>;
     isOnline?: () => boolean;
     now?: () => Date;
     /** also retry items that need the user (plan limit, stock...): the manual "Sync now" */
@@ -63,6 +70,8 @@ export interface SyncReport {
     remaining: number;
     /** documents saved again while they were being sent (run again to send the newer version) */
     resaved: number;
+    /** documents left waiting because their job hasn't reached the account yet */
+    waiting: number;
 }
 
 const upper = (s: string) => s.trim().toUpperCase();
@@ -70,7 +79,7 @@ const upper = (s: string) => s.trim().toUpperCase();
 export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
     const { store, userId } = deps;
     const now = deps.now || (() => new Date());
-    const report: SyncReport = { synced: [], refused: [], networkStopped: false, notices: [], remaining: 0, resaved: 0 };
+    const report: SyncReport = { synced: [], refused: [], networkStopped: false, notices: [], remaining: 0, resaved: 0, waiting: 0 };
 
     const all = orderForSync(await store.getItems(userId));
     const photos = await store.getPhotos(userId);
@@ -80,14 +89,59 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
     /** numbers per type: account rows (id → number) + numbers given in this run */
     const numberRows = new Map<string, Array<{ id: string; number: string }>>();
 
-    for (const item of all) {
-        if (item.userId !== userId) continue;
-        if (deps.onlyDocIds && !deps.onlyDocIds.includes(item.docId)) continue;
-        if (!shouldSync(item, Boolean(deps.includeBlocked))) continue;
+    /** jobs / clients created offline that aren't on the account yet (what points at them must wait / drop the link) */
+    const unsynced = new Set(all.filter(i => i.userId === userId && i.kind === 'create' && entityOf(i) !== 'document').map(i => i.docId));
+    /** offline id → account id, when the account gave a row another id */
+    const remap = new Map<string, string>();
+
+    for (const queued of all) {
+        if (queued.userId !== userId) continue;
+        if (deps.onlyDocIds && !deps.onlyDocIds.includes(queued.docId)) continue;
+        if (!shouldSync(queued, Boolean(deps.includeBlocked))) continue;
         if (deps.isOnline && !deps.isOnline()) { report.networkStopped = true; break; }
+        // ids changed by the account earlier in this run: put them in (and keep them on the device)
+        let item = remapItem(queued, remap);
+        if (item !== queued) {
+            const fixed = item;
+            await store.updateItem(item.id, cur => (cur ? remapItem(cur, remap) : cur));
+            item = fixed;
+        }
+        const entity = entityOf(item);
+        // a document inside a job that isn't on the account yet waits for it (the job's own item says why)
+        if (entity === 'document' && unsynced.has(item.jobId)) { report.waiting++; continue; }
         deps.onStart?.(item);
         try {
+            if (entity !== 'document') {
+                if (!deps.saveEntity) throw new Error('Jobs and clients saved offline cannot be synced here.');
+                let row: Record<string, unknown> = { ...item.data, id: item.docId };
+                // its client didn't reach the account (e.g. the Free plan's client limit): the job keeps the typed name
+                if (typeof row.client_id === 'string' && unsynced.has(row.client_id)) { const { client_id: _drop, ...rest } = row; row = rest; }
+                const { id: savedId, error } = await deps.saveEntity(entity, item.kind, row);
+                if (error) throw error;
+                unsynced.delete(item.docId);
+                const finalId = savedId && savedId !== item.docId ? savedId : item.docId;
+                if (finalId !== item.docId) remap.set(item.docId, finalId);
+                const pushedAt = item.updatedAt;
+                let resaved = false;
+                await store.updateItem(item.id, cur => {
+                    if (!cur) return null;
+                    if (cur.updatedAt === pushedAt) return null;
+                    resaved = true;
+                    // saved again meanwhile: the newer version is now an edit of the row on the account
+                    return { ...cur, kind: 'edit', status: 'pending', error: null };
+                });
+                if (resaved) report.resaved++;
+                const doc: SyncedDoc = {
+                    entity, docId: finalId, jobId: entity === 'job' ? finalId : item.jobId, type: item.type, data: { ...row, id: finalId },
+                    clientId: (row.client_id as string | undefined) ?? null, publicToken: null, created: item.kind === 'create', resaved,
+                };
+                report.synced.push(doc);
+                deps.onSynced?.(doc, item);
+                continue;
+            }
             let data = item.data;
+            // its client didn't reach the account: the document is saved without the link
+            const clientId = item.clientId && unsynced.has(item.clientId) ? null : item.clientId;
 
             // 1. photos added offline → storage
             const found = offlinePhotosIn(data, registry);
@@ -132,7 +186,7 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
 
             // 4. the app's save
             const record: Record<string, unknown> = { id: item.docId, user_id: item.userId, job_id: item.jobId, type: item.type, data };
-            if (item.clientId) record.client_id = item.clientId;
+            if (clientId) record.client_id = clientId;
             const { row, error } = await deps.upsert(record);
             if (error) throw error;
             found.forEach(p => doneHashes.add(p.hash));
@@ -185,7 +239,7 @@ export async function runOutboxSync(deps: SyncDeps): Promise<SyncReport> {
             if (resaved) report.resaved++;
 
             const doc: SyncedDoc = {
-                docId: item.docId, jobId: item.jobId, type: item.type, data, clientId: (record.client_id as string | undefined) ?? null,
+                entity: 'document', docId: item.docId, jobId: item.jobId, type: item.type, data, clientId: (record.client_id as string | undefined) ?? null,
                 publicToken: row?.public_token ?? null, created: newRow, resaved,
             };
             report.synced.push(doc);

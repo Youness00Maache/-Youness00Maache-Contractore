@@ -56,6 +56,7 @@ import {
     isPlanLimitError,
 } from './commsKit.tsx';
 import HelpButton from './help/HelpButton.tsx';
+import { DocSyncChip } from './offline/OfflineContext.tsx';
 import {
     CheckIcon,
     ClockIcon,
@@ -652,7 +653,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({
 
             <div className="space-y-3">
                 {isOnline === false && (
-                    <Notice tone="warning" title="You're offline">Changes can't be saved until you're back online.</Notice>
+                    <Notice tone="warning" title="You're offline">New clients and edits save on this device and sync when you're back online.</Notice>
                 )}
                 {atLimit && (
                     <Notice
@@ -810,7 +811,10 @@ const ClientsView: React.FC<ClientsViewProps> = ({
                                         >
                                             <Avatar name={client.name} />
                                             <span className="min-w-0">
-                                                <span className="block truncate font-semibold text-foreground">{client.name}</span>
+                                                <span className="flex min-w-0 items-center gap-2">
+                                                    <span className="truncate font-semibold text-foreground">{client.name}</span>
+                                                    <DocSyncChip docId={client.id} />
+                                                </span>
                                                 <span className="block truncate text-xs text-muted-foreground">
                                                     {client.address || (client.created_at ? `Added ${fmtDate(client.created_at)}` : 'View details')}
                                                 </span>

@@ -2,6 +2,7 @@ import React from 'react';
 import { DropdownMenu, DropdownItem, DropdownSeparator } from './ui/DropdownMenu';
 import { MoreVerticalIcon, TrashIcon, CopyIcon, MapPinIcon, CalendarIcon, UserIcon, ChevronRightIcon, BriefcaseIcon } from './Icons';
 import { Job } from '../types';
+import { DocSyncChip } from './offline/OfflineContext.tsx';
 
 interface JobCardProps {
     job: Job;
@@ -102,7 +103,11 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDupl
             </div>
 
             <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
-                <JobStatusBadge status={job.status} />
+                <span className="flex min-w-0 items-center gap-2">
+                    <JobStatusBadge status={job.status} />
+                    {/* created / changed offline: "Waiting to sync" until it reaches the account */}
+                    <DocSyncChip docId={job.id} />
+                </span>
                 <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
                     {t.viewProject || 'Open'}
                     <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />

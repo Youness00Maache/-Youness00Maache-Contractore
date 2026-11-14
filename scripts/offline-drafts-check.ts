@@ -6,7 +6,8 @@
  *
  * Covers: which documents work offline, outbox ordering and coalescing, provisional numbers → final numbers,
  * retry / refusal handling (plan limit, stock, deleted job, lost connection), last-write-wins with the "changed on
- * another device" notice and the 7-day history, per-user isolation, the logout guard, and offline photo uploads.
+ * another device" notice and the 7-day history, per-user isolation, the logout guard, offline photo uploads, and jobs /
+ * clients created or edited offline (sync order, id remapping, plan-limit refusals, documents waiting for their job).
  */
 import { FormType } from '../types.ts';
 import {
@@ -14,6 +15,7 @@ import {
     docSyncState, findImageDataUrls, hashString, isExpired, itemsOfUser, logoutGuard, makeHistoryEntry, mergeForUpload, nextSeq,
     numberRuleFor, offlinePhotosIn, offlineSavePolicy, orderForSync, outboxItemId, outboxTitle, pendingCreatesByJob, photoHash,
     queueSave, replaceDataUrls, resolveOfflineNumber, stableStringify, unseenNotices, HISTORY_TTL_MS, OFFLINE_SAVE_BLOCKED,
+    applyEntityOverlay, entityOf, pendingEntityCreates, remapItem,
     type OutboxItem, type QueueInput,
 } from '../lib/offline/outboxModel.ts';
 import { createMemoryOutboxStore, type OutboxStore } from '../lib/offline/outboxStore.ts';
@@ -486,6 +488,124 @@ const run = async () => {
         a2.mode = 'network';
         const r = await runOutboxSync(deps(s2, a2));
         eq('photos: upload offline → stays pending', [r.networkStopped, (await s2.getItems(A))[0].status], [true, 'pending']);
+    }
+
+    // ---------------------------------------------------------------- jobs and clients created / edited offline
+    {
+        const store = createMemoryOutboxStore();
+        const acct = new FakeAccount();
+        const saved: string[] = [];
+        const saveEntity: SyncDeps['saveEntity'] = async (entity, kind, row) => {
+            const id = String(row.id);
+            if (entity === 'job' && kind === 'create') acct.jobs.add(id);
+            saved.push(`${entity}:${kind}:${id}:${row.client_id ?? '-'}:${row.status ?? ''}`);
+            return { error: null };
+        };
+        const job = (over: Partial<QueueInput> & { docId: string }): QueueInput => ({
+            entity: 'job', userId: A, jobId: over.docId, type: 'Job', kind: 'create', data: { id: over.docId, user_id: A, name: over.docId, status: 'active' }, ...over,
+        });
+        // offline: a new client, a document (queued first on purpose), the job it belongs to, then the job's status changes
+        await queueOfflineSave(store, { entity: 'client', userId: A, docId: 'c-new', jobId: '', type: 'Client', kind: 'create', data: { id: 'c-new', user_id: A, name: 'Jack' } }, at(1));
+        await queueOfflineSave(store, input({ docId: 'd-new', jobId: 'j-new', clientId: 'c-new' }), at(2));
+        await queueOfflineSave(store, job({ docId: 'j-new', data: { id: 'j-new', user_id: A, name: 'Kitchen', status: 'active', client_id: 'c-new' }, clientId: 'c-new' }), at(3));
+        await queueOfflineSave(store, job({ docId: 'j-new', kind: 'edit', data: { status: 'completed' } }), at(4));
+        const items = await store.getItems(A);
+        const j = items.find(i => i.docId === 'j-new');
+        eq('jobs: one item per job, status merged into the create', [items.filter(i => i.docId === 'j-new').length, j?.kind, j?.entity, j?.data.status, j?.data.name], [1, 'create', 'job', 'completed', 'Kitchen']);
+        eq('jobs: sync order client → job → document', orderForSync(items).map(i => i.docId), ['c-new', 'j-new', 'd-new']);
+        eq('jobs: entity of old items is document', entityOf(items.find(i => i.docId === 'd-new')), 'document');
+        const list = [{ id: JOB, name: 'Old' }];
+        const shown = applyEntityOverlay(list, items, A, 'job', (row, prev) => ({ ...(prev || {}), id: String(row.id), name: String(row.name ?? prev?.name) }));
+        eq('jobs: list shows the offline job first', shown.map(x => x.id), ['j-new', JOB]);
+        ok('jobs: no job items → same array', applyEntityOverlay(list, [], A, 'job', r => r as never) === list);
+        eq('jobs: other user sees nothing', applyEntityOverlay(list, items, B, 'job', r => r as never).length, 1);
+        eq('jobs: document list ignores job / client items', applyOutboxOverlay([], items, A).map(f => f.id), ['d-new']);
+        eq('jobs: pending creates', [pendingEntityCreates(items, A, 'job'), pendingEntityCreates(items, A, 'client'), pendingCreatesByJob(items, A).get('j-new'), pendingCreatesByJob(items, A).has('')], [1, 1, 1, false]);
+        eq('jobs: chip', docSyncState(j, null)?.label, 'Waiting to sync');
+        eq('jobs: title', outboxTitle('Job', j?.data), 'Job · Kitchen');
+        const rep = await runOutboxSync(deps(store, acct, A, { saveEntity }));
+        eq('jobs: client then job (with its client and latest status)', saved, ['client:create:c-new:-:', 'job:create:j-new:c-new:completed']);
+        eq('jobs: document created offline landed in the job created offline', [acct.rows.get('d-new')?.job_id, acct.rows.get('d-new')?.client_id], ['j-new', 'c-new']);
+        eq('jobs: report', rep.synced.map(s => `${s.entity}:${s.docId}:${s.created}`), ['client:c-new:true', 'job:j-new:true', 'document:d-new:true']);
+        eq('jobs: outbox empty', (await store.getItems(A)).length, 0);
+
+        // a status change of a saved job is an edit (patch only)
+        await queueOfflineSave(store, job({ docId: JOB, kind: 'edit', data: { status: 'on_hold' } }), at(5));
+        saved.length = 0;
+        await runOutboxSync(deps(store, acct, A, { saveEntity }));
+        eq('jobs: status edit of a saved job', saved, [`job:edit:${JOB}:-:on_hold`]);
+
+        // a client edited offline while it was still waiting: one create with the newest fields
+        await queueOfflineSave(store, { entity: 'client', userId: A, docId: 'c-2', jobId: '', type: 'Client', kind: 'create', data: { id: 'c-2', user_id: A, name: 'Paul', phone: '' } }, at(6));
+        await queueOfflineSave(store, { entity: 'client', userId: A, docId: 'c-2', jobId: '', type: 'Client', kind: 'edit', data: { name: 'Paul B', phone: '555 0101' } }, at(7));
+        const c2 = (await store.getItems(A))[0];
+        eq('clients: edit merged into the waiting create', [c2.kind, c2.data.name, c2.data.phone, c2.data.user_id], ['create', 'Paul B', '555 0101', A]);
+    }
+    {
+        // the account gives the job another id: what was made inside it follows (id remapping)
+        const store = createMemoryOutboxStore();
+        const acct = new FakeAccount();
+        await queueOfflineSave(store, { entity: 'client', userId: A, docId: 'tmp-c', jobId: '', type: 'Client', kind: 'create', data: { id: 'tmp-c', user_id: A, name: 'Ann' } }, at(1));
+        await queueOfflineSave(store, { entity: 'job', userId: A, docId: 'tmp-j', jobId: 'tmp-j', type: 'Job', kind: 'create', data: { id: 'tmp-j', user_id: A, name: 'Deck', client_id: 'tmp-c' }, clientId: 'tmp-c' }, at(2));
+        await queueOfflineSave(store, input({ docId: 'd-tmp', jobId: 'tmp-j', clientId: 'tmp-c' }), at(3));
+        const jobRows = new Map<string, Record<string, unknown>>();
+        const saveEntity: SyncDeps['saveEntity'] = async (entity, _kind, row) => {
+            const real = `real-${String(row.id)}`;
+            if (entity === 'job') { acct.jobs.add(real); jobRows.set(real, row); }
+            return { id: real, error: null };
+        };
+        const rep = await runOutboxSync(deps(store, acct, A, { saveEntity }));
+        eq('remap: job saved with the account id of its client', jobRows.get('real-tmp-j')?.client_id, 'real-tmp-c');
+        eq('remap: document saved in the account job, with the account client', [acct.rows.get('d-tmp')?.job_id, acct.rows.get('d-tmp')?.client_id], ['real-tmp-j', 'real-tmp-c']);
+        eq('remap: report ids', rep.synced.map(s => s.docId), ['real-tmp-c', 'real-tmp-j', 'd-tmp']);
+        const it = queueSave(null, { entity: 'job', userId: A, docId: 'j2', jobId: 'j2', type: 'Job', kind: 'create', data: { client_id: 'tmp-c' }, clientId: 'tmp-c' }, NOW.toISOString(), 1);
+        const m = remapItem(it, new Map([['tmp-c', 'real-c']]));
+        eq('remap: job → client link', [m.clientId, m.data.client_id], ['real-c', 'real-c']);
+        ok('remap: nothing to change → same item', remapItem(it, new Map([['x', 'y']])) === it);
+    }
+    {
+        // Free plan limits: refused with the reason; documents of a refused job wait; a refused client leaves the job its typed name
+        const store = createMemoryOutboxStore();
+        const acct = new FakeAccount();
+        let limits = true;
+        const jobRows = new Map<string, Record<string, unknown>>();
+        const saveEntity: SyncDeps['saveEntity'] = async (entity, _kind, row) => {
+            const id = String(row.id);
+            if (limits && entity === 'client') return { error: { code: 'P0001', message: 'PLAN_LIMIT: The Free plan includes 3 new clients per month. Upgrade to Premium for unlimited clients.' } };
+            if (limits && id === 'j-over') return { error: { code: 'P0001', message: 'PLAN_LIMIT: The Free plan includes 5 new jobs per month. Upgrade to Premium for unlimited jobs.' } };
+            if (entity === 'job') { acct.jobs.add(id); jobRows.set(id, row); }
+            return { error: null };
+        };
+        await queueOfflineSave(store, { entity: 'client', userId: A, docId: 'c-lim', jobId: '', type: 'Client', kind: 'create', data: { id: 'c-lim', user_id: A, name: 'Zed' } }, at(1));
+        await queueOfflineSave(store, { entity: 'job', userId: A, docId: 'j-ok', jobId: 'j-ok', type: 'Job', kind: 'create', data: { id: 'j-ok', user_id: A, name: 'Roof', client_name: 'Zed', client_id: 'c-lim' }, clientId: 'c-lim' }, at(2));
+        await queueOfflineSave(store, { entity: 'job', userId: A, docId: 'j-over', jobId: 'j-over', type: 'Job', kind: 'create', data: { id: 'j-over', user_id: A, name: 'Fence' } }, at(3));
+        await queueOfflineSave(store, input({ docId: 'd-over', jobId: 'j-over' }), at(4));
+        await queueOfflineSave(store, input({ docId: 'd-ok', jobId: 'j-ok', clientId: 'c-lim' }), at(5));
+        const rep = await runOutboxSync(deps(store, acct, A, { saveEntity }));
+        const left = await store.getItems(A);
+        const byId = (id: string) => left.find(i => i.docId === id);
+        eq('limits: client refused with the reason', [rep.refused.find(r => r.docId === 'c-lim')?.kind, byId('c-lim')?.status], ['plan_limit', 'blocked']);
+        ok('limits: client reason kept', /3 new clients/.test(byId('c-lim')?.error?.message || ''));
+        eq('limits: job saved without the refused client, typed name kept', [jobRows.has('j-ok'), 'client_id' in (jobRows.get('j-ok') || {}), jobRows.get('j-ok')?.client_name], [true, false, 'Zed']);
+        eq('limits: its document saved without the client link', [acct.rows.get('d-ok')?.job_id, acct.rows.get('d-ok')?.client_id], ['j-ok', null]);
+        eq('limits: refused job blocked with the reason', [byId('j-over')?.status, docSyncState(byId('j-over'), null)?.label], ['blocked', 'Not synced']);
+        ok('limits: job reason shown on its chip', /5 new jobs/.test(docSyncState(byId('j-over'), null)?.reason || ''));
+        eq('limits: document of the refused job waits (not sent, still pending)', [byId('d-over')?.status, acct.rows.has('d-over'), rep.waiting], ['pending', false, 1]);
+        const auto = await runOutboxSync(deps(store, acct, A, { saveEntity }));
+        eq('limits: automatic sync leaves them alone', [auto.synced.length, auto.waiting], [0, 1]);
+        limits = false; // upgraded
+        await runOutboxSync(deps(store, acct, A, { saveEntity, includeBlocked: true }));
+        eq('limits: after upgrade, Sync now sends the job then its document', [acct.rows.get('d-over')?.job_id, (await store.getItems(A)).length], ['j-over', 0]);
+    }
+    {
+        // connection lost while saving a job: stays pending, the run stops
+        const store = createMemoryOutboxStore();
+        await queueOfflineSave(store, { entity: 'job', userId: A, docId: 'j-net', jobId: 'j-net', type: 'Job', kind: 'create', data: { id: 'j-net', user_id: A, name: 'Porch' } }, at(1));
+        await queueOfflineSave(store, input({ docId: 'd-net', jobId: 'j-net' }), at(2));
+        const rep = await runOutboxSync(deps(store, new FakeAccount(), A, { saveEntity: async () => ({ error: { message: 'TypeError: Failed to fetch' } }) }));
+        eq('jobs: lost connection → pending, run stopped', [rep.networkStopped, (await store.getItems(A)).map(i => i.status)], [true, ['pending', 'pending']]);
+        const rep2 = await runOutboxSync(deps(store, new FakeAccount(), A));
+        eq('jobs: no saveEntity → refused with a reason, document waits', [rep2.refused.length, rep2.waiting], [1, 1]);
     }
 
     // ---------------------------------------------------------------- chips

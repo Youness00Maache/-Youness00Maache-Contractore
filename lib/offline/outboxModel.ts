@@ -56,6 +56,13 @@ export const offlineSavePolicy = (type: string, kind: OutboxKind): { ok: boolean
 
 export type OutboxKind = 'create' | 'edit';
 /**
+ * What an outbox item saves: a document (default; items saved before jobs/clients were added have no `entity`), a job
+ * (created offline, or its status changed offline) or a client (created / edited offline). Jobs and clients get their
+ * real id (a UUID) on this device, so a document created offline inside a job created offline keeps pointing at it;
+ * sync sends clients first, then jobs, then documents, and remaps any id the account changes.
+ */
+export type OutboxEntity = 'document' | 'job' | 'client';
+/**
  * pending: waiting to sync (never tried, or the connection dropped);
  * failed:  the account refused it for a reason a later retry may fix (shown with the reason);
  * blocked: needs the user (plan limit, not enough stock, job deleted). Only "Sync now" / a new save retries it.
@@ -82,6 +89,8 @@ export interface OutboxBase {
 export interface OutboxItem {
     /** `${userId}:${docId}`: one item per document and user */
     id: string;
+    /** absent = 'document' (docId is then the job / client id, type 'Job' / 'Client', data the table row) */
+    entity?: OutboxEntity;
     userId: string;
     docId: string;
     jobId: string;
@@ -139,6 +148,7 @@ export interface OfflinePhoto {
 }
 
 export interface QueueInput {
+    entity?: OutboxEntity;
     userId: string;
     docId: string;
     jobId: string;
@@ -154,6 +164,11 @@ export const HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const PHOTO_REGISTRY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const outboxItemId = (userId: string, docId: string): string => `${userId}:${docId}`;
+
+export const entityOf = (item: Pick<OutboxItem, 'entity'> | null | undefined): OutboxEntity => item?.entity || 'document';
+
+/** Display type of job / client items. */
+export const ENTITY_TYPE: Record<Exclude<OutboxEntity, 'document'>, string> = { job: 'Job', client: 'Client' };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Hashing (content comparison; not security)
@@ -217,7 +232,8 @@ export const queueSave = (existing: OutboxItem | null | undefined, input: QueueI
             ...existing,
             jobId: input.jobId || existing.jobId,
             type: input.type || existing.type,
-            data: input.data,
+            // a job / client save is a patch of its row (e.g. a status change of a job created offline)
+            data: entityOf(existing) === 'document' ? input.data : { ...existing.data, ...input.data },
             clientId: input.clientId !== undefined ? input.clientId ?? null : existing.clientId,
             updatedAt: nowIso,
             base: existing.base ?? (existing.kind === 'edit' ? input.base ?? null : null),
@@ -229,6 +245,7 @@ export const queueSave = (existing: OutboxItem | null | undefined, input: QueueI
     }
     return {
         id: outboxItemId(input.userId, input.docId),
+        ...(input.entity && input.entity !== 'document' ? { entity: input.entity } : {}),
         userId: input.userId,
         docId: input.docId,
         jobId: input.jobId,
@@ -252,9 +269,31 @@ export const queueSave = (existing: OutboxItem | null | undefined, input: QueueI
 export const nextSeq = (items: readonly OutboxItem[], nowMs: number): number =>
     Math.max(nowMs, ...items.map(i => (Number.isFinite(i.seq) ? i.seq + 1 : 0)));
 
-/** Sync order: first saved first. */
-export const orderForSync = <T extends Pick<OutboxItem, 'seq' | 'createdAt' | 'id'>>(items: readonly T[]): T[] =>
-    [...items].sort((a, b) => (a.seq - b.seq) || String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+const ENTITY_RANK: Record<OutboxEntity, number> = { client: 0, job: 1, document: 2 };
+
+/** Sync order: clients, then jobs, then documents (what they point at exists first); in each, first saved first. */
+export const orderForSync = <T extends Pick<OutboxItem, 'seq' | 'createdAt' | 'id'> & { entity?: OutboxEntity }>(items: readonly T[]): T[] =>
+    [...items].sort((a, b) => (ENTITY_RANK[entityOf(a)] - ENTITY_RANK[entityOf(b)]) || (a.seq - b.seq) || String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+
+/**
+ * An item with the ids the account changed (offline id → account id) put in: its job, its client and the client_id
+ * of a job row. The same item when nothing changes.
+ */
+export const remapItem = (item: OutboxItem, map: ReadonlyMap<string, string>): OutboxItem => {
+    if (!map.size) return item;
+    const to = (id: string | null | undefined) => (id && map.has(id) ? map.get(id)! : id);
+    const jobId = to(item.jobId) ?? '';
+    const clientId = to(item.clientId) ?? null;
+    const rowClient = item.data?.client_id as string | null | undefined;
+    const nextRowClient = to(rowClient);
+    const rowJob = item.data?.job_id as string | null | undefined;
+    const nextRowJob = to(rowJob);
+    if (jobId === item.jobId && clientId === item.clientId && nextRowClient === rowClient && nextRowJob === rowJob) return item;
+    const data = { ...item.data };
+    if (nextRowClient !== rowClient) data.client_id = nextRowClient;
+    if (nextRowJob !== rowJob) data.job_id = nextRowJob;
+    return { ...item, jobId, clientId, data };
+};
 
 /** Items that belong to this user (a shared device never mixes accounts). */
 export const itemsOfUser = <T extends { userId: string }>(items: readonly T[], userId: string | null | undefined): T[] =>
@@ -444,7 +483,7 @@ export const outboxTitle = (type: string, data: Record<string, unknown> | null |
     const title = String(d.title || '').trim();
     if (title) return title;
     for (const k of NUMBER_KEYS) if (d[k]) return `${type} ${String(d[k])}`;
-    const extra = String(d.vendor || d.workerName || '').trim();
+    const extra = String(d.vendor || d.workerName || d.name || '').trim();
     return extra ? `${type} · ${extra}` : type;
 };
 
@@ -501,7 +540,7 @@ export interface DocLike {
  * Without outbox items the SAME array is returned (online behaviour unchanged). Newest first, like mergeDocuments.
  */
 export const applyOutboxOverlay = <T extends DocLike>(forms: T[], items: readonly OutboxItem[], userId: string | null | undefined): T[] => {
-    const mine = itemsOfUser(items, userId);
+    const mine = itemsOfUser(items, userId).filter(i => entityOf(i) === 'document');
     if (!mine.length) return forms;
     const byId = new Map(forms.map(f => [f.id, f]));
     for (const item of mine) {
@@ -522,9 +561,35 @@ export const applyOutboxOverlay = <T extends DocLike>(forms: T[], items: readonl
 /** New documents waiting in the outbox, per job (they take a Free-plan slot when they sync). */
 export const pendingCreatesByJob = (items: readonly OutboxItem[], userId: string | null | undefined): Map<string, number> => {
     const out = new Map<string, number>();
-    for (const i of itemsOfUser(items, userId)) if (i.kind === 'create') out.set(i.jobId, (out.get(i.jobId) || 0) + 1);
+    for (const i of itemsOfUser(items, userId)) if (i.kind === 'create' && entityOf(i) === 'document') out.set(i.jobId, (out.get(i.jobId) || 0) + 1);
     return out;
 };
+
+/**
+ * Jobs / clients with this user's outbox versions on top: ones created offline come first, offline edits are
+ * merged in (`toItem(row, prev)` builds the screen's object from the table row). Without such items the SAME
+ * array is returned (online behaviour unchanged).
+ */
+export const applyEntityOverlay = <T extends { id: string }>(
+    list: T[], items: readonly OutboxItem[], userId: string | null | undefined, entity: Exclude<OutboxEntity, 'document'>,
+    toItem: (row: Record<string, unknown>, prev: T | undefined) => T,
+): T[] => {
+    const mine = itemsOfUser(items, userId).filter(i => entityOf(i) === entity);
+    if (!mine.length) return list;
+    const byId = new Map(list.map(x => [x.id, x]));
+    const added: T[] = [];
+    for (const item of mine) {
+        const prev = byId.get(item.docId);
+        if (!prev && item.kind !== 'create') continue; // an edit of something not loaded here
+        const next = toItem({ ...item.data, id: item.docId }, prev);
+        if (prev) byId.set(item.docId, next); else added.push(next);
+    }
+    return [...added.reverse(), ...list.map(x => byId.get(x.id) || x)];
+};
+
+/** Jobs / clients created offline and not on the account yet (they take a Free-plan slot when they sync). */
+export const pendingEntityCreates = (items: readonly OutboxItem[], userId: string | null | undefined, entity: Exclude<OutboxEntity, 'document'>): number =>
+    itemsOfUser(items, userId).filter(i => entityOf(i) === entity && i.kind === 'create').length;
 
 export type DocSyncTone = 'pending' | 'syncing' | 'error';
 
