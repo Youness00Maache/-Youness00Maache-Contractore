@@ -318,6 +318,13 @@ the secrets are in, click Verify endpoint + Send test event. kelviq-checkout / k
 routing, flag off) but NOT redeployed yet — deploy together with the subscribe-flow change.
 Started subscribe-flow helper a5bac949ae036a6c1 (sign up first → automatic checkout for the chosen plan; existing
 account → log in; intent survives email confirmation/OAuth; "Finish upgrading" banner; no DB change).
+**14:35:** Subscribe flow DONE + committed (433f012, 753cca6; subscribe-flow-check 81). Existing email → log in for
+EVERY sign-up (owner rule). Owner added KELVIQ_WEBHOOK_SECRET + KELVIQ_SERVER_API_KEY; Kelviq "Send test event" →
+HTTP 200 {"received":true,"status":"test"} (3 of 4 webhook steps done; 4th = first live payment). Supabase Auth
+redirect list already allows https://www.contractordocs.app/** (plan params OK). kelviq-webhook/kelviq-checkout NOT
+redeployed on purpose (live version works; new code only adds credits routing behind the OFF flag).
+ONLY BLOCKER LEFT FOR PUBLISHING: GitHub push access (add YounessMaache as collaborator or gh auth login as
+Youness00Maache), then push my-branch → merge main → verify live → Search Console sitemap + Bing.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
