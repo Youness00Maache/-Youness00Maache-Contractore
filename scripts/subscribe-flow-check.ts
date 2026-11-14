@@ -158,7 +158,8 @@ ok('confirmation email keeps the plan in emailRedirectTo', /emailRedirectTo: `\$
 ok('Google OAuth keeps the plan in redirectTo', /signInWithOAuth\(\{ provider: 'google', options: \{ redirectTo: `\$\{window\.location\.origin\}\/auth\/login\$\{intentSearch\(readIntent\(\)\)\}`/.test(app));
 ok('signup → login keeps the plan', /onSwitchToLogin=\{\(\) => navigate\(\{ pathname: '\/auth\/login', search: intentSearch\(readIntent\(\)\) \}/.test(app));
 ok('signed-in /signup?plan= is captured', app.includes("if (view.screen === 'auth') captureIntentFromSearch(location.search);"));
-ok('no-plan signup path unchanged (redirect only when an intent exists)', app.includes("if (intent && signupOutcome(data, error) === 'alreadyRegistered')"));
+// Owner rule (2026-11-14): signing up with an email that already has an account always goes to log in (plan or not).
+ok('existing email → log in for every sign-up (with or without a picked plan)', app.includes("if (signupOutcome(data, error) === 'alreadyRegistered')"));
 ok('kelviq-checkout: customerId is the user id', /customerId: user\.id,/.test(checkoutFn));
 ok('kelviq-checkout: metadata carries user_id', /metadata: \{ user_id: user\.id, tier \}/.test(checkoutFn));
 
