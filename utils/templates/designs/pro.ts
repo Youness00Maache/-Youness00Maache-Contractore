@@ -22,7 +22,7 @@
  * All structure comes from blocks.ts (pagination contract, empty sections never printed).
  */
 import {
-  block, lines, logoImg, metaList, partyBlocks, statusBadge, titleH1,
+  block, defaultCompose, factsBlock, lines, logoImg, metaList, partyBlocks, statusBadge, titleH1,
   type DesignDef, type RenderCtx, type ThemeDef,
 } from '../blocks.ts';
 import type { TemplateMeta } from '../registry.ts';
@@ -50,7 +50,7 @@ export interface ProSpec {
   due?: boolean;
   /** details (dates, project…) column in the parties row; default true */
   details?: boolean;
-  /** company as the first party ('From' or the given label) */
+  /** company as the first party ('From' or the given label; a function returning '' = no company column) */
   fromParty?: boolean | ((m: DocModel) => string);
   /** design styles, scoped with `.cd-t-<id>` */
   css(ctx: RenderCtx): string;
@@ -92,6 +92,16 @@ export const dueBox = (m: DocModel, cls = 'pr-due') => {
   if (!m.highlight) return '';
   const sub = m.keyDate && m.keyDate.label !== m.highlight.label ? `<div class="pr-due-sub">${m.keyDate.label} ${m.keyDate.value}</div>` : '';
   return `<div class="${cls}"><div class="pr-due-label">${m.highlight.label}</div><div class="pr-due-value cd-num">${m.highlight.value}</div>${sub}</div>`;
+};
+
+/**
+ * The facts (labor hours, warranty period, revenue…) minus the ones the key-figure box already shows: the highlight
+ * itself ("Estimated cost", "Total hours", "Warranty period", "Gross profit") and the date printed under it.
+ */
+export const factsBesideKeyFigure = (m: DocModel) => {
+  if (!m.highlight) return m.facts;
+  const shown = new Set([m.highlight.label, m.keyDate && m.keyDate.label !== m.highlight.label ? m.keyDate.label : ''].filter(Boolean));
+  return m.facts.filter((f) => !shown.has(f.label));
 };
 
 export const detailsCol = (m: DocModel, title = 'Details') =>
@@ -172,6 +182,7 @@ padding:calc(var(--pt) - 8px) var(--px) 24px calc(var(--pl) - var(--pr-side));ba
 .cd-root.cd-o-d-compact .cd-tot-grand{padding:7px 10px;margin-top:4px;}
 .cd-root.cd-o-d-compact .pr-hdr{gap:20px;}
 .cd-root.cd-o-d-compact .cd-sig-img{height:40px;}
+.cd-pro .cd-facts .cd-fact{max-width:250px;}
 .cd-root.cd-o-d-compact .cd-fact{padding:7px 10px;}
 .cd-root.cd-o-d-compact .cd-fact-value{font-size:15px;}
 .cd-root.cd-o-d-compact .pr-due{padding:7px 12px;}
@@ -211,10 +222,13 @@ export const proDesign = (spec: ProSpec): DesignDef => {
       const custom = spec.parties ? spec.parties(ctx) : null;
       if (custom !== null && custom !== undefined) return custom;
       const { m } = ctx;
-      const from = spec.fromParty ? fromPartyHtml(m, typeof spec.fromParty === 'function' ? spec.fromParty(m) : 'From') : '';
+      const fromLabel = typeof spec.fromParty === 'function' ? spec.fromParty(m) : spec.fromParty ? 'From' : '';
+      const from = fromLabel ? fromPartyHtml(m, fromLabel) : '';
       const cols = `${from}${partyBlocks(m)}${spec.details === false ? '' : detailsCol(m)}${spec.due === false ? '' : dueBox(m)}`;
       return cols ? block('cd-parties pr-parties', cols) : '';
     },
+    // every Premium design prints the key figure (and its date) in its own box: the facts row does not repeat them
+    compose: (ctx, p) => defaultCompose({ ...p, facts: factsBlock({ ...ctx.m, facts: factsBesideKeyFigure(ctx.m) }) }),
     css: (ctx) => ENGINE_CSS + (spec.side ? `.cd-t-${id}{--pr-side:${spec.side}px;}` : '') + spec.css(ctx),
   };
   return { meta: { ...spec.meta, collection: 'new' }, theme };

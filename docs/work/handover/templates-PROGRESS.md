@@ -49,3 +49,29 @@ OLD ID -> NEW ID
  coastal->proposal, atelier->executive, sidebar->corporate, site_plan->blueprint_pro, timber->craftsman, colorblock->bold_block,
  paper_minimal->minimal_line, service_ticket->work_ticket, nordic->minimal_line, metro->modern_contractor, split->bold_block,
  greenbar->field_ready, voltage->slate, meadow->craftsman. (corporate, executive, heritage keep their ids, redesigned.)
+
+## 2026-11-14 afternoon — finishing pass (branch worktree-agent-a300aae907df5b66c)
+Browser QA of the 15 Premium designs × 12 kinds (+ options, sparse, long) with --pdfdiff, contact sheets reviewed by eye.
+The automated checks were already green before; the problems were visual:
+- Studio Grid, Heritage, Proposal, Field Ready: the plain sample invoice/estimate/daily report/change order/PO ran onto
+  a 2nd page with only the notes + signature on it. Studio: details now sit beside the big title, the amount due at
+  the end of the first party row (3 rows → 1), title 48px; its title block was squeezed to 44% by an engine rule
+  (fixed). Heritage: small logo by default, tighter rhythm. Field Ready: 8px cells, 18px gaps (same look).
+  Proposal: "Prepared by" column only on estimates/change orders/work orders/warranties (address + phone; the header
+  then shows logo + name only); invoices/POs/time sheets no longer get a squeezed 5th "From" column.
+- Every Premium design repeated the key figure in the facts row (work order "Estimated cost", warranty "Warranty
+  period" + "Valid through", time sheet "Total hours", profit report "Gross profit"): pro.ts factsBesideKeyFigure.
+  Single facts are max 250px wide instead of a full-width box.
+- Field Ready "New contract total" wrapped inside the total box (label 16px now). Bold Block amount color is
+  contrast-checked against the block (custom colors).
+Other changes: line unit printed after the quantity ("42 sq ft", "3 boxes"; model.ts qtyCell; Qty column 14% only when a
+line has a unit); blocks.ts isShortSection had a literal backspace (0x08) instead of \b, so the rule "images/tables/
+headings never beside the signatures" never applied — fixed (no QA sample changes layout: none of their notes/terms
+has an image, table or heading; only real documents with such notes now print them full width); paginate.ts totals
+at a page break (carry 1 row if the gap stays ≤ 20% of the page, else short table whole, else "Continued from page N").
+templates-qa: --shots=review|gaps, totals-at-page-break sweep (8…30 lines × every design), unit / signoff / previews
+checks; Chrome profiles are now deleted at the end of a run (the old unref'd timer left one 30 MB profile per run in
+%TEMP% — 138 of them, 4 GB, deleted 2026-11-14).
+Marketing Templates page: content/templatePreviews.ts lists the 26 current designs (Basic / Premium groups, Premium
+badge), public/templates/previews/<id>.webp (scripts/templates-qa.ts --kinds=invoice --previews).
+Compare images: docs/work/handover/templates-compare/*.jpg.

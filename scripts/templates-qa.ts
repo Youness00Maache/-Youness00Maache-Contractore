@@ -10,12 +10,16 @@
  *                                                         # (fails on a visible blob of differences, >1.5% scattered noise,
  *                                                         # or when the page fell back to html2canvas)
  *                                                         # (png/../pdfdiff/<id>/<kind>-<variant>.png: preview | PDF | diff)
+ *   npx tsx scripts/templates-qa.ts --shots=review        # screenshots of every kind's sample + long variants and the
+ *                                                         # good/better/best estimates (default --shots=sample; --shots=all;
+ *                                                         # --shots=gaps: the totals-at-page-break invoices)
  *   npx tsx scripts/templates-qa.ts --no-emptyboxes       # skip the empty-box check on sparse documents
  *   npx tsx scripts/templates-qa.ts --pdf                 # also generate real PDFs through services/pdfGenerator.ts
  *                                                         # (and check their invisible text layer is searchable)
  *   npx tsx scripts/templates-qa.ts --textlayer           # also write png/<id>/<kind>-textlayer.png: the PDF text layer
  *                                                         # drawn in red over the page, to eyeball that it lines up
- *   npx tsx scripts/templates-qa.ts --previews            # also write public/templates/previews/<id>.png
+ *   npx tsx scripts/templates-qa.ts --previews            # also write public/templates/previews/<id>.webp (marketing
+ *                                                         # Templates page, content/templatePreviews.ts); --kinds=invoice is enough
  *   npx tsx scripts/templates-qa.ts --out=C:/tmp/cd-qa    # output folder (default: <os tmp>/contractordocs-templates-qa)
  *
  * Exit code 1 when any check fails.
@@ -41,6 +45,7 @@ import {
   ALL_TEMPLATE_IDS, BASIC_TEMPLATE_IDS, PREMIUM_TEMPLATE_IDS, RETIRED_TEMPLATE_MAP, getTemplateMeta,
 } from '../utils/templates/registry.ts';
 import { THEMES } from '../utils/templates/themes.ts';
+import { TEMPLATE_PREVIEWS } from '../content/templatePreviews.ts';
 import { modelFieldChecks, renderFieldChecks } from './templates-fields.ts';
 import { optionsEstimate, visualStage } from './templates-visual.ts';
 
@@ -204,6 +209,16 @@ const unitChecks = () => {
     const r = renderDocument(FormType.Invoice, { ...SAMPLE_DOCUMENTS.invoice, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
     check(r.templateId === id && r.html.includes(`cd-t-${id} `), `documents saved with ${id} must render the ${id} design (got ${r.templateId})`);
   }
+  // marketing Templates page (content/templatePreviews.ts): every current design once, Premium marked, image present
+  const previewIds = TEMPLATE_PREVIEWS.map((p) => p.id);
+  check(previewIds.length === ALL_TEMPLATE_IDS.length && ALL_TEMPLATE_IDS.every((id) => previewIds.includes(id)), `Templates page previews must list every design once (missing: ${ALL_TEMPLATE_IDS.filter((id) => !previewIds.includes(id)).join(', ') || '-'}; extra: ${previewIds.filter((id) => !(ALL_TEMPLATE_IDS as readonly string[]).includes(id)).join(', ') || '-'})`);
+  for (const p of TEMPLATE_PREVIEWS) {
+    if (!(ALL_TEMPLATE_IDS as readonly string[]).includes(p.id)) continue;
+    const meta = getTemplateMeta(p.id);
+    check(p.premium === (meta.tier === 'premium') && p.name === meta.name, `Templates page preview ${p.id}: name "${p.name}" / Premium ${p.premium} must match the registry ("${meta.name}", ${meta.tier})`);
+    check(existsSync(join(ROOT, 'public', p.src)), `Templates page preview image missing: public${p.src} (npx tsx scripts/templates-qa.ts --kinds=invoice --previews)`);
+  }
+
   // backward compatibility: every retired design id renders with its replacement (a Premium design)
   for (const [old, mapped] of Object.entries(RETIRED_TEMPLATE_MAP)) {
     check((PREMIUM_TEMPLATE_IDS as readonly string[]).includes(mapped), `retired ${old} must map to a Premium design (maps to ${mapped})`);
@@ -263,6 +278,42 @@ const unitChecks = () => {
   const badFin = renderDocument(FormType.Estimate, { ...finEst, financingLink: 'javascript:alert(1)' }, SAMPLE_PROFILE, SAMPLE_JOB);
   check(!badFin.html.includes('Financing available') && !/javascript:/i.test(badFin.html), 'unsafe financing link is ignored');
   check(!renderDocument(FormType.Invoice, { ...finEst }, SAMPLE_PROFILE, SAMPLE_JOB).html.includes('Financing available'), 'financing is only for estimates');
+
+  // the line unit (Quick measure) is printed after the quantity in every design; lines without one are unchanged
+  const unitLines = [
+    { id: 'u1', description: 'Tile floor', quantity: 42, rate: 12, unit: 'sq ft' },
+    { id: 'u2', description: 'Baseboard', quantity: 120, rate: 3, unit: 'lf' },
+    { id: 'u3', description: 'Thinset', quantity: 3, rate: 28, unit: 'box' },
+    { id: 'u4', description: 'Grout', quantity: 1, rate: 30, unit: 'box' },
+    { id: 'u5', description: 'Labor', quantity: 6, rate: 85 },
+  ];
+  for (const id of templates) {
+    for (const type of [FormType.Invoice, FormType.Estimate, FormType.ChangeOrder, FormType.PurchaseOrder]) {
+      const r = renderDocument(type, { lineItems: unitLines, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+      const text = visibleText(r.html);
+      check(['42 sq ft', '120 lf', '3 boxes', '1 box'].every((s) => text.includes(s)) && (r.html.match(/class="cd-unit"/g) || []).length === 4, `[${id}/${type}] line units must print after the quantity (42 sq ft, 120 lf, 3 boxes, 1 box)`);
+      check(/<td class="cd-r cd-col-1 cd-c-qty cd-num">6<\/td>/.test(r.html), `[${id}/${type}] a line without a unit prints its quantity alone`);
+    }
+    const plainDoc = renderDocument(FormType.Invoice, { lineItems: unitLines.map(({ unit: _u, ...l }) => l), templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+    check(!plainDoc.html.includes('class="cd-unit"') && !/class="[^"]*\bcd-c-qty\b/.test(plainDoc.html) && plainDoc.html.includes('<col style="width:10%">'), `[${id}] documents without units keep the original Qty column`);
+  }
+
+  // short plain notes sit beside the signatures; notes with an image, a table or a heading get the full width
+  const signed = { ...ref, invoiceNumber: 'INV-SIG', signatureUrl: SAMPLE_DOCUMENTS.invoice.signatureUrl };
+  const richNotes = {
+    image: '<p>Before photo:</p><p><img src="https://cdn.example.com/before.jpg"></p>',
+    table: '<table><tr><td>Room</td><td>Area</td></tr><tr><td>Kitchen</td><td>180</td></tr></table>',
+    heading: '<h3>Access</h3><p>Gate code 1234.</p>',
+  };
+  for (const id of templates) {
+    const plain = renderDocument(FormType.Invoice, { ...signed, notes: 'Thank you for your business.', templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+    const signoff = (html: string) => html.includes('<section class="cd-block cd-signoff"');
+    check(signoff(plain.html), `[${id}] short plain notes must sit beside the signature`);
+    for (const [what, notes] of Object.entries(richNotes)) {
+      const r = renderDocument(FormType.Invoice, { ...signed, notes, templateId: id }, SAMPLE_PROFILE, SAMPLE_JOB);
+      check(!signoff(r.html) && r.html.includes('cd-sec-notes'), `[${id}] notes with ${what === 'image' ? 'an' : 'a'} ${what} must not be squeezed beside the signature`);
+    }
+  }
 
   // field placement: every value a form collects lands in the right box, in every design (scripts/templates-fields.ts)
   modelFieldChecks(check);
@@ -491,6 +542,32 @@ const CHECK_PAGES_JS = `(() => {
     first: (() => { const r = pages[0].getBoundingClientRect(); return { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height }; })() };
 })()`;
 
+/** Where the totals landed after pagination: page, lines above them, "Continued" note, gap at the bottom of the page before. */
+const TOTALS_GAP_JS = `() => {
+  const root = document.querySelector('.cd-root'); const pageH = parseFloat(root.getAttribute('data-page-height'));
+  const pages = Array.from(document.querySelectorAll('.cd-page'));
+  const sum = document.querySelector('.cd-summary'); if (!sum) return null;
+  const page = sum.closest('.cd-page'); const pi = pages.indexOf(page);
+  const blocks = Array.from(page.querySelectorAll('.cd-body > .cd-block'));
+  const before = blocks.slice(0, blocks.indexOf(sum));
+  const note = before.some((b) => b.classList.contains('cd-cont-note'));
+  const rowsAbove = before.filter((b) => b.classList.contains('cd-items')).reduce((a, b) => a + b.querySelectorAll('tbody tr').length, 0);
+  // the totals opened this page (alone, or with rows carried from the table of the page before)
+  const opened = pi > 0 && before.every((b) => b.classList.contains('cd-cont-note') || (b.classList.contains('cd-items') && b.getAttribute('data-cont') === '1'));
+  let gap = 0, bodyH = 0;
+  if (opened) {
+    const prev = pages[pi - 1]; const pr = prev.getBoundingClientRect(); const cs = getComputedStyle(prev.querySelector('.cd-body'));
+    const lim = pr.top + pageH - parseFloat(cs.paddingBottom);
+    const last = Array.from(prev.querySelectorAll('.cd-body > .cd-block')).pop();
+    gap = lim - last.getBoundingClientRect().bottom;
+    const rh = prev.querySelector('.cd-body > .cd-runhead');
+    const top = rh && getComputedStyle(rh).display !== 'none' ? rh.getBoundingClientRect().bottom + parseFloat(getComputedStyle(rh).marginBottom) : pr.top + parseFloat(cs.paddingTop);
+    bodyH = lim - top;
+  }
+  return { pi, note, rowsAbove, carried: opened && !note && rowsAbove > 0, gap: Math.round(gap), bodyH: Math.round(bodyH),
+    sumH: Math.round(sum.getBoundingClientRect().height), problems: ${CHECK_PAGES_JS}.problems };
+}`;
+
 const browserStage = async () => {
   const chrome = await launchChrome();
   if (!chrome) {
@@ -504,7 +581,9 @@ const browserStage = async () => {
     const shotDir = join(OUT, 'png');
     mkdirSync(shotDir, { recursive: true });
     const wantShot = (r: Rendered) => shotsMode === 'all'
-      || (shotsMode === 'sample' && (r.variant === 'sample' || r.variant === 'options' || (r.variant === 'long' && (r.kind === 'invoice' || r.kind === 'dailyReport'))));
+      || (shotsMode === 'sample' && (r.variant === 'sample' || r.variant === 'options' || (r.variant === 'long' && (r.kind === 'invoice' || r.kind === 'dailyReport'))))
+      // design review: every kind's sample and long (page breaks) variants + the good/better/best estimates
+      || (shotsMode === 'review' && (r.variant === 'sample' || r.variant === 'long' || isOptionsVariant(r.variant)));
     const targets = rendered.filter((r) => r.variant !== 'xss' && (wantShot(r) || r.variant === 'long' || r.variant === 'unicode' || isOptionsVariant(r.variant)));
     let shots = 0;
     let textLayerJs = '';
@@ -559,11 +638,49 @@ const browserStage = async () => {
         mkdirSync(previewDir, { recursive: true });
         const f = info.first;
         await cdp.send('Emulation.setDeviceMetricsOverride', { width: 900, height: Math.min(info.height, 16000), deviceScaleFactor: 1, mobile: false });
-        const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: f.x, y: f.y, width: f.w, height: f.h, scale: 900 / f.w } });
-        writeFileSync(join(previewDir, `${r.template}.png`), Buffer.from(shot.data, 'base64'));
+        // WebP, 640 px wide: the page shows them at most ~300 px wide (2× for sharp screens), ~35 KB each
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'webp', quality: 80, captureBeyondViewport: true, clip: { x: f.x, y: f.y, width: f.w, height: f.h, scale: 640 / f.w } });
+        writeFileSync(join(previewDir, `${r.template}.webp`), Buffer.from(shot.data, 'base64'));
       }
     }
     console.log(`browser: paginated ${targets.length} documents, ${shots} screenshots in ${shotDir}`);
+
+    // totals at a page break: invoices with 8…30 lines put the totals at every possible spot of the page end. The totals
+    // never start a page silently cut off from every line, and they never leave a big gap at the bottom of a page:
+    // either the last row came along (gap ≤ 20% of the page body) or "Continued from page N" (gap < totals height).
+    if (!args.has('no-gapsweep') && (!ONLY_KINDS || ONLY_KINDS.includes('invoice'))) {
+      const descs = ['Framing labor', 'Drywall hang and finish, level 4', 'Interior paint, two coats', 'Trim carpentry', LONG_TEXT, 'Electrical device'];
+      let swept = 0;
+      for (const template of templates) {
+        for (let n = 8; n <= 30; n++) {
+          const lineItems = Array.from({ length: n }, (_, i) => ({ id: `g${i}`, description: `${i + 1}. ${descs[i % descs.length]}`, quantity: (i % 4) + 1, rate: 45 + i * 7.5, ...(i % 3 === 0 ? { unit: 'sq ft' } : {}) }));
+          const r = renderDocument(FormType.Invoice, { ...SAMPLE_DOCUMENTS.invoice, lineItems, templateId: template }, SAMPLE_PROFILE, SAMPLE_JOB);
+          const dir = join(OUT, 'html', template);
+          mkdirSync(dir, { recursive: true });
+          const file = join(dir, `gap-${n}.html`);
+          writeFileSync(file, r.html, 'utf8');
+          await cdp.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 1200, deviceScaleFactor: 1, mobile: false });
+          await navigate(cdp, pathToFileURL(file).href);
+          await cdp.eval(paginateJs + ';0');
+          const g = await cdp.eval<any>(`(async () => { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 6000))]); window.__cdPaginate(document); return (${TOTALS_GAP_JS})(); })()`);
+          const tag = `[${template}/invoice/gap-${n}]`;
+          swept++;
+          if (!g) { check(false, `${tag} totals missing`); continue; }
+          for (const p of g.problems) failures.push(`${tag} ${p}`);
+          check(g.rowsAbove > 0 || g.note, `${tag} totals start page ${g.pi + 1} without any line above them and without "Continued from page"`);
+          if (g.carried) check(g.gap <= g.bodyH * 0.2 + 2, `${tag} carrying rows left a ${g.gap}px gap at the bottom of page ${g.pi} (max ${Math.round(g.bodyH * 0.2)}px)`);
+          if (g.note) check(g.gap < g.sumH + 40, `${tag} totals moved under "Continued from page" although they fitted (gap ${g.gap}px, totals ${g.sumH}px)`);
+          if (shotsMode === 'gaps' && g.pi > 0) {
+            const h = await cdp.eval<number>('Math.ceil(document.documentElement.scrollHeight)');
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width: 900, height: Math.min(h, 16000), deviceScaleFactor: 1, mobile: false });
+            const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width: 900, height: Math.min(h, 16000), scale: 1 } });
+            mkdirSync(join(shotDir, template), { recursive: true });
+            writeFileSync(join(shotDir, template, `gap-${n}${g.note ? '-note' : g.carried ? '-carried' : ''}.png`), Buffer.from(shot.data, 'base64'));
+          }
+        }
+      }
+      console.log(`browser: totals-at-page-break sweep, ${swept} invoices`);
+    }
 
     // empty boxes on sparse documents (always) and preview-vs-PDF pixel comparison (--pdfdiff); see templates-visual.ts
     if (!args.has('no-emptyboxes') || args.has('pdfdiff')) {
@@ -614,7 +731,10 @@ const browserStage = async () => {
   } finally {
     cdp.close();
     proc.kill();
-    setTimeout(() => { try { rmSync(profileDir, { recursive: true, force: true }); } catch { /* chrome may still hold files */ } }, 1500).unref();
+    // remove the throw-away Chrome profile (tens of MB each) once Chrome let go of its files; a timer that the exiting
+    // process never ran left one profile per run in the temp folder
+    await new Promise((r) => { proc.once('exit', r); setTimeout(r, 4000); });
+    try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); } catch { /* still locked: leave it */ }
   }
 };
 

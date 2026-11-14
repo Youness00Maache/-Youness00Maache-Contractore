@@ -7,6 +7,7 @@
  */
 import { block, lines, metaList, partyBlocks, statusBadge, titleH1, type DesignDef, type RenderCtx } from '../blocks.ts';
 import { rgba } from '../kit.ts';
+import { ensureContrast } from '../colors.ts';
 import { contactLine, detailsCol, dueBox, proBrand, proDesign, proDocNo, proLogo } from './pro.ts';
 
 // ------------------------------------------------------------------------------------------- Classic Trade
@@ -150,10 +151,11 @@ const fieldReady = proDesign({
   layout: { header: 'left', table: 'boxed', logoSize: 'm', density: 'comfortable' },
   pad: { top: 48, x: 48, bottom: 66 },
   css: ({ c }) => `
-.cd-t-field_ready{--pr-fs:13.5px;--pr-td-fs:13px;--title-size:42px;--muted:${c.ink};--pr-cell-y:10px;--pr-box:#6b7280;--pr-box-th:var(--secondary);--pr-box-th-ink:var(--on-secondary);--pr-th-bg:var(--secondary);--pr-th-on:var(--on-secondary);--pr-th-size:10.5px;--pr-th-rule:2px solid var(--ink);}
+.cd-t-field_ready{--pr-fs:13.5px;--pr-td-fs:13px;--title-size:42px;--muted:${c.ink};--pr-cell-y:8px;--pr-gap:18px;--pr-box:#6b7280;--pr-box-th:var(--secondary);--pr-box-th-ink:var(--on-secondary);--pr-th-bg:var(--secondary);--pr-th-on:var(--on-secondary);--pr-th-size:10.5px;--pr-th-rule:2px solid var(--ink);}
 .cd-t-field_ready.cd-o-d-compact{--pr-fs:12.5px;--pr-td-fs:12px;--pr-cell-y:6px;}
 .cd-t-field_ready .cd-lines{color:var(--ink);}
-.cd-t-field_ready .pr-hdr{padding-bottom:14px;border-bottom:5px solid var(--ink);}
+.cd-t-field_ready .pr-hdr{padding-bottom:12px;border-bottom:5px solid var(--ink);}
+.cd-t-field_ready .pr-logo{margin-bottom:8px;}
 .cd-t-field_ready.cd-o-h-band .pr-hdr{border-bottom:0;}
 .cd-t-field_ready .cd-title{font-weight:700;text-transform:uppercase;letter-spacing:.02em;}
 .cd-t-field_ready .pr-co{font-size:20px;}
@@ -166,7 +168,8 @@ const fieldReady = proDesign({
 .cd-t-field_ready .pr-due-sub{color:var(--accent-ink);font-weight:700;font-size:12px;}
 .cd-t-field_ready .cd-tot{font-size:13.5px;}
 .cd-t-field_ready .cd-tot-label{color:var(--ink);}
-.cd-t-field_ready .cd-tot-grand{background:transparent;color:var(--ink);border:3px solid var(--ink);border-radius:0;font-family:var(--font-head);font-size:24px;padding:8px 12px;}
+.cd-t-field_ready .cd-tot-grand{background:transparent;color:var(--ink);border:3px solid var(--ink);border-radius:0;font-family:var(--font-head);font-size:24px;padding:8px 12px;align-items:baseline;}
+.cd-t-field_ready .cd-tot-grand .cd-tot-label{font-size:16px;letter-spacing:.02em;}
 .cd-t-field_ready .cd-h{font-family:var(--font-head);font-size:14px;letter-spacing:.06em;color:var(--ink);border-left:5px solid var(--accent);padding-left:8px;}
 .cd-t-field_ready .cd-fact{background:transparent;border:2px solid var(--ink);border-radius:0;}
 .cd-t-field_ready .cd-fact-value{font-size:21px;color:var(--ink);}
@@ -221,6 +224,8 @@ const corporate = proDesign({
 .cd-t-corporate .pr-parties{justify-content:space-between;}
 .cd-t-corporate .pr-due{border-radius:0 6px 6px 0;}
 .cd-t-corporate .cd-tot-grand{border-radius:4px;}
+.cd-t-corporate .cd-summary{gap:24px;}
+.cd-t-corporate .cd-summary .cd-totals{flex-basis:250px;}
 .cd-t-corporate .cd-h{color:var(--accent-ink);}
 .cd-t-corporate .cd-fact{border-radius:6px;}
 `,
@@ -306,7 +311,8 @@ const boldBlock = proDesign({
     const cols = `${partyBlocks(m)}${detailsCol(m)}${dueBox(m)}`;
     return cols ? block('cd-parties pr-parties', cols) : '';
   },
-  css: () => `
+  // the amount on the solid block is in the secondary color, darkened/lightened until it reads on the block (any colors)
+  css: ({ c }) => `
 .cd-t-bold_block{--title-size:40px;--pr-th-bg:var(--accent);--pr-th-rule:3px solid var(--accent);}
 .cd-t-bold_block .cd-title{font-weight:800;text-transform:uppercase;letter-spacing:-.005em;}
 .cd-t-bold_block .pr-co{font-weight:800;font-size:19px;}
@@ -314,9 +320,9 @@ const boldBlock = proDesign({
 .cd-t-bold_block .bb-block{margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 0 0;padding:calc(var(--pt) - 6px) var(--px) 20px 28px;background:var(--accent);color:var(--on-accent);text-align:left !important;min-width:300px;}
 .cd-t-bold_block .bb-block .cd-title,.cd-t-bold_block .bb-block .cd-docno,.cd-t-bold_block .bb-block .cd-docno-label,.cd-t-bold_block .bb-block .cd-status{color:var(--on-accent);}
 .cd-t-bold_block .bb-block .cd-docno-label{opacity:.8;}
-.cd-t-bold_block .bb-due{margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.28);}
+.cd-t-bold_block .bb-due{margin-top:16px;padding-top:12px;border-top:1px solid ${rgba(c.onAccent, 0.28)};}
 .cd-t-bold_block .bb-due-l{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.85;}
-.cd-t-bold_block .bb-due-v{font-family:var(--font-head);font-size:28px;font-weight:800;line-height:1.15;color:var(--secondary);white-space:normal;overflow-wrap:anywhere;}
+.cd-t-bold_block .bb-due-v{font-family:var(--font-head);font-size:28px;font-weight:800;line-height:1.15;color:${ensureContrast(c.secondary, c.accent, 3)};white-space:normal;overflow-wrap:anywhere;}
 .cd-t-bold_block .bb-due-s{font-size:10.5px;margin-top:2px;opacity:.9;}
 .cd-t-bold_block .cd-label{color:var(--ink);font-weight:800;}
 .cd-t-bold_block .pr-due{border-left-color:var(--secondary);border-left-width:5px;}
@@ -335,12 +341,12 @@ const heritage = proDesign({
     description: 'Centered serif type, small caps and a fine double frame, like a printed letterpress form.',
     accent: '#7b2d26', secondary: '#b08d57', paper: '#f8f4ec', headFont: 'garamond', bodyFont: 'lora', tags: ['heritage', 'letterpress', 'serif'],
   },
-  layout: { header: 'centered', table: 'lines', logoSize: 'm', density: 'comfortable' },
+  layout: { header: 'centered', table: 'lines', logoSize: 's', density: 'comfortable' },
   ink: '#2b2420',
-  pad: { top: 58, x: 62, bottom: 76, footer: 38 },
+  pad: { top: 52, x: 62, bottom: 72, footer: 38 },
   chrome: () => '<div class="he-frame"></div>',
   css: () => `
-.cd-t-heritage{--title-size:28px;--pr-th-top:1px solid var(--ink);--pr-th-rule:1px solid var(--ink);--pr-th-case:none;--pr-th-track:.12em;--pr-th-weight:600;--pr-th-size:11px;--pr-stripe:var(--secondary-soft);--pr-box-th:var(--secondary-soft);}
+.cd-t-heritage{--title-size:28px;--pr-gap:18px;--pr-cell-y:8px;--pr-th-top:1px solid var(--ink);--pr-th-rule:1px solid var(--ink);--pr-th-case:none;--pr-th-track:.12em;--pr-th-weight:600;--pr-th-size:11px;--pr-stripe:var(--secondary-soft);--pr-box-th:var(--secondary-soft);}
 .cd-t-heritage .he-frame{position:absolute;left:22px;top:22px;right:22px;bottom:22px;border:3px double var(--rule-strong);}
 .cd-t-heritage .cd-table th{font-variant:small-caps;}
 .cd-t-heritage .pr-co{font-size:24px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;}
@@ -349,6 +355,8 @@ const heritage = proDesign({
 .cd-t-heritage .pr-tb-rule{border-top:1px solid var(--ink);}
 .cd-t-heritage .cd-title{font-weight:600;letter-spacing:.3em;text-transform:uppercase;color:var(--accent-ink);}
 .cd-t-heritage.cd-o-h-left .pr-hdr{padding-bottom:16px;border-bottom:1px solid var(--ink);}
+.cd-t-heritage.cd-o-h-centered .pr-doc{margin-top:14px;}
+.cd-t-heritage .pr-logo{margin-bottom:8px;}
 .cd-t-heritage .cd-docno{font-style:italic;}
 .cd-t-heritage .cd-label,.cd-t-heritage .pr-due-label{font-family:var(--font-head);font-size:12px;font-weight:600;text-transform:none;font-variant:small-caps;letter-spacing:.12em;color:var(--accent-ink);}
 .cd-t-heritage .cd-party-name{font-family:var(--font-head);font-size:16px;font-weight:600;}
@@ -390,6 +398,7 @@ const slate = proDesign({
 });
 
 // ------------------------------------------------------------------------------------------------- Proposal
+const PROPOSAL_KINDS = /^(estimate|changeOrder|workOrder|warranty)$/;
 const proposal = proDesign({
   meta: {
     id: 'proposal', name: 'Proposal', descriptor: 'Prepared for / by · soft serif',
@@ -398,7 +407,19 @@ const proposal = proDesign({
   },
   layout: { header: 'left', table: 'lines', logoSize: 'm', density: 'comfortable' },
   pad: { top: 54, x: 58, bottom: 68 },
-  fromParty: (m) => (/^(estimate|changeOrder|workOrder|warranty)$/.test(m.kind) ? 'Prepared by' : 'From'),
+  // proposals (estimates, change orders, work orders, warranties) read "Prepared by / Prepared for": the company's
+  // address and phone move from the header into the "Prepared by" column (email and website stay in the page footer);
+  // other documents keep the usual header
+  brand: (ctx, layout) => (PROPOSAL_KINDS.test(ctx.m.kind) ? proBrand(ctx, layout, { lines: [] }) : null),
+  parties: (ctx) => {
+    const { m } = ctx;
+    if (!PROPOSAL_KINDS.test(m.kind)) return null;
+    const by = m.company.name || m.company.addressLines.length
+      ? `<div class="cd-party cd-party-from"><div class="cd-label">Prepared by</div>${m.company.name ? `<div class="cd-party-name">${m.company.name}</div>` : ''}${lines([...m.company.addressLines, m.company.phone].filter(Boolean))}</div>`
+      : '';
+    const cols = `${by}${partyBlocks(m)}${detailsCol(m)}${dueBox(m)}`;
+    return cols ? block('cd-parties pr-parties', cols) : '';
+  },
   css: () => `
 .cd-t-proposal{--title-size:36px;--pr-th-rule:1.5px solid var(--accent);--pr-th-ink:var(--accent-ink);--pr-th-bg:var(--accent);--pr-stripe:var(--accent-soft);}
 .cd-t-proposal .pr-hdr{padding-bottom:6px;}
@@ -426,8 +447,14 @@ const studioHeader = (ctx: RenderCtx) => {
     contactLine(m) ? `<div class="st-cell">${[m.company.phone, m.company.email, m.company.website].filter(Boolean).map((l) => `<div>${l}</div>`).join('')}</div>` : '',
   ].join('');
   const top = cells ? `<div class="st-top">${cells}</div>` : '';
-  return block('cd-hdr pr-hdr st-hdr', `${top}<div class="pr-doc st-doc"><span class="st-mark"></span>${titleH1(ctx.m)}<div class="st-docmeta">${proDocNo(m)}${statusBadge(m)}</div></div>`);
+  // the big title on the left, the document details beside it on the right (keeps the parties rows short)
+  const details = m.meta.length ? `<div class="st-details">${metaList(m)}</div>` : '';
+  return block('cd-hdr pr-hdr st-hdr', `${top}<div class="st-titlerow"><div class="pr-doc st-doc"><span class="st-mark"></span>${titleH1(ctx.m)}<div class="st-docmeta">${proDocNo(m)}${statusBadge(m)}</div></div>${details}</div>`);
 };
+/** Key figure (amount due…) and its date. */
+const studioDueValue = (m: RenderCtx['m']) => (m.highlight
+  ? `<div class="pr-due-value cd-num">${m.highlight.value}</div>${m.keyDate && m.keyDate.label !== m.highlight.label ? `<div class="pr-due-sub">${m.keyDate.label} ${m.keyDate.value}</div>` : ''}`
+  : '');
 const studio = proDesign({
   meta: {
     id: 'studio', name: 'Studio Grid', descriptor: 'Swiss grid · hanging labels',
@@ -437,29 +464,39 @@ const studio = proDesign({
   layout: { header: 'left', table: 'lines', logoSize: 's', density: 'comfortable' },
   pad: { top: 52, x: 56, bottom: 68 },
   header: (ctx, layout) => (layout === 'left' ? studioHeader(ctx) : null),
-  parties: ({ m }) => {
+  parties: (ctx) => {
+    const { m } = ctx;
+    // the Studio header (logo left) prints the details beside the title; the other header layouts keep a Details row.
+    // The key figure sits at the right end of the first party row (a row of its own when there is no party).
+    const detailsInHeader = (ctx.o?.header || 'left') === 'left';
     const rows = [
-      ...m.parties.map((p) => `<div class="st-row"><div class="cd-label st-k">${p.label}</div><div class="st-v">${p.name ? `<div class="cd-party-name">${p.name}</div>` : ''}${lines(p.lines)}</div></div>`),
-      m.meta.length ? `<div class="st-row"><div class="cd-label st-k">Details</div><div class="st-v">${metaList(m)}</div></div>` : '',
-      m.highlight ? `<div class="st-row st-row-due"><div class="cd-label st-k">${m.highlight.label}</div><div class="st-v"><div class="pr-due-value cd-num">${m.highlight.value}</div>${m.keyDate && m.keyDate.label !== m.highlight.label ? `<div class="pr-due-sub">${m.keyDate.label} ${m.keyDate.value}</div>` : ''}</div></div>` : '',
+      ...m.parties.map((p, i) => `<div class="st-row"><div class="cd-label st-k">${p.label}</div><div class="st-v">${p.name ? `<div class="cd-party-name">${p.name}</div>` : ''}${lines(p.lines)}</div>${i === 0 && m.highlight ? `<div class="st-due"><div class="cd-label">${m.highlight.label}</div>${studioDueValue(m)}</div>` : ''}</div>`),
+      !detailsInHeader && m.meta.length ? `<div class="st-row"><div class="cd-label st-k">Details</div><div class="st-v">${metaList(m)}</div></div>` : '',
+      !m.parties.length && m.highlight ? `<div class="st-row st-row-due"><div class="cd-label st-k">${m.highlight.label}</div><div class="st-v">${studioDueValue(m)}</div></div>` : '',
     ].join('');
     return rows ? block('cd-parties st-parties', rows) : '';
   },
   css: () => `
-.cd-t-studio{--title-size:54px;--pr-th-top:2px solid var(--ink);--pr-th-rule:1px solid var(--ink);--pr-th-weight:600;--pr-th-track:.04em;--pr-th-bg:var(--ink);--pr-stripe:#f4f4f4;}
-.cd-t-studio .st-top{display:flex;gap:24px;padding-bottom:12px;border-bottom:2px solid var(--ink);margin-bottom:26px;font-size:10.5px;line-height:1.5;}
+.cd-t-studio{--title-size:48px;--pr-th-top:2px solid var(--ink);--pr-th-rule:1px solid var(--ink);--pr-th-weight:600;--pr-th-track:.04em;--pr-th-bg:var(--ink);--pr-stripe:#f4f4f4;}
+.cd-t-studio .st-top{display:flex;gap:24px;padding-bottom:12px;border-bottom:2px solid var(--ink);margin-bottom:20px;font-size:10.5px;line-height:1.5;}
 .cd-t-studio .st-cell{flex:1 1 0;min-width:0;overflow-wrap:anywhere;}
 .cd-t-studio .st-brand{flex:1.3 1 0;}
 .cd-t-studio .st-brand .pr-logo{margin-bottom:6px;}
 .cd-t-studio .pr-co{font-size:13px;font-weight:700;}
 .cd-t-studio.cd-o-h-left .st-hdr{display:block;}
-.cd-t-studio .st-doc{text-align:left;max-width:none;position:relative;}
-.cd-t-studio .st-mark{display:block;width:12px;height:12px;background:var(--accent);margin-bottom:12px;}
+.cd-t-studio .st-titlerow{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;}
+.cd-t-studio .st-doc,.cd-t-studio.cd-o-h-left .st-doc{text-align:left;max-width:none;position:relative;flex:1 1 auto;min-width:0;}
+.cd-t-studio .st-details{flex:0 1 300px;min-width:0;padding-bottom:2px;}
+.cd-t-studio .st-due{flex:none;max-width:40%;text-align:right;padding-left:16px;}
+.cd-t-studio .st-due .cd-label{margin-bottom:2px;}
+.cd-t-studio .st-due .pr-due-value{font-family:var(--font-head);font-size:24px;font-weight:700;line-height:1.15;color:var(--ink);overflow-wrap:anywhere;white-space:normal;}
+.cd-t-studio .st-due .pr-due-sub{font-size:10.5px;color:var(--muted);margin-top:2px;}
+.cd-t-studio .st-mark{display:block;width:12px;height:12px;background:var(--accent);margin-bottom:10px;}
 .cd-t-studio .cd-title{font-weight:800;letter-spacing:-.035em;line-height:.95;color:var(--ink);}
 .cd-t-studio .st-docmeta{display:flex;align-items:center;gap:14px;margin-top:10px;}
 .cd-t-studio .st-docmeta .cd-docno,.cd-t-studio .st-docmeta .cd-status{margin-top:0;}
 .cd-t-studio .st-parties{display:block;border-top:1px solid var(--ink);}
-.cd-t-studio .st-row{display:flex;gap:24px;padding:10px 0;border-bottom:1px solid var(--rule-strong);}
+.cd-t-studio .st-row{display:flex;gap:24px;padding:8px 0;border-bottom:1px solid var(--rule-strong);}
 .cd-t-studio .st-k{flex:0 0 26%;margin:2px 0 0;color:var(--ink);}
 .cd-t-studio .st-v{flex:1 1 auto;min-width:0;}
 .cd-t-studio .st-v .cd-meta{max-width:360px;}
@@ -550,7 +587,7 @@ const workTicket = proDesign({
 .cd-t-work_ticket .wt-no{flex:0 0 auto;min-width:150px;display:flex;flex-direction:column;justify-content:center;}
 .cd-t-work_ticket .wt-no-v{font-family:var(--font-head);font-size:22px;font-weight:600;color:var(--accent-ink);letter-spacing:.04em;white-space:normal;overflow-wrap:anywhere;}
 .cd-t-work_ticket .cd-title{font-weight:600;text-transform:uppercase;}
-.cd-t-work_ticket .pr-parties{gap:0;border:1.5px solid var(--secondary);}
+.cd-t-work_ticket .pr-parties{gap:0;border:1.5px solid var(--secondary);align-items:stretch;}
 .cd-t-work_ticket .pr-parties>*{padding:8px 12px;}
 .cd-t-work_ticket .pr-parties>*+*{border-left:1.5px solid var(--secondary);}
 .cd-t-work_ticket .cd-label,.cd-t-work_ticket .pr-due-label{font-family:var(--font-head);font-size:10px;font-weight:500;letter-spacing:.1em;color:var(--secondary-ink);}
@@ -558,11 +595,14 @@ const workTicket = proDesign({
 .cd-t-work_ticket .pr-parties .pr-due{border-left:1.5px solid var(--secondary);}
 .cd-t-work_ticket .pr-due-value{font-family:var(--font-head);color:var(--ink);font-weight:600;}
 .cd-t-work_ticket .cd-meta-row{border-bottom:1px solid var(--rule);}
+.cd-t-work_ticket .cd-meta-row:last-child{border-bottom:0;}
 .cd-t-work_ticket .cd-tot{border-bottom:1px solid var(--rule);}
 .cd-t-work_ticket .cd-totals{border:1.5px solid var(--secondary);padding:4px 10px 8px;}
 .cd-t-work_ticket .cd-tot-grand{background:var(--secondary);color:var(--on-secondary);border-radius:0;font-family:var(--font-head);font-size:16px;margin:6px -10px -8px;padding:8px 12px;}
 .cd-t-work_ticket .cd-h{font-family:var(--font-head);font-weight:500;font-size:11.5px;letter-spacing:.1em;color:var(--secondary-ink);}
-.cd-t-work_ticket .cd-section,.cd-t-work_ticket .cd-grid2{border:1.5px solid var(--secondary);padding:8px 12px;}
+.cd-t-work_ticket .cd-section,.cd-t-work_ticket .cd-grid2,.cd-t-work_ticket .cd-signoff-notes{border:1.5px solid var(--secondary);padding:8px 12px;}
+.cd-t-work_ticket .cd-signoff{align-items:stretch;gap:24px;}
+.cd-t-work_ticket .cd-signoff-sigs .cd-sig{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;}
 .cd-t-work_ticket .cd-grid2{gap:24px;}
 .cd-t-work_ticket .cd-sig{border:1.5px solid var(--secondary);padding:6px 10px 8px;}
 .cd-t-work_ticket .cd-fact{background:transparent;border:1.5px solid var(--secondary);border-radius:0;}

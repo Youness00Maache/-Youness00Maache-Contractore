@@ -412,7 +412,7 @@ const PACKED = packOptionsForSave(EST) as any;
     check('emails / texts / lists say "3 options from $…" before a choice', read('components/ShareModal.tsx').includes("'[Total Amount]': totalText") && read('components/DocumentCard.tsx').includes('documentTotalTextOf(d)'));
     check('help guide + AI knowledge (sync-knowledge)', read('components/help/helpContent.ts').includes("id: 'estimate-options'") && read('components/help/helpContent.ts').includes('[[Apply chosen option]]')
         && read('supabase/functions/ai-assistant/shared/helpGuides.generated.ts').includes('"id": "estimate-options"'));
-    check('pagination keeps an option with its totals', read('utils/templates/paginate.ts').includes("block.classList.contains('cd-opt-sum') ? pullOptionWith(block)"));
+    check('pagination keeps an option with its totals', read('utils/templates/paginate.ts').includes("block.classList.contains('cd-opt-sum') ? keepWithRows(block, 'cd-opt', true)"));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

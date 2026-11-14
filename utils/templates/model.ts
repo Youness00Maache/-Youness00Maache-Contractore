@@ -234,7 +234,33 @@ const describeLine = (li: LineLike): string => {
   return `<div class="cd-item-name">${name}</div>${sub}`;
 };
 
-const lineItemsTable = (raw: unknown, fmt: FormatOptions, opts: { progress?: boolean; descLabel?: string; rateLabel?: string } = {}): ItemsTable => {
+/** The line's unit (`unit`, set by Quick measure: "sq ft", "lf", "box"), single line; '' when there is none. */
+const lineUnit = (li: Record<string, unknown>): string => (typeof li.unit === 'string' ? li.unit.replace(/\s+/g, ' ').trim().slice(0, 24) : '');
+
+/** Pack words read as plurals ("10 boxes"); measurement abbreviations never change ("42 sq ft", "120 lf", "3 sq"). */
+const NO_PLURAL = /^(each|gal|hrs|lbs|sqft|sqm|sqyd|cuft|cuyd|lnft|mil|lot)$/i;
+const IRREGULAR: Record<string, string> = { foot: 'feet', inch: 'inches', piece: 'pieces', person: 'people' };
+const unitFor = (unit: string, qty: number): string => {
+  if (qty === 1 || !/^[a-z]{3,}$/i.test(unit) || NO_PLURAL.test(unit) || /s$/i.test(unit)) return unit;
+  const lower = unit.toLowerCase();
+  if (IRREGULAR[lower]) return unit === lower ? IRREGULAR[lower] : unit;
+  if (/(x|z|ch|sh)$/i.test(unit)) return `${unit}es`;
+  if (/[^aeiou]y$/i.test(unit)) return `${unit.slice(0, -1)}ies`;
+  return `${unit}s`;
+};
+
+/** Quantity cell: "42", or "42 sq ft" when the line has a unit (the unit never breaks inside). */
+const qtyCell = (qty: unknown, unit: string): string => {
+  const q = formatNumber(qty, 3);
+  return unit ? `${q} <span class="cd-unit">${esc(unitFor(unit, toNumber(qty)))}</span>` : q;
+};
+
+/** Qty column; a little wider (and allowed to wrap between number and unit) when some line has a unit. */
+const qtyColumn = (withUnits: boolean): Column => (withUnits
+  ? { label: 'Qty', align: 'right', width: '14%', cls: 'cd-c-qty' }
+  : { label: 'Qty', align: 'right', width: '10%' });
+
+const lineItemsTable = (raw: unknown, fmt: FormatOptions, opts: { progress?: boolean; descLabel?: string; rateLabel?: string; units?: boolean } = {}): ItemsTable => {
   const progress = !!opts.progress;
   const items = (Array.isArray(raw) ? raw : []).filter((li) => isMeaningfulLine(li, progress)) as LineLike[];
   if (progress) {
@@ -256,14 +282,16 @@ const lineItemsTable = (raw: unknown, fmt: FormatOptions, opts: { progress?: boo
       emptyText: 'No line items.',
     };
   }
+  // `units`: the Qty column of several tables (good/better/best options) gets the same width
+  const withUnits = opts.units ?? items.some((li) => lineUnit(li));
   return {
     columns: [
       { label: opts.descLabel || 'Description', align: 'left', cls: 'cd-c-desc' },
-      { label: 'Qty', align: 'right', width: '10%' },
+      qtyColumn(withUnits),
       { label: opts.rateLabel || 'Rate', align: 'right', width: '16%' },
       { label: 'Amount', align: 'right', width: '18%' },
     ],
-    rows: items.map((li) => [describeLine(li), formatNumber(li.quantity, 3), money(li.rate, fmt), money(lineItemAmount(li as any, false), fmt)]),
+    rows: items.map((li) => [describeLine(li), qtyCell(li.quantity, lineUnit(li)), money(li.rate, fmt), money(lineItemAmount(li as any, false), fmt)]),
     emptyText: 'No line items.',
   };
 };
@@ -473,7 +501,8 @@ export const buildDocumentModel = (
           tl.push({ label: `${esc(optionName(o.option, o.index))} total`, value: money(o.totals.total, fmt), kind: 'grand' });
           return tl;
         };
-        const sharedTable = lineItemsTable(optSet.sharedLineItems, fmt);
+        const units = [...optSet.sharedLineItems, ...optSet.options.flatMap((o) => o.lineItems)].some((li) => lineUnit(li as unknown as Record<string, unknown>));
+        const sharedTable = lineItemsTable(optSet.sharedLineItems, fmt, { units });
         const who = choice?.by === 'client' ? plainSignerName(choice.name || d.clientSignedBy || clientName) : '';
         const when = choice?.at ? formatDate(choice.at, fmt) : '';
         model.items = null;
@@ -484,7 +513,7 @@ export const buildDocumentModel = (
             ? esc(`Chosen${who ? ` by ${who}` : ''}${when ? ` on ${when}` : ''}: option ${chosen.letter}, ${optionName(chosen.option, chosen.index)}.`)
             : esc(`Tick one option and sign below, or choose it when you sign online.${sharedTable.rows.length ? ' Each total includes the lines in every option.' : ''}`),
           cards: sums.map((o) => {
-            const table = lineItemsTable(o.option.lineItems, fmt);
+            const table = lineItemsTable(o.option.lineItems, fmt, { units });
             return {
               letter: optionLetter(o.index),
               name: esc(optionName(o.option, o.index)),
@@ -686,10 +715,10 @@ export const buildDocumentModel = (
       break;
     }
     case 'expenseLog': {
-      let rows: Array<{ desc: unknown; qty: number; rate: number; amount: number }> = [];
+      let rows: Array<{ desc: unknown; qty: number; rate: number; amount: number; unit?: string }> = [];
       const lineItems = (Array.isArray(d.lineItems) ? d.lineItems : []).filter((li: LineLike) => isMeaningfulLine(li));
       if (lineItems.length) {
-        rows = lineItems.map((li: any) => ({ desc: li.description, qty: has(li.quantity) ? toNumber(li.quantity) : 1, rate: toNumber(li.rate), amount: 0 }))
+        rows = lineItems.map((li: any) => ({ desc: li.description, qty: has(li.quantity) ? toNumber(li.quantity) : 1, rate: toNumber(li.rate), amount: 0, unit: lineUnit(li) }))
           .map((r: any) => ({ ...r, amount: roundMoney(r.qty * r.rate) }));
       } else if (Array.isArray(d.items) && d.items.length) {
         rows = d.items.filter((i: any) => i && (has(i.description) || toNumber(i.amount))).map((i: any) => ({ desc: i.description, qty: 1, rate: toNumber(i.amount), amount: roundMoney(toNumber(i.amount)) }));
@@ -718,11 +747,11 @@ export const buildDocumentModel = (
       model.items = {
         columns: [
           { label: 'Description', align: 'left', cls: 'cd-c-desc' },
-          { label: 'Qty', align: 'right', width: '10%' },
+          qtyColumn(rows.some((r) => r.unit)),
           { label: 'Unit cost', align: 'right', width: '16%' },
           { label: 'Amount', align: 'right', width: '18%' },
         ],
-        rows: rows.map((r) => [`<div class="cd-item-name">${has(r.desc) ? escMultiline(str(r.desc).trim()) : '<span class="cd-muted">Expense</span>'}</div>`, formatNumber(r.qty, 3), money(r.rate, fmt), money(r.amount, fmt)]),
+        rows: rows.map((r) => [`<div class="cd-item-name">${has(r.desc) ? escMultiline(str(r.desc).trim()) : '<span class="cd-muted">Expense</span>'}</div>`, qtyCell(r.qty, r.unit || ''), money(r.rate, fmt), money(r.amount, fmt)]),
         emptyText: 'No expenses recorded.',
       };
       model.totals = compact<TotalLine>([

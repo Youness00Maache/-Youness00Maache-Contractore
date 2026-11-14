@@ -296,7 +296,7 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                                             type="button"
                                             onClick={() => patchItem(li.id, { unit: undefined })}
                                             className="mt-1 flex w-full items-center justify-center gap-1 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                                            title="Unit of the quantity (shown here only, not printed). Click to remove it."
+                                            title="Unit of the quantity, printed after it on the PDF (42 sq ft). Click to remove it."
                                             aria-label={`Remove the unit ${li.unit} from item ${index + 1}`}
                                         >
                                             {li.unit} <span aria-hidden>×</span>

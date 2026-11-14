@@ -61,7 +61,9 @@ const company = {
 };
 const client = { clientName: SAMPLE_JOB.clientName, clientAddress: SAMPLE_JOB.clientAddress };
 
-const lines = (rows: Array<[string, number, number]>) => rows.map(([description, quantity, rate], i) => ({ id: `li-${i + 1}`, description, quantity, rate }));
+/** [description, quantity, rate, unit?] → line items (the unit is what Quick measure sets: "sq ft", "lf"…) */
+const lines = (rows: Array<[string, number, number, string?]>) =>
+  rows.map(([description, quantity, rate, unit], i) => ({ id: `li-${i + 1}`, description, quantity, rate, ...(unit ? { unit } : {}) }));
 
 export const SAMPLE_DOCUMENTS: Record<DocKind, Record<string, any>> = {
   invoice: {
@@ -70,8 +72,8 @@ export const SAMPLE_DOCUMENTS: Record<DocKind, Record<string, any>> = {
     lineItems: [
       ...lines([
         ['Demolition & haul-away of existing cabinets and countertops', 1, 1850],
-        ['Custom shaker cabinets, white oak (linear ft)', 22, 385],
-        ['Quartz countertop fabrication & install (sq ft)', 48, 92],
+        ['Custom shaker cabinets, white oak', 22, 385, 'lf'],
+        ['Quartz countertop fabrication & install', 48, 92, 'sq ft'],
         ['Electrical: under-cabinet lighting circuit', 1, 1240],
       ]),
       { id: 'li-5', description: 'Plumbing rough-in kit', quantity: 1, rate: 960, isAssembly: true, assemblyComponents: [{ item_id: 'a', name: 'PEX supply lines', quantity: 4, rate: 0 }, { item_id: 'b', name: 'Shut-off valves', quantity: 2, rate: 0 }] },
@@ -88,8 +90,8 @@ export const SAMPLE_DOCUMENTS: Record<DocKind, Record<string, any>> = {
     lineItems: lines([
       ['Site protection, dust barriers and floor covering', 1, 640],
       ['Frame new pantry wall with pocket door', 1, 2150],
-      ['Drywall, tape, mud and two coats of paint', 380, 4.25],
-      ['LVP flooring supply & install (sq ft)', 260, 7.4],
+      ['Drywall, tape, mud and two coats of paint', 380, 4.25, 'sq ft'],
+      ['LVP flooring supply & install', 260, 7.4, 'sq ft'],
       ['Final clean & debris removal', 1, 420],
     ]),
     notes: 'Pricing includes materials, labor and permits. Appliances are supplied by the owner.',
