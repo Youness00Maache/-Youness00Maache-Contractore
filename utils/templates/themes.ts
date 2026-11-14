@@ -545,7 +545,7 @@ const boutique: ThemeDef = {
   pad: { top: 54, x: 58, bottom: 66 },
   header: ({ m }) => block('cd-hdr', `
     <div class="bq-left">${titleH1(m)}${m.number ? `<div class="bq-no">No. ${m.number}</div>` : ''}${statusBadge(m)}</div>
-    <div class="bq-right"><div class="bq-brand">${m.company.logoUrl ? logoImg(m) : '<span class="bq-circle"></span>'}<span class="bq-name">${m.company.name}</span></div>${lines(m.company.compactLines)}</div>`),
+    <div class="bq-right"><div class="bq-brand">${m.company.logoUrl ? logoImg(m) : '<span class="bq-circle cd-deco"></span>'}<span class="bq-name">${m.company.name}</span></div>${lines(m.company.compactLines)}</div>`),
   parties: ({ m }) => block('cd-parties bq-parties', `<div class="bq-who">${m.parties.map((p) => `<div class="bq-party"><div class="cd-label">${p.label}</div>${p.name ? `<div class="cd-party-name">${p.name}</div>` : ''}${lines(p.lines)}</div>`).join('')}</div><div class="bq-meta">${m.meta.map((i) => `<div>${i.label} : ${i.value}</div>`).join('')}</div>`),
   summary: ({ m }) => {
     if (!m.totals.length && !m.paymentLink && !m.summaryNotes.length) return '';

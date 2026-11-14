@@ -1,19 +1,35 @@
 /**
- * The 10 original "Standard" designs (pre-2026-11 jsPDF designs), restored under their original ids.
+ * The 10 original "Standard" designs (pre-2026-11 jsPDF designs), restored under their original ids and drawn
+ * like the originals (old services/pdfGenerator.ts: TemplateStyle table, drawTemplateBackground,
+ * drawDocumentHeader, drawContactGrid and the per-type generators). A4 measures of the original in mm are
+ * converted at 1 mm ≈ 3.78 px.
  *
- * The originals came in two layouts (old services/pdfGenerator.ts, TemplateStyle table + drawDocumentHeader):
- *  - certificate (standard, professional, elegant, warm, retro): a thin double border frame on every page,
- *    centered logo and title in the header font, a grey "No. | date" line, From/To columns, a striped table
- *    whose header row is filled with the primary color, right-aligned totals with the total in the primary color.
- *  - modern (modern_blue, tech, industrial, minimal, bold): a full-bleed header band with the logo on the left
- *    and the title + number/date on the right, a thin bar on continuation pages, then the same body.
- * Each design keeps its original palette and fonts (Times → Tinos, Courier → Courier Prime, Helvetica) with
- * cleaner typography, spacing, tables and totals. Every color that the original took from the user's primary
- * color comes from the palette (var(--accent) …), so user colors keep working.
+ *  - certificate (standard, professional, elegant, warm, retro): two thin rectangles framing every page
+ *    (10 mm and 12 mm from the edge, in the design's border color); the logo centered at 25 mm; the title
+ *    centered, uppercase, bold 26 pt in the header font; a grey 10 pt "No. | date" line under it; then
+ *    "FROM:" / "TO:" columns (the second one at 110 mm).
+ *  - modern (modern_blue, tech, industrial, minimal, bold): a 45 mm full-width band in the primary color with
+ *    the logo at the left and, at the right, the title (28 pt) over the number and date lines; continuation
+ *    pages get a 5 mm primary bar at the top; "FROM" / "TO" columns in Helvetica.
+ * Both then print the same body: an autoTable "striped" table (header row filled with the primary color,
+ * white bold text, every other row tinted, no rules), totals right-aligned on the table's right edge as
+ * "Label: value" with the total in bold 14 pt in the primary color, a filled rounded "PAY NOW" button,
+ * "Notes:"-style bold headings, grey heading bars for the work description (work order), PO-style grey info
+ * boxes for key facts, and plain signature lines ("Authorized Signature").
+ * Warranties keep the original certificate of warranty: primary bars at the top and bottom of the page, the
+ * title centered in the primary color, centered statement and period lines. Receipts keep the centered
+ * "PAID IN FULL"-style status line in the primary color.
+ *
+ * Every model field keeps a place: meta items extend the original grey "No. | date" line (certificate) or the
+ * number/date lines of the band (modern); the closing line sits in the page footer (as in the old picker),
+ * next to the page number.
+ * Colors the original took from the user's primary color come from the palette (var(--accent) …), so user
+ * colors keep working.
  */
 import type { DesignDef, RenderCtx, ThemeDef } from '../blocks.ts';
-import { block, lines, logoImg, metaList, partyBlocks, statusBadge, titleH1 } from '../blocks.ts';
-import { contrastRatio, ensureContrast, mix, readableOn } from '../colors.ts';
+import { afterSections, block, defaultSummary, logoImg, signaturesBlock, statusBadge } from '../blocks.ts';
+import { contrastRatio, mix, readableOn } from '../colors.ts';
+import type { DocModel } from '../model.ts';
 import type { FontKey, TemplateId, TemplateMeta } from '../registry.ts';
 
 type Layout = 'certificate' | 'modern';
@@ -24,203 +40,310 @@ interface Spec {
   description: string;
   tags: string[];
   layout: Layout;
-  /** original primaryColor (→ meta.accent) */
+  /** original primaryColor (→ meta.accent): table head, total, pay button, band */
   primary: string;
   /** meta.secondary */
   secondary: string;
   /** original textColor (body ink) */
   text: string;
-  /** original borderColor (frame / hairlines) */
+  /** original borderColor (page frame, footer line) */
   border: string;
-  /** original alternateRowColor (zebra rows) */
+  /** original alternateRowColor (striped rows) */
   zebra: string;
-  /** soft tint of the original headerColor (header panels, fact cards) */
-  tint: string;
   head: FontKey;
   body: FontKey;
-  /** original borderRadius in px */
-  radius: number;
   /** original showFooterLine */
   footerLine: boolean;
-  /** design-specific rules, appended after the shared layout CSS */
-  extra?: (v: Vars, ctx: RenderCtx) => string;
+  /** monospaced designs set slightly smaller (Courier is wide) */
+  mono?: boolean;
 }
 
 interface Vars {
   T: string;
   frame: string;
-  hair: string;
   zebra: string;
-  tint: string;
+  /** table head fill and its text */
   headBg: string;
   headInk: string;
+  /** header band fill / text (modern) */
   bandBg: string;
   bandInk: string;
-  bandTitle: string;
-  /** text on var(--accent) fills (pay button) */
+  /** text on var(--accent) fills (pay button, warranty bars) */
   payInk: string;
-  r: number;
+  /** party lines (60,60,60) and the grey number/date line (80,80,80) of the original, from the design ink */
+  soft: string;
+  grey: string;
 }
 
-/** White text on a fill when it is readable (≥ 3:1, large/bold text), otherwise the best of white/near-black. */
-const inkOn = (bg: string) => (contrastRatio('#ffffff', bg) >= 3 ? '#ffffff' : readableOn(bg));
+/** White text on a fill when it stays readable for bold text (the originals always used white), else near-black. */
+const inkOn = (bg: string) => (contrastRatio('#ffffff', bg) >= 2.4 ? '#ffffff' : readableOn(bg));
 
 const vars = (spec: Spec, ctx: RenderCtx): Vars => {
   const { c } = ctx;
-  const custom = c.custom;
-  const frame = custom ? c.accentLine : spec.border;
-  const hair = custom ? c.accentTint : mix(spec.border, c.paper, spec.border === '#000000' ? 0.72 : 0.35);
-  const headBg = spec.id === 'industrial' ? c.secondary : c.accent;
-  const headInk = spec.id === 'industrial'
-    ? (contrastRatio(c.accent, headBg) >= 3 ? c.accent : inkOn(headBg))
-    : inkOn(headBg);
-  let bandBg = c.accent;
-  if (spec.id === 'industrial') bandBg = c.secondary;
-  if (spec.id === 'minimal') bandBg = mix(c.accent, c.paper, 0.86);
-  const bandInk = spec.id === 'minimal' ? c.ink : inkOn(bandBg);
-  let bandTitle = bandInk;
-  if (spec.id === 'industrial' && contrastRatio(c.accent, bandBg) >= 3) bandTitle = c.accent;
-  if (spec.id === 'minimal') bandTitle = ensureContrast(c.accent, bandBg, 4.5);
   return {
     T: `.cd-t-${spec.id}`,
-    frame,
-    hair,
-    zebra: custom ? c.accentSoft : spec.zebra,
-    tint: custom ? c.accentSoft : spec.tint,
-    headBg,
-    headInk,
-    bandBg,
-    bandInk,
-    bandTitle,
+    frame: c.custom ? c.accentLine : spec.border,
+    zebra: c.custom ? c.accentSoft : spec.zebra,
+    headBg: c.accent,
+    headInk: inkOn(c.accent),
+    bandBg: c.accent,
+    bandInk: inkOn(c.accent),
     payInk: inkOn(c.accent),
-    r: spec.radius,
+    soft: mix(c.ink, c.paper, 0.14),
+    grey: mix(c.ink, c.paper, 0.3),
   };
 };
 
 // ---------------------------------------------------------------------------
 // shared markup
 // ---------------------------------------------------------------------------
+const plain = (h: string) => h.replace(/<[^>]+>/g, '').replace(/&[a-z#0-9]+;/gi, 'x');
 
-/** "Invoice No. INV-1 | Due by Dec 5, 2026" (the original grey id/date line). */
-const subLine = ({ m }: RenderCtx, sep = '|') => {
-  const bits = [
-    m.number ? `<span class="sd-no"><span class="sd-k">${m.numberLabel}</span> <strong>${m.number}</strong></span>` : '',
-    m.keyDate ? `<span class="sd-date"><span class="sd-k">${m.keyDate.label}:</span> ${m.keyDate.value}</span>` : '',
-  ].filter(Boolean);
-  return bits.length ? `<div class="sd-sub">${bits.join(`<span class="sd-sep">${sep}</span>`)}</div>` : '';
+const withColon = (label: string) => (/[.:#]$/.test(label.trim()) ? label : `${label}:`);
+
+/** Number + every meta item (+ the key date when no other item shows it), as "Label: value" items. */
+const idItems = (m: DocModel) => {
+  const items: Array<{ html: string; len: number }> = [];
+  const add = (label: string, value: string, cls = '') =>
+    items.push({ html: `<span class="sd-si${cls}"><span class="sd-k">${withColon(label)}</span> <span class="sd-v">${value}</span></span>`, len: plain(label + value).length + 2 });
+  if (m.number) add(m.numberLabel, m.number, ' sd-si-no');
+  const shown = new Set([...m.meta.map((i) => i.value), ...m.facts.map((f) => f.value)]);
+  if (m.keyDate && !shown.has(m.keyDate.value)) add(m.keyDate.label, m.keyDate.value);
+  for (const i of m.meta) add(i.label, i.value);
+  return items;
 };
 
-/** From (company + tagline) · every party · Details (meta). */
-const partiesRow = ({ m }: RenderCtx) => {
-  const from = m.company.name || m.company.lines.length
-    ? `<div class="cd-party cd-party-from"><div class="cd-label">From</div>${m.company.name ? `<div class="cd-party-name">${m.company.name}</div>` : ''}${m.company.tagline ? `<div class="sd-tagline">${m.company.tagline}</div>` : ''}${lines(m.company.compactLines)}</div>`
+/** The original grey "Invoice #: X | Date: Y" line, extended with the meta items and wrapped between items. */
+const subLine = (m: DocModel, maxChars: number) => {
+  const items = idItems(m);
+  const lines: Array<typeof items> = [];
+  for (const it of items) {
+    const cur = lines[lines.length - 1];
+    if (cur && cur.reduce((a, x) => a + x.len + 3, 0) + it.len <= maxChars) cur.push(it);
+    else lines.push([it]);
+  }
+  return lines.length
+    ? `<div class="sd-sub">${lines.map((l) => `<div class="sd-sub-line">${l.map((x) => x.html).join('<span class="sd-sep">|</span>')}</div>`).join('')}</div>`
     : '';
-  const details = m.meta.length ? `<div class="cd-party cd-party-meta"><div class="cd-label">Details</div>${metaList(m)}</div>` : '';
-  const cols = from + partyBlocks(m) + details;
-  const count = (from ? 1 : 0) + m.parties.length + (details ? 1 : 0);
-  return cols ? block(`cd-parties sd-parties${count >= 4 ? ' sd-cols4' : ''}`, cols) : '';
 };
 
-const diamond = (color: string) =>
-  `<svg width="120" height="12" viewBox="0 0 120 12" xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="6" x2="50" y2="6" stroke="${color}" stroke-width="1"/><polygon points="60,1 65,6 60,11 55,6" fill="${color}"/><line x1="70" y1="6" x2="120" y2="6" stroke="${color}" stroke-width="1"/></svg>`;
+/** "phone | website" (the original contact line), e-mail beside it when it fits. */
+const contactLines = (m: DocModel, max: number) => {
+  const out: string[][] = [];
+  for (const it of [m.company.phone, m.company.website, m.company.email].filter(Boolean)) {
+    const line = out.find((l) => l.reduce((a, x) => a + plain(x).length + 3, 0) + plain(it).length <= max);
+    if (line) line.push(it); else out.push([it]);
+  }
+  return out.map((l) => l.join('<span class="sd-sep">|</span>'));
+};
 
-const certificateHeader = (spec: Spec) => (ctx: RenderCtx) => {
-  const { m, c } = ctx;
-  const orn = spec.id === 'elegant' ? `<div class="sd-orn">${diamond(c.custom ? c.accentLine : spec.border)}</div>` : '';
-  return block('cd-hdr sd-cert-hdr', `${logoImg(m)}<div class="sd-titlewrap">${titleH1(m)}${subLine(ctx)}</div>${orn}${statusBadge(m)}`);
+const linesHtml = (list: string[]) => (list.length ? `<div class="cd-lines">${list.map((l) => `<div>${l}</div>`).join('')}</div>` : '');
+
+/** FROM: (company) · TO: (every party), the original contact grid. */
+const partiesRow = (ctx: RenderCtx) => {
+  const { m } = ctx;
+  const cols: string[] = [];
+  if (m.company.name || m.company.lines.length) {
+    cols.push(`<div class="cd-party cd-party-from"><div class="cd-label">From</div>${m.company.name ? `<div class="cd-party-name">${m.company.name}</div>` : ''}${m.company.tagline ? `<div class="sd-tagline">${m.company.tagline}</div>` : ''}${linesHtml([...m.company.addressLines, ...contactLines(m, m.parties.length >= 2 ? 30 : 46)])}</div>`);
+  }
+  for (const p of m.parties) {
+    cols.push(`<div class="cd-party"><div class="cd-label">${p.label}</div>${p.name ? `<div class="cd-party-name">${p.name}</div>` : ''}${linesHtml(p.lines)}</div>`);
+  }
+  return cols.length ? block(`cd-parties sd-parties sd-cols-${cols.length}`, cols.join('')) : '';
+};
+
+/** Key facts in the original PO "REQUIRED DATE: …" grey box (bold uppercase labels). */
+const factsBox = ({ m }: RenderCtx) =>
+  m.facts.length
+    ? block('sd-facts', m.facts.map((f) => `<div class="sd-fact"><span class="sd-fact-k">${withColon(f.label)}</span> <span class="sd-fact-v">${f.value}</span>${f.sub ? ` <span class="sd-fact-sub">${f.sub}</span>` : ''}</div>`).join(''))
+    : '';
+
+const certificateHeader = (ctx: RenderCtx, mono: boolean) => {
+  const { m } = ctx;
+  const logo = logoImg(m);
+  const status = m.kind === 'receipt' ? '' : statusBadge(m);
+  return block(`cd-hdr sd-cert-hdr${logo ? '' : ' sd-nologo'}`, `${logo}<h1 class="cd-title">${m.title}</h1>${subLine(m, mono ? 74 : 92)}${status ? `<div class="sd-status">${status}</div>` : ''}`);
 };
 
 const modernHeader = (ctx: RenderCtx) => {
   const { m } = ctx;
-  const brand = m.company.logoUrl
-    ? `<div class="sd-plate">${logoImg(m)}</div>`
-    : (m.company.name ? `<div class="sd-wordmark">${m.company.name}</div>` : '');
-  return block('cd-hdr sd-band-hdr', `<div class="sd-band"><div class="sd-band-brand">${brand}</div><div class="sd-band-doc">${titleH1(m)}${subLine(ctx, '·')}${statusBadge(m)}</div></div>`);
+  const logo = m.company.logoUrl ? `<div class="sd-plate">${logoImg(m)}</div>` : '';
+  const items = idItems(m);
+  const lines = items.length ? `<div class="sd-band-lines">${items.map((x) => `<div>${x.html}</div>`).join('')}</div>` : '';
+  const status = m.kind === 'receipt' ? '' : statusBadge(m);
+  return block('cd-hdr sd-band-hdr', `<div class="sd-band"><div class="sd-band-brand">${logo}</div><div class="sd-band-doc"><h1 class="cd-title">${m.title}</h1>${lines}${status ? `<div class="sd-status">${status}</div>` : ''}</div></div>`);
+};
+
+/** Certificate of warranty (both layouts): centered title in the primary color between two primary bars. */
+const warrantyHeader = (ctx: RenderCtx, mono: boolean) => {
+  const { m } = ctx;
+  const logo = logoImg(m);
+  return block('cd-hdr sd-cert-hdr sd-war-hdr', `${logo}<h1 class="cd-title">${m.title}</h1>${subLine(m, mono ? 66 : 80)}${statusBadge(m) ? `<div class="sd-status">${statusBadge(m)}</div>` : ''}`);
 };
 
 // ---------------------------------------------------------------------------
-// shared CSS
+// CSS
 // ---------------------------------------------------------------------------
-const bodyCss = (spec: Spec, v: Vars) => {
-  const { T, r } = v;
+const commonCss = (spec: Spec, v: Vars) => {
+  const { T } = v;
+  const cert = spec.layout === 'certificate';
+  const fs = spec.mono ? 12 : 13;
   return `
-${T} .sd-sub{font-size:11.5px;color:var(--muted);letter-spacing:.02em;line-height:1.5;}
-${T} .sd-sub strong{color:var(--ink);font-weight:700;}
-${T} .sd-sep{display:inline-block;margin:0 10px;opacity:.55;}
-${T} .sd-tagline{font-size:10.5px;font-style:italic;color:var(--muted);margin:-1px 0 3px;}
-${T} .sd-parties{gap:26px;margin-bottom:24px;}
-${T} .cd-label{font-family:var(--font-head);color:var(--ink);font-size:9.5px;letter-spacing:.14em;margin-bottom:7px;}
-${T} .cd-party-name{font-size:13px;color:var(--ink);}
-${T} .cd-lines{color:var(--muted);font-size:11.5px;line-height:1.5;}
-${T} .sd-parties .cd-party-from{flex:1.3 1 0;}
-${T} .sd-cols4{gap:18px;}
-${T} .sd-cols4 .cd-party-from{flex:1.1 1 0;}
-${T} .sd-cols4 .cd-lines,${T} .sd-cols4 .cd-meta-row{font-size:11px;}
-${T} .cd-meta-row{border-bottom:1px dotted ${v.hair};padding:3px 0;}
-${T} .cd-meta-row:last-child{border-bottom:0;}
-${T} .cd-subject-text{font-family:var(--font-head);font-size:16px;}
-${T} .cd-table{border-collapse:separate;border-spacing:0;}
-${T} .cd-table th{background:${v.headBg};color:${v.headInk};font-size:9.5px;font-weight:700;letter-spacing:.09em;padding:8px 10px;border:0;}
-${T} .cd-table th:first-child{border-top-left-radius:${r}px;border-bottom-left-radius:${r}px;}
-${T} .cd-table th:last-child{border-top-right-radius:${r}px;border-bottom-right-radius:${r}px;}
-${T} .cd-table td{padding:7px 10px;border-bottom:1px solid var(--rule);font-size:11.5px;}
-${T} .cd-table tbody tr:nth-child(even) td{background:${v.zebra};}
-${T} .cd-item-name{font-weight:600;color:var(--ink);}
-${T} .cd-summary{margin-top:6px;}
-${T} .cd-totals{flex:0 0 280px;}
-${T} .cd-tot{padding:4px 6px;font-size:12px;}
-${T} .cd-tot-label{color:var(--muted);}
-${T} .cd-tot-value{color:var(--ink);}
-${T} .cd-tot-grand{background:none;color:var(--accent-ink);border-radius:0;border-top:1.5px solid var(--ink);margin-top:8px;padding:10px 6px 4px;font-size:16px;font-weight:800;}
-${T} .cd-tot-grand .cd-tot-label,${T} .cd-tot-grand .cd-tot-value{color:var(--accent-ink);font-weight:800;}
-${T} .cd-tot-balance{border-top:1px solid var(--rule-strong);font-size:13.5px;}
-${T} .cd-pay-btn{background:var(--accent);color:${v.payInk};border-radius:${Math.max(2, r)}px;letter-spacing:.08em;text-transform:uppercase;font-size:11px;padding:9px 20px;}
-${T} .cd-sum-closing{font-family:var(--font-head);font-size:13px;color:var(--accent-ink);}
-${T} .cd-h{font-family:var(--font-head);color:var(--accent-ink);font-size:10.5px;letter-spacing:.13em;padding-bottom:5px;border-bottom:1px solid ${v.hair};margin-bottom:9px;}
-${T} .cd-fact{background:${v.tint};border:1px solid ${v.hair};border-radius:${r}px;}
-${T} .cd-fact-value{font-family:var(--font-head);color:var(--accent-ink);font-size:17px;}
-${T} .cd-tag{background:${v.tint};color:var(--accent-ink);border-radius:${Math.max(2, r)}px;}
-${T} .cd-sig-line{border-top-color:var(--ink);}
-${T} .cd-closing-text{font-family:var(--font-head);color:var(--accent-ink);}
-${spec.footerLine ? `${T} .cd-footer{border-top:1px solid ${v.hair};padding-top:7px;}` : ''}
+${T}{font-size:${fs}px;line-height:1.5;}
+${T} .cd-block{margin-bottom:22px;}
+${T} .cd-num{font-variant-numeric:tabular-nums;}
+${T} .sd-sep{display:inline-block;margin:0 9px;opacity:.7;}
+${T} .sd-si{display:inline-block;white-space:nowrap;}
+${T} .cd-title,${T} .cd-title.cd-len-m,${T} .cd-title.cd-len-l{font-family:var(--font-head);font-weight:700;line-height:1.1;letter-spacing:0;text-transform:uppercase;font-size:var(--title-size);}
+${T} .sd-status{line-height:0;}
+${T} .cd-status{border-radius:3px;font-size:10px;letter-spacing:.12em;padding:2px 9px;line-height:1.5;margin-top:10px;}
+
+/* FROM / TO (contact grid) */
+${T} .sd-parties{display:flex;gap:24px;align-items:flex-start;margin-bottom:28px;}
+${T} .sd-parties .cd-party{flex:1 1 0;min-width:0;}
+${T} .sd-cols-2 .cd-party:first-child{flex:0 0 calc(52.9% - 24px);}
+${T} .sd-parties .cd-label{font-family:${cert ? 'var(--font-head)' : 'var(--font-body)'};font-size:${fs}px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:var(--ink);margin:0 0 5px;line-height:1.4;}
+${cert ? `${T} .sd-parties .cd-label::after{content:':';}` : ''}
+${T} .sd-parties .cd-party-name{font-family:${cert ? 'var(--font-head)' : 'var(--font-body)'};font-size:${fs}px;font-weight:700;color:var(--ink);margin:0;line-height:1.42;}
+${T} .sd-parties .cd-lines{font-family:${cert ? 'var(--font-head)' : 'var(--font-body)'};font-size:${fs}px;line-height:1.42;color:${v.soft};}
+${T} .sd-parties .cd-lines .sd-sep{margin:0 6px;}
+${T} .sd-tagline{font-family:${cert ? 'var(--font-head)' : 'var(--font-body)'};font-size:${fs - 1}px;font-style:italic;color:${v.grey};line-height:1.42;}
+${T} .sd-cols-3 .cd-party,${T} .sd-cols-4 .cd-party{font-size:${fs - 1}px;}
+${T} .sd-cols-4{gap:18px;}
+${T} .sd-cols-4 .cd-label,${T} .sd-cols-4 .cd-party-name,${T} .sd-cols-4 .cd-lines{font-size:${fs - 1}px;}
+
+/* subject / intro / tags */
+${T} .cd-subject-text{font-family:var(--font-head);font-size:22px;font-weight:700;line-height:1.25;color:var(--ink);}
+${T} .cd-intro p{font-size:${fs + 1}px;line-height:1.6;}
+${T} .cd-block.cd-tags{margin-top:-10px;margin-bottom:18px;}
+${T} .cd-tag{background:#f0f0f0;color:var(--ink);border-radius:2px;font-size:11px;font-weight:700;padding:2px 9px;}
+
+/* key facts: the original PO info box (fill 245, rule 200) */
+${T} .sd-facts{display:flex;flex-wrap:wrap;gap:5px 34px;background:#f5f5f5;border:1px solid #c8c8c8;padding:10px 18px;line-height:1.45;}
+${T} .sd-fact{min-width:0;overflow-wrap:anywhere;}
+${T} .sd-fact-k{font-weight:700;text-transform:uppercase;font-size:${fs - 1}px;letter-spacing:.02em;color:var(--ink);}
+${T} .sd-fact-v{color:var(--ink);}
+${T} .sd-fact-sub{color:${v.grey};font-size:${fs - 2}px;}
+
+/* striped table (autoTable theme 'striped') */
+${T} .cd-table{border-collapse:collapse;}
+${T} .cd-table th{background:${v.headBg};color:${v.headInk};font-family:var(--font-body);font-size:${fs}px;font-weight:700;letter-spacing:0;text-transform:none;padding:6px 8px;vertical-align:middle;line-height:1.3;}
+${T} .cd-table td{padding:6px 8px;border-bottom:0;font-size:${fs}px;line-height:1.38;color:var(--ink);}
+${T} .cd-table tbody tr:nth-child(odd) td{background:${v.zebra};}
+${T} .cd-item-name{font-weight:400;color:var(--ink);}
+${T} .cd-item-sub{color:${v.grey};font-size:${fs - 2}px;}
+${T} .cd-row-empty td{background:transparent !important;color:${v.grey};padding:16px 8px;}
+
+/* totals: right-aligned "Label: value" on the table's right edge, total bold 14 pt in the primary color */
+${T} .cd-summary{gap:28px;align-items:flex-start;}
+${T} .cd-summary-side{padding-top:2px;}
+${T} .cd-totals{flex:0 0 auto;min-width:250px;max-width:360px;}
+${T} .cd-tot{display:flex;justify-content:flex-end;align-items:baseline;gap:12px;padding:2px 8px;font-size:${fs}px;}
+${T} .cd-tot-label{flex:1 1 auto;text-align:right;color:var(--ink);min-width:0;}
+${T} .cd-tot-label::after{content:':';}
+${T} .cd-tot-value{flex:0 0 auto;min-width:104px;text-align:right;font-weight:400;color:var(--ink);}
+${T} .cd-tot-muted{font-size:${fs - 1}px;}
+${T} .cd-tot-muted .cd-tot-label,${T} .cd-tot-muted .cd-tot-value{color:${v.grey};}
+${T} .cd-tot-grand{background:none;border-radius:0;color:var(--accent-ink);margin-top:10px;padding:2px 8px;font-size:${Math.round(fs * 1.4)}px;font-weight:700;}
+${T} .cd-tot-grand .cd-tot-label,${T} .cd-tot-grand .cd-tot-value{color:var(--accent-ink);font-weight:700;}
+${T} .cd-tot-balance{border-top:0;margin-top:6px;padding:2px 8px;font-size:${fs + 1}px;font-weight:700;}
+${T} .cd-tot-balance .cd-tot-label,${T} .cd-tot-balance .cd-tot-value{color:var(--ink);font-weight:700;}
+${T} .cd-sum-note{font-size:${fs - 1}px;}
+${T} .cd-sum-note .cd-label{font-size:${fs}px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink);margin-bottom:4px;}
+${T} .cd-sum-note .cd-label::after{content:':';}
+${T} .cd-mini td{border-bottom:0;padding:2px 0;font-size:${fs - 1}px;}
+
+/* "PAY NOW": filled rounded 40 × 10 mm button */
+${T} .cd-pay-btn{display:inline-block;min-width:151px;height:38px;line-height:38px;padding:0 18px;border-radius:7.5px;background:var(--accent);color:${v.payInk};font-size:${fs}px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;text-align:center;white-space:nowrap;}
+${T} .cd-pay-url{font-size:9.5px;color:${v.grey};}
+${T} .cd-pay-qr-cap{color:${v.grey};}
+${T} .cd-fin{border-left:0;border:1px solid #c8c8c8;background:#f5f5f5;padding:8px 12px;}
+${T} .cd-fin-h{color:var(--ink);letter-spacing:.02em;font-size:${fs - 1}px;}
+${T} .cd-fin-url{color:var(--accent-ink);}
+
+/* sections: "Notes:" bold headings; the work description under grey heading bars (work order) */
+${T} .cd-h{font-family:var(--font-body);font-size:${fs}px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink);margin:0 0 4px;padding:0;border:0;background:none;line-height:1.4;}
+${T} .cd-h::after{content:':';}
+${T} .cd-before .cd-h{background:#f0f0f0;font-size:${fs + 1}px;padding:5px 8px;margin-bottom:9px;}
+${T} .cd-before .cd-h::after,${T} .cd-visuals .cd-h::after{content:none;}
+${T} .cd-prose{font-size:${fs}px;line-height:1.55;}
+${T} .cd-prose h1,${T} .cd-prose h2,${T} .cd-prose h3{color:var(--ink);}
+${T} .cd-prose th{background:#f0f0f0;}
+${T} .cd-prose blockquote{border-left-color:var(--accent);}
+${T} .cd-grid2{gap:36px;}
+${T} .cd-signoff{gap:36px;}
+${T} .cd-signoff-sec+.cd-signoff-sec{margin-top:14px;}
+
+/* plain signature: image, a 60 mm line and the label (second one at 120 mm) */
+${T} .cd-sigs{gap:20px 151px;}
+${T} .cd-sig{flex:0 0 227px;max-width:227px;}
+${T} .cd-signoff-sigs{flex:0 0 227px;gap:14px;}
+${T} .cd-signoff-sigs .cd-sig{flex:none;max-width:none;}
+${T} .cd-sig-img{height:50px;}
+${T} .cd-sig-img img{max-height:48px;max-width:200px;}
+${T} .cd-sig-line{border-top:1px solid var(--ink);margin-top:3px;}
+${T} .cd-sig-label{font-size:${fs}px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--ink);margin-top:4px;}
+${T} .cd-sig-meta{font-size:${fs - 2}px;color:${v.grey};margin-top:1px;}
+${T} .cd-sig-fill{color:var(--faint);}
+
+/* receipts: the original centered "PAID IN FULL" line (16 pt bold, primary color) */
+${T} .sd-paid{text-align:center;font-family:var(--font-body);font-size:21px;font-weight:700;line-height:1.3;text-transform:uppercase;letter-spacing:.03em;color:var(--accent-ink);margin:4px 0 26px;}
+
+/* page footer: closing line centered (old picker), page number at the right */
+${T} .sd-footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:12px;font-size:10.5px;color:#999999;}
+${T} .sd-footer .cd-footer-text{text-align:center;font-style:${spec.footerLine ? 'normal' : 'italic'};}
+${T} .sd-footer .cd-pageno{text-align:right;}
+${spec.footerLine ? `${T} .sd-footer.sd-has-text{border-top:1px solid ${v.frame};padding-top:8px;}` : ''}
+${T} .cd-cont .cd-runhead{font-size:10px;letter-spacing:.04em;color:${v.grey};border-bottom:1px solid #d9d9d9;margin-bottom:20px;}
+
+/* warranty: the original certificate of warranty (primary bars at the top and bottom of every page) */
+${T}.cd-k-warranty{--pt:104px;--pb:112px;--fb:88px;}
+${T} .sd-wbar{position:absolute;left:0;right:0;height:76px;background:var(--accent);}
+${T} .sd-wbar-t{top:0;} ${T} .sd-wbar-b{bottom:0;}
+${T} .sd-war-hdr{margin:0 0 26px;padding:0;text-align:center;}
+${T} .sd-war-hdr .cd-logo{margin:0 auto 18px;max-width:132px;max-height:70px;}
+${T} .sd-war-hdr .cd-title,${T} .sd-war-hdr .cd-title.cd-len-m,${T} .sd-war-hdr .cd-title.cd-len-l{font-size:40px;color:var(--accent-ink);}
+${T} .sd-war-hdr .sd-sub{font-size:${fs + 3}px;color:var(--ink);margin-top:10px;}
+${T}.cd-k-warranty .cd-intro{text-align:center;padding:0 24px;}
+${T}.cd-k-warranty .cd-intro p{font-size:${fs + 3}px;line-height:1.6;}
+${T}.cd-k-warranty .sd-facts{background:none;border:0;padding:0;flex-direction:column;align-items:center;gap:4px;font-size:${fs + 3}px;font-weight:700;}
+${T}.cd-k-warranty .sd-fact-k{text-transform:none;font-size:inherit;letter-spacing:0;}
+${T}.cd-k-warranty .cd-sigs{justify-content:center;}
 `;
 };
 
 const certificateCss = (spec: Spec, v: Vars) => {
   const { T } = v;
   return `
-${T}{--title-size:32px;}
-${T} .sd-frame{position:absolute;border-style:solid;border-color:${v.frame};}
-${T} .sd-frame-o{left:30px;top:30px;right:30px;bottom:30px;border-width:2px;}
-${T} .sd-frame-i{left:36px;top:36px;right:36px;bottom:36px;border-width:1px;}
-${T} .sd-cert-hdr{text-align:center;margin-bottom:18px;}
-${T} .sd-cert-hdr .cd-logo{margin:0 auto 10px;max-height:46px;max-width:210px;}
-${T} .cd-title{font-family:var(--font-head);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-right:-.08em;color:var(--ink);}
-${T} .sd-titlewrap .sd-sub{margin-top:7px;}
-${T} .sd-cert-hdr .cd-status{margin-top:9px;}
-${T} .sd-parties{border-top:1px solid ${v.hair};border-bottom:1px solid ${v.hair};padding:13px 0 11px;margin-bottom:20px;}
-${bodyCss(spec, v)}
+${T}{--title-size:35px;}
+${T} .sd-frame{position:absolute;border:2px solid ${v.frame};}
+${T} .sd-frame-o{left:37px;top:37px;right:37px;bottom:37px;}
+${T} .sd-frame-i{left:44px;top:44px;right:44px;bottom:44px;}
+${T} .sd-cert-hdr{text-align:center;margin:10px 0 28px;}
+${T} .sd-cert-hdr.sd-nologo{padding-top:26px;}
+${T} .sd-cert-hdr .cd-logo{margin:0 auto 20px;max-width:132px;max-height:76px;}
+${T} .sd-cert-hdr .cd-title{color:var(--ink);}
+${T} .sd-sub{margin-top:9px;font-family:var(--font-head);font-size:${spec.mono ? 12 : 13}px;line-height:1.5;color:${v.grey};}
+${T} .sd-sub .sd-v{color:var(--ink);}
+${commonCss(spec, v)}
 `;
 };
 
 const modernCss = (spec: Spec, v: Vars) => {
   const { T } = v;
   return `
-${T}{--title-size:40px;}
-${T} .sd-topbar{position:absolute;left:0;right:0;top:0;height:12px;background:${v.bandBg};}
-${T} .sd-band-hdr{margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 28px calc(-1 * var(--pl));}
-${T} .sd-band{display:flex;justify-content:space-between;align-items:center;gap:28px;background:${v.bandBg};color:${v.bandInk};padding:28px var(--px) 24px var(--pl);min-height:170px;}
-${T} .sd-band-brand{min-width:0;max-width:46%;}
-${T} .sd-plate{display:inline-block;background:#ffffff;border-radius:${Math.max(4, v.r)}px;padding:8px 12px;}
-${T} .sd-plate .cd-logo{max-height:52px;max-width:190px;}
-${T} .sd-wordmark{font-family:var(--font-head);font-weight:800;font-size:21px;line-height:1.15;letter-spacing:.01em;overflow-wrap:anywhere;}
-${T} .sd-band-doc{text-align:right;min-width:0;}
-${T} .sd-band .cd-title{color:${v.bandTitle};font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-right:-.05em;}
-${T} .sd-band .sd-sub{color:${v.bandInk};opacity:.9;margin-top:10px;}
-${T} .sd-band .sd-sub strong{color:${v.bandInk};}
-${T} .sd-band .cd-status{background:#ffffff;border-color:#ffffff;margin-top:10px;}
-${T} .sd-parties{padding-bottom:16px;border-bottom:1px solid ${v.hair};}
-${bodyCss(spec, v)}
+${T}{--title-size:37px;}
+${T} .sd-topbar{position:absolute;left:0;right:0;top:0;height:19px;background:var(--accent);}
+${T} .sd-band-hdr{margin:calc(-1 * var(--pt)) calc(-1 * var(--px)) 44px calc(-1 * var(--pl));}
+${T} .sd-band{display:flex;justify-content:space-between;align-items:flex-start;gap:28px;background:${v.bandBg};color:${v.bandInk};padding:38px var(--px) 24px var(--pl);min-height:170px;}
+${T} .sd-band-brand{flex:0 1 auto;min-width:0;max-width:40%;}
+${T} .sd-plate{display:inline-block;background:#ffffff;border-radius:3px;padding:6px 8px;line-height:0;}
+${T} .sd-plate .cd-logo{max-width:110px;max-height:76px;}
+${T} .sd-band-doc{flex:1 1 auto;min-width:0;text-align:right;padding-top:18px;}
+${T} .sd-band .cd-title{color:${v.bandInk};}
+${T} .sd-band-lines{margin-top:8px;font-size:${spec.mono ? 12 : 13}px;line-height:1.45;color:${v.bandInk};}
+${T} .sd-band .cd-status{color:${v.bandInk};border-color:${v.bandInk};}
+${commonCss(spec, v)}
 `;
 };
 
@@ -241,189 +364,112 @@ const make = (spec: Spec): DesignDef => {
     collection: 'standard',
   };
   const cert = spec.layout === 'certificate';
+  const mono = !!spec.mono;
   const theme: ThemeDef = {
     id: spec.id,
     ink: spec.text,
-    pad: cert ? { top: 56, x: 70, bottom: 74, footer: 46 } : { top: 48, x: 56, bottom: 74, footer: 30 },
-    header: cert ? certificateHeader(spec) : modernHeader,
+    // 20 mm side margins (the original x = 20 mm … 190 mm); the certificate footer sits inside the frame
+    pad: cert ? { top: 76, x: 76, bottom: 94, footer: 58 } : { top: 76, x: 76, bottom: 82, footer: 38 },
+    header: (ctx) => (ctx.m.kind === 'warranty' ? warrantyHeader(ctx, mono) : cert ? certificateHeader(ctx, mono) : modernHeader(ctx)),
     parties: partiesRow,
-    chrome: () => (cert ? '<div class="sd-frame sd-frame-o"></div><div class="sd-frame sd-frame-i"></div>' : '<div class="sd-topbar cd-cont-only"></div>'),
+    summary: (ctx) => defaultSummary(ctx, false),
+    chrome: ({ m }) => {
+      if (m.kind === 'warranty') return '<div class="sd-wbar sd-wbar-t cd-deco"></div><div class="sd-wbar sd-wbar-b cd-deco"></div>';
+      return cert
+        ? '<div class="sd-frame sd-frame-o cd-deco"></div><div class="sd-frame sd-frame-i cd-deco"></div>'
+        : '<div class="sd-topbar cd-cont-only cd-deco"></div>';
+    },
+    footer: ({ m }) => `<div class="cd-footer sd-footer${m.closing ? ' sd-has-text' : ''}"><div></div><div class="cd-footer-text">${m.closing}</div><div class="cd-pageno"></div></div>`,
+    compose: (ctx, p) => {
+      const { m } = ctx;
+      const paid = m.kind === 'receipt' && m.status ? block('sd-paid', m.status.text) : '';
+      const war = m.kind === 'warranty';
+      const after = war ? afterSections(m.after, true) : p.after;
+      const sigs = war ? signaturesBlock(m) : p.signatures;
+      // the closing line is printed in the page footer
+      return [p.header, p.parties, p.subject, p.intro, factsBox(ctx), p.tags, ...p.before, p.items, p.summary, paid, p.visuals, ...after, sigs];
+    },
     css: (ctx) => {
       const v = vars(spec, ctx);
-      return (cert ? certificateCss(spec, v) : modernCss(spec, v)) + (spec.extra ? spec.extra(v, ctx) : '');
+      return cert ? certificateCss(spec, v) : modernCss(spec, v);
     },
   };
   return { meta, theme };
 };
 
 // ---------------------------------------------------------------------------
-// the 10 designs (palettes and fonts from the original TemplateStyle table)
+// the 10 designs (colors and fonts from the original TemplateStyle table)
 // ---------------------------------------------------------------------------
 const SPECS: Spec[] = [
   {
     id: 'standard', name: 'Standard', layout: 'certificate',
-    description: 'The original Standard design: black double frame, centered Times title and a crisp black-and-white table.',
+    description: 'The original Standard design: black double frame, centered Times title, From/To columns and a striped table with a black header.',
     tags: ['standard', 'classic', 'black', 'serif'],
-    primary: '#000000', secondary: '#666666', text: '#222222', border: '#000000', zebra: '#f2f2f2', tint: '#f5f5f5',
-    head: 'times', body: 'helvetica', radius: 0, footerLine: true,
-    extra: ({ T }) => `
-${T} .sd-cert-hdr{padding-bottom:14px;border-bottom:3px double var(--ink);margin-bottom:18px;}
-${T} .sd-parties{border-top:0;padding-top:0;}
-${T} .cd-tot-grand{border-top:3px double var(--ink);}
-`,
+    primary: '#000000', secondary: '#666666', text: '#222222', border: '#000000', zebra: '#f2f2f2',
+    head: 'times', body: 'helvetica', footerLine: true,
   },
   {
     id: 'professional', name: 'Professional', layout: 'certificate',
-    description: 'Navy and silver: a slate title plate inside a light double frame, set in Times.',
+    description: 'Silver double frame and Times type throughout, with a navy table header and a navy total.',
     tags: ['professional', 'navy', 'serif', 'formal'],
-    primary: '#2c3e50', secondary: '#34495e', text: '#2c3e50', border: '#bdc3c7', zebra: '#eaeded', tint: '#eef1f3',
-    head: 'times', body: 'times', radius: 0, footerLine: true,
-    extra: ({ T, headBg, headInk }) => `
-${T}{--title-size:30px;}
-${T} .sd-titlewrap{background:${headBg};color:${headInk};padding:14px 20px 11px;}
-${T} .sd-titlewrap .cd-title{color:${headInk};letter-spacing:.16em;margin-right:-.16em;}
-${T} .sd-titlewrap .sd-sub,${T} .sd-titlewrap .sd-sub strong{color:${headInk};opacity:.92;}
-${T} .sd-parties{border-top:0;padding-top:4px;}
-${T} .cd-table td{font-size:12px;}
-${T} .cd-tot-grand{border-top:2px solid var(--accent);}
-`,
+    primary: '#2c3e50', secondary: '#34495e', text: '#2c3e50', border: '#bdc3c7', zebra: '#eaeded',
+    head: 'times', body: 'times', footerLine: true,
   },
   {
     id: 'elegant', name: 'Elegant', layout: 'certificate',
-    description: 'Plum serif title with a diamond ornament, lilac double frame and soft lavender rows.',
+    description: 'Lilac double frame and Times type, with a plum table header, lavender rows and a plum total.',
     tags: ['elegant', 'purple', 'serif'],
-    primary: '#8e44ad', secondary: '#9b59b6', text: '#4a235a', border: '#d7bde2', zebra: '#f5eef8', tint: '#f8f2fa',
-    head: 'times', body: 'times', radius: 0, footerLine: false,
-    extra: ({ T }) => `
-${T}{--title-size:38px;}
-${T} .cd-title{color:var(--accent-ink);font-weight:400;letter-spacing:.14em;margin-right:-.14em;}
-${T} .sd-sub{font-style:italic;font-size:12.5px;}
-${T} .sd-orn{margin-top:9px;line-height:0;}
-${T} .sd-parties{border-top:0;}
-${T} .cd-label{color:var(--accent-ink);font-weight:400;font-size:10.5px;letter-spacing:.18em;}
-${T} .cd-party-name{font-size:14px;}
-${T} .cd-table th{font-weight:400;font-size:10.5px;letter-spacing:.14em;}
-${T} .cd-table td{font-size:12.5px;}
-${T} .cd-h{font-weight:400;font-size:12px;letter-spacing:.18em;}
-${T} .cd-tot-grand{border-top:1px solid var(--accent);font-weight:700;}
-${T} .cd-tot-grand .cd-tot-label{font-style:italic;font-weight:400;}
-`,
+    primary: '#8e44ad', secondary: '#9b59b6', text: '#4a235a', border: '#d7bde2', zebra: '#f5eef8',
+    head: 'times', body: 'times', footerLine: false,
   },
   {
     id: 'warm', name: 'Warm', layout: 'certificate',
-    description: 'Burnt orange on a soft peach header panel with a peach frame and warm cream rows.',
+    description: 'Peach double frame with a burnt-orange table header, cream rows and a burnt-orange total.',
     tags: ['warm', 'orange', 'friendly'],
-    primary: '#d35400', secondary: '#e67e22', text: '#5d4037', border: '#f5cba7', zebra: '#fef5e7', tint: '#fdebd0',
-    head: 'helvetica', body: 'helvetica', radius: 2, footerLine: true,
-    extra: ({ T, tint, frame }) => `
-${T}{--title-size:30px;}
-${T} .sd-cert-hdr{background:${tint};border-radius:2px;padding:14px 20px 11px;border-bottom:3px solid ${frame};}
-${T} .cd-title{color:var(--accent-ink);font-weight:800;letter-spacing:.1em;margin-right:-.1em;}
-${T} .sd-parties{border-top:0;padding-top:4px;}
-${T} .cd-label{color:var(--accent-ink);}
-${T} .cd-tot-grand{background:${tint};border-top:0;border-radius:2px;padding:10px 10px;}
-`,
+    primary: '#d35400', secondary: '#e67e22', text: '#5d4037', border: '#f5cba7', zebra: '#fef5e7',
+    head: 'helvetica', body: 'helvetica', footerLine: true,
   },
   {
     id: 'retro', name: 'Retro', layout: 'certificate',
-    description: 'Typewriter Courier, a pale-yellow ticket header and a burnt-orange frame with a red title.',
+    description: 'Typewriter Courier inside an orange double frame, with a red table header, pale-yellow rows and a red total.',
     tags: ['retro', 'typewriter', 'vintage', 'mono'],
-    primary: '#c0392b', secondary: '#e74c3c', text: '#5a4d41', border: '#d35400', zebra: '#fcf3cf', tint: '#fbf1c4',
-    head: 'courier', body: 'courier', radius: 1, footerLine: true,
-    extra: ({ T, tint, frame }) => `
-${T}{--title-size:30px;font-size:12px;}
-${T} .sd-cert-hdr{background:${tint};border:1.5px dashed ${frame};padding:12px 18px 10px;}
-${T} .cd-lines{font-size:11px;}
-${T} .cd-title{color:var(--accent-ink);letter-spacing:.2em;margin-right:-.2em;}
-${T} .sd-parties{border-top:1px dashed ${frame};border-bottom:1px dashed ${frame};}
-${T} .cd-label{letter-spacing:.08em;font-size:10.5px;}
-${T} .cd-table td{border-bottom:1px dashed var(--rule-strong);font-size:11px;}
-${T} .cd-table th{font-size:10px;letter-spacing:.12em;}
-${T} .cd-tot-grand{border-top:3px double var(--ink);font-size:15px;}
-${T} .cd-h{border-bottom-style:dashed;letter-spacing:.1em;}
-${T} .cd-meta-row{border-bottom-style:dashed;}
-`,
+    primary: '#c0392b', secondary: '#e74c3c', text: '#5a4d41', border: '#d35400', zebra: '#fcf3cf',
+    head: 'courier', body: 'courier', footerLine: true, mono: true,
   },
   {
     id: 'modern_blue', name: 'Modern Blue', layout: 'modern',
-    description: 'A bright blue header band with white type, rounded table header and a soft blue total.',
+    description: 'A full-width blue header band with the logo at the left and the white title at the right, over a striped blue table.',
     tags: ['modern', 'blue', 'band'],
-    primary: '#3498db', secondary: '#2980b9', text: '#2c3e50', border: '#aed6f1', zebra: '#ebf5fb', tint: '#ebf5fb',
-    head: 'helvetica', body: 'helvetica', radius: 4, footerLine: false,
-    extra: ({ T, tint }) => `
-${T} .cd-label{color:var(--accent-ink);}
-${T} .cd-tot-grand{background:${tint};border-top:0;border-radius:4px;padding:10px 10px;}
-`,
+    primary: '#3498db', secondary: '#2980b9', text: '#2c3e50', border: '#aed6f1', zebra: '#ebf5fb',
+    head: 'helvetica', body: 'helvetica', footerLine: false,
   },
   {
     id: 'tech', name: 'Tech', layout: 'modern',
-    description: 'Teal header band and monospaced Courier type with a mint-ruled table. Precise and technical.',
+    description: 'Teal header band and Courier type throughout, with a teal table header and mint rows.',
     tags: ['tech', 'teal', 'mono'],
-    primary: '#16a085', secondary: '#1abc9c', text: '#000000', border: '#48c9b0', zebra: '#e8f6f3', tint: '#e8f8f5',
-    head: 'courier', body: 'courier', radius: 0, footerLine: true,
-    extra: ({ T, frame }) => `
-${T}{font-size:12px;}
-${T} .sd-band .cd-title{letter-spacing:.14em;margin-right:-.14em;}
-${T} .cd-label{color:var(--accent-ink);letter-spacing:.08em;font-size:10.5px;}
-${T} .cd-table{border:1px solid ${frame};}
-${T} .cd-table td{font-size:11px;}
-${T} .cd-tot-grand{border-top:1.5px dashed var(--accent);}
-${T} .cd-h{letter-spacing:.1em;}
-`,
+    primary: '#16a085', secondary: '#1abc9c', text: '#000000', border: '#48c9b0', zebra: '#e8f6f3',
+    head: 'courier', body: 'courier', footerLine: true, mono: true,
   },
   {
     id: 'industrial', name: 'Industrial', layout: 'modern',
-    description: 'Charcoal header band with an amber title, heavy black rules and a dark table head.',
+    description: 'Amber header band with dark type, an amber table header, pale-yellow rows and an amber total.',
     tags: ['industrial', 'amber', 'dark', 'trades'],
-    primary: '#f39c12', secondary: '#333333', text: '#000000', border: '#000000', zebra: '#fcf3cf', tint: '#fdf6e3',
-    head: 'helvetica', body: 'helvetica', radius: 0, footerLine: true,
-    extra: ({ T, bandBg, bandTitle }) => `
-${T} .sd-band{border-bottom:6px solid var(--accent);}
-${T} .sd-band .cd-title{font-weight:900;letter-spacing:.06em;}
-${T} .sd-parties{border-bottom:2px solid var(--ink);}
-${T} .cd-table{border-bottom:2px solid var(--ink);}
-${T} .cd-tot-grand{background:${bandBg};border-top:0;padding:10px 10px;}
-${T} .cd-tot-grand .cd-tot-label,${T} .cd-tot-grand .cd-tot-value{color:${bandTitle};}
-${T} .cd-fact{border-left:4px solid var(--accent);}
-`,
+    primary: '#f39c12', secondary: '#d35400', text: '#000000', border: '#000000', zebra: '#fcf3cf',
+    head: 'helvetica', body: 'helvetica', footerLine: true,
   },
   {
     id: 'minimal', name: 'Minimal', layout: 'modern',
-    description: 'Quiet grey: a pale header band, light hairlines and no fills. Lets the numbers speak.',
+    description: 'Quiet grey: a soft grey header band, a grey table header and light rows. Lets the numbers speak.',
     tags: ['minimal', 'grey', 'light'],
-    primary: '#95a5a6', secondary: '#7f8c8d', text: '#4d5859', border: '#ecf0f1', zebra: '#ffffff', tint: '#f6f8f8',
-    head: 'helvetica', body: 'helvetica', radius: 0, footerLine: false,
-    extra: ({ T }) => `
-${T}{--title-size:36px;}
-${T} .sd-band{border-bottom:2px solid var(--accent);min-height:150px;}
-${T} .sd-band .cd-title{font-weight:300;letter-spacing:.18em;margin-right:-.18em;}
-${T} .sd-plate{background:transparent;padding:0;}
-${T} .sd-band .cd-status{background:transparent;}
-${T} .cd-label{color:var(--muted);font-weight:600;}
-${T} .cd-table th{background:transparent;color:var(--muted);border-bottom:1.5px solid var(--accent);}
-${T} .cd-table td{border-bottom:1px solid #ecf0f1;}
-${T} .cd-tot-grand{border-top:1px solid var(--accent);font-weight:600;}
-${T} .cd-h{border-bottom:0;color:var(--muted);}
-${T} .cd-fact{background:transparent;}
-`,
+    primary: '#95a5a6', secondary: '#7f8c8d', text: '#4d5859', border: '#ecf0f1', zebra: '#f5f5f5',
+    head: 'helvetica', body: 'helvetica', footerLine: false,
   },
   {
     id: 'bold', name: 'Bold', layout: 'modern',
-    description: 'Solid black header band, black rounded table head and a black total pill. Maximum contrast.',
+    description: 'Solid black header band, a black table header and a black total. Maximum contrast.',
     tags: ['bold', 'black', 'contrast'],
-    primary: '#000000', secondary: '#000000', text: '#000000', border: '#000000', zebra: '#e5e5e5', tint: '#f2f2f2',
-    head: 'helvetica', body: 'helvetica', radius: 6, footerLine: false,
-    extra: ({ T, headInk }) => `
-${T}{--title-size:44px;}
-${T} .sd-band .cd-title{font-weight:900;letter-spacing:.02em;margin-right:0;}
-${T} .cd-label{font-weight:800;}
-${T} .cd-party-name{font-weight:800;}
-${T} .cd-table th{font-size:10px;font-weight:800;}
-${T} .cd-tot-grand{background:var(--accent);border-top:0;border-radius:6px;padding:11px 12px;}
-${T} .cd-tot-grand .cd-tot-label,${T} .cd-tot-grand .cd-tot-value{color:${headInk};}
-${T} .cd-h{border-bottom:2px solid var(--ink);color:var(--ink);font-weight:900;}
-${T} .cd-fact{border:2px solid var(--ink);background:transparent;}
-`,
+    primary: '#000000', secondary: '#000000', text: '#000000', border: '#000000', zebra: '#e5e5e5',
+    head: 'helvetica', body: 'helvetica', footerLine: false,
   },
 ];
 

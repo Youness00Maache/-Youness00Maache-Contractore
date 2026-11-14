@@ -10,10 +10,12 @@ import {
 } from '../utils/templates/index.ts';
 
 /**
- * Document design picker: a gallery of live thumbnails (the real templates rendered with a sample document of
- * the form's own type, branded with the user's company), grouped in collections (Featured, New, and the
- * original Standard and Premium designs), plus accent color, font and paper size controls and a full-size
- * preview of the document being edited.
+ * Document design picker: a gallery of live thumbnails grouped in collections (Featured, New, and the original
+ * Standard and Premium designs), plus accent color, font and paper size controls and a full-size preview.
+ *
+ * Thumbnails and preview are the real PDF renderer on the document being edited (the user's own data, company and
+ * logo, laid out page by page like the PDF), so what is picked is what is downloaded. Only while the form is still
+ * empty do thumbnails show a sample document of the same type.
  *
  * Colors, font and paper are stored in `themeColors` ({ primary, secondary, custom, font, paper }) unless
  * the parent passes `onFontChange`. Empty colors (or the old #000000/#666666 defaults) = the template's palette.
@@ -55,6 +57,31 @@ const isHex = (v?: string) => !!v && /^#[0-9a-f]{6}$/i.test(v);
 const BRAND_KEYS = ['companyName', 'companyAddress', 'companyPhone', 'companyWebsite', 'logoUrl'] as const;
 type CollectionTab = 'all' | TemplateCollection;
 
+/** Keys every new document gets automatically (number, dates, design, company defaults): not "content". */
+const BOILERPLATE = /^(templateId|themeColors|fontFamily|paperSize|status|clientId|isAiGenerated|currency|recurrence|\w*Number|issueDate|dueDate|expiryDate|date|completedDate|deliveryDate|company\w*|logoUrl|signatureUrl|shipToType|deductInventory|id|createdAt|updatedAt)$/;
+
+/** true once the user typed something of their own (client, items, text, amounts…). */
+const hasOwnContent = (data: Record<string, any> | null | undefined): boolean => {
+  if (!data) return false;
+  return Object.entries(data).some(([k, v]) => {
+    if (BOILERPLATE.test(k) || v === null || v === undefined || v === '' || v === false) return false;
+    if (Array.isArray(v)) return v.some((row) => row && typeof row === 'object' ? Object.entries(row).some(([rk, rv]) => !/^(id|item_id|isExpanded)$/.test(rk) && rv !== '' && rv !== 0 && rv !== null && rv !== undefined && rv !== false) : !!row);
+    if (typeof v === 'number') return v !== 0;
+    if (typeof v === 'object') return false;
+    return String(v).replace(/<[^>]+>/g, '').trim() !== '';
+  });
+};
+
+/** `value`, updated at most every `ms` (thumbnails re-render while the user types, not on every key). */
+const useDebounced = <T,>(value: T, ms: number): T => {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+};
+
 /** Keeps a thumbnail unmounted until it scrolls into view (13 iframes at once is wasteful on phones). */
 const useInView = <T extends Element>(rootMargin = '200px') => {
   const ref = useRef<T | null>(null);
@@ -89,6 +116,19 @@ const useWidth = <T extends HTMLElement>() => {
 
 interface ThumbProps { html: string; pageWidth: number; pageHeight: number; title: string }
 
+/** Lays the thumbnail out in pages exactly like the PDF (first page shown), once its fonts are in. */
+const paginateFrame = (frame: HTMLIFrameElement | null) => {
+  const doc = frame?.contentDocument;
+  if (!doc) return;
+  try {
+    const fonts = (doc as any).fonts;
+    const run = () => { try { paginateDocument(doc); } catch { /* thumbnail stays a single long page */ } };
+    if (fonts?.ready) Promise.race([fonts.ready, new Promise((r) => setTimeout(r, 2500))]).then(run); else run();
+  } catch {
+    /* ignore */
+  }
+};
+
 const Thumbnail = React.memo(({ html, pageWidth, pageHeight, title }: ThumbProps) => {
   const [boxRef, width] = useWidth<HTMLDivElement>();
   const [viewRef, inView] = useInView<HTMLDivElement>();
@@ -100,7 +140,8 @@ const Thumbnail = React.memo(({ html, pageWidth, pageHeight, title }: ThumbProps
         <iframe
           title={title}
           srcDoc={html}
-          sandbox=""
+          sandbox="allow-same-origin"
+          onLoad={(e) => paginateFrame(e.currentTarget)}
           tabIndex={-1}
           aria-hidden="true"
           className="pointer-events-none absolute left-0 top-0 border-0 select-none"
@@ -208,19 +249,20 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
   const deferredFont = useDeferredValue(font);
 
   const sample = useMemo(() => getSampleDocument(kind), [kind]);
-  const thumbProfile = profile && (profile.companyName || profile.logoUrl) ? profile : SAMPLE_PROFILE;
-  // thumbnails show a sample document of this form's type, branded with the company on the form (when filled in)
-  const brandKey = BRAND_KEYS.map((k) => String(previewData?.[k] ?? '')).join('\u0001');
-  const brand = useDeferredValue(brandKey);
+  const ownProfile = !!profile && !!(profile.companyName || profile.logoUrl || profile.name);
+  const thumbProfile = ownProfile ? profile! : SAMPLE_PROFILE;
+  // thumbnails show the document being edited (what the PDF will be); while the form is empty, a sample of the
+  // same type branded with the user's company (a company typed on the form replaces the sample one entirely)
+  const liveData = useDebounced(previewData || null, 450);
+  const useOwn = hasOwnContent(liveData);
   const thumbData = useMemo(() => {
-    const own = brand.split('\u0001');
-    const patch: Record<string, string> = {};
-    BRAND_KEYS.forEach((k, i) => { if (own[i]?.trim()) patch[k] = own[i]; });
-    // a company typed on the form replaces the whole sample company (never mix two companies)
-    const base = { ...sample.data };
-    if (patch.companyName || patch.logoUrl) BRAND_KEYS.forEach((k) => { base[k] = patch[k] || ''; });
+    if (useOwn) return liveData as Record<string, any>;
+    const base: Record<string, any> = { ...sample.data };
+    const typed = BRAND_KEYS.some((k) => String(liveData?.[k] ?? '').trim());
+    if (typed) BRAND_KEYS.forEach((k) => { base[k] = String(liveData?.[k] ?? '').trim(); });
+    else if (ownProfile) BRAND_KEYS.forEach((k) => { delete base[k]; }); // the profile's company and logo
     return base;
-  }, [sample, brand]);
+  }, [useOwn, liveData, sample, ownProfile]);
 
   const [tab, setTab] = useState<CollectionTab>(() => getTemplateMeta(selected).collection || 'featured');
   const visible = useMemo(() => TEMPLATES.filter((t) => tab === 'all' || (t.collection || 'featured') === tab), [tab]);
@@ -230,13 +272,13 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
     name: t.name,
     description: t.description,
     accent: t.accent,
-    html: renderDocument(sample.type, { ...thumbData, templateId: t.id }, thumbProfile, SAMPLE_JOB, {
+    html: renderDocument(sample.type, { ...thumbData, templateId: t.id }, thumbProfile, useOwn ? job : SAMPLE_JOB, {
       templateId: t.id, bare: true, paper, colors: colorsForRender, font: deferredFont,
     }).html,
-  })), [visible, sample, thumbData, thumbProfile, paper, colorsForRender, deferredFont]);
+  })), [visible, sample, thumbData, thumbProfile, useOwn, job, paper, colorsForRender, deferredFont]);
 
-  // the full-size preview shows the document being edited (falls back to the sample when the form is empty)
-  const ownData = !!previewData && Object.keys(previewData).length > 0;
+  // the full-size preview shows the document being edited (falls back to the sample while the form is empty)
+  const ownData = hasOwnContent(previewData);
   const previewHtml = useMemo(() => {
     if (!showPreview) return '';
     const data = ownData ? previewData! : sample.data;
@@ -264,7 +306,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-base font-semibold text-foreground">Document design</p>
-          <p className="text-xs text-muted-foreground">{TEMPLATES.length} designs, shown on a sample {DOC_TITLES[kind].toLowerCase()}. Preview shows your own {DOC_TITLES[kind].toLowerCase()} exactly as the PDF.</p>
+          <p className="text-xs text-muted-foreground">{TEMPLATES.length} designs, shown on {useOwn ? `your ${DOC_TITLES[kind].toLowerCase()}, exactly as the PDF will look` : `a sample ${DOC_TITLES[kind].toLowerCase()} until you fill in the form`}.</p>
         </div>
         <button type="button" className="btn btn-outline btn-sm h-10" onClick={() => setShowPreview(true)}>
           <EyeIcon className="h-4 w-4" /> Preview

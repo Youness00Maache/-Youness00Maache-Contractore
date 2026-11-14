@@ -3,8 +3,13 @@
  *
  *   data ──renderDocument()──▶ print HTML (same HTML as the template gallery / previews)
  *        ──sandboxed iframe──▶ fonts + images loaded ──paginateDocument()──▶ fixed-size pages
- *        ──html2canvas (per page)──▶ jsPDF (one image per page + clickable link annotations
+ *        ──page → image (per page)──▶ jsPDF (one image per page + clickable link annotations
  *                                    + an invisible text layer, so the PDF text can be searched, selected and copied)
+ *
+ * Page → image: the browser draws the page itself (the page's HTML + CSS + embedded fonts and images inside an
+ * SVG <foreignObject>, drawn onto a canvas), so the PDF is pixel-for-pixel what the preview shows: double
+ * rules, shadows, transforms, gradients, blend modes, every design detail. If the browser refuses (very old
+ * Safari taints such canvases) the page is drawn with html2canvas instead, which approximates some CSS.
  *
  * jsPDF and html2canvas are loaded lazily (dynamic import) so they are not part of the initial bundle.
  * Every generator keeps its historical signature; the extra trailing `options` argument is optional.
@@ -31,6 +36,8 @@ export interface PdfOptions {
   scale?: number;
   /** Invisible text layer over each page image (default true): makes the text searchable/selectable. */
   textLayer?: boolean;
+  /** 'auto' (default): the browser draws each page (falls back to html2canvas); 'html2canvas': always html2canvas. */
+  renderer?: 'auto' | 'html2canvas';
 }
 
 type AnyProfile = Partial<UserProfile> | null | undefined;
@@ -248,6 +255,346 @@ const addTextLayer = (pdf: any, pageEl: HTMLElement, win: Window, sx: number, sy
   }
 };
 
+// ---------------------------------------------------------------------------
+// native page drawing (SVG foreignObject)
+// ---------------------------------------------------------------------------
+const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result));
+  r.onerror = () => reject(r.error || new Error('read failed'));
+  r.readAsDataURL(blob);
+});
+
+/** fetch() with a timeout and two retries (a dropped request on a weak connection must not change how the PDF looks). */
+const fetchRetry = async (url: string, ms = 10000): Promise<Response> => {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const t = setTimeout(() => ctrl?.abort(), ms);
+    try {
+      const res = await fetch(url, { mode: 'cors', credentials: 'omit', signal: ctrl?.signal });
+      if (res.ok) return res;
+      lastError = new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      lastError = e;
+    } finally {
+      clearTimeout(t);
+    }
+    await sleep(400 * (attempt + 1));
+  }
+  throw lastError instanceof Error ? lastError : new Error('fetch failed');
+};
+
+const fetchAsDataUrl = async (url: string): Promise<string> => blobToDataUrl(await (await fetchRetry(url)).blob());
+
+const dataUrlCache = new Map<string, Promise<string>>();
+const cachedDataUrl = (url: string) => {
+  let p = dataUrlCache.get(url);
+  if (!p) {
+    p = fetchAsDataUrl(url);
+    p.catch(() => dataUrlCache.delete(url));
+    dataUrlCache.set(url, p);
+  }
+  return p;
+};
+
+/**
+ * The Google Fonts stylesheet with every font file embedded (data: URLs), restricted to the Latin subsets
+ * (all text the documents print). Throws when a font can't be embedded: the page must then be drawn by
+ * html2canvas, which uses the fonts the frame already loaded, instead of silently changing the typeface.
+ */
+const fontCssCache = new Map<string, Promise<string>>();
+const embeddedFontCss = (href: string): Promise<string> => {
+  let p = fontCssCache.get(href);
+  if (!p) {
+    p = (async () => {
+      const css = await (await fetchRetry(href)).text();
+      const faces: string[] = [];
+      const re = /(?:\/\*\s*([\w-]+)\s*\*\/\s*)?(@font-face\s*\{[^}]*\})/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(css))) {
+        const subset = (m[1] || 'latin').toLowerCase();
+        if (subset !== 'latin' && subset !== 'latin-ext') continue;
+        let face = m[2];
+        const urls = Array.from(face.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)).map((u) => u[1]);
+        for (const u of urls) face = face.split(u).join(await cachedDataUrl(u));
+        faces.push(face);
+      }
+      return faces.join('\n');
+    })();
+    p.catch(() => fontCssCache.delete(href));
+    fontCssCache.set(href, p);
+  }
+  return p;
+};
+
+let nativeUnavailable = false;
+
+const loadSvgImage = (svg: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new Image();
+  img.decoding = 'sync';
+  img.onload = () => resolve(img);
+  img.onerror = () => reject(new Error('the page could not be drawn natively'));
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+});
+
+/** Cheap fingerprint of a canvas (every 7th pixel), to see when repeated draws stop changing. */
+const canvasPrint = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let a = 0;
+  let b = 0;
+  for (let i = 0; i < d.length; i += 28) { a = (a + d[i] + d[i + 1] * 3 + d[i + 2] * 7) % 1000000007; b = (b * 31 + a) % 1000000009; }
+  return `${a}:${b}`;
+};
+
+interface FontFace { family: string; weight: string; style: string }
+const fontFacesOf = (fontCss: string): FontFace[] => {
+  const seen = new Set<string>();
+  return Array.from(fontCss.matchAll(/@font-face\s*\{([^}]*)\}/g)).map((f) => {
+    const get = (prop: string) => (new RegExp(`${prop}\\s*:\\s*([^;]+);`).exec(f[1]) || [])[1] || '';
+    return { family: get('font-family').trim(), weight: (get('font-weight') || '400').trim().split(/\s+/)[0], style: (get('font-style') || 'normal').trim() };
+  }).filter((f) => {
+    const k = `${f.family}|${f.weight}|${f.style}`;
+    if (!f.family || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+
+const unquote = (family: string) => family.trim().replace(/^['"]|['"]$/g, '').toLowerCase();
+
+/**
+ * Only the embedded faces the page really uses (family + nearest weight + style of every element that has text),
+ * so the SVG stays small and the font probe waits only for faces that matter.
+ */
+const usedFontCss = (fontCss: string, pageEl: HTMLElement): string => {
+  const win = pageEl.ownerDocument.defaultView || window;
+  const used = new Map<string, Set<string>>();
+  const els = [pageEl, ...Array.from(pageEl.querySelectorAll('*'))];
+  for (const el of els) {
+    if (!Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.nodeValue || '').trim())) continue;
+    const cs = win.getComputedStyle(el);
+    const fam = unquote(cs.fontFamily.split(',')[0] || '');
+    const style = /italic|oblique/.test(cs.fontStyle) ? 'italic' : 'normal';
+    if (!used.has(fam)) used.set(fam, new Set());
+    used.get(fam)!.add(`${parseInt(cs.fontWeight, 10) || 400}|${style}`);
+  }
+  const blocks = Array.from(fontCss.matchAll(/@font-face\s*\{[^}]*\}/g)).map((m) => m[0]);
+  const info = blocks.map((b) => {
+    const get = (prop: string) => (new RegExp(`${prop}\\s*:\\s*([^;]+);`).exec(b) || [])[1] || '';
+    return { css: b, family: unquote(get('font-family')), weight: parseInt(get('font-weight'), 10) || 400, style: /italic|oblique/.test(get('font-style')) ? 'italic' : 'normal' };
+  });
+  const keep = new Set<string>();
+  for (const [fam, combos] of used) {
+    for (const combo of combos) {
+      const [w, st] = combo.split('|');
+      const want = Number(w);
+      const cands = info.filter((f) => f.family === fam && f.style === st);
+      if (!cands.length) continue;
+      // CSS font matching, simplified: the nearest available weight (lighter first up to 500, heavier above)
+      const best = cands.reduce((a, f) => {
+        const da = Math.abs(a.weight - want);
+        const df = Math.abs(f.weight - want);
+        if (df !== da) return df < da ? f : a;
+        return (want <= 500 ? f.weight < a.weight : f.weight > a.weight) ? f : a;
+      });
+      cands.filter((f) => f.weight === best.weight).forEach((f) => keep.add(f.css));
+    }
+  }
+  return blocks.filter((b) => keep.has(b)).join('\n');
+};
+
+/** Last reason the browser could not draw a page itself (QA shows it when a page fell back to html2canvas). */
+export let lastNativeError = '';
+
+/**
+ * Draws a laid-out page with the browser's own renderer (identical to the preview). Throws if it can't.
+ *
+ * Fonts embedded in an SVG image are decoded asynchronously, so a first drawing can still use a fallback font.
+ * The SVG therefore carries, below the page, a font probe: every embedded face written twice, once with a
+ * monospace and once with a serif fallback. While the two copies differ a face is not ready; the page is drawn
+ * only once they match (or after 10 s, then the PDF is drawn with html2canvas instead of with a wrong font).
+ */
+const nativeCapture = async (pageEl: HTMLElement, o: { width: number; height: number; scale: number }): Promise<HTMLCanvasElement> => {
+  if (nativeUnavailable) throw new Error('native page drawing unavailable in this browser');
+  const doc = pageEl.ownerDocument;
+  const root = pageEl.closest('.cd-root') as HTMLElement | null;
+  const fontLinks = Array.from(doc.querySelectorAll('link[rel="stylesheet"]'))
+    .map((l) => l.getAttribute('href') || '')
+    .filter((h) => /^https:\/\/fonts\.googleapis\.com\//.test(h));
+  const fontCss = usedFontCss((await Promise.all(fontLinks.map(embeddedFontCss))).join('\n'), pageEl);
+  const css = Array.from(doc.querySelectorAll('style')).map((st) => st.textContent || '').join('\n');
+
+  const page = pageEl.cloneNode(true) as HTMLElement;
+  await Promise.all(Array.from(page.querySelectorAll('img')).map(async (img) => {
+    const src = img.getAttribute('src') || '';
+    if (!src || /^data:/i.test(src)) return;
+    try {
+      img.setAttribute('src', await cachedDataUrl(src));
+    } catch {
+      img.setAttribute('style', `${img.getAttribute('style') || ''};visibility:hidden`); // like before: no broken-image icon
+    }
+    img.removeAttribute('crossorigin');
+  }));
+  page.style.margin = '0';
+  const wrap = doc.createElement('div');
+  if (root) for (const a of Array.from(root.attributes)) wrap.setAttribute(a.name, a.value);
+  wrap.style.width = `${o.width}px`;
+  wrap.style.margin = '0';
+  wrap.appendChild(page);
+  const xhtml = new XMLSerializer().serializeToString(wrap);
+
+  const faces = fontFacesOf(fontCss);
+  const PW = Math.floor(o.width / 2);
+  const ROW = 16;
+  const probeH = faces.length ? faces.length * ROW : 0;
+  const probeCol = (fallback: string, left: number) => `<div style="position:absolute;left:${left}px;top:0;width:${PW}px">${faces.map((f) =>
+    `<div style="height:${ROW}px;overflow:hidden;white-space:nowrap;font-family:${f.family}, ${fallback};font-weight:${f.weight};font-style:${f.style};font-size:13px;line-height:${ROW}px;color:#000">Hamburgefonstiv 0123 $</div>`).join('')}</div>`;
+  const probe = faces.length
+    ? `<div style="position:absolute;left:0;top:${o.height}px;width:${o.width}px;height:${probeH}px;background:#fff">${probeCol('monospace', 0)}${probeCol('serif', PW)}</div>`
+    : '';
+  const H = o.height + probeH;
+  const styles = `${fontCss}\n${css}`.replace(/]]>/g, ']] >');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${o.width}" height="${H}" viewBox="0 0 ${o.width} ${H}">`
+    + `<foreignObject x="0" y="0" width="${o.width}" height="${H}">`
+    + `<div xmlns="http://www.w3.org/1999/xhtml" style="position:relative;width:${o.width}px;height:${H}px;margin:0;padding:0;background:#ffffff">`
+    + `<style><![CDATA[${styles}]]></style>`
+    + `<div style="position:absolute;left:0;top:0;width:${o.width}px;height:${o.height}px;overflow:hidden">${xhtml}</div>${probe}</div></foreignObject></svg>`;
+
+  let img = await loadSvgImage(svg);
+  try { await img.decode(); } catch { /* onload already fired */ }
+
+  // wait until every embedded face is really used (both probe columns identical)
+  if (faces.length) {
+    const pc = doc.createElement('canvas');
+    pc.width = o.width;
+    pc.height = probeH;
+    const px = pc.getContext('2d');
+    const start = Date.now();
+    let imgStart = start;
+    let attempt = 0;
+    let ready = false;
+    let pending: FontFace[] = faces;
+    while (px && !ready && Date.now() - start < 10000) {
+      px.fillStyle = '#ffffff';
+      px.fillRect(0, 0, pc.width, pc.height);
+      px.drawImage(img, 0, o.height, o.width, probeH, 0, 0, o.width, probeH);
+      const a = px.getImageData(0, 0, PW, probeH).data;
+      const b = px.getImageData(PW, 0, PW, probeH).data;
+      // a face is ready when both copies have the same glyphs; anti-aliasing can differ by a few pixels, a
+      // fallback font differs everywhere (other widths and shapes)
+      pending = faces.filter((_, r) => {
+        let n = 0;
+        for (let i = r * ROW * PW * 4; i < (r + 1) * ROW * PW * 4; i += 4) if (Math.abs(a[i] - b[i]) > 96 && ++n > 30) return true;
+        return false;
+      });
+      ready = pending.length === 0;
+      if (!ready) {
+        await sleep(60);
+        // an SVG image can keep painting its first (fallback-font) frame: after a while, a fresh copy picks up
+        // the fonts the browser has decoded meanwhile (each copy gets time to load them)
+        if (Date.now() - imgStart > 1500) {
+          // a different URL (comment) so the browser builds a new image instead of reusing the cached one
+          img = await loadSvgImage(`${svg}<!--${++attempt}-->`);
+          try { await img.decode(); } catch { /* onload already fired */ }
+          imgStart = Date.now();
+        }
+      }
+    }
+    if (!ready) throw new Error(`the document fonts did not load in time (${pending.map((f) => `${f.family} ${f.weight} ${f.style}`).join(', ')})`);
+  }
+
+  const canvas = doc.createElement('canvas');
+  canvas.width = Math.floor(o.width * o.scale);
+  canvas.height = Math.floor(o.height * o.scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('no canvas');
+  const draw = () => {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, o.width, o.height, 0, 0, canvas.width, canvas.height);
+  };
+  // redraw until two drawings match: embedded images can also arrive on a later draw
+  draw();
+  let last = canvasPrint(ctx, canvas.width, canvas.height);
+  for (let i = 0; i < 8; i++) {
+    await sleep(i === 0 ? 30 : 80);
+    draw();
+    const print = canvasPrint(ctx, canvas.width, canvas.height);
+    if (print === last) break;
+    last = print;
+  }
+  try {
+    // a canvas the browser considers unsafe throws here (old Safari): use html2canvas for the rest of the session
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let first = -1;
+    let uniform = true;
+    for (let i = 0; i < data.length; i += 4) {
+      const v = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+      if (first < 0) first = v; else if (v !== first) { uniform = false; break; }
+    }
+    if (uniform) throw new Error('the native drawing came out blank');
+  } catch (e) {
+    nativeUnavailable = true;
+    throw e;
+  }
+  return canvas;
+};
+
+/** One laid-out page → canvas with html2canvas (fallback; approximates some CSS). */
+const html2canvasCapture = async (html2canvas: any, pageEl: HTMLElement, o: { width: number; height: number; scale: number; winH: number }) => {
+  const doc = pageEl.ownerDocument;
+  const canvas = doc.createElement('canvas');
+  canvas.width = Math.floor(o.width * o.scale);
+  canvas.height = Math.floor(o.height * o.scale);
+  await html2canvas(pageEl, {
+    canvas,
+    scale: o.scale,
+    width: o.width,
+    height: o.height,
+    // html2canvas adds x/y to the element's own position, so they must stay 0
+    x: 0,
+    y: 0,
+    useCORS: true,
+    allowTaint: false,
+    backgroundColor: '#ffffff',
+    logging: false,
+    windowWidth: o.width,
+    windowHeight: o.winH,
+    scrollX: 0,
+    scrollY: 0,
+  });
+  return canvas as HTMLCanvasElement;
+};
+
+/** One laid-out page → canvas, exactly as the PDF draws it (shared with the preview-vs-PDF QA diff). */
+const capturePage = async (
+  html2canvas: any, pageEl: HTMLElement, o: { width: number; height: number; scale: number; winH: number }, renderer: 'auto' | 'html2canvas' = 'auto',
+) => {
+  if (renderer === 'auto') {
+    try {
+      const c = await nativeCapture(pageEl, o);
+      (c as any).__renderer = 'native';
+      return c;
+    } catch (e) {
+      lastNativeError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  const c = await html2canvasCapture(html2canvas, pageEl, o);
+  (c as any).__renderer = 'html2canvas';
+  return c;
+};
+
+/** QA: renders a laid-out page of a document (already paginated) the way the PDF does. */
+export const renderPageToCanvas = async (pageEl: HTMLElement, scale = 1, renderer: 'auto' | 'html2canvas' = 'auto'): Promise<HTMLCanvasElement> => {
+  const { html2canvas } = await loadLibs();
+  const root = pageEl.closest('.cd-root') as HTMLElement;
+  const width = parseFloat(root?.getAttribute('data-page-width') || '') || pageEl.offsetWidth;
+  const height = parseFloat(root?.getAttribute('data-page-height') || '') || pageEl.offsetHeight;
+  const winH = Math.ceil((root || pageEl).getBoundingClientRect().height + 40);
+  return capturePage(html2canvas, pageEl, { width, height, scale, winH }, renderer);
+};
+
 /** Renders the print HTML in a hidden, script-less iframe, paginates it and returns a jsPDF document. */
 const htmlToPdf = async (render: RenderResult, opts: PdfOptions = {}) => {
   if (typeof document === 'undefined') throw new Error('PDF generation needs a browser.');
@@ -286,27 +633,8 @@ const htmlToPdf = async (render: RenderResult, opts: PdfOptions = {}) => {
 
     for (let i = 0; i < pages.length; i++) {
       const pageEl = pages[i];
-      const canvas = doc.createElement('canvas');
-      canvas.width = Math.floor(width * scale);
-      canvas.height = Math.floor(height * scale);
       const rect = pageEl.getBoundingClientRect();
-      await html2canvas(pageEl, {
-        canvas,
-        scale,
-        width,
-        height,
-        // html2canvas adds x/y to the element's own position, so they must stay 0
-        x: 0,
-        y: 0,
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: '#ffffff',
-        logging: false,
-        windowWidth: width,
-        windowHeight: winH,
-        scrollX: 0,
-        scrollY: 0,
-      });
+      const canvas = await capturePage(html2canvas, pageEl, { width, height, scale, winH }, opts.renderer || 'auto');
       if (i > 0) pdf.addPage(format, 'portrait');
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.86), 'JPEG', 0, 0, pw, ph, undefined, 'FAST');
 

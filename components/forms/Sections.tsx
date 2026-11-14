@@ -306,7 +306,7 @@ export const ApprovalSection: React.FC<{
                     </div>
                     {state === 'copy-failed' && <p className="text-xs text-destructive">Copy isn’t available here. Select the link above and copy it manually.</p>}
                     {state === 'error' && <p className="text-xs text-destructive">{error}</p>}
-                    <p className="text-xs text-muted-foreground">Links expire after 60 days if unused; copying always gives a working link. When the client signs, the status changes automatically.</p>
+                    <p className="text-xs text-muted-foreground">The link keeps working (no end date); copying always gives a working link. When the client signs, the status changes automatically.</p>
                 </div>
             ) : (
                 <p className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">

@@ -366,7 +366,7 @@ const colorblock: ThemeDef = {
   id: 'colorblock',
   pad: { top: 44, x: 52, bottom: 72, footer: 28 },
   header: ({ m }) => block('cd-hdr', `
-    <div class="cb-a"><div class="cb-a-in">${titleH1(m)}<div class="cb-bar"></div>${m.number ? `<div class="cb-no"><span>${m.numberLabel}</span> ${m.number}</div>` : ''}${statusBadge(m)}</div><div class="cb-sq"></div></div>
+    <div class="cb-a"><div class="cb-a-in">${titleH1(m)}<div class="cb-bar"></div>${m.number ? `<div class="cb-no"><span>${m.numberLabel}</span> ${m.number}</div>` : ''}${statusBadge(m)}</div><div class="cb-sq cd-deco"></div></div>
     <div class="cb-b"><div class="cb-b-in">${logoImg(m)}${m.company.name ? `<div class="cb-name">${m.company.name}</div>` : ''}${m.company.tagline ? `<div class="cb-tag">${m.company.tagline}</div>` : ''}${companyBlock(m, 'cb-lines')}</div></div>`),
   parties: (ctx) => {
     const { m } = ctx;

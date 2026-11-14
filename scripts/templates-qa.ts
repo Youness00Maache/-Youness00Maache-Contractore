@@ -6,6 +6,11 @@
  *   npx tsx scripts/templates-qa.ts                       # static checks + browser checks + screenshots
  *   npx tsx scripts/templates-qa.ts --no-browser          # static checks only (fast, no Chrome needed)
  *   npx tsx scripts/templates-qa.ts --templates=classic,bold --kinds=invoice,dailyReport
+ *   npx tsx scripts/templates-qa.ts --pdfdiff             # also compare every design's preview with its PDF drawing
+ *                                                         # (fails on a visible blob of differences, >1.5% scattered noise,
+ *                                                         # or when the page fell back to html2canvas)
+ *                                                         # (png/../pdfdiff/<id>/<kind>-<variant>.png: preview | PDF | diff)
+ *   npx tsx scripts/templates-qa.ts --no-emptyboxes       # skip the empty-box check on sparse documents
  *   npx tsx scripts/templates-qa.ts --pdf                 # also generate real PDFs through services/pdfGenerator.ts
  *                                                         # (and check their invisible text layer is searchable)
  *   npx tsx scripts/templates-qa.ts --textlayer           # also write png/<id>/<kind>-textlayer.png: the PDF text layer
@@ -37,6 +42,7 @@ import {
 } from '../utils/templates/registry.ts';
 import { THEMES } from '../utils/templates/themes.ts';
 import { modelFieldChecks, renderFieldChecks } from './templates-fields.ts';
+import { visualStage } from './templates-visual.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Map(process.argv.slice(2).map((a) => {
@@ -524,6 +530,15 @@ const browserStage = async () => {
       }
     }
     console.log(`browser: paginated ${targets.length} documents, ${shots} screenshots in ${shotDir}`);
+
+    // empty boxes on sparse documents (always) and preview-vs-PDF pixel comparison (--pdfdiff); see templates-visual.ts
+    if (!args.has('no-emptyboxes') || args.has('pdfdiff')) {
+      await visualStage({
+        cdp, navigate: (url) => navigate(cdp, url), bundle, out: OUT, templates, kinds, check, log: (m) => console.log(m),
+        samples: SAMPLE_DOCUMENTS, sampleProfile: SAMPLE_PROFILE, sampleJob: SAMPLE_JOB,
+        diffThreshold: Number(args.get('diff-threshold') || 1.5),
+      }, { pdfDiff: args.has('pdfdiff'), emptyBoxes: !args.has('no-emptyboxes') });
+    }
 
     if (args.has('pdf')) {
       const pdfJs = await bundle(`import * as pdf from './services/pdfGenerator.ts'; (window as any).__cdPdf = pdf;`, 'qa-pdf');
