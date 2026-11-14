@@ -41,7 +41,7 @@ payment processor (#33), enterprise RFI/bidding, push needs VAPID secret from th
 N1 AI estimate reviewer (#9): ai-assistant task "review_estimate" (price book slice, lines, totals, markup) ->
    list of findings (missing materials/labor/expenses, odd quantities, math, low markup, price vs price book), shown
    before Send / on demand; accept = adds suggested line, ignore = dismiss; never silent changes. Premium+AI.
-   Tests: qa:document-ai cases. Deploy ai-assistant. [Opus]                                         TODO
+   Tests: qa:document-ai cases. Deploy ai-assistant. [Opus]                                     BUILDING (helper, 2026-11-14 21:20)
 N2 Budget + POs (#30, #26, #27): committed vs actual (Sent/Confirmed POs not yet received = committed; received =
    actual), original vs revised budget, remaining, expected final cost/profit/margin, category overrun highlight;
    PO statuses Draft/Sent/Confirmed/Partially delivered/Delivered/Invoiced/Paid, partial deliveries with remaining
