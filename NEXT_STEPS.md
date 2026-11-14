@@ -245,6 +245,8 @@ defaults: door 3'x6'8", window 3'x4", US/Canada start in feet-inches.
 ai-assistant REDEPLOYED (the old live app never calls ai-assistant, so this is safe before the frontend release).
 Owner notes: the price book isn't sent to the assistant, so prices the user didn't give stay empty (flagged on the
 card); Recommended defaults to the 2nd option. Not done: "turn this estimate into options" on an open form.
+**10:50:** Started helper ac5970b502af39d6e: send a relevance-ranked slice of the price book (sell prices only) to the
+assistant so drafted lines get real prices (no DB). Weekly 91%: stop everything at 95%.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
