@@ -28,6 +28,8 @@ import {
     recordContractorChoice, removeOptions, syncMirror, undoApply, unpackOptionsForEdit, type OptionSet,
 } from '../lib/estimateOptions.ts';
 import { AppliedOptionStrip, EstimateOptionsEditor, OptionChoiceBar, optionTitle } from './options/EstimateOptionsEditor.tsx';
+import { EstimateReviewPanel, ReviewShareNotice, useEstimateReview } from './review/EstimateReview.tsx';
+import { addSuggestedLine, suggestionToLine, type ReviewFinding } from '../lib/estimateReview.ts';
 
 interface Props {
     job: Job;
@@ -195,6 +197,14 @@ const EstimateForm: React.FC<Props> = ({
     idRef.current = documentId ?? form.lastSaveResult?.id;
     const lock = useSignedLock({ form, kind: 'estimate', formType: FormType.Estimate, job, documentId: idRef.current, numberKey: 'estimateNumber' });
     const locked = lock.locked;
+    // "Review estimate" (lib/estimateReview.ts): checks + AI findings; a suggested line is added only on "Add line"
+    const review = useEstimateReview({ data: d, savedItems, documentId: idRef.current, jobName: job.name, clientName: d.clientName || job.clientName, language: profile.language });
+    const addReviewLine = (f: ReviewFinding) => {
+        if (!f.suggested) return;
+        const line = suggestionToLine(f.suggested, savedItems);
+        update(prev => syncMirror(addSuggestedLine(prev, line, f.optionId)));
+        form.setFeedback({ tone: 'info', message: `Added “${line.description}”${toNumber(line.rate) > 0 ? '' : ' without a price: add its price'}. Review, then save.` });
+    };
     const totals = computeDocumentTotals(d);
     const cost = computeDocumentCost(d);
     // revenue is what the client pays for the work (after the discount, before tax)
@@ -400,6 +410,7 @@ const EstimateForm: React.FC<Props> = ({
                     />
                 </LockedFieldset>
                 )}
+                {!locked && <EstimateReviewPanel review={review} canEdit={!locked} onAddLine={addReviewLine} />}
             </FormSection>
 
             {/* automatic estimate follow-ups (components/reminders); outside the signed lock */}
@@ -492,6 +503,7 @@ const EstimateForm: React.FC<Props> = ({
                 hasUnsavedChanges={form.isDirty}
                 onDownload={form.download}
                 getPdfDataUri={async () => String(await generateEstimatePDF(profile, job, d, d.templateId || DEFAULT_TEMPLATE_ID, true) || '')}
+                topNotice={!locked ? <ReviewShareNotice review={review} onReview={() => { setShareOpen(false); review.openReview(true); }} /> : undefined}
             />
         </FormShell>
     );

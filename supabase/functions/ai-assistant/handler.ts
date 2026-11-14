@@ -9,6 +9,8 @@
  *
  * Photo tasks (body.task = "photo_update" | "photo_walkthrough", shared/photoTasks.ts): same auth, limits, model
  * chain and metering, plus a Premium + AI plan check; up to 8 photos; see handlePhotoTask.
+ * Estimate review (body.task = "estimate_review", shared/estimateReview.ts): same auth, limits, model chain and
+ * metering, Premium + AI only; returns findings (missing items / expenses / risky assumptions); see handleEstimateReview.
  */
 import {
     buildProposal, buildResponseSchema, hasPriceBook, isSampleRequest, parseModelJson, requestHasEstimateOptions, RouterInputError, sanitizeRequest,
@@ -18,6 +20,10 @@ import {
     buildPhotoResponseSchema, buildPhotoSystemPrompt, buildPhotoUserParts, buildWalkthroughProposal, isPhotoTaskBody, mockPhotoTaskOutput,
     parsePhotoUpdate, PHOTO_TASK_TIER, PHOTO_TASK_UPGRADE_MESSAGE, sanitizePhotoTaskRequest, type PhotoTaskRequest,
 } from './shared/photoTasks.ts';
+import {
+    buildReviewResponseSchema, buildReviewSystemPrompt, buildReviewUserTurn, ESTIMATE_REVIEW_TIER, ESTIMATE_REVIEW_UPGRADE_MESSAGE,
+    isEstimateReviewBody, mockEstimateReviewOutput, parseReviewFindings, sanitizeEstimateReviewRequest, type EstimateReviewRequest,
+} from './shared/estimateReview.ts';
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
 import { mockModelOutput } from './shared/mockModel.ts';
 import { REQUEST_LIMITS } from './shared/routerContract.ts';
@@ -559,13 +565,35 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         return generateJson(makeBody);
     }
 
+    /** Estimate review: the compact estimate, the price-book slice and the checks already shown, own prompt and schema. */
+    async function callGeminiReview(request: EstimateReviewRequest): Promise<{ output: Record<string, unknown>; model: string }> {
+        const thinkingLevel = thinkingLevelOf();
+        const contents = [{ role: 'user', parts: [{ text: buildReviewUserTurn(request) }] }];
+        const system = buildReviewSystemPrompt(request);
+        const makeBody = (model: string, opts: { thinking: boolean; compact: boolean }) => {
+            const modern = geminiGeneration(model) >= 3;
+            return JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: buildReviewResponseSchema({ compact: opts.compact }),
+                    ...(modern ? {} : { temperature: 0.2 }),
+                    maxOutputTokens: 4096,
+                    ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),
+                },
+            });
+        };
+        return generateJson(makeBody);
+    }
+
     /**
      * Configuration, burst guard, plan and rate limits for one request. Returns the plan facts, or the 402 response
      * to send (monthly limit reached, or a feature of a higher plan when `requiredTier` is set).
      * Order: the plan's monthly allowance → (AI credits on) a purchased credit, after an automatic top-up when the
      * balance is empty and it is switched on → 402 CREDITS_EMPTY (credits on) / PLAN_LIMIT (off or SQL missing).
      */
-    async function admit(userId: string, cors: Record<string, string>, requiredTier?: 'ai'): Promise<Admission | Response> {
+    async function admit(userId: string, cors: Record<string, string>, requiredTier?: 'ai', upgradeMessage: string = PHOTO_TASK_UPGRADE_MESSAGE): Promise<Admission | Response> {
         if (!serviceKey) throw new HttpError(503, 'NOT_CONFIGURED', 'The AI assistant is not configured on the server.');
         const nowDate = now();
         if (burstExceeded(userId, nowDate.getTime())) throw new HttpError(429, 'RATE_LIMITED', 'You are sending messages too quickly. Please wait a few seconds.');
@@ -579,7 +607,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         ]);
         const limit = AI_MONTHLY_LIMITS[tier];
         if (requiredTier && tier !== requiredTier) {
-            return json({ error: `PLAN_REQUIRED: ${PHOTO_TASK_UPGRADE_MESSAGE}`, code: 'PLAN_REQUIRED', tier, required: requiredTier }, 402, cors);
+            return json({ error: `PLAN_REQUIRED: ${upgradeMessage}`, code: 'PLAN_REQUIRED', tier, required: requiredTier }, 402, cors);
         }
         if (used >= limit) {
             if (creditsOn) {
@@ -644,6 +672,33 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         return json({ ok: true, task: request.task, ...payload, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
     }
 
+    /**
+     * "Review estimate" AI check (Premium + AI). Metered as one AI request, only when the answer has a findings list
+     * (an empty list is a valid answer: nothing missing) and the browser is still waiting.
+     *   estimate_review → { ok, task, review: { findings } }
+     */
+    async function handleEstimateReview(req: Request, userId: string, body: unknown, cors: Record<string, string>): Promise<Response> {
+        const request = sanitizeEstimateReviewRequest(body);
+        const admission = await admit(userId, cors, ESTIMATE_REVIEW_TIER, ESTIMATE_REVIEW_UPGRADE_MESSAGE);
+        if (admission instanceof Response) return admission;
+
+        const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
+        const { output, model } = provider === 'mock'
+            ? { output: mockEstimateReviewOutput(request), model: 'mock' }
+            : await callGeminiReview(request);
+        const findings = parseReviewFindings(output, request);
+        if (!findings) {
+            log('estimate review without a findings list', model);
+            throw new HttpError(FAILURE_ERRORS.bad_output.status, FAILURE_ERRORS.bad_output.code, FAILURE_ERRORS.bad_output.message);
+        }
+        if (req.signal?.aborted) {
+            log('client went away before the answer; not metered');
+            return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
+        }
+        const spent = await recordUsage(userId, admission);
+        return json({ ok: true, task: request.task, review: { findings }, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
+    }
+
     return async function handle(req: Request): Promise<Response> {
         const cors = corsHeaders(req, env);
         if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -658,6 +713,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             let body: unknown;
             try { body = JSON.parse(raw); } catch { throw new HttpError(400, 'BAD_REQUEST', 'Request body must be JSON.'); }
             if (isPhotoTaskBody(body)) return await handlePhotoTask(req, user.id, body, cors);
+            if (isEstimateReviewBody(body)) return await handleEstimateReview(req, user.id, body, cors);
             const request = sanitizeRequest(body);
 
             const admission = await admit(user.id, cors);
