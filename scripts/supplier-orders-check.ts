@@ -488,7 +488,9 @@ const FERG = normalizeSupplier({ id: 's_fe', name: 'Ferguson', email: 'po@fergus
 // 8. wiring
 // ---------------------------------------------------------------------------------------------------------------
 {
-    const migrations = readdirSync(join(root, 'supabase/migrations'));
+    // the suppliers + product library tables (roadmap D4) are a separate, later feature with their own check
+    // (scripts/supplier-library-check.ts); supplier ordering itself still needs no migration
+    const migrations = readdirSync(join(root, 'supabase/migrations')).filter((f) => f !== '20261116000200_suppliers_library.sql');
     check('no migration for supplier ordering', !migrations.some((f) => /supplier|reorder|purchase/i.test(f) || /suppliers\.list|inventory\.reorder|internalStockReceipt/.test(read(`supabase/migrations/${f}`))));
     const userData = read('lib/userData.ts');
     check('userData uses the same setting keys', userData.includes(`'${SUPPLIERS_SETTING}'`) && userData.includes(`'${REORDER_SETTING}'`));

@@ -218,6 +218,16 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'components/service/servicePlansApi.ts', match: "from('service_plans').update({ status })", what: 'pause / resume / end a service plan', offline: 'needs_connection' },
     { file: 'components/service/servicePlansApi.ts', match: "from('service_plans').delete()", what: 'delete service plan', offline: 'needs_connection' },
     { file: 'components/service/servicePlansApi.ts', match: "rpc('complete_service_visit'", what: 'visit done / skipped', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------- suppliers + product library (D4)
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('suppliers').insert(row)", what: 'add supplier', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('suppliers').update(row)", what: 'edit / archive supplier', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('suppliers').insert(legacyRow)", what: 'copy the old supplier list into the suppliers table (once)', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').insert(row)", what: 'add supplier item', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').update(row)", what: 'edit supplier item / price / price-book link', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').delete()", what: 'delete supplier item', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('saved_items').update(row)", what: 'price-book item: link, specs, preferred supplier', offline: 'needs_connection' },
+    { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').insert(chunk)", what: 'supplier price list import: new items', offline: 'needs_connection' },
 ];
 
 /** Rows of the table that cover a scanned line. */
