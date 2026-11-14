@@ -176,6 +176,11 @@ New: #7 Export everything + bookkeeper CSV + price promise → aff2f94e4414c0f80
 (bundle: esbuild supabase/functions/ai-assistant/index.ts → scratchpad; the Supabase dashboard wasn't loading at
 00:10). Until deployed, how-to answers in the local app show only a one-line reply. After the export helper lands,
 add /settings#data to NAV_ROUTES + knowledge.ts. Still running: templates ab3e480c0eebe3ce2, export aff2f94e4414c0f80.
+**00:35:** #7 Export everything DONE + committed (b124d28; fflate added). Owner to confirm the price promise wording
+("prices locked 12 months for existing subscribers") and then align TermsOfService. NEXT features started (no DB
+changes): pipeline board a6f93a02a6c772da0, job costing + T&M invoice aef749bf3a0d5af15. Waiting: good/better/best
+(#6) until the templates helper ab3e480c0eebe3ce2 finishes (needs template changes); DB-needing NEXT items (crew
+clock-in, service plans, papers vault, punch lists) need the owner's OK for new tables.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
