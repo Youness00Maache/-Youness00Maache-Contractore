@@ -247,6 +247,10 @@ Owner notes: the price book isn't sent to the assistant, so prices the user didn
 card); Recommended defaults to the 2nd option. Not done: "turn this estimate into options" on an open form.
 **10:50:** Started helper ac5970b502af39d6e: send a relevance-ranked slice of the price book (sell prices only) to the
 assistant so drafted lines get real prices (no DB). Weekly 91%: stop everything at 95%.
+**11:25:** Price book for the AI DONE + committed (ccebdbc; qa:document-ai 1208) and ai-assistant REDEPLOYED. Also
+committed utils/documentDraft.ts that 2a3d2ab had missed. Owner OK: price-book names/units/sell prices/short
+descriptions/kit parts now go to Gemini with drafting requests (never costs); matched lines take the price book's
+"name - description" text and unit.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
