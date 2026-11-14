@@ -806,6 +806,22 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             {
                 "title": "Supplier invoice and payment",
                 "text": "When the supplier bills you, enter the Supplier invoice # and amount (the order becomes Invoiced) and attach the supplier’s invoice (PDF or photo). Mark it paid when you pay. Job costing counts what was delivered or invoiced as spent and the rest of a sent order as ordered (committed)."
+            },
+            {
+                "title": "More about each supplier",
+                "text": "Open a supplier to add the contact person, payment terms, delivery lead time and website, and tap the star to make it a preferred supplier. [[Archive this supplier]] hides it instead of deleting it: orders already made keep its details, and [[Show archived]] brings it back."
+            },
+            {
+                "title": "Supplier catalogue (Premium)",
+                "text": "In a supplier, open [[Catalogue]] and add what it sells: SKU, name, unit, price and a product link. Every price change is remembered: a small history, an up or down badge with the percent, and [[Price changed]] to list only the big ones. Link an item to your price book to compare suppliers."
+            },
+            {
+                "title": "Import a price list (Premium)",
+                "text": "In a supplier, open [[Price list]] and choose a CSV file (columns like SKU, Description, Unit, Price). You review every row first: new prices with the old one and the percent (big changes in colour), items that match your price book, and rows that matched nothing. Untick what you don’t want, then click [[Apply]]. Nothing changes until you do."
+            },
+            {
+                "title": "Suggested supplier and prices (Premium)",
+                "text": "In [[Create reorder POs]], a group with no saved supplier shows a suggestion: the price book item’s preferred supplier, else the cheapest one in your catalogues; [[Use]] picks it. Lines show that supplier’s own price. On a purchase order, picking a saved supplier fills the unit, price and SKU of matching lines from its catalogue. You can change every line."
             }
         ],
         "tips": [
@@ -842,6 +858,14 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             {
                 "title": "Find things",
                 "text": "Filter by category or type and switch between Grid and List."
+            },
+            {
+                "title": "Product link and specs",
+                "text": "In an item, [[Product]] holds a link to the supplier’s page and a short list of specs (size, color, model…). They are for you: they don’t print on documents."
+            },
+            {
+                "title": "Preferred supplier and cheapest price (Premium)",
+                "text": "Pick a Preferred supplier on an item. When your suppliers’ catalogues list it, you see the cheapest known price, [[Use as my cost]] to copy it, and what a different supplier cost does to your margin."
             }
         ],
         "tips": [
