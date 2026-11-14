@@ -12,8 +12,9 @@
  * opens a saved estimate and every save path stays client-safe):
  *   estimateOptions          { version 1, kind 'estimate', options [{ id, name, description?, lineItems }], sharedLineItems,
  *                            recommendedId? }; its lines are { id, description, quantity, rate } only (the client sees them)
- *   estimateOptionsInternal  { [lineId]: { unitCost } }: internal costs the user stated (the key contains "internal", so
- *                            the database never sends it to a client page)
+ *   estimateOptionsInternal  { [lineId]: { unitCost?, priceBookItemId? } }: internal costs the user stated (the key
+ *                            contains "internal", so the database never sends it to a client page) and the price-book
+ *                            item of the line (shared/priceBook.ts; the browser turns it into the hand-picked line)
  *   lineItems                the option that counts (the Recommended one: the model's pick, else the second option, as the
  *                            form's "Good / better / best" button does) + the shared lines, like every saved options
  *                            estimate (older readers of an estimate keep working)
@@ -50,7 +51,7 @@ export interface DraftOptionSet {
 
 export interface EstimateOptionsDraft {
     estimateOptions: DraftOptionSet;
-    estimateOptionsInternal: Record<string, { unitCost: number }>;
+    estimateOptionsInternal: Record<string, { unitCost?: number; priceBookItemId?: string }>;
     /** mirror of the option that counts + shared lines (with unitCost) */
     lineItems: NormalizedLineItem[];
     /** what was left out (shown to the user) */
@@ -158,9 +159,10 @@ export function draftEstimateOptions(
 
     // 4) names (empty → Good / Better / Best / Premium, never twice), client-safe lines, internal costs
     const used = new Set<string>();
-    const internal: Record<string, { unitCost: number }> = {};
+    const internal: Record<string, { unitCost?: number; priceBookItemId?: string }> = {};
     const safe = (lines: NormalizedLineItem[]): DraftOptionLine[] => lines.map(l => {
         if (l.unitCost !== undefined) internal[l.id] = { unitCost: l.unitCost };
+        if (l.priceBookItemId) internal[l.id] = { ...internal[l.id], priceBookItemId: l.priceBookItemId };
         return { id: l.id, description: l.description, quantity: l.quantity, rate: l.rate };
     });
     const sharedLines = norm(shared);

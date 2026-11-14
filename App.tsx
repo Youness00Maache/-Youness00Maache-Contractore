@@ -121,7 +121,10 @@ const INVENTORY_COLUMN_SETS = [
     'id, user_id, name, quantity, category, unit, cost_price, supplier, location, low_stock_threshold, created_at, is_assembly, assembly_items',
     'id, user_id, name, quantity, category, unit, cost_price, supplier, location, low_stock_threshold, created_at',
 ];
+// The first set adds `unit` (price book unit, also sent to the AI assistant with its drafting requests); the next ones are
+// the fallbacks for databases without optional columns.
 const SAVED_ITEM_COLUMN_SETS = [
+    'id, user_id, name, description, rate, unit_cost, unit, category, category_id, type, images, taxable, sku, markup, is_assembly, assembly_items, is_favorite, last_used_at, use_count, created_at',
     'id, user_id, name, description, rate, unit_cost, category, category_id, type, images, taxable, sku, markup, is_assembly, assembly_items, is_favorite, last_used_at, use_count, created_at',
     'id, user_id, name, description, rate, unit_cost, category, created_at',
 ];
@@ -1886,6 +1889,7 @@ const App: React.FC = () => {
         clients,
         forms,
         inventory,
+        savedItems,
         checkLimit,
         onUpgrade: openUpgrade,
         updateJobStatus: handleUpdateJobStatus,

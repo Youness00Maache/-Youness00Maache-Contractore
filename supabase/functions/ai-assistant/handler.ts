@@ -11,7 +11,7 @@
  * chain and metering, plus a Premium + AI plan check; up to 8 photos; see handlePhotoTask.
  */
 import {
-    buildProposal, buildResponseSchema, isSampleRequest, parseModelJson, RouterInputError, sanitizeRequest,
+    buildProposal, buildResponseSchema, hasPriceBook, isSampleRequest, parseModelJson, RouterInputError, sanitizeRequest,
     type ModelOutput, type RouterRequest, type RouterResponse,
 } from './shared/routerContract.ts';
 import {
@@ -262,7 +262,8 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
                 contents,
                 generationConfig: {
                     responseMimeType: 'application/json',
-                    responseSchema: buildResponseSchema(request.scope, { compact: opts.compact }),
+                    // a drafting request with the user's price book: lines may name their item (price_book_ref)
+                    responseSchema: buildResponseSchema(request.scope, { compact: opts.compact, priceBook: hasPriceBook(request) }),
                     ...(modern ? {} : { temperature: 0.2 }),
                     maxOutputTokens: 16384,
                     ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),

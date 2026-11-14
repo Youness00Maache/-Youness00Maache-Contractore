@@ -478,6 +478,11 @@ export interface NormalizedLineItem {
     quantity: number;
     rate: number;
     unitCost?: number;
+    /**
+     * The user's price-book item this line is (shared/priceBook.ts): set by the server from the request's own price
+     * book, turned into a hand-picked price-book line by the browser and never saved (the form drops unknown keys).
+     */
+    priceBookItemId?: string;
 }
 
 export interface NormalizedMaterialItem {
@@ -540,6 +545,8 @@ export function normalizeLineItems(value: unknown, newId: () => string): Normali
             rate: rate !== undefined && rate >= 0 ? round2(rate) : 0,
         };
         if (unitCost !== undefined && unitCost >= 0) item.unitCost = round2(unitCost);
+        const priceBookItemId = typeof row.priceBookItemId === 'string' ? row.priceBookItemId.trim() : '';
+        if (/^[A-Za-z0-9_-]{1,80}$/.test(priceBookItemId)) item.priceBookItemId = priceBookItemId;
         return item;
     }).filter(item => item.description.length > 0).slice(0, 50);
     return items.length ? items : undefined;

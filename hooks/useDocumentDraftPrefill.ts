@@ -78,7 +78,8 @@ export const isAutoSaveDraft = (prefill: unknown): boolean =>
 
 /**
  * The assistant's options (Estimate): 2–4 options with lines, Recommended kept when valid. Lines keep only what the
- * client may see (id, description, quantity, rate, unit); internal costs come separately (estimateOptionsInternal).
+ * client may see (id, description, quantity, rate, unit, a price-book kit's parts); internal costs come separately
+ * (estimateOptionsInternal).
  * The client's choice and an applied option are never taken from an AI draft.
  */
 const coerceOptionSet = (value: unknown): OptionSet | undefined => {
@@ -95,6 +96,12 @@ const coerceOptionSet = (value: unknown): OptionSet | undefined => {
             rate: pick(['rate', 'price', 'unitPrice', 'unit_price', 'amount']),
         };
         if (typeof r.unit === 'string') row.unit = r.unit;
+        // a price-book kit the assistant put on an option (src/ai/priceBookContext.ts): its parts, as when picked by hand
+        if (r.isAssembly === true && Array.isArray(r.assemblyComponents)) {
+            row.isAssembly = true;
+            row.assemblyComponents = r.assemblyComponents;
+            if (typeof r.hideComponentsOnPdf === 'boolean') row.hideComponentsOnPdf = r.hideComponentsOnPdf;
+        }
         return normalizeLineItem(row, usedIds);
     }).filter((x): x is LineItem => Boolean(x && x.description));
     const options = set.options
@@ -111,13 +118,19 @@ const coerceOptionSet = (value: unknown): OptionSet | undefined => {
     };
 };
 
-/** { [lineId]: { unitCost } } from an AI draft: only non-negative numeric costs. */
+/**
+ * { [lineId]: { unitCost } } from an AI draft: only non-negative numeric costs, plus itemSource 'pricebook' on a line
+ * the assistant took from the user's price book (src/ai/priceBookContext.ts; the same mark as a line picked by hand).
+ */
 const coerceOptionCosts = (value: unknown): Record<string, Record<string, unknown>> => {
     const out: Record<string, Record<string, unknown>> = {};
     if (!isPlainObject(value)) return out;
     for (const [id, v] of Object.entries(value)) {
         const cost = isPlainObject(v) ? toNumberOrNull(v.unitCost ?? v.unit_cost) : null;
-        if (id && cost !== null && cost >= 0) out[id] = { unitCost: roundMoney(cost) };
+        const entry: Record<string, unknown> = {};
+        if (cost !== null && cost >= 0) entry.unitCost = roundMoney(cost);
+        if (isPlainObject(v) && v.itemSource === 'pricebook') entry.itemSource = 'pricebook';
+        if (id && Object.keys(entry).length) out[id] = entry;
     }
     return out;
 };

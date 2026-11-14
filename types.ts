@@ -557,6 +557,7 @@ export interface SavedItem {
   rate: number;
   unit_cost?: number; // Renamed from cost to unit_cost to match DB, aliased where needed
   cost?: number;
+  unit?: string; // "each", "sq ft", "hr" (loaded when the database has the column)
   category?: string;
   category_id?: string; // FK to price_book_categories
   // Advanced Price Book Fields

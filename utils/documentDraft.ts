@@ -9,6 +9,8 @@
  *   - numbers are numbers, dates are local YYYY-MM-DD, plain-text fields never contain HTML,
  *     only Daily Job Report / Note `content` is (sanitized) HTML.
  *   - no control keys besides __draftId/__autoSave (no ai_open_mode, auto_submit, rawInput, document_metadata …).
+ *   - estimates may carry good / better / best options: estimateOptions (+ estimateOptionsInternal, the internal costs),
+ *     in the saved format of lib/estimateOptions.ts; lineItems then mirror the Recommended option.
  */
 import { FormType } from '../types.ts';
 import type { Client, Job, UserProfile } from '../types.ts';
@@ -67,7 +69,22 @@ export function finalizeDraft(docType: DocKey, rawPrefill: Record<string, unknow
     const contextual = normalizePrefill(docType, Object.fromEntries(
         Object.entries(fromContext).filter(([key, value]) => schema[key]?.source && value && prefill[key] === undefined),
     ), { today: ctx.today });
-    return { ...contextual, ...prefill };
+    return { ...contextual, ...prefill, ...estimateOptionKeys(docType, rawPrefill) };
+}
+
+/**
+ * Good / better / best options of an estimate draft (not AI "fields": the assistant builds them, see
+ * supabase/functions/ai-assistant/shared/estimateOptionsDraft.ts). Passed on as they are; the form merge
+ * (hooks/useDocumentDraftPrefill.ts) validates them and opens them like a saved estimate.
+ */
+function estimateOptionKeys(docType: DocKey, raw: Record<string, unknown> | null | undefined): Record<string, unknown> {
+    if (docType !== 'ESTIMATE' || !raw) return {};
+    const isObject = (v: unknown) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+    if (!isObject(raw.estimateOptions)) return {};
+    return {
+        estimateOptions: raw.estimateOptions,
+        ...(isObject(raw.estimateOptionsInternal) ? { estimateOptionsInternal: raw.estimateOptionsInternal } : {}),
+    };
 }
 
 /** Adds the one-shot draft id (and auto-save flag) the forms use to apply a prefill exactly once. */

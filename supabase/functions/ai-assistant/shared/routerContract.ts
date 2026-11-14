@@ -13,6 +13,10 @@ import {
 } from './documentSchema.ts';
 import { HOW_TO_DO_ACTIONS, KNOWN_LABELS, NAV_ROUTES, scoreKnowledge, type HowToDoAction } from './knowledge.ts';
 import { draftEstimateOptions, type ModelEstimateOption } from './estimateOptionsDraft.ts';
+import {
+    isOversizePriceBook, linkOutputToPriceBook, PRICE_BOOK_LIMITS, sanitizePriceBook, settlePriceBookLines, wantsPriceBook,
+    type ContextPriceBookItem,
+} from './priceBook.ts';
 
 export const ROUTER_ACTIONS = [
     'CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY',
@@ -153,6 +157,11 @@ export interface RouterRequestContext {
     pending_draft?: { document_type: string; prefill: Record<string, unknown> } | null;
     /** The user pressed Skip / said "go ahead": never gather again. */
     proceed?: boolean;
+    /**
+     * Drafting requests (dashboard / job): a relevance-ranked slice of the user's own price book, sell side only
+     * (shared/priceBook.ts). Left out for every other request; requests without it behave exactly as before.
+     */
+    price_book?: ContextPriceBookItem[];
 }
 
 export interface RouterHistoryMessage { role: 'user' | 'assistant'; text: string }
@@ -181,6 +190,9 @@ export const REQUEST_LIMITS = {
     documentLines: 8,
     /** all document summaries together (JSON chars, ≈4k tokens); later documents lose their lines, then their summary */
     documentSummaryChars: 16_000,
+    /** price book slice (drafting requests): items and JSON chars; far bigger lists are refused (shared/priceBook.ts) */
+    priceBookItems: PRICE_BOOK_LIMITS.items,
+    priceBookChars: PRICE_BOOK_LIMITS.chars,
 } as const;
 
 const str = (v: unknown, max = 300): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -261,6 +273,10 @@ export function sanitizeRequest(body: unknown): RouterRequest {
     const arr = (v: unknown, max: number) => (Array.isArray(v) ? v.slice(0, max) : []).filter(x => x && typeof x === 'object') as Record<string, unknown>[];
     const today = typeof c.today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.today) ? c.today : undefined;
     const pending = c.pending_draft && typeof c.pending_draft === 'object' ? c.pending_draft as Record<string, unknown> : null;
+    if (isOversizePriceBook(c.price_book)) throw new RouterInputError('Your price book list is too large for one request. Please try again.', 413, 'TOO_LARGE');
+    // Only for drafting in the dashboard / job assistant (the browser decides the same way): never for questions or the form fill.
+    const priceBook = scope !== 'form' && wantsPriceBook(message, pending ? resolveDocKey(pending.document_type) : null)
+        ? sanitizePriceBook(c.price_book) : [];
     const cleanImages: RouterImage[] = [];
     for (const img of images.slice(0, REQUEST_LIMITS.images)) {
         const i = img as Record<string, unknown>;
@@ -295,9 +311,13 @@ export function sanitizeRequest(body: unknown): RouterRequest {
                 ? { document_type: resolveDocKey(pending.document_type) as string, prefill: pending.prefill as Record<string, unknown> }
                 : null,
             proceed: c.proceed === true,
+            ...(priceBook.length ? { price_book: priceBook } : {}),
         },
     };
 }
+
+/** The request carries a price book (rule 23 in the prompt, `price_book_ref` in the response schema). */
+export const hasPriceBook = (req: RouterRequest): boolean => Boolean(req.context?.price_book?.length);
 
 // ───────────────────────────── model output ─────────────────────────────
 
@@ -311,6 +331,10 @@ export interface ModelOutput {
         description: string; quantity?: number; rate?: number; unit_cost?: number | null; supplier?: string | null;
         /** Estimate with options: the option this line belongs to ("ALL" or empty = in every option). */
         option?: string | null;
+        /** Request with a price book: the ref (P1, P2, …) of the price-book item this line is. */
+        price_book_ref?: string | null;
+        /** Set by the server (shared/priceBook.ts), never by the model: the linked price-book item. */
+        priceBookItemId?: string;
     }>;
     /** Estimate with good / better / best options (dashboard and job scope): 2–4 options; lines say their option. */
     estimate_options?: ModelEstimateOption[] | null;
@@ -370,9 +394,11 @@ export interface ModelPlanStep {
 export const RESPONSE_SCHEMA_TYPES = ['STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY', 'OBJECT', 'NULL'] as const;
 /** Scopes where the assistant drafts good / better / best estimate options (the form fill keeps one total). */
 export const scopeHasEstimateOptions = (scope: RouterScope): boolean => scope !== 'form';
-export function buildResponseSchema(scope: RouterScope, options: { compact?: boolean } = {}): Record<string, unknown> {
+export function buildResponseSchema(scope: RouterScope, options: { compact?: boolean; priceBook?: boolean } = {}): Record<string, unknown> {
     const compact = options.compact === true;
     const withOptions = scopeHasEstimateOptions(scope);
+    // Requests with a price book (dashboard / job): lines say which item they are. Without one the schema is unchanged.
+    const withPriceBook = options.priceBook === true && scope !== 'form';
     const S = (extra: Record<string, unknown> = {}) => ({ type: 'STRING', ...extra });
     const N = (extra: Record<string, unknown> = {}) => ({ type: 'NUMBER', ...extra });
     const lineItems = {
@@ -382,6 +408,7 @@ export function buildResponseSchema(scope: RouterScope, options: { compact?: boo
             properties: {
                 description: S(), quantity: N(), rate: N(), unit_cost: N({ nullable: true }), supplier: S({ nullable: true }),
                 ...(withOptions ? { option: S({ nullable: true }) } : {}),
+                ...(withPriceBook ? { price_book_ref: S({ nullable: true }) } : {}),
             },
             required: ['description'],
         },
@@ -749,6 +776,7 @@ function fieldsToObject(output: ModelOutput, docType: DocKey): Record<string, un
             rate: li?.rate,
             unitCost: itemsKey === 'items' ? (li?.unit_cost ?? li?.rate) : li?.unit_cost ?? undefined,
             supplier: li?.supplier ?? undefined,
+            ...(li?.priceBookItemId ? { priceBookItemId: li.priceBookItemId } : {}),
         }));
     }
     // Never let the model write signatures or images.
@@ -983,9 +1011,12 @@ function buildPlanProposal(output: ModelOutput, rawSteps: unknown[], ctx: BuildP
                 const docType = resolveDocKey(raw.document_type);
                 if (!docType) { skip(index, 'the document type was missing'); continue; }
                 const normalizeOpts: NormalizeOptions = { ...(ctx.normalize || {}), today: c.today, userText: sample ? undefined : userText };
-                const prefill = normalizePrefill(docType, fieldsToObject(raw as unknown as ModelOutput, docType), normalizeOpts);
+                // Lines that are price-book items get its price and link (estimates, invoices, change orders).
+                const linked = linkOutputToPriceBook(raw, docType, c.price_book);
+                const prefill = normalizePrefill(docType, fieldsToObject(linked as unknown as ModelOutput, docType), normalizeOpts);
                 // An estimate step may carry good / better / best options like the single draft.
-                for (const note of applyEstimateOptions(prefill, docType, raw, req.scope, ctx)) notes.push(`Step ${index + 1}: ${note}`);
+                for (const note of applyEstimateOptions(prefill, docType, linked, req.scope, ctx)) notes.push(`Step ${index + 1}: ${note}`);
+                settlePriceBookLines(prefill, docType, c.price_book, userText);
                 const step: PlanStep = {
                     id, action_type: action, ref: makeRef(raw.ref, `doc_${steps.length + 1}`), document_type: docType, prefill,
                     missing_fields: getMissingAskFields(docType, prefill),
@@ -1100,10 +1131,13 @@ export function buildProposal(rawOutput: unknown, ctx: BuildProposalContext): Ro
         const pending = c.pending_draft && resolveDocKey(c.pending_draft.document_type) === docType
             ? normalizePrefill(docType, c.pending_draft.prefill, normalizeOpts)
             : {};
-        const fresh = normalizePrefill(docType, fieldsToObject(output, docType), normalizeOpts);
+        // Lines that are price-book items get its price and link (estimates, invoices, change orders).
+        const linked = linkOutputToPriceBook(output, docType, c.price_book);
+        const fresh = normalizePrefill(docType, fieldsToObject(linked, docType), normalizeOpts);
         const prefill = mergeDraft(pending, sample ? dropSampleGuesses(docType, fresh, userText) : fresh);
         // Good / better / best estimate (dashboard / job): the options, and lineItems = the Recommended option.
-        const optionNotes = applyEstimateOptions(prefill, docType, output, req.scope, ctx);
+        const optionNotes = applyEstimateOptions(prefill, docType, linked, req.scope, ctx);
+        settlePriceBookLines(prefill, docType, c.price_book, userText);
         if (sample) proposal.sample_data = true;
         const schema = getSchema(docType);
         const modelMissing = Array.isArray(output.missing_fields)

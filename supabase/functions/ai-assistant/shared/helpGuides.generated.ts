@@ -195,7 +195,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         "tips": [
             "Until the client chooses, invoices, the job budget, the pipeline and Insights use the Recommended option (or the lowest total when none is Recommended).",
             "[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged.",
-            "The AI assistant can draft them: in [[AI Command]] or a job’s [[AI Assistant]], ask for example “good / better / best estimate for a 12 × 14 deck” with each option’s lines and prices. The estimate opens with the options filled in (prices you did not give stay empty); nothing is saved until you click [[Save]]."
+            "The AI assistant can draft them: in [[AI Command]] or a job’s [[AI Assistant]], ask for example “good / better / best estimate for a 12 × 14 deck” with each option’s lines and prices. The estimate opens with the options filled in: lines that are in your [[Price book]] get its prices, other prices you did not give stay empty. Nothing is saved until you click [[Save]]."
         ]
     },
     {
@@ -383,6 +383,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             }
         ],
         "tips": [
+            "When it drafts an estimate, invoice or change order, the assistant uses your [[Price book]]: a line that is one of your items gets its price, unit and kit parts, as if you picked it yourself (a price you type still wins). It never makes up prices for other lines. Only item names, units, client prices, short descriptions and kit parts are sent, never your costs or margins.",
             "Every plan includes AI: 15 requests a month on Free, 60 on Premium, 600 on Premium + AI."
         ]
     },

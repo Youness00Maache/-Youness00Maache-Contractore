@@ -4,7 +4,8 @@
  * It runs the same steps a form runs for a new AI draft that is saved, so the document opens and
  * renders exactly like one the user saved from the form:
  *   1. the form's defaults for a new document (mirror of each form's `makeDefaults`, see below)
- *   2. `finalizeDraft`   – the assistant's normalization + job / client / company context
+ *   2. `finalizeDraft`   – the assistant's normalization + job / client / company context; lines the assistant took from
+ *      the price book become the hand-picked price-book line (src/ai/priceBookContext.ts)
  *   3. `mergeDraftIntoForm` – the exact merge a form applies to `prefillData`
  *   4. the next number of the form's series (PREFIX-YYYY-MM-NNN, unique against existing numbers)
  *   5. the form's own `prepare` (sanitized report/note HTML, expense total, payment link, estimate options saved
@@ -26,6 +27,7 @@ import {
 import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME } from '../../components/forms/useDocumentForm.ts';
 import { computeDocumentTotals, roundMoney, toNumber } from '../../utils/money.ts';
 import { packOptionsForSave } from '../../lib/estimateOptions.ts';
+import { linkDraftToPriceBook, type PriceBookSource } from './priceBookContext.ts';
 
 export interface PlanDocumentContext {
     /** The job the document is filed under (its client fields are the defaults). */
@@ -42,6 +44,8 @@ export interface PlanDocumentContext {
     today?: string;
     /** Clock for the number series (tests). */
     now?: Date;
+    /** The user's price book (App's saved items): lines linked to an item get its unit cost and kit parts. */
+    priceBook?: readonly PriceBookSource[] | null;
 }
 
 export interface PlanDocument {
@@ -153,9 +157,9 @@ export function buildPlanDocument(docType: DocKey, rawPrefill: Record<string, un
     const job: Job = ctx.client
         ? { ...ctx.job, clientName: ctx.client.name, clientAddress: ctx.client.address || (ctx.job.clientName === ctx.client.name ? ctx.job.clientAddress : '') || '' }
         : ctx.job;
-    const prefill = finalizeDraft(docType, rawPrefill || {}, {
+    const prefill = linkDraftToPriceBook(finalizeDraft(docType, rawPrefill || {}, {
         job, client: (ctx.client as Client | null) || null, clients: ctx.clients, profile: ctx.profile, userText: ctx.userText, today,
-    });
+    }), ctx.priceBook);
     if (ctx.client) {
         if (schema.clientName) prefill.clientName = ctx.client.name;
         if (schema.clientAddress && ctx.client.address) prefill.clientAddress = ctx.client.address;

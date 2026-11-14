@@ -41,6 +41,7 @@ import { useMasterAIRouter, resolveJobForDocumentRequest, type ChatMessage } fro
 import { imagesToHtml, toRouterImages, type PendingImage } from '../ai/attachments.ts';
 import { toEmailBatchItems, type AIEmailDraft } from '../ai/emailBatch.ts';
 import { AI_UPGRADE_EVENT as AI_UPGRADE_EVENT_NAME, dispatchUpgradeEvent } from '../ai/events.ts';
+import { linkDraftToPriceBook, priceBookForRequest, type PriceBookSource } from '../ai/priceBookContext.ts';
 
 export interface AIAssistantDeps {
     session: Session | null;
@@ -49,6 +50,11 @@ export interface AIAssistantDeps {
     clients: Client[];
     forms: FormData[];
     inventory?: Array<{ id: string; name: string; quantity?: number; unit?: string }>;
+    /**
+     * The user's own price book (App's saved items). Drafting requests carry a ranked, sell-side slice of it (no
+     * costs); drafted lines the assistant took from it become the same line as picking the item by hand.
+     */
+    savedItems?: readonly PriceBookSource[];
     /** CORE's free-plan check; return false to block (CORE shows the upgrade modal). */
     checkLimit?: (type: 'jobs' | 'clients' | 'docs', contextId?: string) => boolean;
     /** Show the upgrade modal (AI monthly limit reached). */
@@ -204,6 +210,10 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         const docPool = inJob ? d.forms.filter(f => f.jobId === job.id) : d.forms;
         const documents = rank(docPool, f => (mentionedDocIds.has(f.id) ? 2 : 0) + (named(getFormLabel(f).split('#')[1] || '') ? 1 : 0)).slice(0, 40);
         const gather = pendingGather();
+        // Drafting (estimate / invoice / change order, options, or completing one): the relevant part of the price book.
+        const priceBook = priceBookForRequest(d.savedItems, text, gather?.proposal
+            ? { document_type: gather.proposal.document_type, prefill: gather.proposal.prefill }
+            : null);
         return {
             today: toLocalYmd(),
             active_job_id: inJob ? job.id : undefined,
@@ -224,6 +234,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                 ? { document_type: gather.proposal.document_type, prefill: gather.proposal.prefill || {} }
                 : null,
             proceed,
+            ...(priceBook ? { price_book: priceBook } : {}),
         };
     }, [job, mode, pendingGather]);
 
@@ -328,9 +339,10 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         chat.updateMessage(messageId, { status: 'working' });
         const client = d.clients.find(c => c.id === p.client_ids?.[0]) || null;
         // Sample / test data: the made-up values are what the user asked for (no daily-report fact guards).
-        const prefill = finalizeDraft(docType, p.prefill || {}, {
+        // Lines taken from the price book become the hand-picked price-book line (unit cost and kit parts from the device).
+        const prefill = linkDraftToPriceBook(finalizeDraft(docType, p.prefill || {}, {
             job: targetJob, client, clients: d.clients, profile: d.profile, userText: p.sample_data ? undefined : userText(chat.messages),
-        });
+        }), d.savedItems);
         if (docType === 'DAILY_REPORT' || docType === 'NOTE') {
             const photosHtml = await imagesToHtml(photosFor(messageId), d.uploadImage);
             if (photosHtml) prefill.content = `${String(prefill.content || '')}${photosHtml}`;
@@ -657,6 +669,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                     existingNumbers: taken,
                     userText: facts,
                     today: toLocalYmd(),
+                    priceBook: d.savedItems,
                 });
                 if (built.number) taken.add(built.number.toUpperCase());
                 const data = stripLightweightFlag(built.data);
