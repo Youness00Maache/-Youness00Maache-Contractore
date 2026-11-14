@@ -12,6 +12,11 @@
   profile save, imports/exports, AI. Possible next: queue job photos and profile settings offline.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
+**2026-11-14 14:45 (weekly reset to 2%): "finish everything".** Helpers in their own git worktrees (merge their
+branches into my-branch, test, push my-branch + main): SEO pages + IndexNow ab4e22c8920d43a3d; templates (full QA all
+kinds, marketing previews, units on PDFs, isShortSection fix, paginator gap) a300aae907df5b66c; offline gaps (photos,
+settings, cached lists, write-path audit, PWA shell) ab4b5d1fee0b54215. Pacing job 995b5af6.
+
 Site is LIVE (main = production). Every fix: test, commit, push my-branch AND main (owner asked to keep production updated).
 1. OFFLINE EVERYWHERE (top priority). Documents already work offline (create/edit, sync later). Make the rest work offline
    with the same outbox (lib/offline/*): create/edit JOBS (owner could not create a job offline), clients, inventory
