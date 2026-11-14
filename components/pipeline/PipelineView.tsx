@@ -25,6 +25,7 @@ import { patchCachedRequest, toFormSummary, toPipelineRequest } from './pipeline
 import { usePipelineData } from './usePipelineData.ts';
 import { PipelineIcon } from './PipelineIcon.tsx';
 import { STAGE_STYLE, shortMoney } from './pipelineUi.tsx';
+import type { PunchProgress } from '../../lib/punchList.ts';
 
 type BoardJob = Job & { clientId?: string | null };
 
@@ -47,6 +48,8 @@ export interface PipelineViewProps {
     onRequestConverted: (result: ConvertResult) => void;
     onUpgrade: (reason?: string) => void;
     onDraftEstimate: (handoff: EstimateHandoff) => void;
+    /** punch list progress per job (lib/punchList.ts); a card shows "Punch 3/8" while items are open */
+    punchProgress?: ReadonlyMap<string, PunchProgress>;
 }
 
 const STAGE_KEY = 'cd_pipeline_stage';
@@ -58,7 +61,8 @@ const Column: React.FC<{
     busyKey: string | null;
     filtered: boolean;
     footer?: React.ReactNode;
-}> = ({ column, colRef, onAction, busyKey, filtered, footer }) => {
+    punchProgress?: ReadonlyMap<string, PunchProgress>;
+}> = ({ column, colRef, onAction, busyKey, filtered, footer, punchProgress }) => {
     const { meta, cards, total, attention } = column;
     const style = STAGE_STYLE[column.stage];
     return (
@@ -85,7 +89,7 @@ const Column: React.FC<{
                         {filtered ? 'Nothing matches here.' : meta.empty}
                     </p>
                 ) : cards.map(card => (
-                    <PipelineCard key={card.key} card={card} onAction={onAction} busy={busyKey === card.key} />
+                    <PipelineCard key={card.key} card={card} onAction={onAction} busy={busyKey === card.key} punch={card.jobId ? punchProgress?.get(card.jobId) : undefined} />
                 ))}
                 {footer}
             </div>
@@ -109,7 +113,7 @@ const BoardSkeleton: React.FC = () => (
 
 const PipelineView: React.FC<PipelineViewProps> = ({
     jobs, clients, profile, plan, isOnline, refreshKey, onBack, onNewJob, onOpenJob, onOpenDocument, onMarkPaid, onJobStatusChange,
-    checkJobLimit, onRequestConverted, onUpgrade, onDraftEstimate,
+    checkJobLimit, onRequestConverted, onUpgrade, onDraftEstimate, punchProgress,
 }) => {
     const { data, setData, loading, error, reload } = usePipelineData(refreshKey);
     const [query, setQuery] = useState('');
@@ -394,6 +398,7 @@ const PipelineView: React.FC<PipelineViewProps> = ({
                                     busyKey={busyKey}
                                     filtered={filtering}
                                     footer={col.stage === 'paid' ? paidFooter : undefined}
+                                    punchProgress={punchProgress}
                                 />
                             ))}
                         </div>

@@ -16,6 +16,7 @@ import { listQuoteRequests } from '../../components/requests/requestsApi.ts';
 import {
     WINDOW_DAYS, docInputOf, docLabel, docPath,
     type DocInput, type ForumCommentInput, type ForumLookups, type ForumRowInput, type GmailAccountInput, type ReminderInput, type RequestInput,
+    type PaperInput, type PunchFeedbackInput, type ServiceVisitInput,
 } from './model.ts';
 
 type PgError = { code?: string; message?: string; details?: string } | null | undefined;
@@ -206,6 +207,62 @@ export async function fetchReminders(uid: string): Promise<ReminderInput[] | nul
             label: doc ? docLabel(doc) : (r.job_id && jobNames.get(r.job_id)) || null,
             path: doc ? docPath(doc) : r.job_id ? `/jobs/${r.job_id}` : null,
         };
+    });
+}
+
+/** Punch items the client answered in the portal during the window (null = punch lists not in the database). */
+export async function fetchPunchFeedback(uid: string): Promise<PunchFeedbackInput[] | null> {
+    const since = windowStartIso();
+    const { data, error } = await supabase
+        .from('punch_items')
+        .select('id, job_id, title, status, verified_by, verified_at, client_note, client_note_at')
+        .eq('user_id', uid)
+        .or(`and(verified_by.eq.client,verified_at.gte.${since}),client_note_at.gte.${since}`)
+        .order('updated_at', { ascending: false })
+        .limit(100);
+    if (error) return null;
+    return ((data || []) as any[]).map(r => ({
+        id: String(r.id), jobId: String(r.job_id || ''), title: String(r.title || ''), status: String(r.status || ''),
+        verifiedBy: r.verified_by ?? null, verifiedAt: r.verified_at ?? null, clientNote: r.client_note ?? null, clientNoteAt: r.client_note_at ?? null,
+    }));
+}
+
+/** Papers with an expiry date in the next 31 days or already expired (null = papers vault not in the database). */
+export async function fetchExpiringPapers(uid: string): Promise<PaperInput[] | null> {
+    const horizon = new Date(Date.now() + 31 * 86_400_000).toISOString().slice(0, 10);
+    const { data, error } = await supabase
+        .from('company_papers')
+        .select('id, user_id, kind, title, expires_on, reminder_offsets, remind')
+        .eq('user_id', uid)
+        .is('archived_at', null)
+        .not('expires_on', 'is', null)
+        .gte('expires_on', windowStartDay())
+        .lte('expires_on', horizon)
+        .limit(200);
+    if (error) return null;
+    return ((data || []) as any[]).map(r => ({
+        id: String(r.id), userId: r.user_id ?? null, title: String(r.title || ''), kind: String(r.kind || ''), expiresOn: r.expires_on ?? null,
+        offsets: Array.isArray(r.reminder_offsets) ? r.reminder_offsets : null, remind: r.remind !== false,
+    }));
+}
+
+/** Service plan visits of the next few days (null = service plans not in the database). */
+export async function fetchUpcomingVisits(uid: string): Promise<ServiceVisitInput[] | null> {
+    // a day of slack on both sides for time zones (the model keeps only today .. +2 local days)
+    const from = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const until = new Date(Date.now() + 4 * 86_400_000).toISOString().slice(0, 10);
+    const { data, error } = await supabase
+        .from('service_visits')
+        .select('id, job_id, scheduled_for, status, service_plans(name, client_name)')
+        .eq('user_id', uid)
+        .eq('status', 'scheduled')
+        .gte('scheduled_for', from)
+        .lte('scheduled_for', until)
+        .limit(100);
+    if (error) return null;
+    return ((data || []) as any[]).map(r => {
+        const plan = Array.isArray(r.service_plans) ? r.service_plans[0] : r.service_plans;
+        return { id: String(r.id), jobId: r.job_id ?? null, planName: String(plan?.name || 'Service visit'), clientName: plan?.client_name ?? null, scheduledFor: String(r.scheduled_for || ''), status: String(r.status || '') };
     });
 }
 

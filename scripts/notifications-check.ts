@@ -404,7 +404,7 @@ const build = (items: AppNotification[], state: NotificationState = emptyState()
     eq('prefs parse garbage → defaults', parsePrefs('{bad'), defaultPrefs());
     eq('newest prefs win between devices', newerPrefs({ ...defaultPrefs(), at: 5 }, { ...defaultPrefs(), quiet: true, at: 9 }).quiet, true);
     eq('pop-ups are per device: not in the account prefs', Object.keys(defaultPrefs()).sort(), ['at', 'off', 'quiet', 'v']);
-    eq('12 types in Settings', NOTIFICATION_CATEGORIES.length, 12);
+    eq('14 types in Settings (+ papers, service plan visits)', NOTIFICATION_CATEGORIES.length, 14);
 }
 
 // ------------------------------------------------------------------------------------------------ 10. browser pop-ups

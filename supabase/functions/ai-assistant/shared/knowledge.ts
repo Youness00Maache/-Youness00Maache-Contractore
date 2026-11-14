@@ -536,6 +536,23 @@ const FEATURES: KnowledgeEntry[] = [
         limits: ['Free: 30 photos per job and 250 MB in total; Premium 5 GB; Premium + AI 10 GB.'],
     },
     {
+        id: 'punch-list-detail',
+        title: 'Punch lists (what is left to finish on a job)',
+        where: ['Job', 'Punch list'],
+        route: '/dashboard',
+        concepts: ['punch', 'job'],
+        keywords: ['punch list', 'punchlist', 'snag list', 'snagging', 'checklist', 'to-do on the job', 'walkthrough list', 'final walkthrough', 'what is left', 'touch up'],
+        facts: [
+            'On a job page open the [[Punch list]] tab. Type one item per line and press Enter or [[Add item]]: “Kitchen: touch up paint @Mike” puts it in the Kitchen group and assigns it to Mike; the room sticks for the next items.',
+            'Each item is Open, Done or Verified. Tap the ring to mark it done (tap again to undo); the ⋯ menu has [[Mark verified]], [[Reopen]], [[Edit]] (room, assignee, due date, notes, before and after photo) and [[Delete]].',
+            '[[Show in client portal]] shows the list with its progress in the client’s portal. On a done item the client taps [[Looks good]] (it becomes verified by the client) or [[Needs work]] with a note (it opens again with the note, and the bell tells you).',
+            'The ⋯ menu at the top: [[Download PDF]] (punch list PDF with the item photos, same header as your documents) and [[Save as Note on the job]] (a Note you can email or share).',
+            'Offline: adding, checking off and editing save on the phone and sync later (“Waiting to sync” chip). Photos, delete and sharing need a connection. Item photos also go to the job’s photos.',
+            'Free on every plan. The pipeline board shows “Punch 3/8” on a job card while items are open.',
+        ],
+        steps: ['Open the job and click [[Punch list]].', 'Type an item (e.g. “Bath: caulk tub @Sam”) and press Enter.', 'Tap the ring when it is done; switch on [[Show in client portal]] so the client can approve.'],
+    },
+    {
         id: 'notifications',
         title: 'Notifications: the bell, what it shows and how to change it',
         where: ['Top bar', 'Bell'],
@@ -729,6 +746,9 @@ const GUIDE_CONCEPTS: Record<string, string[]> = {
     calendar: ['calendar', 'insights'],
     settings: ['settings', 'plan', 'company'],
     notifications: ['notification', 'settings'],
+    'punch-list': ['punch', 'job'],
+    papers: ['papers', 'lien'],
+    'service-plans': ['service_plan', 'recurring'],
 };
 
 const GUIDE_DO_ACTIONS: Partial<Record<string, HowToDoAction>> = {
@@ -821,6 +841,10 @@ const LEXICON: Record<string, { w?: number; t: string }> = {
     status: { w: 1, t: 'status|pause|paused|complete|estado|statut|stato|状态|ステータス|상태|статус' },
     navigation: { w: 1, t: 'where is|where are|where can i find|where do i find|donde esta|ou est|ou se trouve|wo ist|wo finde|dove si trova|dove trovo|onde fica|onde esta|在哪|どこ|어디|где ' },
     dashboard: { w: 1, t: 'dashboard|home screen|panel principal|tableau de bord|startseite|cruscotto|painel|仪表|ダッシュボード|대시보드|главн' },
+    punch: { w: 3, t: 'punch|snag|checklist|check list|to-do list|todo list|what is left|whats left|walkthrough list|lista de pendientes|lista de verificaci|liste de reserves|mangelliste|restarbeiten|lista dei difetti|lista de pendencias|整改|尾项|手直し|パンチリスト|펀치 리스트|미결|недодел|дефектн' },
+    papers: { w: 3, t: 'papers vault|my papers|insurance cert|certificate of insurance|coi$|cois$|liability insurance|license expir|licence expir|my license|permit|bond$|bonded|w-9|w9$|certificado de seguro|licencia|permiso de obra|attestation d.assurance|licence|permis|versicherungsnachweis|lizenz|genehmigung|certificato assicurativ|licenza|permesso di costruire|apolice|alvara|保险证明|执照|许可证|保険証明|許可|免許|보험 증명|면허|허가|страхов|лицензи|разрешени' },
+    lien: { w: 3, t: 'lien waiver|lien release|release of lien|mechanic.s lien|lien rights|waiver|conditional release|unconditional release|renuncia de gravamen|exencion de gravamen|mainlevee|renonciation au privil|verzichtserklarung|rinuncia al privilegio|renuncia de penhor|留置权|先取特権|유치권|отказ от залог' },
+    service_plan: { w: 3, t: 'service plan|maintenance plan|maintenance contract|maintenance agreement|service agreement|service contract|recurring visit|recurring job|repeat visit|tune-up|tune up|every six months|twice a year|plan de mantenimiento|contrato de mantenimiento|contrat d.entretien|plan d.entretien|wartungsvertrag|wartungsplan|contratto di manutenzione|piano di manutenzione|plano de manutencao|contrato de manutencao|保养计划|维护合同|保守契約|メンテナンス|유지보수|정기 점검|договор обслуживан|техобслуживан' },
 };
 
 const COMPILED = Object.entries(LEXICON).map(([concept, { w = 2, t }]) => {

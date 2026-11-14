@@ -24,3 +24,6 @@ export const offlineEntityQueueFor = (id?: string | null): OfflineEntityQueue | 
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     return offline || (id ? current.isWaiting(id) : false) ? current : null;
 };
+
+/** The outbox itself (null when no user is signed in): for a save whose connection dropped half way. */
+export const offlineEntityQueue = (): OfflineEntityQueue | null => current;

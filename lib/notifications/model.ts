@@ -18,6 +18,7 @@ import { toNumber } from '../../utils/money.ts';
 import { isPayableStatus } from '../payments.ts';
 import { parseSignerChoice, plainSignerName } from '../estimateOptions.ts';
 import { REASON_LABELS } from '../../supabase/functions/reminders/shared/schedule.ts';
+import { PAPER_REMINDER_OFFSETS, expiryPhrase, expiryState, paperKindLabel, paperReminderSteps } from '../../supabase/functions/reminders/shared/papers.ts';
 
 // =====================================================================================================================
 // Constants
@@ -54,11 +55,14 @@ export type NotificationKind =
     | 'forum_like' | 'forum_comment' | 'forum_comment_like' | 'forum_reply'
     | 'reminder_sent' | 'reminder_failed' | 'gmail_reconnect'
     | 'sync_failed'
-    | 'plan_limit';
+    | 'plan_limit'
+    | 'punch_ok' | 'punch_needs_work'
+    | 'paper_expiring' | 'paper_expired'
+    | 'service_visit';
 
 export type NotificationCategory =
     | 'clients' | 'payments' | 'overdue' | 'expiring' | 'requests' | 'stock' | 'orders' | 'community'
-    | 'reminders' | 'email' | 'sync' | 'limits';
+    | 'reminders' | 'email' | 'sync' | 'limits' | 'papers' | 'service';
 
 export type NotificationTone = 'success' | 'info' | 'warning' | 'danger';
 
@@ -121,11 +125,16 @@ export const KIND_META: Record<NotificationKind, { category: NotificationCategor
     gmail_reconnect: { category: 'email', tone: 'danger' },
     sync_failed: { category: 'sync', tone: 'danger' },
     plan_limit: { category: 'limits', tone: 'warning' },
+    punch_ok: { category: 'clients', tone: 'success' },
+    punch_needs_work: { category: 'clients', tone: 'warning' },
+    paper_expiring: { category: 'papers', tone: 'warning' },
+    paper_expired: { category: 'papers', tone: 'danger' },
+    service_visit: { category: 'service', tone: 'info' },
 };
 
 /** Settings › Notifications, in this order. */
 export const NOTIFICATION_CATEGORIES: ReadonlyArray<{ id: NotificationCategory; label: string; hint: string }> = [
-    { id: 'clients', label: 'Client signatures and declines', hint: 'A client signs, approves or declines a document, and the option they chose.' },
+    { id: 'clients', label: 'Client signatures and declines', hint: 'A client signs, approves or declines a document, and the option they chose; a client approves a punch list item or sends it back.' },
     { id: 'payments', label: 'Payments reported', hint: 'A client taps “I’ve paid” on an invoice.' },
     { id: 'overdue', label: 'Overdue invoices', hint: 'A sent invoice passes its due date.' },
     { id: 'expiring', label: 'Estimates about to expire', hint: `A sent estimate expires within ${EXPIRING_DAYS} days.` },
@@ -137,6 +146,8 @@ export const NOTIFICATION_CATEGORIES: ReadonlyArray<{ id: NotificationCategory; 
     { id: 'email', label: 'Email problems', hint: 'A reminder couldn’t be sent, or Gmail needs to be reconnected.' },
     { id: 'sync', label: 'Offline sync problems', hint: 'A document saved offline couldn’t be saved to your account.' },
     { id: 'limits', label: 'Plan limits', hint: 'You reach a monthly limit of your plan.' },
+    { id: 'papers', label: 'Papers about to expire', hint: 'An insurance certificate, license, permit or bond in your Papers expires within 30 days, 7 days, 1 day, or has expired.' },
+    { id: 'service', label: 'Service plan visits', hint: 'A service plan visit is due today, tomorrow or the day after.' },
 ];
 
 const CATEGORY_IDS = NOTIFICATION_CATEGORIES.map(c => c.id) as readonly NotificationCategory[];
@@ -826,6 +837,108 @@ export const deriveLimitNotifications = (
                 detail: 'Upgrade for unlimited documents, or wait for next month.', at: 0, condition: true, target,
             });
         }
+    }
+    return out;
+};
+
+// =====================================================================================================================
+// Field features: punch list answers from the client, papers about to expire, service plan visits
+// =====================================================================================================================
+export interface PunchFeedbackInput {
+    id: string;
+    jobId: string;
+    title: string;
+    status: string;
+    verifiedBy?: string | null;
+    verifiedAt?: string | null;
+    clientNote?: string | null;
+    clientNoteAt?: string | null;
+}
+
+/** The client marked a punch item "Looks good", or sent it back with a note (still open). */
+export const derivePunchNotifications = (rows: readonly PunchFeedbackInput[], jobNames?: ReadonlyMap<string, string>): AppNotification[] => {
+    const out: AppNotification[] = [];
+    for (const r of rows) {
+        if (!r || !r.id) continue;
+        const job = clip(jobNames?.get(r.jobId) || '', 40) || undefined;
+        const target: NotificationTarget = { kind: 'path', path: r.jobId ? `/jobs/${r.jobId}#punch` : '/dashboard' };
+        const okAt = instant(r.verifiedAt);
+        if (norm(r.status) === 'verified' && norm(r.verifiedBy) === 'client' && okAt) {
+            out.push({ id: `punch:${r.id}:ok:${okAt}`, kind: 'punch_ok', text: `Client approved “${clip(r.title, 48)}”`, detail: job, at: ms(okAt), target });
+        }
+        const noteAt = instant(r.clientNoteAt);
+        if (norm(r.status) === 'open' && noteAt && str(r.clientNote)) {
+            out.push({ id: `punch:${r.id}:work:${noteAt}`, kind: 'punch_needs_work', text: `Client sent back “${clip(r.title, 48)}”`, detail: clip(r.clientNote, 110), at: ms(noteAt), target });
+        }
+    }
+    return out;
+};
+
+export interface PaperInput {
+    id: string;
+    userId?: string | null;
+    title: string;
+    kind: string;
+    /** YYYY-MM-DD */
+    expiresOn?: string | null;
+    /** reminder steps (days before expiry), as saved on the paper */
+    offsets?: number[] | null;
+    remind?: boolean | null;
+}
+
+/**
+ * Papers about to expire: one item at each reminder step (30, 7, 1 days before, as set on the paper), so the bell
+ * says it again when it gets closer; and one once it has expired. Times are the step days (local midnight).
+ */
+export const derivePaperNotifications = (papers: readonly PaperInput[], ctx: DeriveContext): AppNotification[] => {
+    const today = todayOf(ctx.now);
+    const out: AppNotification[] = [];
+    for (const p of papers) {
+        if (!p || !p.id || (p.userId && p.userId !== ctx.uid)) continue;
+        const exp = normalizeYMD(str(p.expiresOn));
+        if (!exp) continue;
+        const { state, days } = expiryState(exp, today);
+        const name = clip(p.title || paperKindLabel(p.kind), 48);
+        const target: NotificationTarget = { kind: 'path', path: '/papers' };
+        if (state === 'expired') {
+            out.push({ id: `paper:${p.id}:expired:${exp}`, kind: 'paper_expired', text: `${name} has expired`, detail: `Expired on ${exp}. Upload the renewed one.`, at: dayStart(exp, 1), target });
+            continue;
+        }
+        if (p.remind === false) continue;
+        const step = paperReminderSteps(exp, p.offsets ?? PAPER_REMINDER_OFFSETS).filter(s => s.date <= today).pop();
+        if (!step || days === null) continue;
+        out.push({ id: `paper:${p.id}:${exp}:-${step.offset}`, kind: 'paper_expiring', text: `${name} ${expiryPhrase(days)}`, detail: `Expires ${exp}. Renew it and upload the new copy.`, at: dayStart(step.date), target });
+    }
+    return out;
+};
+
+export interface ServiceVisitInput {
+    id: string;
+    jobId?: string | null;
+    planName: string;
+    clientName?: string | null;
+    /** YYYY-MM-DD */
+    scheduledFor: string;
+    status: string;
+}
+
+/** Service plan visits in the next 2 days that are still scheduled (one item per visit). */
+export const deriveServiceVisitNotifications = (visits: readonly ServiceVisitInput[], ctx: DeriveContext): AppNotification[] => {
+    const today = todayOf(ctx.now);
+    const out: AppNotification[] = [];
+    for (const v of visits) {
+        if (!v || !v.id || norm(v.status) !== 'scheduled') continue;
+        const day = normalizeYMD(str(v.scheduledFor));
+        if (!day || day < today) continue;
+        const d = parseLocalDate(day);
+        const t = parseLocalDate(today);
+        const inDays = d && t ? daysBetween(t, d) : 99;
+        if (inDays > 2) continue;
+        const when = inDays === 0 ? 'today' : inDays === 1 ? 'tomorrow' : `on ${day}`;
+        out.push({
+            id: `visit:${v.id}:${day}`, kind: 'service_visit', text: `Service visit ${when}: ${clip(v.planName, 40)}`, detail: clip(v.clientName, 60) || undefined,
+            at: dayStart(day, -2), target: { kind: 'path', path: v.jobId ? `/jobs/${v.jobId}` : '/service-plans' },
+        });
     }
     return out;
 };

@@ -585,6 +585,43 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "punch-list",
+        "title": "Punch lists",
+        "summary": "What is left to finish on a job: quick to add on a phone, checked off with photo proof, approved by the client in the portal.",
+        "where": [
+            "Job",
+            "Punch list"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open the Punch list tab",
+                "text": "On a job page, switch to [[Punch list]]. The number next to it is how many items are done."
+            },
+            {
+                "title": "Walk the job and type",
+                "text": "Type one item per line and press Enter or [[Add item]]. Start with the room to group it (“Kitchen: touch up paint”); the room sticks for the next items. End with @Name to assign it (“caulk tub @Mike”)."
+            },
+            {
+                "title": "Check items off",
+                "text": "Tap the ring in front of an item to mark it done (tap again to undo). In the ⋯ menu: [[Mark verified]] when you checked it, [[Reopen]] or [[Edit]] (room, assignee, due date, notes, before and after photo)."
+            },
+            {
+                "title": "Show it to the client",
+                "text": "Switch on [[Show in client portal]]. In their portal the client sees the progress and, on each finished item, taps [[Looks good]] or [[Needs work]] with a note. A sent-back item opens again with the client’s note, and the bell tells you."
+            },
+            {
+                "title": "Print or keep it",
+                "text": "The ⋯ menu at the top has [[Download PDF]] (with the photos) and [[Save as Note on the job]] (a Note in Documents you can email or share)."
+            }
+        ],
+        "tips": [
+            "Works offline: adding, checking off and editing items save on the phone and sync when you are back online. Photos, delete and sharing need a connection.",
+            "Item photos are also added to the job’s photos (before = Issue, after = After) and count toward your photo storage.",
+            "The pipeline board shows “Punch 3/8” on a job card while items are open. Punch lists are on every plan."
+        ]
+    },
+    {
         "id": "inventory",
         "title": "Inventory",
         "summary": "Track stock, check it out to jobs, get low-stock alerts and print QR labels.",

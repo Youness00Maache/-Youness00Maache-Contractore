@@ -56,6 +56,8 @@ import { useOutbox, type OutboxDeps } from './lib/offline/useOutbox.ts';
 import type { SyncReport } from './lib/offline/syncEngine.ts';
 import { OFFLINE_CREATE_TYPES, ENTITY_TYPE, applyEntityOverlay, applyOutboxOverlay, canCreateOffline, contentHash, entityOf, numberRuleFor, offlineSavePolicy, pendingCreatesByJob, pendingEntityCreates, type OutboxItem, type OutboxKind } from './lib/offline/outboxModel.ts';
 import { setOfflineEntityQueue } from './lib/offline/offlineEntities.ts';
+import { PUNCH_SYNCED_EVENT, type PunchProgress } from './lib/punchList.ts';
+import { todayYMD } from './utils/localDates.ts';
 import { TEMP_TAG } from './utils/clientPortalRules.ts';
 import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
@@ -109,6 +111,8 @@ const PaymentReportsCard = lazy(() => import('./components/payments/PaymentRepor
 // Request-a-quote inbox (dashboard) and job photo timeline (job page): NEXT_STEPS 0c #5 / #11
 const RequestsInbox = lazy(() => import('./components/requests/RequestsInbox.tsx'));
 const JobPhotos = lazy(() => import('./components/photos/JobPhotos.tsx'));
+// Punch lists (#18): job page tab; hidden until migration 20261115000200 is applied
+const PunchList = lazy(() => import('./components/punch/PunchList.tsx'));
 // Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
 const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
 const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
@@ -349,7 +353,9 @@ const App: React.FC = () => {
         if (!uid) { setOfflineEntityQueue(null); return; }
         setOfflineEntityQueue({
             queue: async (entity, kind, id, row) => {
-                await outboxRef.current.queue({ entity, userId: uid, docId: id, jobId: entity === 'job' ? id : '', type: ENTITY_TYPE[entity], kind, data: row });
+                // a punch item keeps its job (outbox panel, and its job id is remapped if the job was created offline)
+                const jobId = entity === 'job' ? id : entity === 'punch_item' ? String(row.job_id || '') : '';
+                await outboxRef.current.queue({ entity, userId: uid, docId: id, jobId, type: ENTITY_TYPE[entity], kind, data: row });
             },
             isWaiting: id => outboxRef.current.items.some(i => i.docId === id && entityOf(i) !== 'document'),
         });
@@ -366,6 +372,12 @@ const App: React.FC = () => {
     const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [notificationCount, setNotificationCount] = useState(0);
+    // Punch lists: which jobs have items and how far they are (job page tab, pipeline cards); hidden until the database has them
+    const [punchState, setPunchState] = useState<{ available: boolean; map: Map<string, PunchProgress> }>(() => {
+        let available = false;
+        try { available = window.localStorage.getItem('cd.punch.available') === '1'; } catch { /* storage blocked */ }
+        return { available, map: new Map() };
+    });
     const [formLoad, setFormLoad] = useState<{ id: string; error: string | null } | null>(null);
     const [formReloadNonce, setFormReloadNonce] = useState(0);
 
@@ -929,6 +941,33 @@ const App: React.FC = () => {
         }, 1500);
         return () => { cancelled = true; clearTimeout(timer); };
     }, [session?.user?.id, profileStatus, loadRecentDocuments]);
+
+    // Punch lists: progress of every job, once per session and after an offline item synced.
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || profileStatus !== 'ready') return;
+        let cancelled = false;
+        const run = () => import('./components/punch/punchApi.ts')
+            .then(m => m.fetchPunchProgress(todayYMD()).then(r => {
+                if (cancelled || sessionUserIdRef.current !== uid || r.available === null) return;
+                m.rememberPunchAvailable(r.available);
+                setPunchState({ available: r.available, map: r.map });
+            }))
+            .catch(() => undefined);
+        const timer = setTimeout(() => { if (navigator.onLine) void run(); }, 1200);
+        const onSynced = () => { void run(); };
+        window.addEventListener(PUNCH_SYNCED_EVENT, onSynced);
+        return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(PUNCH_SYNCED_EVENT, onSynced); };
+    }, [session?.user?.id, profileStatus]);
+    const handlePunchProgress = useCallback((jobId: string, progress: PunchProgress) => {
+        setPunchState(prev => {
+            const cur = prev.map.get(jobId);
+            if (cur && cur.total === progress.total && cur.closed === progress.closed && cur.verified === progress.verified && cur.overdue === progress.overdue && cur.sentBack === progress.sentBack) return prev;
+            const map = new Map(prev.map);
+            map.set(jobId, progress);
+            return { available: true, map };
+        });
+    }, []);
 
     const refreshForumBadge = useCallback(async () => {
         if (!sessionUserIdRef.current || !navigator.onLine) return;
@@ -1997,7 +2036,7 @@ const App: React.FC = () => {
                     const { error } = await supabase.rpc('adjust_inventory', { p_item_id: row.p_item_id, p_delta: row.p_delta, p_reason: row.p_reason, p_job_id: row.p_job_id ?? null });
                     return { error };
                 }
-                const table = { job: 'jobs', client: 'clients', inventory: 'inventory', price_item: 'saved_items' }[entity];
+                const table = { job: 'jobs', client: 'clients', inventory: 'inventory', price_item: 'saved_items', punch_item: 'punch_items' }[entity];
                 if (kind === 'create') {
                     if (entity === 'job') {
                         try { return { id: (await insertJobRow(row)).id, error: null }; } catch (e) { return { error: duplicate(e) ? null : e }; }
@@ -2020,6 +2059,7 @@ const App: React.FC = () => {
                 }
                 if (doc.entity === 'inventory' || doc.entity === 'stock_move') { loadInventory(uid).catch(() => undefined); return; }
                 if (doc.entity === 'price_item') { loadSavedItems(uid).catch(() => undefined); return; }
+                if (doc.entity === 'punch_item') { window.dispatchEvent(new CustomEvent(PUNCH_SYNCED_EVENT, { detail: { jobId: doc.jobId } })); return; }
                 if (doc.entity === 'client') {
                     setClients(prev => (prev.some(c => c.id === doc.docId)
                         ? prev.map(c => (c.id === doc.docId ? { ...c, ...doc.data } as Client : c))
@@ -2281,6 +2321,16 @@ const App: React.FC = () => {
                         />
                     </Suspense>
                 )}
+                punchSlot={punchState.available && session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <PunchList
+                            job={job} userId={session.user.id} profile={profile} client={client} isOnline={isOnline}
+                            outboxItems={outbox.items} onUpgrade={openUpgrade} onProgress={handlePunchProgress}
+                            onDocumentsChanged={() => { void loadDocumentsForJob(job.id, true); }}
+                        />
+                    </Suspense>
+                ) : undefined}
+                punchLabel={(() => { const p = punchState.map.get(job.id); return p && p.total ? `${p.closed}/${p.total}` : undefined; })()}
             />
         );
     };
@@ -2574,6 +2624,7 @@ const App: React.FC = () => {
                     onRequestConverted={handleRequestConverted}
                     onUpgrade={openUpgrade}
                     onDraftEstimate={handleDraftEstimate}
+                    punchProgress={punchState.available ? punchState.map : undefined}
                 />;
             case 'help':
                 return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;

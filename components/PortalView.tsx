@@ -13,6 +13,7 @@ import { formatMoney } from '../utils/money.ts';
 import { payLinkFor, paymentReportOf } from '../lib/payments.ts';
 import { groupPortalDocuments } from '../utils/clientPortalRules.ts';
 import PortalPhotos from './photos/PortalPhotos.tsx';
+import PortalPunchList from './punch/PortalPunchList.tsx';
 import { choiceOf, optionRange, withEffectiveLines } from '../lib/estimateOptions.ts';
 import {
     BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
@@ -384,6 +385,9 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
 
                 {/* job photos the contractor chose to share (components/photos; nothing when there are none) */}
                 <PortalPhotos portalKey={key} className="mt-8" />
+
+                {/* field features (nothing when none is shared or the database doesn't have them yet) */}
+                <PortalPunchList portalKey={key} className="mt-8" />
 
                 <section className="card card-pad mt-8">
                     <h2 className="font-semibold">Questions? Contact {company}</h2>
