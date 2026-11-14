@@ -191,6 +191,8 @@ Resumed templates ab3e480c0eebe3ce2, pipeline a6f93a02a6c772da0, job costing aef
 the AI NAV_ROUTES + knowledge.ts, then redeploy ai-assistant. Templates helper ab3e480c0eebe3ce2 still running. Next:
 good/better/best (#6) after templates; DB-needing items wait for the owner's OK.
 **05:10:** AI knowledge for pipeline/costing/export committed (e80f9e9, 891 checks) and ai-assistant REDEPLOYED.
+**05:20:** Started supplier POs + low-stock reorder (#21) helper a63826d76f236258a (no DB changes; data in existing
+columns / user_settings; does not touch template files). Templates helper ab3e480c0eebe3ce2 still running.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
