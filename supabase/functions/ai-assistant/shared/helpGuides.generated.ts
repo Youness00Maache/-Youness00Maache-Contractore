@@ -106,7 +106,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             },
             {
                 "title": "Choose the design",
-                "text": "In Design, pick a template, the [[Accent color]] and the [[Paper size]] (US Letter or A4). [[Preview]] shows the PDF before you send it."
+                "text": "In Design, pick a template, the [[Accent color]] and the [[Paper size]] (US Letter or A4). [[Preview]] shows the PDF before you send it. To change the design new documents start with, go to Settings, Document design."
             },
             {
                 "title": "Save and download",

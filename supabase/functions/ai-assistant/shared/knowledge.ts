@@ -19,7 +19,7 @@ import { HELP_GUIDES_SNAPSHOT, type GuideSnapshot } from './helpGuides.generated
 export const NAV_ROUTES = [
     '/dashboard', '/jobs/create', '/clients', '/communication', '/pipeline', '/crew', '/service-plans', '/papers', '/inventory', '/pricebook', '/calendar', '/analytics',
     '/calculator', '/forum', '/settings', '/settings#profile', '/settings#company', '/settings#payments', '/settings#requests',
-    '/settings#signature', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
+    '/settings#signature', '/settings#documents', '/settings#appearance', '/settings#billing', '/settings#reminders', '/settings#notifications', '/settings#data', '/settings#account',
     '/profile', '/tutorials',
 ] as const;
 export type NavRoute = typeof NAV_ROUTES[number];
@@ -46,6 +46,7 @@ export const NAV_LABELS: Record<NavRoute, string> = {
     '/settings#payments': 'Settings › Payments & reviews',
     '/settings#requests': 'Settings › Request-a-quote link',
     '/settings#signature': 'Settings › Signature',
+    '/settings#documents': 'Settings › Document design',
     '/settings#appearance': 'Settings › Appearance & language',
     '/settings#billing': 'Plan & billing',
     '/settings#reminders': 'Settings › Reminders',
