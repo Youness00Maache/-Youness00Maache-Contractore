@@ -1,3 +1,4 @@
+-- Applied 2026-11-14 with the owner's OK (was docs/work/DRAFT_ai_credits.sql).
 -- =====================================================================================
 -- DRAFT FOR THE OWNER'S OK. Not in supabase/migrations, NOT applied.
 -- AI credit top-ups: when the plan's monthly AI requests are used up, the user can buy credit packs
