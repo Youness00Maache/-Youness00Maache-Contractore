@@ -288,6 +288,12 @@ subscriber. TO SWITCH ON (owner): 4 one-time Kelviq plans ai-credits-5/10/20/50,
 apply docs/work/DRAFT_ai_credits.sql (never run yet), redeploy ai-assistant + kelviq-checkout + kelviq-webhook, secret
 AI_CREDITS_ENABLED=true (needs Kelviq secrets D1). Details: scratchpad/credits/PROGRESS.md.
 DISK: C: was at 800 MB free; deleted old scratchpad QA output and stale HeadlessChrome temp profiles.
+**13:20: WEEKLY 96%.** Notifications DONE (uncommitted; bell in the app bar, events from existing data, read state in
+user_settings notifications.state/prefs; no DB change; ai-assistant needs a redeploy for its knowledge). Templates
+a0b2903ffd888a515 + SEO a4639163d6c212037 told to wrap up in a working state (PROGRESS.md in scratchpad/tpl2 and
+scratchpad/seo). NEXT: when both report → tsc + build + seo:check + templates-qa --no-browser + key suites → commit
+(groups: credits, notifications, templates, SEO) → redeploy ai-assistant → publish only on the owner's "publish".
+If the budget runs out first: everything is on disk (uncommitted); resume after Nov 19 17:00 UTC from here.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
