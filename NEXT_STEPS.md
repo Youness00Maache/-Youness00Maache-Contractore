@@ -209,6 +209,7 @@ columns / user_settings; does not touch template files). Templates helper ab3e48
    "show these photos in the portal" is ticked by default; Text/WhatsApp/Copy count as sent when tapped.
 Owner click-test after sign-in: Photos › Write client update / AI walkthrough; Inventory › Suppliers / Create reorder
 POs; a PO › Send to supplier / Mark received.
+**06:30:** Started offline field drafts (#14) helper affb2a5fd1f3baea4 (no DB changes; local outbox in IndexedDB).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
