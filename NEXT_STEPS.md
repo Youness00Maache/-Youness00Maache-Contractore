@@ -237,6 +237,10 @@ Premium+AI, options = all plans)? (4) service worker + device caching for offlin
 (see 06:25). (6) price promise wording. (7) DB tables for crew clock-in, service plans, papers vault, punch lists.
 Remaining NEXT items all need DB tables (7) → waiting for the owner.
 **09:15:** Started quick-measure calculator (#20, calculator only, Free, no DB) helper a5b698492176df43c.
+**10:00:** Quick measure (#20) DONE + committed (4fde2c0; measure-check 294, all suites pass) and ai-assistant
+REDEPLOYED (help guide). Owner questions: print the line unit ("sq ft", "box") on PDFs? (needs a template change);
+defaults: door 3'x6'8", window 3'x4", US/Canada start in feet-inches.
+**10:05:** Started AI good/better/best drafting helper (assistant can draft estimate options; no DB).
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
