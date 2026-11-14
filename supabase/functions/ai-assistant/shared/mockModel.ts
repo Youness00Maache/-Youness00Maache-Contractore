@@ -31,6 +31,8 @@ export function detectDocTypeFromText(text: string): DocKey | null {
 }
 
 const NAV_RULES: Array<[RegExp, AppRoute]> = [
+    [/\b(pipeline|kanban|board)\b/i, '/pipeline'],
+    [/\b(export (?:my|all)(?: of my)? data|your data|bookkeeper csv|data export|backup)\b/i, '/settings#data'],
     [/\b(payment|pay(?:ment)? link|payments? (?:&|and) reviews?|google review|financing) settings?\b|\bsettings?\b.*\b(payments?|pay link|reviews?)\b/i, '/settings#payments'],
     [/\b(reminders?|follow-?ups?)\b.*\bsettings?\b|\bsettings?\b.*\breminders?\b|\breminder settings\b/i, '/settings#reminders'],
     [/\b(request(?:-a-quote)? link|quote link|request page|quote requests? settings)\b/i, '/settings#requests'],

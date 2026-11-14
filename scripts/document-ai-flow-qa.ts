@@ -1214,7 +1214,7 @@ async function knowledgeTests() {
     eq(missingLabels, [], 'every [[label]] in the knowledge exists in the app');
     ok(KNOWN_LABELS.size > 120, `the knowledge names the real controls (${KNOWN_LABELS.size} labels)`);
     ok(!labelInSource('Request approval') && !KNOWN_LABELS.has('Request approval'), 'old labels are gone (Request approval → Get approval)');
-    for (const topic of ['pay-link', 'mark-paid', 'reminders-detail', 'quote-requests', 'photos-detail', 'portal', 'approval-signature', 'temporary-clients', 'gmail',
+    for (const topic of ['pipeline-board', 'job-costing-tm', 'export-data', 'pay-link', 'mark-paid', 'reminders-detail', 'quote-requests', 'photos-detail', 'portal', 'approval-signature', 'temporary-clients', 'gmail',
         'inventory-qr', 'pricebook-items', 'designs', 'calculator-modes', 'recurring-invoices', 'signed-lock', 'convert-estimate', 'data-sync', 'tutorials', 'plans-billing']) {
         ok(KNOWLEDGE.some(e => e.id === topic), `knowledge covers ${topic}`);
     }
@@ -1245,6 +1245,13 @@ async function knowledgeTests() {
         ['청구서를 매월 반복하려면?', 'recurring-invoices'],
         ['Come faccio a collegare Gmail?', 'gmail'],
         ['Como converter um orçamento em fatura?', 'convert-estimate'],
+        ['where can I see all my jobs by stage?', 'pipeline-board'],
+        ['which jobs are stuck in my pipeline?', 'pipeline-board'],
+        ['is this job over budget?', 'job-costing-tm'],
+        ['how do I invoice my time and materials?', 'job-costing-tm'],
+        ['how do I export all my data?', 'export-data'],
+        ['send a CSV to my bookkeeper', 'export-data'],
+        ['¿Cómo exporto todos mis datos para mi contador?', 'export-data'],
     ];
     for (const [q, id] of top) {
         eq(scoreKnowledge(q)[0]?.entry.id, id, `"${q}" → ${id}`);
@@ -1281,6 +1288,8 @@ async function knowledgeTests() {
         ['where are temporary clients?', '/clients', { open_form: 'CREATE_CLIENT' }],
         ['how do reminders stop?', '/settings#reminders', {}],
         ['make my invoices show a QR code', '/settings#payments', {}],
+        ['where is the pipeline board?', '/pipeline', {}],
+        ['how do I export all my data?', '/settings#data', {}],
     ];
     for (const [q, route, extra] of shape) {
         const p = runLocalMockRouter(q, 'dashboard', ctx);
@@ -1326,7 +1335,8 @@ async function knowledgeTests() {
     eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', document_ids: ['inv-B'] }, { request: req('open invoice INV-002') }).document_ids, ['inv-B'], 'open a document');
     eq(buildProposal({ action_type: 'NAVIGATE_TO', reply_text: '', document_ids: ['evil'], job_id: 'evil' }, { request: req('open it') }).action_type, 'CHAT', 'foreign ids never navigate');
     eq(buildProposal({ action_type: 'OPEN_BILLING', reply_text: '' }, { request: req('billing') }).route, '/settings#billing', 'legacy alias → Plan & billing');
-    for (const [q, r] of [['open my payment settings', '/settings#payments'], ['open the reminder settings', '/settings#reminders'], ['show the tutorials', '/tutorials'], ['open my billing', '/settings#billing']] as const) {
+    for (const [q, r] of [['open my payment settings', '/settings#payments'], ['open the reminder settings', '/settings#reminders'], ['show the tutorials', '/tutorials'], ['open my billing', '/settings#billing'],
+        ['open the pipeline', '/pipeline'], ['open export my data', '/settings#data']] as const) {
         eq(runLocalMockRouter(q, 'dashboard', ctx).route, r, `"${q}" → ${r}`);
     }
 
