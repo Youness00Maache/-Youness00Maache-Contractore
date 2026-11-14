@@ -510,7 +510,7 @@ const FERG = normalizeSupplier({ id: 's_fe', name: 'Ferguson', email: 'po@fergus
     const app = read('App.tsx');
     check('App passes the plan to the PO form and Inventory', /<PurchaseOrderForm[\s\S]*?plan=\{plan\}/.test(app) && /<InventoryView[\s\S]*?plan=\{plan\}/.test(app));
     const help = read('components/help/helpContent.ts');
-    check('help guide for suppliers', help.includes("id: 'suppliers'") && help.includes('[[Create reorder POs]]') && help.includes('[[Mark received]]'));
+    check('help guide for suppliers', help.includes("id: 'suppliers'") && help.includes('[[Create reorder POs]]') && help.includes('[[Record delivery]]') && help.includes('[[Finish delivery]]'));
 }
 
 console.log(`supplier-orders-check: ${passed} passed, ${failures.length} failed`);
