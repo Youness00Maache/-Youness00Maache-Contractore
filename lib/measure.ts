@@ -13,7 +13,7 @@
  * Imperial lengths are typed as feet + inches, metric ones in metres. The math runs in the system the user typed in
  * (never through metres and back), so 12' × 14' is exactly 168 sq ft and stays 168 after rounding up.
  *
- * Nothing here changes a document: the sheet fills the line's quantity (and its `unit`, shown in the editor only) and
+ * Nothing here changes a document: the sheet fills the line's quantity (and its `unit`, printed after the quantity) and
  * adds the summary to the description only when the user ticks "Add measurement to description".
  */
 import type { KeyValueStore } from './userDataSync.ts';

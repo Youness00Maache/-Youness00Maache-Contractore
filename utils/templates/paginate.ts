@@ -6,7 +6,8 @@
  *     children  → rich content (`.cd-split`) is split between paragraphs/list items/rows, and long
  *                 paragraphs are split between words (Range based, inline formatting preserved).
  * - Section titles and rich-text headings are never left alone at the bottom of a page.
- * - The totals block pulls the last table rows with it instead of landing alone on a new page.
+ * - Totals that don't fit under their table take its last row along when that leaves only a small gap; otherwise
+ *   they start the next page under a "Continued from page N" line (never a big gap, never silently cut off).
  * - Blocks marked data-optional="1" (decorative bands) are dropped instead of opening a new page.
  * - Continuation pages are clones of the first page's shell (chrome + footer + running header).
  * - Footers get "Page X of N" when there is more than one page.
@@ -308,13 +309,12 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
   };
 
   // --- keep the totals with the end of the items table ------------------------------
-  const pullRowsWith = (block: HTMLElement): boolean => {
-    const prev = block.previousElementSibling as HTMLElement | null;
-    if (!prev || !prev.classList.contains('cd-items')) return false;
-    const table = prev.querySelector('table') as HTMLTableElement | null;
-    const tb = table?.tBodies[0];
-    if (!table || !tb || tb.rows.length < 4) return false;
-    const moving = [tb.rows[tb.rows.length - 2], tb.rows[tb.rows.length - 1]];
+  /** Largest gap the totals may leave at the bottom of a page by taking table rows along: 20% of the page body. */
+  const maxCarryGap = () => fullHeight() * 0.2;
+
+  /** New page: the table's last `n` rows (under a repeated header row), then `block`. */
+  const carryRows = (block: HTMLElement, prev: HTMLElement, table: HTMLTableElement, n: number) => {
+    const moving = Array.from(table.tBodies[0].rows).slice(-n);
     moving.forEach((r) => r.remove());
     block.remove();
     const c = continuationTable(prev, table);
@@ -322,25 +322,58 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
     newPage();
     body.appendChild(c.next);
     body.appendChild(block);
-    return true;
   };
 
-  /**
-   * Good/better/best option totals (blocks.ts choicesBlocks) stay with their option: a long option pulls its last rows
-   * along (like the totals above); a short one (fewer than 4 rows, heading included) moves to the next page whole.
-   */
-  const pullOptionWith = (block: HTMLElement): boolean => {
-    const prev = block.previousElementSibling as HTMLElement | null;
-    if (!prev || !prev.classList.contains('cd-opt')) return false;
-    const tb = (prev.querySelector('table') as HTMLTableElement | null)?.tBodies[0];
-    if (!tb) return false;
-    if (tb.rows.length >= 4) return pullRowsWith(block);
-    if (prev.getAttribute('data-cont') === '1' || blocksOnPage()[0] === prev) return false;
+  /** New page: the whole (short) table with its heading, then `block`. */
+  const carryTable = (block: HTMLElement, prev: HTMLElement) => {
     prev.remove();
     block.remove();
     newPage();
     body.appendChild(prev);
     body.appendChild(block);
+  };
+
+  /** New page: `block` alone under a small "Continued from page N" line (the running header names the document). */
+  const moveWithNote = (block: HTMLElement) => {
+    const from = pages.length;
+    block.remove();
+    newPage();
+    const note = doc.createElement('div');
+    note.className = 'cd-block cd-cont-note';
+    note.textContent = `Continued from page ${from}`;
+    body.appendChild(note);
+    body.appendChild(block);
+  };
+
+  /**
+   * The totals (`cd-summary` after `cd-items`) or a good/better/best option's totals (`cd-opt-sum` after `cd-opt`,
+   * blocks.ts choicesBlocks) did not fit under their table. They never start a page cut off from every line without
+   * saying so, and never leave a big gap here:
+   *  1. the table's last row comes along when the gap it leaves on this page stays small (≤ 20% of the page body);
+   *  2. a short table (fewer than 4 rows, not a continuation, not alone on the page) moves whole with its totals when
+   *     that gap is small too (≤ 40% for an option: its heading and description belong with its total);
+   *  3. otherwise (a tall last row, or totals taller than the space left) every row stays here and the totals start
+   *     the next page under "Continued from page N": the gap is only the space the totals could not use.
+   */
+  const keepWithRows = (block: HTMLElement, prevCls: string, option: boolean): boolean => {
+    const prev = block.previousElementSibling as HTMLElement | null;
+    if (!prev || !prev.classList.contains(prevCls)) return false;
+    const table = prev.querySelector('table') as HTMLTableElement | null;
+    const tb = table?.tBodies[0];
+    if (!table || !tb || !tb.rows.length) return false;
+    const rows = tb.rows.length;
+    const free = Math.max(0, limit() - prev.getBoundingClientRect().bottom);
+    const lastH = tb.rows[rows - 1].getBoundingClientRect().height;
+    if (rows >= 2 && free + lastH <= maxCarryGap()) {
+      carryRows(block, prev, table, 1);
+      return true;
+    }
+    if (rows < 4 && prev.getAttribute('data-cont') !== '1' && blocksOnPage()[0] !== prev
+      && free + prev.getBoundingClientRect().height <= maxCarryGap() * (option ? 2 : 1)) {
+      carryTable(block, prev);
+      return true;
+    }
+    moveWithNote(block);
     return true;
   };
 
@@ -354,8 +387,8 @@ export function paginateDocument(doc: Document, opts: { pageHeight?: number } = 
     if (split === 'rows') { splitRows(block); continue; }
     if (split === 'children') { splitChildren(block); continue; }
     if (blocksOnPage().length > 1) {
-      const pulled = block.classList.contains('cd-summary') ? pullRowsWith(block)
-        : block.classList.contains('cd-opt-sum') ? pullOptionWith(block) : false;
+      const pulled = block.classList.contains('cd-summary') ? keepWithRows(block, 'cd-items', false)
+        : block.classList.contains('cd-opt-sum') ? keepWithRows(block, 'cd-opt', true) : false;
       if (!pulled) moveToNewPage(block);
     }
     if (!fits(block)) constrainImages(block);

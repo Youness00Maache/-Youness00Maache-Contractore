@@ -259,7 +259,8 @@ export const signaturesBlock = (m: DocModel) => (m.signatures.length ? block('cd
 
 export const closingBlock = (m: DocModel) => (m.closing ? block('cd-closing', `<div class="cd-closing-text">${m.closing}</div>`) : '');
 
-const isShortSection = (s: Section) => plainLength(s.html) < 650 && !/<(img|table|h[1-3])/i.test(s.html);
+/** Short plain notes/terms only: images, tables and headings need the full width (never beside the signatures). */
+const isShortSection = (s: Section) => plainLength(s.html) < 650 && !/<(img|table|h[1-3])\b/i.test(s.html);
 
 /** Short notes/terms next to the signatures in one row (saves a lot of vertical space). */
 export const signoffBlock = (m: DocModel): string => {
@@ -325,6 +326,7 @@ font-family:var(--font-body);color:var(--ink);font-size:12.5px;line-height:1.5;-
 .cd-first-only{display:none;} .cd-first .cd-first-only{display:block;}
 .cd-cont-only{display:none;} .cd-cont .cd-cont-only{display:block;}
 .cd-last-only{display:none;} .cd-last .cd-last-only{display:block;}
+.cd-root .cd-block.cd-cont-note{margin:0 0 10px;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:right;}
 .cd-runhead{display:none;} .cd-cont .cd-runhead{display:flex;justify-content:space-between;gap:16px;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-bottom:8px;border-bottom:1px solid var(--rule);margin-bottom:18px;flex:none;}
 .cd-footer{position:absolute;left:var(--pl);right:var(--px);bottom:var(--fb);z-index:2;display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:9px;line-height:1.4;color:var(--muted);}
 .cd-footer-text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
@@ -367,6 +369,8 @@ font-family:var(--font-body);color:var(--ink);font-size:12.5px;line-height:1.5;-
 .cd-table th{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:9px 10px;text-align:left;vertical-align:bottom;}
 .cd-table td{padding:9px 10px;vertical-align:top;border-bottom:1px solid var(--rule);font-size:12px;}
 .cd-table .cd-r{text-align:right;} .cd-table .cd-c{text-align:center;}
+.cd-table td.cd-c-qty{white-space:normal;}
+.cd-unit{white-space:nowrap;}
 .cd-item-name{overflow-wrap:anywhere;}
 .cd-item-sub{margin:4px 0 0;padding-left:16px;font-size:10.5px;color:var(--muted);}
 .cd-item-sub li{margin:1px 0;}
