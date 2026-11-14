@@ -14,6 +14,8 @@ import { requestSlugFromPath } from './components/requests/requestLogic.ts';
 import { preloadRouteData } from './pages/blogLoader.ts';
 import { LogoMark } from './pages/components/Logo.tsx';
 import './index.css';
+// keeps the browser's one-time "install app" event for the phone banner (components/InstallAppBanner.tsx)
+import './lib/installPrompt.ts';
 
 const App = lazy(() => import('./App.tsx'));
 /** Public request-a-quote page (/r/<slug>): its own small chunk, the app is not loaded. */

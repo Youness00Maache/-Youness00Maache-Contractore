@@ -61,6 +61,7 @@ import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/off
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
 import { OfflineDocContext, OutboxStatusContext, sendBlockedReasonFor } from './components/offline/OfflineContext.tsx';
 import SyncStatusBar from './components/offline/SyncStatusBar.tsx';
+import InstallAppBanner, { DOCUMENT_SAVED_EVENT } from './components/InstallAppBanner.tsx';
 import OutboxPanel from './components/offline/OutboxPanel.tsx';
 import LogoutGuardDialog from './components/offline/LogoutGuardDialog.tsx';
 import type { EstimateHandoff } from './components/requests/RequestDetailModal.tsx';
@@ -1886,7 +1887,9 @@ const App: React.FC = () => {
             const pending = saveFormToOutbox(formData, kind);
             savingFormPromiseRef.current = pending;
             try {
-                return await pending;
+                const result = await pending;
+                if (result) window.dispatchEvent(new Event(DOCUMENT_SAVED_EVENT)); // phones: may offer "Add to home screen"
+                return result;
             } finally {
                 savingFormPromiseRef.current = null;
             }
@@ -1965,7 +1968,9 @@ const App: React.FC = () => {
         });
         savingFormPromiseRef.current = pending;
         try {
-            return await pending;
+            const result = await pending;
+            if (result) window.dispatchEvent(new Event(DOCUMENT_SAVED_EVENT)); // phones: may offer "Add to home screen"
+            return result;
         } finally {
             savingFormPromiseRef.current = null;
         }
@@ -2636,6 +2641,8 @@ const App: React.FC = () => {
                     onDismissNotices={() => { void outbox.dismiss(); }}
                 />
             )}
+            {/* phones: "Add ContractorDocs to your home screen" (2nd visit or after a saved document; dismissible) */}
+            {showNav && session?.user && <InstallAppBanner aboveTabBar={showTabBar} />}
             {showNav && upgradeBanner && session?.user && !paid && (
                 <FinishUpgradeBanner
                     planName={PLANS[upgradeBanner.plan].name}
