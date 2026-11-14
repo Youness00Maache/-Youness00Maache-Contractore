@@ -157,7 +157,9 @@ const AppNav: React.FC<AppNavProps> = ({
         { icon: UsersIcon, label: 'Clients', onClick: () => go('clients'), active: active === 'clients', badgeCount: clientBadge },
         ...(primaryAction ? [{ icon: PlusIcon, label: primaryAction.label, onClick: primaryAction.onClick, primary: true } as DockItem] : []),
         { icon: MailIcon, label: 'Messages', onClick: () => go('communication'), active: active === 'communication' },
-        { icon: GridIcon, label: 'More', onClick: () => setMoreOpen(true), active: active === 'tools' || active === 'forum' || active === 'settings', badgeCount: lowStockCount + forumBadge },
+        // Community sits in the bar itself on phones (owner: phone users could not find it inside "More")
+        { icon: MessageSquareIcon, label: 'Community', onClick: () => go('forum'), active: active === 'forum', badgeCount: forumBadge },
+        { icon: GridIcon, label: 'More', onClick: () => setMoreOpen(true), active: active === 'tools' || active === 'settings', badgeCount: lowStockCount },
     ];
 
     return (
