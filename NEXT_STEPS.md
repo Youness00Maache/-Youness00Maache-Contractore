@@ -251,6 +251,9 @@ assistant so drafted lines get real prices (no DB). Weekly 91%: stop everything 
 committed utils/documentDraft.ts that 2a3d2ab had missed. Owner OK: price-book names/units/sell prices/short
 descriptions/kit parts now go to Gemini with drafting requests (never costs); matched lines take the price book's
 "name - description" text and unit.
+**11:35:** Smoke test (local dev, signed out): landing, /help, /pricing, /login load with no console errors;
+/dashboard redirects to login. Started a bug-review helper ad857e90fabe20e37 on the riskiest new code (offline sync,
+options in portal/PDF, supplier Mark received, photo AI); it fixes only bugs it can reproduce with a test.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
