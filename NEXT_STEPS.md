@@ -241,6 +241,10 @@ Remaining NEXT items all need DB tables (7) → waiting for the owner.
 REDEPLOYED (help guide). Owner questions: print the line unit ("sq ft", "box") on PDFs? (needs a template change);
 defaults: door 3'x6'8", window 3'x4", US/Canada start in feet-inches.
 **10:05:** Started AI good/better/best drafting helper a14720f57f8896cb5 (assistant can draft estimate options; no DB).
+**10:45:** AI drafts good/better/best options DONE + committed (2a3d2ab; qa:document-ai 1105, forms-prefill 945) and
+ai-assistant REDEPLOYED (the old live app never calls ai-assistant, so this is safe before the frontend release).
+Owner notes: the price book isn't sent to the assistant, so prices the user didn't give stay empty (flagged on the
+card); Recommended defaults to the 2nd option. Not done: "turn this estimate into options" on an open form.
 **Running helpers (resume with SendMessage if stopped):** pay a87fff5bdb8a5338f, reminders a2d750dfe2e6a0437,
 requests+photos a0be84ce1286d1bf1, data-sync a01ef4379db5b1224.
 
