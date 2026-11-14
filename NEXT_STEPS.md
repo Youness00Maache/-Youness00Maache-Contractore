@@ -74,9 +74,10 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
   To test on a phone: sign in online once (screens load in the background), then airplane mode.
 
 # >>> START HERE (owner requests 2026-11-14 15:20, weekly limit hit at 99%; do these FIRST after the reset Nov 19 17:00 UTC) <<<
-**PAUSED 2026-11-14 18:13 UTC at 95% (resume timer 18:54 UTC).** Only thing left from the owner's 5 steps: when the
-post-merge test run (scratchpad tests2.log) is all rc=0, push my-branch + main (6f80e51 templates merge, 76b0025
-offline message, NEXT_STEPS) and curl the live /templates page. Then delete the two empty worktree folders if free.
+**2026-11-14 ~19:00 UTC: owner's 5 steps ALL DONE and LIVE.** Post-merge suites all passed (30); pushed my-branch +
+main (7bc0dd5: templates merge + shared offline message); live /templates = 200 with the 26 new designs + Premium
+badges, preview images load. Still open: the two EMPTY folders .claude/worktrees/agent-a300aae907df5b66c and
+agent-ab4b5d1fee0b54215 are "busy" (another process has them open) -> `rmdir` them after the app restarts.
 **UPDATE 2026-11-14 ~18:10 UTC (owner: stop at 95% of the 5-hour limit):**
 - DONE step 1: all suites passed (estimate-options-check fixed for CRLF checkouts); pushed my-branch + main (a9ddaed).
 - DONE step 2: review verdicts: 0100 crew OK (+ added: punch timesheet_id must be the owner's document); 0200 punch OK;
