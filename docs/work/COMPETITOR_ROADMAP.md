@@ -122,7 +122,18 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 - Helpers: Opus phase A (SQL + data layer + tests) then Sonnet phase B (UI). Pattern for every DB batch.
 - D4 phase A: merged on my-branch (641f73b); migration 20261116000200_suppliers_library.sql APPLIED to production
   2026-11-14 (verified). Phase B (Sonnet UI) building in a worktree.
-- D2 phase A (Opus, migration 20261116000100_job_tasks.sql + lib/tasks + AI extract_tasks): building; not merged, SQL not applied.
+- D2 phase A (Opus) DONE, commit 8fbce3d on branch worktree-agent-a15acbcf4ec4631a7 (worktree .claude/worktrees/agent-a15acbcf4ec4631a7):
+  migration supabase/migrations/20261116000100_job_tasks.sql (job_tasks, task_comments, crew-link RPCs), lib/tasks/*,
+  src/ai/extractTasks.ts, ai-assistant shared/taskExtraction.ts + handler route `extract_tasks`, scripts/job-tasks-check.ts
+  (228 checks; its header check expects "NOT YET" -> change like supplier-library-check when applying). Its tests all pass.
+  NOT merged, SQL NOT applied. STILL TO DO: (1) REVIEW the SQL myself before applying: helper says it grants anon a 3rd
+  function `can_upload_crew_task_photo` (storage rule for worker photo upload; same as clock-in upload check) and adds one
+  more insert policy on the crew-photos bucket; a worker may only set 'doing'/'done' (+photo/comment); (2) merge, apply in
+  the SQL editor, verify, header; (3) Sonnet UI helper (API names: useTasksFeature, tasksApi.*, taskLogic.*, tasksPublicApi
+  fetchCrewTasks/updateCrewTask/uploadCrewTaskPhoto, workOrderTasks.*, runExtractTasks); (4) redeploy ai-assistant
+  (extract_tasks).
+- PAUSED 2026-11-14 ~21:40 UTC at 71% of the 5-hour limit (weekly 23%). Resume timer 23:55 UTC (5-hour reset 23:50).
+  The D4 phase B (Sonnet UI) helper was still running when paused: when it finishes, merge it, but start nothing new until 23:55.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
 - Known small gap: saved_items.supplier_id has no same-owner trigger (id is an unguessable uuid; harmless).
 
