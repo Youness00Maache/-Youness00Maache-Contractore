@@ -106,7 +106,17 @@ job_questions; suppliers, supplier_items; job_selections, job_boards; bills, bil
 job_quotes; feedback_responses; email_log; push_subscriptions. ALTERs: quote_requests, saved_items, crew_members,
 request_pages, reminder kinds. New/changed SQL functions for the portal and links. All additive, RLS owner-only,
 same patterns as the crew & field migrations.
-OWNER ANSWER: (pending)
+OWNER ANSWER: "Yes, approve all" (2026-11-14 ~21:40 UTC) = every table / ALTER / function listed above, D1-D13.
+Still: review each migration before applying (RLS owner-only, SECURITY DEFINER + search_path '', `as $$` on every
+body, additive only), apply in the SQL editor, verify, add the "Applied <date> with the owner's OK" header.
+D12 push also needs VAPID secrets the owner adds (never type them).
+
+## Build order (after N1 + N2), interleaving DB and no-DB, Priority 1 first (owner's doc section 47)
+1. D2 tasks + schedule   2. D4 suppliers + product library   3. D9 portal dashboard (+ D3 files)   4. N12 after D2
+5. D1 leads + appointments   6. N4 proposal builder (+ D13)   7. N5 assemblies   8. D5 selections + boards
+9. D7 subs + quote comparison + sub access   10. D10 warranty + email automations   11. N7 job AI   12. D8 profile +
+reviews   13. N3 business overview   14. N6 AI documents   15. N8 setup   16. N9 plan measurement   17. N10
+integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (needs owner's VAPID secrets).
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
