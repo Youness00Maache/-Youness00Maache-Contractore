@@ -24,6 +24,7 @@ import {
 import { DESIGN_DEFAULT_KEY } from '../lib/userData.ts';
 import { mergeDraftIntoForm } from '../hooks/useDocumentDraftPrefill.ts';
 import { PLANS } from '../lib/plans.ts';
+import { defaultWithDesign, designDefaultSummary } from '../components/settings/DocumentDesignSettings.tsx';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f: string) => readFileSync(resolve(ROOT, f), 'utf8');
@@ -147,6 +148,17 @@ for (const id of premiumIds) {
         eq('paid: Premium default saved', await saveUserDesignDefault(store, { templateId: P1, designOptions: { table: 'striped' } }, 'premium'), 'account');
         eq('stored default reads back', readUserDesignDefault(store)?.templateId, P1);
         eq('reset (null) stores Classic', [await saveUserDesignDefault(store, null, 'free'), readUserDesignDefault(store)?.templateId], ['account', DEFAULT_TEMPLATE_ID]);
+        // Settings > Document design: choosing a design keeps colors/font/paper, drops layout options of the old design
+        const cur = { templateId: P1, themeColors: { primary: '#123456', secondary: '#654321', custom: true, paper: 'a4' as const }, designOptions: { table: 'striped' } } as any;
+        const next = defaultWithDesign(cur, B1) as any;
+        ok('settings: new design keeps colors and paper, drops layout options', next.templateId === B1 && next.themeColors.primary === '#123456' && next.themeColors.paper === 'a4' && !('designOptions' in next));
+        const before = saved.length;
+        eq('settings: Free user choosing a Premium design is refused and nothing is stored', [await saveUserDesignDefault(store, defaultWithDesign(null, P2), 'free'), saved.length], ['locked', before]);
+        ok('settings: summary lists accent, paper and layout', designDefaultSummary(cur) === 'Accent #123456 · A4 · customized layout' && designDefaultSummary(null) === 'Template colors');
+        const doc = read('components/settings/DocumentDesignSettings.tsx');
+        ok('settings: uses the shared store and upgrade window', doc.includes('saveDesignDefault(value, plan)') && doc.includes('requestDesignUpgrade(') && doc.includes('Reset to Classic') && doc.includes('loadDesignDefault'));
+        const st = read('components/Settings.tsx');
+        ok('settings: Document design section is in the nav and the page', st.includes("{ id: 'documents', label: 'Document design' }") && st.includes('<Section id="documents"'));
         const broken = { readLocal: () => { throw new Error('storage'); } };
         eq('unreadable device copy → no default', readUserDesignDefault(broken), null);
         finish();

@@ -83,7 +83,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     steps: [
       { title: 'Pick a document type', text: 'Open a job and click [[New Document]] (on a phone, [[New doc]] in the bottom bar). Billing & purchasing: Invoice, Estimate, Change Order, Purchase Order, Receipt. On the job: Work Order, Daily Job Report, Time Sheet, Material Log. Records: Expense Log, Warranty, Note.' },
       { title: 'Fill it in', text: 'Client and company details come from the job and your Settings. Under Items, [[Add line]] adds a row. The tag button on a line opens your [[Price book]] and [[Inventory]]; the save button keeps that line in your price book.' },
-      { title: 'Choose the design', text: 'In Design, pick a template, the [[Accent color]] and the [[Paper size]] (US Letter or A4). [[Preview]] shows the PDF before you send it.' },
+      { title: 'Choose the design', text: 'In Design, pick a template, the [[Accent color]] and the [[Paper size]] (US Letter or A4). [[Preview]] shows the PDF before you send it. To change the design new documents start with, go to Settings, Document design.' },
       { title: 'Save and download', text: 'Click [[Save]] (or Ctrl/Cmd + S). [[PDF]] downloads it, and [[Save & PDF]] does both. If you leave with unsaved changes, the app asks first.' },
       { title: 'Send it', text: '[[Share]] saves the document, then offers [[Send with Gmail]], [[Download PDF]], [[Copy portal link]], an approval link for estimates and change orders, and text or WhatsApp.' },
       { title: 'Let AI fill it', text: '[[AI fill]] fills the form from a description you type or say. It only fills fields: nothing is saved until you click [[Save]].' },

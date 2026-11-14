@@ -21,12 +21,13 @@ import RequestLinkSettings from './requests/RequestLinkSettings.tsx';
 import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
 import DataExportSection from './export/DataExportSection.tsx';
 import { AICreditsRow } from './billing/AICredits.tsx';
+import DocumentDesignSettings from './settings/DocumentDesignSettings.tsx';
 import NotificationSettingsCard from './notifications/NotificationSettingsCard.tsx';
 import { SyncChip } from './offline/OfflineContext.tsx';
 import { errorText } from '../lib/offline/connection.ts';
 
 type ThemeName = 'light' | 'dark' | 'blue';
-export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'appearance' | 'billing' | 'reminders' | 'notifications' | 'data' | 'account';
+export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'documents' | 'appearance' | 'billing' | 'reminders' | 'notifications' | 'data' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
@@ -67,6 +68,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'payments', label: 'Payments & reviews' },
     { id: 'requests', label: 'Request-a-quote link' },
     { id: 'signature', label: 'Signature' },
+    { id: 'documents', label: 'Document design' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'billing', label: 'Plan & billing' },
     { id: 'reminders', label: 'Reminders' },
@@ -547,6 +549,11 @@ const Settings: React.FC<SettingsProps> = ({
                                 )}
                             </div>
                         </div>
+                    </Section>
+
+                    {/* Document design: default PDF design of new documents (same setting as the picker's "Use for new documents") */}
+                    <Section id="documents" title="Document design" description="The PDF design new invoices, estimates and other documents start with. You can still change it on each document.">
+                        <DocumentDesignSettings plan={plan} />
                     </Section>
 
                     {/* Appearance */}
