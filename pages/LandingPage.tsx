@@ -158,7 +158,7 @@ const LandingPage: React.FC = () => {
               text="Pick a document type, add line items from your price book and choose a template. Taxes, discounts, deposits and progress billing are calculated the same way on screen, in the PDF and in the client portal."
               bullets={[
                 'Your logo, license number and terms on every document',
-                '13 professional designs in your brand colors',
+                '26 professional designs in your brand colors',
                 'Deposits, amount paid and balance due tracked per invoice',
                 'Progress billing by percent complete per line item',
               ]}

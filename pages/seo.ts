@@ -129,7 +129,7 @@ const STATIC: Record<string, StaticDef> = {
   },
   '/templates': {
     title: 'Contractor Templates: Invoices, Estimates, Change Orders & More',
-    description: 'Professional templates for invoices, estimates, work orders, change orders, purchase orders, daily reports, time sheets, warranties and more, in 13 designs.',
+    description: 'Professional templates for invoices, estimates, work orders, change orders, purchase orders, daily reports, time sheets, warranties and more, in 26 designs.',
     type: 'CollectionPage',
     crumb: 'Templates',
   },

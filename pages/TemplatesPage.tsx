@@ -8,6 +8,13 @@ import { TEMPLATE_PREVIEWS } from '../content/templatePreviews.ts';
 
 const STYLE_FOR_DOC: ThumbStyle[] = ['modern', 'classic', 'bold', 'minimal', 'warm', 'blueprint'];
 
+const BASIC_PREVIEWS = TEMPLATE_PREVIEWS.filter((p) => !p.premium);
+const PREMIUM_PREVIEWS = TEMPLATE_PREVIEWS.filter((p) => p.premium);
+const PREVIEW_GROUPS = [
+  { id: 'basic', title: 'Basic designs', note: 'Free on every plan.', items: BASIC_PREVIEWS },
+  { id: 'premium', title: 'Premium designs', note: 'Premium plans: choose the fonts, header, table style and which sections print.', items: PREMIUM_PREVIEWS },
+];
+
 const STYLES: { style: ThumbStyle; name: string; text: string }[] = [
   { style: 'modern', name: 'Modern Blue', text: 'Clean header band and clear totals. A safe default for any trade.' },
   { style: 'classic', name: 'Elegant', text: 'Serif type and fine rules for high-end remodels and custom work.' },
@@ -22,7 +29,7 @@ const TemplatesPage: React.FC = () => (
     <PageHero
       eyebrow="Templates"
       title="Contractor document templates that look the part"
-      subtitle="Invoices, estimates, change orders, daily reports and eight more document types, each in 13 professional designs with your logo, colors and details filled in automatically."
+      subtitle={`Invoices, estimates, change orders, daily reports and eight more document types, each in ${TEMPLATE_PREVIEWS.length} professional designs with your logo, colors and details filled in automatically.`}
     >
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
         <ButtonLink to={SIGNUP_PATH} size="lg" arrow className="w-full sm:w-auto">Use these templates free</ButtonLink>
@@ -75,19 +82,30 @@ const TemplatesPage: React.FC = () => (
           id="styles-heading"
           eyebrow="Styles"
           title="Pick a look that fits your brand"
-          subtitle="13 designs, each with your own brand colors and fonts. Switch at any time without retyping anything."
+          subtitle={`${TEMPLATE_PREVIEWS.length} designs in your own brand colors: ${BASIC_PREVIEWS.length} free on every plan, ${PREMIUM_PREVIEWS.length} Premium designs you can customize. Switch at any time without retyping anything.`}
         />
         {TEMPLATE_PREVIEWS.length ? (
-          <ul className="mt-14 grid grid-cols-2 gap-x-5 gap-y-8 lg:grid-cols-4">
-            {TEMPLATE_PREVIEWS.map((p, i) => (
-              <li key={p.src} className={i === 0 ? 'col-span-2 lg:row-span-2' : ''}>
-                <figure className={i === 0 ? 'mx-auto max-w-[460px]' : ''}>
-                  <img src={p.src} alt={`${p.name} invoice template preview`} width={900} height={1165} loading="lazy" decoding="async" className="h-auto w-full rounded-lg bg-white shadow-card ring-1 ring-border" />
-                  <figcaption className="mt-3 text-center text-sm font-semibold text-foreground">{p.name}{i === 0 ? <span className="ml-2 badge badge-primary">Made for the trades</span> : null}</figcaption>
-                </figure>
-              </li>
-            ))}
-          </ul>
+          PREVIEW_GROUPS.filter((g) => g.items.length).map((g) => (
+            <div key={g.id} className="mt-14">
+              <div className="flex flex-col gap-1 border-b border-border pb-3 sm:flex-row sm:items-baseline sm:justify-between">
+                <h3 className="text-lg font-bold text-foreground">{g.title}</h3>
+                <p className="text-sm text-muted-foreground">{g.note}</p>
+              </div>
+              <ul className="mt-8 grid grid-cols-2 gap-x-5 gap-y-8 md:grid-cols-3 lg:grid-cols-4">
+                {g.items.map((p) => (
+                  <li key={p.id}>
+                    <figure>
+                      <img src={p.src} alt={`${p.name} invoice template preview`} width={640} height={828} loading="lazy" decoding="async" className="h-auto w-full rounded-lg bg-white shadow-card ring-1 ring-border" />
+                      <figcaption className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm font-semibold text-foreground">
+                        {p.name}
+                        {p.premium ? <span className="badge badge-primary">Premium</span> : null}
+                      </figcaption>
+                    </figure>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
         ) : (
           <ul className="mt-14 grid grid-cols-2 gap-x-5 gap-y-10 md:grid-cols-3 lg:grid-cols-6">
             {STYLES.map((s) => (

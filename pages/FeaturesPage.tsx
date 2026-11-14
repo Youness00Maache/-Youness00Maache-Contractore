@@ -25,7 +25,7 @@ const SECTIONS: Section[] = [
     text: 'Invoices, estimates, work orders, change orders, purchase orders, daily job reports, time sheets, material logs, expense logs, warranties, receipts and notes. Every document belongs to a job and a client, so you can find it in seconds.',
     bullets: [
       'Your logo, business details, license number and terms on every document',
-      '13 professional designs with your own colors and fonts; switch designs without retyping anything',
+      '26 professional designs with your own colors and fonts (11 free, 15 Premium you can customize); switch designs without retyping anything',
       'Line items, tax %, flat discounts, shipping, deposits and balance due',
       'Progress billing: bill by percent complete, minus what you already billed',
       'Clean PDF export for printing, emailing or attaching anywhere',
