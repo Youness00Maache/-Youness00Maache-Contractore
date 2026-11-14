@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
+import { offlineEntityQueueFor } from '../lib/offline/offlineEntities.ts';
 import { isPaidTier, normalizeTier } from '../lib/plans.ts';
 import type { SavedItem } from '../types.ts';
 import { BoxIcon, BriefcaseIcon, CopyIcon, EditIcon, PlusIcon, SearchIcon, TagIcon, TrashIcon, UsersIcon } from './Icons.tsx';
@@ -222,6 +223,19 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
       assembly_items: draft.is_assembly ? draft.assembly_items || [] : [],
     };
     const before = editing?.id ? items.find((i) => i.id === editing.id) : undefined;
+    // offline (or an item still waiting to sync): kept on this device, synced when the connection is back
+    const outbox = offlineEntityQueueFor(before?.id);
+    if (outbox) {
+      const id = before?.id || crypto.randomUUID();
+      await outbox.queue('price_item', before ? 'edit' : 'create', id, before ? { ...payload } : { id, user_id: uid, ...payload });
+      const saved = normalize({ ...(before || {}), ...payload, id, user_id: uid });
+      setItems(before ? items.map((i) => (i.id === id ? saved : i)) : [...items, saved]);
+      notify('success', "Saved on this device. It syncs when you're back online.");
+      setEditorOpen(false);
+      setEditing(null);
+      changed.current?.();
+      return;
+    }
     let result: { data: any; error: any; dropped: string[] };
     if (before) {
       result = await withSchemaFallback(payload, (p) => supabase.from('saved_items').update(p).eq('id', before.id).select('*').single());

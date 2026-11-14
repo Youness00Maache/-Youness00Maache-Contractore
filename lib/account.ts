@@ -256,7 +256,11 @@ export const describeError = (error: unknown, fallback = 'Something went wrong. 
     const e = error as any;
     const msg: string = e.message || e.error_description || e.error || '';
     if (!msg) return fallback;
-    if (/failed to fetch|networkerror|load failed/i.test(msg)) return 'Network error. Check your connection and try again.';
+    if (/failed to fetch|networkerror|load failed|network request failed|err_internet_disconnected/i.test(msg)) {
+        // offline: say so plainly (this action needs a connection), instead of a vague network error
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return "You're offline. This needs a connection; try again when you're back online.";
+        return 'Network error. Check your connection and try again.';
+    }
     if (/jwt|not authenticated|invalid refresh token/i.test(msg)) return 'Your session expired. Please sign in again.';
     if (/row-level security|permission denied/i.test(msg)) return 'You do not have permission to do that.';
     if (/duplicate key/i.test(msg)) return 'That item already exists.';

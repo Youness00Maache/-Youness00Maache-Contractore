@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
+import { offlineEntityQueueFor } from '../lib/offline/offlineEntities.ts';
 import type { AssemblyItem, Client, FormData as FormDataType, InventoryHistoryItem, InventoryItem, Job, SavedItem, UserProfile } from '../types.ts';
 import { AlertTriangleIcon, BoxIcon, BriefcaseIcon, CameraIcon, ClockIcon, CopyIcon, EditIcon, MapPinIcon, PlusIcon, PrinterIcon, SearchIcon, TrashIcon, TruckIcon, UsersIcon } from './Icons.tsx';
 import { isPlanLimitError, planLimitMessage } from '../lib/account.ts';
@@ -265,12 +266,20 @@ const InventoryView: React.FC<InventoryViewProps> = ({
   // ------------------------------------------------------------------ stock changes (RPC only)
   const adjustStock = useCallback(async (itemId: string, delta: number, reason: string, jobId?: string | null) => {
     if (!delta) return;
+    // offline (or an item still waiting to sync): the change waits on this device and goes through the same RPC later
+    const outbox = offlineEntityQueueFor(itemId);
+    if (outbox) {
+      await outbox.queue('stock_move', 'create', crypto.randomUUID(), { p_item_id: itemId, p_delta: delta, p_reason: reason, p_job_id: jobId ?? null });
+      const cur = byId.get(itemId);
+      if (cur) mergeRow({ ...cur, quantity: toNumber(cur.quantity) + delta });
+      return;
+    }
     const { data, error } = await supabase.rpc('adjust_inventory', { p_item_id: itemId, p_delta: delta, p_reason: reason, p_job_id: jobId ?? null });
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
     if (row && typeof row === 'object' && (row as any).id) mergeRow(row);
     else await refreshRows([itemId]);
-  }, [mergeRow, refreshRows]);
+  }, [byId, mergeRow, refreshRows]);
 
   // Quick ± buttons: taps are batched per item (one RPC + one history row per burst) and serialized,
   // so fast taps never lose updates and the display = server value + not-yet-confirmed taps.
@@ -404,6 +413,14 @@ const InventoryView: React.FC<InventoryViewProps> = ({
       is_assembly: draft.is_assembly,
       assembly_items: draft.is_assembly ? draft.assembly_items : [],
     };
+    const outbox = offlineEntityQueueFor();
+    if (outbox) {
+      // offline: kept on this device, added to the account (with its opening stock) when the connection is back
+      await outbox.queue('inventory', 'create', row.id, row);
+      const created = normalizeItem(row);
+      setItems((prev) => [...prev, created]);
+      return created;
+    }
     const { data, error } = await withSchemaFallback(row, (p) => supabase.from('inventory').insert(p).select(COLUMNS).single());
     if (error) throw error;
     const created = normalizeItem(data || row);
@@ -441,9 +458,15 @@ const InventoryView: React.FC<InventoryViewProps> = ({
           low_stock_threshold: Math.max(0, q3(d.low_stock_threshold)),
           assembly_items: d.is_assembly ? d.assembly_items : [],
         }, { is_assembly: d.is_assembly, quantity: original.quantity });
-        const { data, error } = await withSchemaFallback(patch, (p) => supabase.from('inventory').update(p).eq('id', editor.id!).select(COLUMNS).single());
-        if (error) throw error;
-        mergeRow(data || { ...byId.get(editor.id), ...patch });
+        const outbox = offlineEntityQueueFor(editor.id);
+        if (outbox) {
+          await outbox.queue('inventory', 'edit', editor.id, { ...patch });
+          mergeRow({ ...byId.get(editor.id), ...patch });
+        } else {
+          const { data, error } = await withSchemaFallback(patch, (p) => supabase.from('inventory').update(p).eq('id', editor.id!).select(COLUMNS).single());
+          if (error) throw error;
+          mergeRow(data || { ...byId.get(editor.id), ...patch });
+        }
         if (reorderAfter !== reorderBefore) void saveReorderQtyFor(editor.id, reorderAfter || null);
         notify('success', 'Item updated.');
       }

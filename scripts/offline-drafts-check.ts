@@ -608,6 +608,28 @@ const run = async () => {
         eq('jobs: no saveEntity → refused with a reason, document waits', [rep2.refused.length, rep2.waiting], [1, 1]);
     }
 
+    {
+        // inventory items, stock changes and price-book items saved offline: item first, its stock changes next, documents last
+        const store = createMemoryOutboxStore();
+        const acct = new FakeAccount();
+        const calls: string[] = [];
+        const saveEntity: SyncDeps['saveEntity'] = async (entity, kind, row) => {
+            if (entity === 'stock_move' && Number(row.p_delta) < -100) return { error: { code: 'P0001', message: 'Insufficient stock for item "2x4 stud"' } };
+            calls.push(entity === 'stock_move' ? `stock:${row.p_item_id}:${row.p_delta}` : `${entity}:${kind}:${row.id}`);
+            return { error: null };
+        };
+        await queueOfflineSave(store, input({ docId: 'd-mat', type: FormType.MaterialLog }), at(1));
+        await queueOfflineSave(store, { entity: 'stock_move', userId: A, docId: 'm1', jobId: '', type: 'Stock change', kind: 'create', data: { p_item_id: 'inv-1', p_delta: 5, p_reason: 'Manual restock', p_job_id: null } }, at(2));
+        await queueOfflineSave(store, { entity: 'inventory', userId: A, docId: 'inv-1', jobId: '', type: 'Inventory item', kind: 'create', data: { id: 'inv-1', user_id: A, name: '2x4 stud', quantity: 10 } }, at(3));
+        await queueOfflineSave(store, { entity: 'price_item', userId: A, docId: 'pb-1', jobId: '', type: 'Price book item', kind: 'create', data: { id: 'pb-1', user_id: A, name: 'Door install', rate: 450 } }, at(4));
+        await queueOfflineSave(store, { entity: 'stock_move', userId: A, docId: 'm2', jobId: '', type: 'Stock change', kind: 'create', data: { p_item_id: 'inv-1', p_delta: -500, p_reason: 'Manual adjustment', p_job_id: null } }, at(5));
+        const rep = await runOutboxSync(deps(store, acct, A, { saveEntity }));
+        eq('stock: item, price-book item, then its stock change, documents last', [...calls, ...acct.upserts], ['inventory:create:inv-1', 'price_item:create:pb-1', 'stock:inv-1:5', 'd-mat']);
+        const left = await store.getItems(A);
+        eq('stock: not enough stock → blocked with the reason', [left.map(i => i.docId), left[0]?.status, rep.refused[0]?.kind], [['m2'], 'blocked', 'stock']);
+        eq('stock: display types', [outboxTitle('Inventory item', { name: '2x4 stud' }), outboxTitle('Price book item', { name: 'Door install' })], ['Inventory item · 2x4 stud', 'Price book item · Door install']);
+    }
+
     // ---------------------------------------------------------------- chips
     {
         const item = queueSave(null, input({ docId: 'c1', type: FormType.Invoice, number: { field: 'invoiceNumber', prefix: 'INV', auto: true } }), NOW.toISOString(), 1);

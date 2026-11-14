@@ -3,11 +3,13 @@
  * in components/ClientDetails.tsx, used by the Clients screen, inventory and the job form). App.tsx registers the
  * outbox here once the user is signed in; without it everything behaves exactly as online.
  */
-import type { OutboxKind } from './outboxModel.ts';
+import type { OutboxEntity, OutboxKind } from './outboxModel.ts';
+
+export type OfflineEntity = Exclude<OutboxEntity, 'document'>;
 
 export interface OfflineEntityQueue {
     /** keeps a job / client row in the outbox (it syncs when the connection is back) */
-    queue: (entity: 'job' | 'client', kind: OutboxKind, id: string, row: Record<string, unknown>) => Promise<void>;
+    queue: (entity: OfflineEntity, kind: OutboxKind, id: string, row: Record<string, unknown>) => Promise<void>;
     /** the row is waiting in the outbox (created offline: later saves of it must wait there too) */
     isWaiting: (id: string) => boolean;
 }

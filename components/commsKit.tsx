@@ -16,7 +16,11 @@ export const getErrorMessage = (err: unknown, fallback = 'Something went wrong. 
         ? anyErr.message
         : typeof anyErr.error_description === 'string' ? anyErr.error_description : '';
     if (!msg) return fallback;
-    if (/failed to fetch|networkerror|load failed/i.test(msg)) return 'Network error. Check your connection and try again.';
+    if (/failed to fetch|networkerror|load failed|network request failed|err_internet_disconnected/i.test(msg)) {
+        // offline: say so plainly (this action needs a connection), instead of a vague network error
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return "You're offline. This needs a connection; try again when you're back online.";
+        return 'Network error. Check your connection and try again.';
+    }
     return msg.replace(/^PLAN_LIMIT:\s*/i, '');
 };
 

@@ -1992,15 +1992,21 @@ const App: React.FC = () => {
             isOnline: () => navigator.onLine !== false,
             saveEntity: async (entity, kind, row) => {
                 const duplicate = (e: unknown) => String((e as { code?: unknown } | null)?.code || '') === '23505';
+                // a stock change made offline: the same stock RPC as online (it logs the history row)
+                if (entity === 'stock_move') {
+                    const { error } = await supabase.rpc('adjust_inventory', { p_item_id: row.p_item_id, p_delta: row.p_delta, p_reason: row.p_reason, p_job_id: row.p_job_id ?? null });
+                    return { error };
+                }
+                const table = { job: 'jobs', client: 'clients', inventory: 'inventory', price_item: 'saved_items' }[entity];
                 if (kind === 'create') {
                     if (entity === 'job') {
                         try { return { id: (await insertJobRow(row)).id, error: null }; } catch (e) { return { error: duplicate(e) ? null : e }; }
                     }
-                    const { error } = await supabase.from('clients').insert(row);
+                    const { error } = await supabase.from(table).insert(row);
                     return { error: error && !duplicate(error) ? error : null };
                 }
                 const { id, user_id: _owner, created_at: _created, ...patch } = row;
-                const { error } = await supabase.from(entity === 'job' ? 'jobs' : 'clients').update(patch).eq('id', id as string);
+                const { error } = await supabase.from(table).update(patch).eq('id', id as string);
                 return { error };
             },
             onSynced: (doc) => {
@@ -2012,6 +2018,8 @@ const App: React.FC = () => {
                         : [mapJobRow({ created_at: new Date().toISOString(), ...doc.data }), ...prev]));
                     return;
                 }
+                if (doc.entity === 'inventory' || doc.entity === 'stock_move') { loadInventory(uid).catch(() => undefined); return; }
+                if (doc.entity === 'price_item') { loadSavedItems(uid).catch(() => undefined); return; }
                 if (doc.entity === 'client') {
                     setClients(prev => (prev.some(c => c.id === doc.docId)
                         ? prev.map(c => (c.id === doc.docId ? { ...c, ...doc.data } as Client : c))
