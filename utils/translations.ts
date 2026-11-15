@@ -32,7 +32,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Active",
     completed: "Completed",
     pending: "Pending",
-    noDocsYet: "Create an invoice, estimate, report or any other document for this job."
+    noDocsYet: "Create an invoice, estimate, report or any other document for this job.",
+    setupLabel: "Setup", setupOf: "of", setupContinue: "Continue", setupHide: "Hide", setupSkipForNow: "Skip for now", setupTitle: "Set up your business",
+    setupSave: "Save and continue", setupBack: "Back", setupSkipStep: "Skip this step", setupAllSteps: "All steps", setupDone: "All set", setupResume: "Resume setup"
   },
   Spanish: {
     welcome: "Bienvenido",
@@ -66,7 +68,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Activo",
     completed: "Completado",
     pending: "Pendiente",
-    noDocsYet: "Aún no hay documentos. Haz clic en el icono '+' para crear uno."
+    noDocsYet: "Aún no hay documentos. Haz clic en el icono '+' para crear uno.",
+    setupLabel: "Configuración", setupOf: "de", setupContinue: "Continuar", setupHide: "Ocultar", setupSkipForNow: "Omitir por ahora", setupTitle: "Configura tu negocio",
+    setupSave: "Guardar y continuar", setupBack: "Atrás", setupSkipStep: "Omitir este paso", setupAllSteps: "Todos los pasos", setupDone: "Todo listo", setupResume: "Reanudar configuración"
   },
   French: {
     welcome: "Bienvenue",
@@ -100,7 +104,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Actif",
     completed: "Terminé",
     pending: "En attente",
-    noDocsYet: "Pas encore de documents. Cliquez sur '+' pour en créer un."
+    noDocsYet: "Pas encore de documents. Cliquez sur '+' pour en créer un.",
+    setupLabel: "Configuration", setupOf: "sur", setupContinue: "Continuer", setupHide: "Masquer", setupSkipForNow: "Passer pour l'instant", setupTitle: "Configurez votre entreprise",
+    setupSave: "Enregistrer et continuer", setupBack: "Retour", setupSkipStep: "Passer cette étape", setupAllSteps: "Toutes les étapes", setupDone: "Tout est prêt", setupResume: "Reprendre la configuration"
   },
   German: {
     welcome: "Willkommen",
@@ -134,7 +140,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Aktiv",
     completed: "Abgeschlossen",
     pending: "Ausstehend",
-    noDocsYet: "Noch keine Dokumente. Klicken Sie auf '+', um eines zu erstellen."
+    noDocsYet: "Noch keine Dokumente. Klicken Sie auf '+', um eines zu erstellen.",
+    setupLabel: "Einrichtung", setupOf: "von", setupContinue: "Weiter", setupHide: "Ausblenden", setupSkipForNow: "Jetzt überspringen", setupTitle: "Richten Sie Ihr Unternehmen ein",
+    setupSave: "Speichern und weiter", setupBack: "Zurück", setupSkipStep: "Diesen Schritt überspringen", setupAllSteps: "Alle Schritte", setupDone: "Alles erledigt", setupResume: "Einrichtung fortsetzen"
   },
   Italian: {
     welcome: "Benvenuto",
@@ -168,7 +176,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Attivo",
     completed: "Completato",
     pending: "In attesa",
-    noDocsYet: "Nessun documento. Clicca '+' per crearne uno."
+    noDocsYet: "Nessun documento. Clicca '+' per crearne uno.",
+    setupLabel: "Configurazione", setupOf: "di", setupContinue: "Continua", setupHide: "Nascondi", setupSkipForNow: "Salta per ora", setupTitle: "Configura la tua attività",
+    setupSave: "Salva e continua", setupBack: "Indietro", setupSkipStep: "Salta questo passaggio", setupAllSteps: "Tutti i passaggi", setupDone: "Tutto pronto", setupResume: "Riprendi la configurazione"
   },
   Portuguese: {
     welcome: "Bem-vindo",
@@ -202,7 +212,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Ativo",
     completed: "Concluído",
     pending: "Pendente",
-    noDocsYet: "Sem documentos. Clique em '+' para criar um."
+    noDocsYet: "Sem documentos. Clique em '+' para criar um.",
+    setupLabel: "Configuração", setupOf: "de", setupContinue: "Continuar", setupHide: "Ocultar", setupSkipForNow: "Pular por agora", setupTitle: "Configure o seu negócio",
+    setupSave: "Salvar e continuar", setupBack: "Voltar", setupSkipStep: "Pular esta etapa", setupAllSteps: "Todas as etapas", setupDone: "Tudo pronto", setupResume: "Retomar configuração"
   },
   Chinese: {
     welcome: "欢迎",
@@ -236,7 +248,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "进行中",
     completed: "已完成",
     pending: "待定",
-    noDocsYet: "暂无文件。点击 '+' 创建一个。"
+    noDocsYet: "暂无文件。点击 '+' 创建一个。",
+    setupLabel: "设置", setupOf: "/", setupContinue: "继续", setupHide: "隐藏", setupSkipForNow: "暂时跳过", setupTitle: "设置您的业务",
+    setupSave: "保存并继续", setupBack: "返回", setupSkipStep: "跳过此步骤", setupAllSteps: "全部步骤", setupDone: "全部完成", setupResume: "继续设置"
   },
   Japanese: {
     welcome: "ようこそ",
@@ -270,7 +284,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "アクティブ",
     completed: "完了",
     pending: "保留中",
-    noDocsYet: "ドキュメントはありません。 '+'をクリックして作成してください。"
+    noDocsYet: "ドキュメントはありません。 '+'をクリックして作成してください。",
+    setupLabel: "セットアップ", setupOf: "/", setupContinue: "続ける", setupHide: "非表示", setupSkipForNow: "今はスキップ", setupTitle: "ビジネスを設定する",
+    setupSave: "保存して続ける", setupBack: "戻る", setupSkipStep: "このステップをスキップ", setupAllSteps: "すべてのステップ", setupDone: "完了", setupResume: "セットアップを再開"
   },
   Korean: {
     welcome: "환영합니다",
@@ -304,7 +320,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "활성",
     completed: "완료",
     pending: "보류 중",
-    noDocsYet: "문서가 없습니다. '+'를 클릭하여 만드세요."
+    noDocsYet: "문서가 없습니다. '+'를 클릭하여 만드세요.",
+    setupLabel: "설정", setupOf: "/", setupContinue: "계속", setupHide: "숨기기", setupSkipForNow: "지금은 건너뛰기", setupTitle: "비즈니스 설정하기",
+    setupSave: "저장하고 계속", setupBack: "뒤로", setupSkipStep: "이 단계 건너뛰기", setupAllSteps: "모든 단계", setupDone: "모두 완료", setupResume: "설정 이어서 하기"
   },
   Russian: {
     welcome: "Добро пожаловать",
@@ -338,7 +356,9 @@ export const translations: Record<string, Record<string, string>> = {
     active: "Активен",
     completed: "Завершен",
     pending: "В ожидании",
-    noDocsYet: "Документов пока нет. Нажмите '+', чтобы создать."
+    noDocsYet: "Документов пока нет. Нажмите '+', чтобы создать.",
+    setupLabel: "Настройка", setupOf: "из", setupContinue: "Продолжить", setupHide: "Скрыть", setupSkipForNow: "Пропустить пока", setupTitle: "Настройте свой бизнес",
+    setupSave: "Сохранить и продолжить", setupBack: "Назад", setupSkipStep: "Пропустить этот шаг", setupAllSteps: "Все шаги", setupDone: "Всё готово", setupResume: "Продолжить настройку"
   }
 };
 

@@ -125,6 +125,9 @@ const PriceBookView = lazy(() => import('./components/PriceBookView.tsx'));
 const ProfitCalculatorView = lazy(() => import('./components/ProfitCalculatorView.tsx'));
 const HelpCenter = lazy(() => import('./components/help/HelpCenter.tsx'));
 const TourHost = lazy(() => import('./components/help/TourHost.tsx'));
+// setup assistant (roadmap N8): skippable first-login checklist + the small dashboard / Settings entries
+const SetupHost = lazy(() => import('./components/setup/SetupHost.tsx'));
+const SetupHint = lazy(() => import('./components/setup/SetupHint.tsx'));
 const PortalView = lazy(() => import('./components/PortalView.tsx'));
 const DocumentApprovalView = lazy(() => import('./components/DocumentApprovalView.tsx'));
 // "get paid" (NEXT_STEPS 0c): Mark as paid dialog + "payments reported by clients" dashboard card
@@ -2469,6 +2472,18 @@ const App: React.FC = () => {
         }
     };
 
+    /** Setup assistant: the example project was added or removed: refresh what the screens show. */
+    const handleSetupDataChanged = (change?: { removedDocumentIds?: string[] }) => {
+        const uid = sessionUserIdRef.current;
+        if (!uid) return;
+        const gone = new Set(change?.removedDocumentIds || []);
+        if (gone.size) setForms(prev => prev.filter(f => !gone.has(f.id)));
+        void loadJobs(uid).then(list => { if (sessionUserIdRef.current === uid) setJobs(list); }).catch(() => undefined);
+        loadClients(uid).catch(() => undefined);
+        loadRecentDocuments(uid).catch(() => undefined);
+        refreshUsage();
+    };
+
     const t = getTranslations(profile?.language);
 
     // ── AI-OWNED (AI engineer): assistant hook + render helpers placed by CORE in the page headers. ──
@@ -2551,6 +2566,11 @@ const App: React.FC = () => {
             loading={!jobsLoaded}
             t={t}
             aiSlot={renderDashboardAI()}
+            setupSlot={(
+                <Suspense fallback={null}>
+                    <SetupHint t={t} variant="dashboard" />
+                </Suspense>
+            )}
             paymentsSlot={(
                 <Suspense fallback={null}>
                     <PaymentReportsCard refreshKey={forms} jobNameById={new Map(jobs.map(j => [j.id, j.name]))} onOpen={openDocument} onMarkPaid={setMarkPaidDoc} />
@@ -2933,6 +2953,11 @@ const App: React.FC = () => {
                         onDeleteAccount={handleDeleteAccount}
                         initialSection={location.hash === '#billing' ? 'billing' : location.hash === '#payments' ? 'payments' : location.hash === '#data' ? 'data' : undefined}
                         syncState={session?.user?.id ? outbox.stateOf(session.user.id) : null}
+                        setupSlot={(
+                            <Suspense fallback={null}>
+                                <SetupHint t={t} variant="settings" />
+                            </Suspense>
+                        )}
                     />
                 );
             case 'billingSuccess':
@@ -3352,6 +3377,34 @@ const App: React.FC = () => {
             {showNav && session && (
                 <Suspense fallback={null}>
                     <TourHost userId={session.user.id} onDashboard={view.screen === 'dashboard'} />
+                </Suspense>
+            )}
+
+            {/* Setup assistant: a dismissible sheet once for a brand-new account, then "Resume setup" (Settings) + a small dashboard hint */}
+            {showNav && session && profile && (
+                <Suspense fallback={null}>
+                    <SetupHost
+                        userId={session.user.id}
+                        onDashboard={view.screen === 'dashboard'}
+                        profile={profile}
+                        plan={String(plan)}
+                        isOnline={isOnline}
+                        crewFeature={crewFeature}
+                        dataReady={jobsLoaded}
+                        counts={{ jobs: jobs.length, clients: clients.length, documents: forms.length }}
+                        usage={{
+                            paid, fromServer: effectiveUsage.fromServer, jobsThisMonth: effectiveUsage.jobsThisMonth, clientsThisMonth: effectiveUsage.clientsThisMonth,
+                            limits: effectiveUsage.limits,
+                            pendingJobs: pendingEntityCreates(outbox.items, session.user.id, 'job'), pendingClients: pendingEntityCreates(outbox.items, session.user.id, 'client'),
+                        }}
+                        t={t}
+                        saveProfile={handleSaveProfile}
+                        patchProfile={(patch) => setProfile(prev => (prev ? { ...prev, ...patch } : prev))}
+                        navigate={(path) => navigate(path)}
+                        createJob={(values) => handleSaveJob(values, true)}
+                        onDataChanged={handleSetupDataChanged}
+                        openUpgrade={(reason) => openUpgrade(reason)}
+                    />
                 </Suspense>
             )}
 

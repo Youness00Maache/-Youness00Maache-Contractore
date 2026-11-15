@@ -54,7 +54,7 @@ const TourHost: React.FC<{ userId: string | null; onDashboard: boolean }> = ({ u
   if (!running) return null;
   return (
     <Suspense fallback={null}>
-      <AppTour onClose={() => { setRunning(false); if (userId) void saveAppTourSeen(userId); }} />
+      <AppTour onClose={() => { setRunning(false); if (userId) void saveAppTourSeen(userId); window.dispatchEvent(new Event('cd:tour-closed')); }} />
     </Suspense>
   );
 };

@@ -55,6 +55,8 @@ interface SettingsProps {
     onDeleteAccount?: () => Promise<void>;
     /** Section to scroll to on open. */
     initialSection?: SettingsSection;
+    /** Setup assistant section (Resume setup, Remove example data); renders its own card, nothing until it has loaded. */
+    setupSlot?: React.ReactNode;
 }
 
 const THEMES: { value: ThemeName; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; swatch: string }[] = [
@@ -114,7 +116,7 @@ const Meter: React.FC<{ label: string; used: number; limit: number | null }> = (
 
 const Settings: React.FC<SettingsProps> = ({
     mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout, onUpgradeClick,
-    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection, syncState,
+    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection, syncState, setupSlot,
 }) => {
     const [profile, setProfile] = useState<UserProfile>(initialProfile);
     const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -352,6 +354,7 @@ const Settings: React.FC<SettingsProps> = ({
                 </nav>
 
                 <div className="min-w-0 space-y-6">
+                    {setupSlot}
                     {/* Profile */}
                     <Section id="profile" title="Profile" description="Your name and photo.">
                         <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
