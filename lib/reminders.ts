@@ -28,6 +28,9 @@ export {
 } from '../supabase/functions/reminders/shared/messages.ts';
 export { formatMoney } from '../supabase/functions/reminders/shared/money.ts';
 export type { ClientRow, DocRow, JobRow, RecordRow } from '../supabase/functions/reminders/shared/targets.ts';
+// after-the-job kinds (completion / warranty / maintenance, D10): settings + plan live in lib/warranty
+export type { PostJobKind } from '../supabase/functions/reminders/shared/postjob.ts';
+import type { PostJobKind } from '../supabase/functions/reminders/shared/postjob.ts';
 
 /* ------------------------------------------------------------------------------------ errors */
 
@@ -485,7 +488,7 @@ export async function loadReminderOverview(now: Date = new Date()): Promise<Remi
         const job = r.job_id ? jobsById.get(r.job_id) : undefined;
         return {
             ...r,
-            label: doc ? docLabel(doc) : job?.name || (r.kind === 'visit' ? 'Job visit' : r.kind === 'invoice' ? 'Invoice' : 'Estimate'),
+            label: doc ? docLabel(doc) : job?.name || (r.kind === 'visit' ? 'Job visit' : r.kind === 'invoice' ? 'Invoice' : r.kind === 'estimate' ? 'Estimate' : r.kind === 'warranty' ? 'Warranty' : 'Job'),
             clientName: (r.client_id && clientsById.get(r.client_id)?.name) || doc?.clientName || job?.client_name || '',
             jobIdForLink: doc?.job_id ?? r.job_id ?? null,
         };
@@ -497,8 +500,8 @@ export async function loadReminderOverview(now: Date = new Date()): Promise<Remi
 }
 
 /** App route of a reminder's document (or job). */
-export const reminderTargetPath = (kind: ReminderKind, documentId: string | null, jobId: string | null): string | null => {
-    if (kind === 'visit') return jobId ? `/jobs/${jobId}` : null;
+export const reminderTargetPath = (kind: ReminderKind | PostJobKind, documentId: string | null, jobId: string | null): string | null => {
+    if (kind === 'visit' || kind === 'completion' || kind === 'maintenance') return jobId ? `/jobs/${jobId}` : null;
     if (!documentId || !jobId) return null;
-    return `/jobs/${jobId}/forms/${encodeURIComponent(kind === 'invoice' ? 'Invoice' : 'Estimate')}/${documentId}`;
+    return `/jobs/${jobId}/forms/${encodeURIComponent(kind === 'invoice' ? 'Invoice' : kind === 'warranty' ? 'Warranty' : 'Estimate')}/${documentId}`;
 };

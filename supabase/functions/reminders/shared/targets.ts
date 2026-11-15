@@ -3,6 +3,7 @@
 
 import { computeTotals, invoiceBalance, receiptsForInvoice, toNumber, type PaymentReceipt, type TotalsLineItem } from './money.ts';
 import type { OverrideFlag, RecordedReminder, RecordStatus, ReminderKind, TargetFacts, TargetOverrides } from './schedule.ts';
+import type { PostJobKind } from './postjob.ts';
 
 /** documents columns (JSON paths keep the payload small: no signatures, photos or rich text). */
 export const DOC_SELECT = [
@@ -96,7 +97,8 @@ export interface OverrideRow {
 export interface RecordRow {
   id: string;
   user_id?: string;
-  kind: ReminderKind;
+  /** after-the-job kinds (./postjob.ts) once migration 20261116000900 is applied */
+  kind: ReminderKind | PostJobKind;
   document_id?: string | null;
   job_id?: string | null;
   client_id?: string | null;

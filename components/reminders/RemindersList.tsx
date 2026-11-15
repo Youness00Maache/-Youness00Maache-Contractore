@@ -71,7 +71,7 @@ const RemindersList: React.FC<Props> = ({ onUpgrade, className }) => {
 
     if (hidden) return null;
 
-    const open = (kind: UpcomingReminder['kind'], documentId: string | null, jobId: string | null) => {
+    const open = (kind: UpcomingReminder['kind'] | ReminderLogItem['kind'], documentId: string | null, jobId: string | null) => {
         const path = reminderTargetPath(kind, documentId, jobId);
         if (path) navigate(path, { state: { fromJob: false } });
     };

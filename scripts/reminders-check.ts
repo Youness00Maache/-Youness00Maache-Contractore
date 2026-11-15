@@ -14,7 +14,7 @@ import { factsFromDoc, recipientOf, reminderLink, resolveClient, type DocRow } f
 import { dispatchReminders, SendFailure, type Claim, type DispatchDeps, type OutgoingReminder } from '../supabase/functions/reminders/shared/dispatch.ts';
 import { constantTimeEqual, verifyCronSecret } from '../supabase/functions/reminders/shared/cronAuth.ts';
 import { computeDocumentTotals } from '../utils/money.ts';
-import { docRowFromForm } from '../lib/reminders.ts';
+import { docRowFromForm, reminderTargetPath } from '../lib/reminders.ts';
 
 let failures = 0;
 let passes = 0;
@@ -418,6 +418,14 @@ const main = async () => {
     eq('plan for the app', p.steps.map((s) => s.state), ['sent', 'planned', 'planned']);
     eq('plan next', p.next?.stepKey, 'due+7');
     eq('effective tier', [effectiveTier('premium', 'active', null), effectiveTier('ai', 'cancelled', '2099-01-01'), effectiveTier('premium', 'cancelled', '2020-01-01'), effectiveTier('free', 'active', null)], ['premium', 'ai', 'free', 'free']);
+  }
+
+  {
+    // D10: after-the-job kinds ride the same log / dispatch; the old kinds' wording and links are untouched
+    eq('review_link line dropped when empty (D10)', fillTemplate('A\nReview: {review_link}\nB', { review_link: '' } as never), 'A\nB');
+    eq('pay_link rule unchanged', fillTemplate('Pay online: {pay_link}\nX', { pay_link: '' }), 'X');
+    eq('warranty / job kinds link to their page', [reminderTargetPath('warranty', 'w1', 'j1'), reminderTargetPath('completion', null, 'j1'), reminderTargetPath('invoice', 'i1', 'j1')],
+      ['/jobs/j1/forms/Warranty/w1', '/jobs/j1', '/jobs/j1/forms/Invoice/i1']);
   }
 
   console.log(`${failures === 0 ? 'OK' : 'FAILED'}: ${passes} passed, ${failures} failed`);

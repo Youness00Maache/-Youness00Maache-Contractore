@@ -143,6 +143,31 @@ export const BOUND_ROWS: readonly BoundRow[] = [
     { id: 'orders_alert', group: 'stock', title: 'Purchase order updates', when: 'When a supplier confirms or cannot fill an order, or an order is received,', then: 'tell me.', binding: { type: 'bell', category: 'orders' } },
 ];
 
+// =====================================================================================================================
+// After-the-job emails (D10): three more reminder kinds, bound to their own setting (public.user_settings
+// 'reminders.postjob', lib/warranty/postJobSettings.ts) and sent by the reminders server like the reminder emails.
+// Kept OUT of BOUND_ROWS on purpose: the page lists them once its rows for them exist (they need the paid plan and
+// the reminders migration 20261116000900). Off by default; turning one on starts with the next job, not old ones.
+// =====================================================================================================================
+export type PostJobBinding = { type: 'postjob'; kind: 'completion' | 'warranty' | 'maintenance' };
+
+export interface PostJobRow {
+    id: string;
+    group: RuleGroup;
+    title: string;
+    when: string;
+    then: string;
+    binding: PostJobBinding;
+    /** a paid plan is needed (these are automatic client emails) */
+    premium: true;
+}
+
+export const POST_JOB_ROWS: readonly PostJobRow[] = [
+    { id: 'completion_thanks', group: 'jobs', title: 'Thank-you after the job', when: 'A few days after I mark a job completed,', then: 'email the client a thank-you, with my review link if I have one.', binding: { type: 'postjob', kind: 'completion' }, premium: true },
+    { id: 'warranty_ending', group: 'jobs', title: 'Warranty ending', when: 'When a warranty ends in 60, 30 or 7 days, and on the day it ends,', then: 'email the client how to make a claim, and tell me.', binding: { type: 'postjob', kind: 'warranty' }, premium: true },
+    { id: 'maintenance_reminder', group: 'jobs', title: 'Maintenance reminders', when: 'Months after a job is completed,', then: 'email the client my short maintenance tip.', binding: { type: 'postjob', kind: 'maintenance' }, premium: true },
+];
+
 /** Core behaviours with no switch (listed as plain text, "Always on"). */
 export const ALWAYS_ON: ReadonlyArray<{ id: string; group: RuleGroup; text: string }> = [
     { id: 'po_received_stock', group: 'stock', text: 'Receiving a purchase order adds its items to your stock.' },

@@ -9,10 +9,12 @@
 // A row left in 'sending' (crash mid-send) is never sent again: the server closes it as 'interrupted'.
 
 import { canSendEmail, type EmailAllowance, type ReminderKind } from './schedule.ts';
+import type { PostJobKind } from './postjob.ts';
 
 export interface OutgoingReminder {
   userId: string;
-  kind: ReminderKind;
+  /** invoice / estimate / visit, or an after-the-job kind (./postjob.ts) */
+  kind: ReminderKind | PostJobKind;
   documentId: string | null;
   jobId: string | null;
   clientId: string | null;

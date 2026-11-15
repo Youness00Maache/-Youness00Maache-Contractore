@@ -19,6 +19,7 @@
  *   automation rule choices    → public.user_settings 'automations.prefs' (lib/automations/rules.ts; Settings → Automations)
  *   jobs seen completed        → public.user_settings 'automations.seen' (lib/automations/state.ts, bounded)
  *   drafts a rule made         → public.user_settings 'automations.done' (lib/automations/state.ts, bounded)
+ *   after-the-job emails       → public.user_settings 'reminders.postjob' (lib/warranty/postJobSettings.ts; read by the reminders server)
  *   setup assistant progress   → public.user_settings 'setup.state' (lib/setup/state.ts; Settings → Setup assistant)
  *   tax + terms defaults       → public.user_settings 'documents.money' (lib/setup/moneyDefaults.ts)
  *   example project ids        → public.user_settings 'setup.example' (lib/setup/example.ts)
@@ -333,6 +334,15 @@ export const saveSuppliersSetting = (value: unknown): Promise<SyncMode> => saveJ
 /** Raw 'inventory.reorder' value; parse it with parseReorderSetting(). */
 export const loadReorderSetting = (): Promise<unknown> => loadJsonSetting(REORDER_SETTING, reorderLocalKey);
 export const saveReorderSetting = (value: unknown): Promise<SyncMode> => saveJsonSetting(REORDER_SETTING, reorderLocalKey, value);
+
+// Same key string as POST_JOB_SETTING in supabase/functions/reminders/shared/postjob.ts (scripts/warranty-check.ts
+// checks they match): the after-the-job emails (thank-you, warranty ending, maintenance), read by the reminders server.
+const POST_JOB_SETTING_KEY = 'reminders.postjob';
+const postJobLocalKey = (uid: string) => `cd.reminders.postjob:${uid}`;
+
+/** Raw 'reminders.postjob' value (account, else this device's copy); parse it with parsePostJobSettings(). */
+export const loadPostJobSetting = (): Promise<unknown> => loadJsonSetting(POST_JOB_SETTING_KEY, postJobLocalKey);
+export const savePostJobSetting = (value: unknown): Promise<SyncMode> => saveJsonSetting(POST_JOB_SETTING_KEY, postJobLocalKey, value);
 
 // -------------------------------------------------------------------------- quick measure
 /** public.user_settings key of the Quick measure units (lib/measure.ts): { system: 'imperial' | 'metric', updatedAt }. */
