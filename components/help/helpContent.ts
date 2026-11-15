@@ -15,7 +15,7 @@ export type HelpTopicId =
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
-  | 'proposals';
+  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view';
 
 export interface HelpStep {
   title: string;
@@ -487,6 +487,68 @@ export const HELP_GUIDES: HelpGuide[] = [
     tips: [
       'The client needs no account: the project link is enough. Use [[Copy client link]] on the Questions tab, or Copy portal link on the client.',
       'Drafts and closed items are never shown to the client.',
+    ],
+  },
+  {
+    id: 'job-selections',
+    title: 'Client selections',
+    summary: 'Let your client choose the tile, the paint colour or the fixtures from two or three options with photos and prices. You keep the choice, who made it and when, and an approved choice becomes a purchase order.',
+    where: ['Job', 'Selections'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open the Selections tab', text: 'On a job page, switch to [[Selections]]. The note next to it shows how many wait for your client and how many are chosen and ready for you to approve; the job header shows the same. The job needs a client, because the client chooses from their project link.' },
+      { title: 'Write one', text: 'Tap [[New]] and start from a ready-made one (Tile, Paint colour, Flooring, Fixtures, Appliances, Countertops) or from blank. Add a title, the room, a message, a date to choose by and the allowance the contract includes. Then add 1 to 6 options: a photo, a name, a description, a product link (https only), the quantity and the price to the client.' },
+      { title: 'Your cost stays yours', text: 'Each option also has [[Your cost (each)]], a SKU and a supplier. Only you see these. The client never gets your cost, SKU or supplier. As you type, the option shows its total and the upgrade or credit against the allowance: above the allowance is an upgrade the client pays, below it is a credit.' },
+      { title: 'Save it or send it', text: '[[Save draft]] keeps it to yourself. [[Send to client]] puts it on their project link and copies the photos to the client side. Use [[Copy client link]] on the Selections tab to give the client the link. A sent selection can still be changed: the client sees the new options at once.' },
+      { title: 'Approve the choice', text: 'When the client chooses, the row says Chosen with the option, the price and their comment. Tap it to see the options, their name, the date and the history. [[Approve]] confirms it. [[Ask for changes]] sends it back to you to edit and send again. [[Ask again]] lets the client choose again; the earlier choice stays in the history. While a choice stands the options are locked, so nothing changes under it.' },
+      { title: 'Order it', text: 'On an approved selection, [[Create purchase order]] shows the Draft order first: the supplier (the one on the option, else the best match from your suppliers and price book, which you can change) and the one line at your cost, shipped to the job site. Confirm and the selection becomes Ordered, linked to the order. If the order is made but the link fails, the window says so and [[Link it now]] fixes it. [[Mark ordered]] records an order made elsewhere; [[Cancel order]] goes back to Approved.' },
+      { title: 'See it in the job numbers', text: 'In Job financials, a Selections line appears under Budget vs actual when the job has approved or chosen selections: the cost of approved choices not on a purchase order yet, and the upgrades and credits against the allowances. It sits next to the existing numbers and never changes them; a job without selections shows nothing.' },
+    ],
+    tips: [
+      `Client selections are part of ${premium.name}.`,
+      'Selections need a connection: when you are offline the app says so and the list comes back when you are online again.',
+      'The client can choose only once for each time you send it. To get a new choice use [[Ask again]].',
+      'An upgrade changes what the client pays, not what it costs you. Add a change order for the difference.',
+    ],
+  },
+  {
+    id: 'job-boards',
+    title: 'Mood boards',
+    summary: 'Collect pictures, links, colours and notes for a room on one board, preview it as your client would see it, and share it when you are ready.',
+    where: ['Job', 'Boards'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Make a board', text: 'On a job page, switch to [[Boards]] and tap [[New board]]. Give it a name such as Kitchen ideas. A new board is private.' },
+      { title: 'Add to it', text: 'Choose Image, Link, Note or Colour and add it. A picture is uploaded from your phone or computer (JPG, PNG or WebP, up to 5 MB) or pasted as an https link. Give any item a title and a caption. A board holds up to 60 items.' },
+      { title: 'Put them in order', text: 'Use the up and down arrows on an item to move it, and the bin to remove it. Your changes stay as a draft until you tap [[Save changes]]; [[Discard]] drops them.' },
+      { title: 'Preview it', text: 'Tap [[Client preview]] to see the board exactly as your client sees it: pictures first, then colours, links and notes.' },
+      { title: 'Share it', text: 'Switch on [[Share with client]] and the board appears on their project link, read-only. Captions and notes you add to shared items are visible to your client; your board notes stay private. Switch it off and the client stops seeing it, and the copies of your pictures made for them are removed.' },
+    ],
+    tips: [
+      `Mood boards are part of ${premium.name}.`,
+      '[[Your notes (private)]] on a board are never shown to the client, even when the board is shared.',
+      'Save your changes first: sharing can only be changed when nothing is waiting to be saved.',
+    ],
+  },
+  {
+    id: 'client-selections-view',
+    title: 'What your client sees: selections and ideas boards',
+    summary: 'On their project link your client chooses between your options and looks through the boards you shared. They never see your cost, supplier or private notes.',
+    where: ['Client portal', 'Project'],
+    group: 'Clients & messages',
+    appPath: '/clients',
+    steps: [
+      { title: 'A badge on Project', text: 'When a selection waits for the client to choose, the Project tab of their link shows a small number, and [[Your selections]] sits right under the questions. Each item shows the job, the date to choose by, your message, the allowance and the options.' },
+      { title: 'Choosing', text: 'Each option shows its photo (tap Zoom to see it big), name, description, product link and total, with what it adds or saves against the allowance: +$120 upgrade, -$40 credit or Included. The client taps one, may add a comment, types their name to confirm and taps [[Send my choice]]. You see it at once on the job.' },
+      { title: 'After choosing', text: 'The client sees their choice and where it stands: waiting for you, approved or ordered, with the history. Chosen, approved and ordered items fold under [[Decided]] the next time they open the link. If you [[Ask again]] or send changed options, it comes back as waiting.' },
+      { title: 'Ideas boards', text: 'Boards you switched on with [[Share with client]] show under Ideas board as a gallery: pictures open large, links open in a new tab, colours show as swatches and notes as quotes. When you have shared nothing, the section is not there at all.' },
+    ],
+    tips: [
+      'The client sees the photo, name, description, link, quantity and price of each option. Your cost, SKU and supplier are never sent to them.',
+      'On a shared board the client sees the titles and captions you wrote on its items. Your private board notes are never sent.',
+      'Drafts, closed selections and private boards are never shown to the client.',
     ],
   },
   {

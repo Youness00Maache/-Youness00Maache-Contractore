@@ -78,6 +78,11 @@ import { useJobFilesFeature } from './lib/jobFiles/jobFilesApi.ts';
 import { listJobQuestions, useQuestionsFeature } from './lib/questions/questionsApi.ts';
 import { summarizeQuestions } from './lib/questions/questionLogic.ts';
 import { tabWaiting, waitingChip } from './lib/questions/questionView.ts';
+import { listJobSelections, useSelectionsFeature } from './lib/selections/selectionsApi.ts';
+import { summarizeSelections } from './lib/selections/selectionLogic.ts';
+import { headerChip as selectionsHeaderChip, tabBadge as selectionsTabBadge } from './lib/selections/selectionView.ts';
+import type { SelectionSummary } from './lib/selections/selectionTypes.ts';
+import { useBoardsFeature } from './lib/boards/boardsApi.ts';
 import { OfflineDocContext, OutboxStatusContext, sendBlockedReasonFor } from './components/offline/OfflineContext.tsx';
 import SyncStatusBar from './components/offline/SyncStatusBar.tsx';
 import InstallAppBanner, { DOCUMENT_SAVED_EVENT } from './components/InstallAppBanner.tsx';
@@ -148,6 +153,9 @@ const JobTasksPanel = lazy(() => import('./components/tasks/JobTasksPanel.tsx'))
 // Job files + client questions / submittals (roadmap D3): job page tabs, hidden until the database has them.
 const JobFilesPanel = lazy(() => import('./components/jobFiles/JobFilesPanel.tsx'));
 const JobQuestionsPanel = lazy(() => import('./components/questions/JobQuestionsPanel.tsx'));
+// Client selections + mood boards (roadmap D5): job page tabs, hidden until the database has them.
+const JobSelectionsPanel = lazy(() => import('./components/selections/JobSelectionsPanel.tsx'));
+const JobBoardsPanel = lazy(() => import('./components/boards/JobBoardsPanel.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
@@ -1144,6 +1152,24 @@ const App: React.FC = () => {
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [questionsFeature, taskJobId, isOnline]);
+
+    // Client selections + mood boards (Premium): their tabs stay hidden until they are in the database. The "2 waiting" next to
+    // the Selections tab is read when a job page opens and kept up to date by the Selections panel itself.
+    const selectionsFeature = useSelectionsFeature(session?.user?.id ?? null, isOnline);
+    const boardsFeature = useBoardsFeature(session?.user?.id ?? null, isOnline);
+    const [selectionSummaries, setSelectionSummaries] = useState<Record<string, SelectionSummary>>({});
+    const handleSelectionSummary = useCallback((jobId: string, s: SelectionSummary) => {
+        setSelectionSummaries(prev => (prev[jobId] && JSON.stringify(prev[jobId]) === JSON.stringify(s) ? prev : { ...prev, [jobId]: s }));
+    }, []);
+    useEffect(() => {
+        if (selectionsFeature !== 'ready' || !taskJobId || !isOnline) return;
+        let cancelled = false;
+        void listJobSelections(taskJobId).then(list => {
+            if (cancelled || !list) return;
+            setSelectionSummaries(prev => ({ ...prev, [taskJobId]: summarizeSelections(list) }));
+        }).catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [selectionsFeature, taskJobId, isOnline]);
 
     const refreshForumBadge = useCallback(async () => {
         if (!sessionUserIdRef.current || !navigator.onLine) return;
@@ -2641,6 +2667,22 @@ const App: React.FC = () => {
                 ) : undefined}
                 questionsLabel={questionsFeature === 'ready' ? tabWaiting(questionsWaiting[job.id] || 0) || undefined : undefined}
                 questionsChip={questionsFeature === 'ready' ? waitingChip(questionsWaiting[job.id] || 0) || undefined : undefined}
+                selectionsSlot={selectionsFeature === 'ready' && session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobSelectionsPanel
+                            job={job} client={client} userId={session.user.id} profile={profile} plan={plan} isOnline={isOnline}
+                            onUpgrade={openUpgrade} onSummary={handleSelectionSummary}
+                            onOpenDocument={(jobId, docId) => navigate(`/jobs/${jobId}/forms/${encodeURIComponent(FormType.PurchaseOrder)}/${docId}`, { state: { fromJob: true } })}
+                        />
+                    </Suspense>
+                ) : undefined}
+                selectionsLabel={selectionsFeature === 'ready' && selectionSummaries[job.id] ? selectionsTabBadge(selectionSummaries[job.id]) || undefined : undefined}
+                selectionsChip={selectionsFeature === 'ready' && selectionSummaries[job.id] ? selectionsHeaderChip(selectionSummaries[job.id]) || undefined : undefined}
+                boardsSlot={boardsFeature === 'ready' && session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobBoardsPanel job={job} client={client} userId={session.user.id} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} />
+                    </Suspense>
+                ) : undefined}
                 punchSlot={punchState.available && session ? (
                     <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
                         <PunchList
