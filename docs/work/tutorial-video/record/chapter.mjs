@@ -136,6 +136,8 @@ async function main() {
 
   for (const scene of chapter.scenes) {
     const meta = audioMeta(scene);
+    // the voice must be the voice of THIS text: a rewritten scene needs `node tts/narrate.mjs <lang> --chapters NN` before recording
+    if (meta && !meta.mock && meta.text && meta.text !== scene.say.join(' ')) throw new Error(`the narration of ${chapter.id}.${scene.id} was changed after its voice was made: run  node tts/narrate.mjs ${lang} --chapters ${num}  first (ask the coordinator)`);
     if (!meta && !noAudio) throw new Error(`no narration timing for ${chapter.id}.${scene.id}: run  node tts/narrate.mjs ${lang} --chapters ${num} --mock`);
     const sentences = meta ? meta.sentences : scene.say.map((s, i) => ({ start: i * 4, end: (i + 1) * 4 }));
     const prim = meta ? meta.duration : sentences.at(-1).end;
