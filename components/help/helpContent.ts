@@ -14,7 +14,7 @@ export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
-  | 'estimate-review';
+  | 'estimate-review' | 'job-tasks';
 
 export interface HelpStep {
   title: string;
@@ -344,6 +344,31 @@ export const HELP_GUIDES: HelpGuide[] = [
     ],
   },
   {
+    id: 'job-tasks',
+    title: 'Job tasks and timeline',
+    summary: 'Plan a job step by step: who does what, by when, and what waits for what. See it as a list or a timeline, and your crew ticks tasks off on their phones.',
+    where: ['Job', 'Tasks'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open the Tasks tab', text: 'On a job page, switch to [[Tasks]]. The number next to it is how many tasks are done. Type a task and press Enter or [[Add]]. End a line with @Name to give it to a crew member (“Order windows @Mike”); [[Date]] sets a due day.' },
+      { title: 'Finish and open tasks', text: 'Tap the ring in front of a task to mark it done (tap again to undo). Tap the task to open it: notes, status ([[To do]], [[In progress]], [[Blocked]], [[Done]]), who does it, the start and due dates, and a [[Milestone]] switch for a date you must hit, like an inspection. Comments from you and your crew are in the same window, with the photo your worker took when they finished.' },
+      { title: 'What waits for what', text: 'In a task, [[Waits for]] picks the tasks that must be done first. A task waiting for an unfinished one shows “Waiting on 2” and counts as Blocked until they are done. A loop (A waits for B, B waits for A) is refused. The rows with a grey stripe are the longest chain of waiting tasks: if one of them is late, the finish moves.' },
+      { title: 'Move a date', text: 'When you change a date and other tasks wait for it, the app asks [[Move the tasks that follow too?]]. the first button (for example [[Move the 3 tasks 2 days later]]) shifts each of them by the same number of days; [[Only as far as needed]] moves just the ones that would now start before this task ends; [[No, leave them]] changes only this task.' },
+      { title: 'List, order or timeline', text: '[[By date]] groups tasks as Overdue, Today, Coming up, Later, No date and Done. [[In order]] is your own order: use the arrows (or drag a row on a computer). [[Timeline]] draws each task as a bar from its first to its last day, milestones as diamonds, lines from a task to the ones that wait for it, late tasks in red and a line for today. Scroll sideways on a phone.' },
+      { title: 'Start from a template', text: '⋯ › [[Add from a template]] (or [[From a template]]) has ready-made lists (bathroom remodel, deck build) and your own. Pick one, choose the day the first task starts, review the tasks (untick what this job does not need) and add them. On a job whose steps you repeat, ⋯ › [[Save these tasks as a template]] keeps them for next time, with dates as days after the first task.' },
+      { title: 'Turn a note into tasks (Premium + AI)', text: '[[Note to tasks]] (or ⋯ › [[Turn a note into tasks (AI)]]): type or dictate what needs doing (“Pour footings Monday, Mike orders windows by Friday, inspection on the 20th”). The assistant lists the tasks with who and when. You see them first, fix or untick any, and only then add them. It uses one of your AI requests.' },
+      { title: 'From a work order', text: 'In a work order, the [[Tasks]] section has [[Create tasks from this work order]]: one task per line of the description, “Get materials” first when materials are listed, given to the person in Assigned to. Review, then add. It shows “Tasks: 2 of 5 done” and opens the job’s Tasks. Nothing is printed on the PDF.' },
+      { title: 'What your worker sees', text: 'On their clock-in link, [[My tasks]] lists the open tasks given to them with the job, address, due day and notes. They tap [[Start]] or [[Done]], and can add a photo and a short comment. Tasks finished in the last 14 days are folded away.' },
+      { title: 'On the Schedule', text: 'Tools › Calendar also shows your open tasks that have a date: a small marker on the day they are due (red when late). Tap one to open that job’s Tasks.' },
+    ],
+    tips: [
+      `Job tasks, the timeline and templates are part of ${premium.name}. Turning a note into tasks is part of ${ai.name}.`,
+      'Tasks need a connection: when you are offline the app says so and the list comes back when you are online again.',
+      'Give your workers tasks by choosing them in [[Who]]. Add workers first in Tools › Crew.',
+    ],
+  },
+  {
     id: 'papers',
     title: 'Papers: insurance, licenses, permits and lien waivers',
     summary: 'Keep your COI, licenses, permits, bonds and W-9 with their expiry dates, get reminded before they expire, send them in two taps, and make lien waivers.',
@@ -469,6 +494,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     steps: [
       { title: 'Plan the schedule', text: 'Tools, Calendar (the Schedule page) shows each job from its start to its end date, coloured by status. Switch between Month, Week and List.' },
       { title: 'Schedule a job', text: 'Click [[New job]], or double-click a day in the month view on a computer.' },
+      { title: 'See your tasks', text: 'With job tasks switched on, the Schedule also marks the days your open tasks are due (a small diamond; red when late), under each day in the Week view, and under Tasks in the List view. Tap one to open that job’s Tasks.' },
       { title: 'Check the numbers', text: 'Tools, Insights: pick a period to see revenue collected, outstanding, costs, profit, average invoice and estimate win rate, with charts.' },
       { title: 'One job’s profit', text: 'On a job page, [[Financials]] shows that job’s income, costs and labor.' },
     ],
@@ -484,6 +510,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Add your crew', text: 'Open [[Tools]] and choose [[Crew]] (on a phone: [[More]], then [[Crew]]). Click [[Add crew member]], type the name (phone, email and hourly cost are optional), tick the jobs they work on, then [[Add and get link]].' },
       { title: 'Send the link', text: '[[Copy link]], [[Text it]] or [[Email it]], or let them scan the QR code. The link only works for the jobs you gave them. On a job page, the [[Crew]] tab adds people to that job ([[Add to job]] or [[New crew member]]).' },
       { title: 'What your worker sees', text: 'Today’s jobs with a big [[Clock in]] button, then [[Clock out]] and [[Start break]] / [[End break]]; [[Switch here]] moves them to another job. They can add a note or a photo. No prices, no rates, no other workers.' },
+      { title: 'Tasks on the link', text: 'If you give a worker tasks (job page › [[Tasks]], choose them in Who), their link also lists [[My tasks]]: the job, address, due day and notes, with [[Start]] and [[Done]], an optional photo and a short comment. You see the photo and comments in the task.' },
       { title: 'Location, only at the tap', text: 'The first time, the page asks “Save your location when you tap?”. With [[Allow location]], one reading is saved with each punch, never in between. With [[Not now]] (or no signal) the punch is still saved and marked No location.' },
       { title: 'Far from the job', text: 'On the job’s [[Crew]] tab, click [[Set pin]] and choose [[Use my location (I’m at the site)]] or paste a map link. Punches farther than the distance you pick show “Far from job”.' },
       { title: 'Check the week', text: '[[Crew]] › [[Hours]] shows each worker’s week as a time card (jobs × days), with overtime and their cost. Shifts that need a look are flagged; click [[Add clock-out]] or [[Edit]] to fix one, or [[Add a shift]] for a forgotten day. Then [[Approve week]].' },

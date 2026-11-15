@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { FormType, type WorkOrderData, type UserProfile, type Job, type Client } from '../types.ts';
 import { generateWorkOrderPDF } from '../services/pdfGenerator.ts';
 import { toNumber } from '../utils/money.ts';
@@ -12,6 +12,11 @@ import AIFillButton from './forms/AIFillButton.tsx';
 import { backfillCompany, DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
 import { isISODate, todayISO } from './forms/formUtils.ts';
 import { STATUS_OPTIONS } from './forms/documentFields.ts';
+import { useOfflineDoc } from './offline/OfflineContext.tsx';
+import type { WorkOrderTasksUi } from './tasks/WorkOrderTasks.tsx';
+
+// Tasks from this work order (job tasks are Premium; App passes `tasksUi` only when they are in the database)
+const WorkOrderTasks = lazy(() => import('./tasks/WorkOrderTasks.tsx'));
 
 interface Props {
     job: Job;
@@ -24,10 +29,13 @@ interface Props {
     prefillData?: unknown;
     documentId?: string;
     existingNumbers?: string[];
+    /** "Create tasks from this work order" + progress (omitted until job tasks are in the database) */
+    tasksUi?: WorkOrderTasksUi;
 }
 
-const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, documentId, existingNumbers }) => {
+const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, documentId, existingNumbers, tasksUi }) => {
     const [shareOpen, setShareOpen] = useState(false);
+    const offlineDoc = useOfflineDoc();
     // "Assigned to" suggestions: the job's worker first, then you
     const assigneeSuggestions = Array.from(new Set([job.workerName, profile.name].map(n => String(n || '').trim()).filter(Boolean)));
     const form = useDocumentForm<WorkOrderData>({
@@ -141,6 +149,20 @@ const WorkOrderForm: React.FC<Props> = ({ job, profile, data, clients = [], onSa
                     <MoneyField label="Estimated cost" value={d.cost} onValueChange={v => update({ cost: v })} />
                 </FieldGrid>
             </FormSection>
+
+            {tasksUi && (
+                <FormSection title="Tasks" description="Turn this work order into tasks on the job. Not printed on the work order.">
+                    <Suspense fallback={<div className="skeleton h-16 w-full" aria-busy="true" />}>
+                        <WorkOrderTasks
+                            job={job}
+                            docId={documentId ?? form.lastSaveResult?.id}
+                            data={d}
+                            waiting={Boolean(offlineDoc?.pending)}
+                            ui={tasksUi}
+                        />
+                    </Suspense>
+                </FormSection>
+            )}
 
             <FormSection title="Terms" description="Printed on the work order.">
                 <TextAreaField label="Terms & conditions" value={d.terms} onChange={v => update({ terms: v })} rows={3} />

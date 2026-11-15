@@ -21,9 +21,13 @@ import {
     type TaskLike,
 } from '../lib/tasks/taskLogic.ts';
 import {
+    afterLabel, criticalSummary, crewDueLabel, crewTaskLists, dateMove, dueCountsByDay, dueLabel, followUpPlan, keepDrafts, keepProposals,
+    scheduleAgenda, scheduleTasks, scheduleTasksOnDay, shortDay, tabCount, timelineTicks, waitingLabel,
+} from '../lib/tasks/taskView.ts';
+import {
     crewAnswerError, mapCommentRow, mapCrewTaskUpdate, mapCrewTasksView, mapTaskRow, TASK_COLUMNS, taskInsertRow, taskPatchRow,
 } from '../lib/tasks/taskRows.ts';
-import { TASK_LIMITS, TASK_SOURCES, TASK_STATUSES, TASK_TEMPLATES_SETTING, TEMPLATE_LIMITS, type ProposedTask, type TaskTemplate } from '../lib/tasks/taskTypes.ts';
+import { TASK_LIMITS, TASK_SOURCES, TASK_STATUSES, TASK_TEMPLATES_SETTING, TEMPLATE_LIMITS, type CrewTask, type JobTask, type ProposedTask, type TaskTemplate } from '../lib/tasks/taskTypes.ts';
 import { isWorkOrderDocument, tasksForWorkOrder, textLines, workOrderTaskProgress, workOrderToProposedTasks } from '../lib/tasks/workOrderTasks.ts';
 import {
     buildExtractTasksSchema, buildExtractTasksSystemPrompt, buildExtractTasksUserText, isExtractTasksBody, matchCrewName, mockExtractTasksOutput,
@@ -404,6 +408,116 @@ const newId = () => `id-${++seq}`;
     ok(/t\.crew_member_id = v_m\.id/.test(get) && !/price|rate|phone|email|cost/i.test(get.replace(/_crew_rate_guard|crew_rate_events/g, '')), 'worker sees only their tasks, no prices / contacts');
     ok(/if new\.id = any\(new\.depends_on\)/.test(code) && /t\.job_id <> new\.job_id or t\.user_id <> new\.user_id/.test(code) && /with recursive walk/.test(code), 'guard: self, other job, cycle');
     ok(/OLD is only read inside the UPDATE branch/.test(sql) && !/tg_op = 'INSERT' or new\.depends_on is distinct from old\./.test(code), 'OLD not read on insert');
+}
+
+// ─────────────────────────────────────────────────────────────── 11. screens: words, follow-up question, schedule, review, worker page (phase B)
+{
+    // dates in words
+    eq([shortDay('2026-11-17'), shortDay('2026-11-17', 'es'), shortDay('2027-01-04', 'en', 2026), shortDay('nope')], ['Tue Nov 17', 'mar 17 nov', 'Mon Jan 4 2027', 'nope'], 'shortDay (en / es / other year / bad)');
+    const lbl = (o: Partial<TaskLike>) => dueLabel({ status: 'todo', startDate: null, dueDate: null, isMilestone: false, ...o }, TODAY);
+    eq(lbl({ dueDate: '2026-11-10' }), { text: '2 days late', tone: 'late' }, 'dueLabel: late');
+    eq(lbl({ dueDate: '2026-11-11' }), { text: '1 day late', tone: 'late' }, 'dueLabel: one day late');
+    eq(lbl({ dueDate: TODAY }), { text: 'Due today', tone: 'today' }, 'dueLabel: due today');
+    eq(lbl({ startDate: '2026-11-10', dueDate: '2026-11-14' }), { text: 'Due Sat Nov 14', tone: 'today' }, 'dueLabel: running now');
+    eq(lbl({ startDate: '2026-11-13', dueDate: '2026-11-13' }), { text: 'Starts Fri Nov 13', tone: 'soon' }, 'dueLabel: soon');
+    eq(lbl({ startDate: '2026-11-20', dueDate: '2026-11-24' }), { text: 'Fri Nov 20 to Tue Nov 24', tone: 'normal' }, 'dueLabel: a range later');
+    eq(lbl({ dueDate: '2026-11-25', isMilestone: true }), { text: 'Milestone Wed Nov 25', tone: 'normal' }, 'dueLabel: milestone');
+    eq(lbl({}), { text: 'No date', tone: 'none' }, 'dueLabel: no date');
+    eq(lbl({ status: 'done', dueDate: '2026-11-01' }).tone, 'none', 'dueLabel: done tasks are never late');
+    eq([waitingLabel(0), waitingLabel(2), tabCount({ done: 3, total: 8 }), tabCount({ done: 0, total: 0 })], ['', 'Waiting on 2', '3/8', ''], 'waitingLabel / tabCount');
+
+    // "Move the tasks that follow too?"
+    const chain = [
+        t('a', { startDate: '2026-11-16', dueDate: '2026-11-17' }),
+        t('b', { startDate: '2026-11-18', dueDate: '2026-11-19', dependsOn: ['a'] }),
+        t('c', { startDate: '2026-11-23', dueDate: '2026-11-23', dependsOn: ['b'] }),
+        t('d', { startDate: '2026-11-25', dueDate: '2026-11-25', dependsOn: ['c'], status: 'done' }),
+        t('e', { dueDate: '2026-12-01' }),
+    ];
+    eq(dateMove({ startDate: '2026-11-16', dueDate: '2026-11-17' }, { startDate: '2026-11-19', dueDate: '2026-11-20' }), 3, 'dateMove: later');
+    eq(dateMove({ startDate: '2026-11-16', dueDate: '2026-11-17' }, { startDate: '2026-11-15', dueDate: '2026-11-16' }), -1, 'dateMove: earlier');
+    eq(dateMove({ startDate: null, dueDate: null }, { startDate: null, dueDate: '2026-11-16' }), 0, 'dateMove: adding a date is not a move');
+    eq(dateMove({ startDate: '2026-11-16', dueDate: null }, { startDate: '2026-11-18', dueDate: null }), 2, 'dateMove: start only');
+    const plan = followUpPlan(chain, 'a', { startDate: '2026-11-19', dueDate: '2026-11-20' });
+    eq(plan.delta, 3, 'followUpPlan: delta');
+    eq(plan.shift.map(p => [p.id, p.startDate, p.dueDate]), [['b', '2026-11-21', '2026-11-22'], ['c', '2026-11-26', '2026-11-26']], 'followUpPlan: "move them too" shifts the unfinished followers by the same days (a done task stays)');
+    eq(plan.push.map(p => [p.id, p.startDate, p.dueDate]), [['b', '2026-11-21', '2026-11-22']], 'followUpPlan: "only as far as needed" moves only what now starts too early');
+    eq(followUpPlan(chain, 'e', { startDate: null, dueDate: '2026-12-05' }), { delta: 4, shift: [], push: [] }, 'followUpPlan: nothing waits for it = nothing to ask');
+    eq(followUpPlan(chain, 'a', { startDate: '2026-11-16', dueDate: '2026-11-17' }).shift, [], 'followUpPlan: no move = no question');
+    eq(followUpPlan(chain, 'zzz', { startDate: null, dueDate: '2026-12-05' }).shift, [], 'followUpPlan: unknown task');
+    const earlier = followUpPlan(chain, 'a', { startDate: '2026-11-15', dueDate: '2026-11-16' });
+    eq([earlier.delta, earlier.shift.length, earlier.push.length], [-1, 2, 0], 'followUpPlan: moved earlier can pull the followers earlier, never "push"');
+
+    // critical path words
+    const cs = criticalSummary(chain.slice(0, 3));
+    eq([cs.ids, cs.count, cs.days, cs.endDate], [['a', 'b', 'c'], 3, 8, '2026-11-23'], 'criticalSummary');
+    eq(criticalSummary([t('x'), t('y')]), { ids: [], count: 0, days: 0, endDate: null }, 'criticalSummary: no chain');
+    const names = new Map([['a', { title: 'Demo' }], ['b', { title: 'Rough plumbing' }], ['c', { title: 'Rough electrical' }]]);
+    eq([afterLabel({ dependsOn: [] }, names), afterLabel({ dependsOn: ['a'] }, names), afterLabel({ dependsOn: ['a', 'b'] }, names), afterLabel({ dependsOn: ['a', 'b', 'c'] }, names), afterLabel({ dependsOn: ['zz'] }, names)],
+        ['', 'after Demo', 'after Demo and Rough plumbing', 'after Demo + 2 more', ''], 'afterLabel');
+
+    // timeline header
+    const ticks = timelineTicks({ start: '2026-11-28', end: '2026-12-04', days: 7 });
+    eq(ticks.map(x => x.dom), [28, 29, 30, 1, 2, 3, 4], 'timelineTicks: day numbers cross the month');
+    eq(ticks.map(x => x.weekend), [true, true, false, false, false, false, false], 'timelineTicks: weekend (Sat 28, Sun 29)');
+    eq([ticks[0].month, ticks[3].month, ticks[1].month, ticks[1].monday, ticks[2].monday], ['Nov', 'Dec', '', false, true], 'timelineTicks: month names and Mondays');
+
+    // Schedule
+    const task = (o: Partial<JobTask> & { id: string }): JobTask => ({
+        userId: 'u', jobId: 'job-1', title: o.id, notes: null, status: 'todo', crewMemberId: null, startDate: null, dueDate: null, isMilestone: false, dependsOn: [],
+        sortOrder: 0, completedAt: null, completedPhotoPath: null, source: 'manual', workOrderDocId: null, createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z', ...o,
+    });
+    const open = [
+        task({ id: 's1', title: 'Late one', dueDate: '2026-11-10' }),
+        task({ id: 's2', title: 'Today', startDate: '2026-11-11', dueDate: '2026-11-13', jobId: 'job-2' }),
+        task({ id: 's3', title: 'Next week', dueDate: '2026-11-19' }),
+        task({ id: 's4', title: 'Same day', dueDate: '2026-11-19', jobId: 'job-2', isMilestone: true }),
+        task({ id: 's5', title: 'No date' }),
+        task({ id: 's6', title: 'Finished', dueDate: '2026-11-12', status: 'done' }),
+        task({ id: 's7', title: 'Next month', dueDate: '2026-12-02' }),
+    ];
+    const sched = scheduleTasks(open, TODAY);
+    eq(sched.map(x => x.id), ['s1', 's2', 's3', 's4', 's7'], 'scheduleTasks: open tasks with a date, soonest first (done and undated left out)');
+    eq(sched.map(x => x.overdue), [true, false, false, false, false], 'scheduleTasks: overdue flag');
+    eq(scheduleTasksOnDay(sched, TODAY, TODAY).map(x => x.id), ['s1', 's2'], 'scheduleTasksOnDay: today also lists the late tasks');
+    eq(scheduleTasksOnDay(sched, '2026-11-13', TODAY).map(x => x.id), ['s2'], 'scheduleTasksOnDay: a task runs on every day of its span');
+    eq(scheduleTasksOnDay(sched, '2026-11-19', TODAY).map(x => x.id), ['s3', 's4'], 'scheduleTasksOnDay: a due day');
+    const due = dueCountsByDay(sched);
+    eq([due.get('2026-11-19'), due.get('2026-11-10'), due.get('2026-11-13'), due.get('2026-11-14')], [{ count: 2, overdue: false }, { count: 1, overdue: true }, { count: 1, overdue: false }, undefined], 'dueCountsByDay');
+    const ag = scheduleAgenda(sched, '2026-11-01', '2026-11-30');
+    eq([ag.overdue.map(x => x.id), ag.days.map(d => d.day), ag.days.map(d => d.tasks.length)], [['s1'], ['2026-11-13', '2026-11-19'], [1, 2]], 'scheduleAgenda: late first, then the month by due day');
+
+    // review before saving
+    const prop = (title: string, dependsOnIndex: number[] = []): ProposedTask => ({
+        title, notes: null, startDate: null, dueDate: null, isMilestone: false, crewMemberId: null, assigneeName: null, dependsOnIndex, source: 'ai', workOrderDocId: null,
+    });
+    const kept = keepProposals([prop('a'), prop('b', [0]), prop('c', [0, 1]), prop('d', [2])], [true, false, true, true]);
+    eq(kept.map(x => [x.title, x.dependsOnIndex]), [['a', []], ['c', [0]], ['d', [1]]], 'keepProposals: positions move, a dropped task is no longer waited for');
+    eq(keepProposals([prop('a'), prop('b')], [false, false]), [], 'keepProposals: none ticked');
+    const drafts = instantiateTemplate(STARTER_TASK_TEMPLATES[1], '2026-12-01', newId);
+    const keepIds = new Set(drafts.filter((_, i) => i !== 1).map(d => d.id!));
+    const kd = keepDrafts(drafts, keepIds);
+    eq(kd.length, drafts.length - 1, 'keepDrafts: unticked draft removed');
+    ok(kd.every(d => (d.dependsOn || []).every(id => keepIds.has(id))), 'keepDrafts: no dependency on a removed draft');
+
+    // the worker's page
+    const ct = (o: Partial<CrewTask> & { id: string }): CrewTask => ({
+        jobId: 'j', jobName: 'Smith bath', jobAddress: '1 Main St', jobStatus: 'active', title: o.id, notes: null, status: 'todo', startDate: null, dueDate: null,
+        isMilestone: false, completedAt: null, hasPhoto: false, waitingOn: 0, comments: [], ...o,
+    });
+    const NOW = Date.parse('2026-11-15T12:00:00Z');
+    const lists = crewTaskLists([
+        ct({ id: 'later', dueDate: '2026-11-30' }), ct({ id: 'soon', dueDate: '2026-11-16' }), ct({ id: 'nodate' }), ct({ id: 'late', dueDate: '2026-11-10', status: 'doing' }),
+        ct({ id: 'd1', status: 'done', completedAt: '2026-11-14T10:00:00Z' }), ct({ id: 'd2', status: 'done', completedAt: '2026-11-02T10:00:00Z' }),
+        ct({ id: 'd3', status: 'done', completedAt: '2026-10-20T10:00:00Z' }), ct({ id: 'd4', status: 'done', completedAt: null }),
+    ], NOW);
+    eq(lists.open.map(x => x.id), ['late', 'soon', 'later', 'nodate'], 'crewTaskLists: open tasks soonest first, undated last');
+    eq(lists.done.map(x => x.id), ['d1', 'd2'], 'crewTaskLists: done in the last 14 days, newest first');
+    eq(crewDueLabel(ct({ id: 'x', dueDate: '2026-11-10' }), '2026-11-15', 'en'), { text: '5 days late', late: true }, 'crewDueLabel: late (en)');
+    eq(crewDueLabel(ct({ id: 'x', dueDate: '2026-11-10' }), '2026-11-15', 'es'), { text: '5 días de retraso', late: true }, 'crewDueLabel: late (es)');
+    eq(crewDueLabel(ct({ id: 'x', dueDate: '2026-11-15' }), '2026-11-15', 'en'), { text: 'Due today', late: false }, 'crewDueLabel: today');
+    eq(crewDueLabel(ct({ id: 'x', dueDate: '2026-11-18' }), '2026-11-15', 'es'), { text: 'Para mié 18 nov', late: false }, 'crewDueLabel: later (es)');
+    eq(crewDueLabel(ct({ id: 'x' }), '2026-11-15', 'es'), { text: 'Sin fecha', late: false }, 'crewDueLabel: no date');
 }
 
 console.log(`job-tasks-check: ${checks} checks passed`);

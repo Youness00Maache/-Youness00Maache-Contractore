@@ -56,6 +56,10 @@ interface JobDetailsScreenProps {
     punchSlot?: React.ReactNode;
     /** short progress next to the Punch list tab ("3/8") */
     punchLabel?: string;
+    /** Tasks (Premium, rendered by App when job tasks are in the database); adds a Tasks tab. URL hash #tasks opens it. */
+    tasksSlot?: React.ReactNode;
+    /** short progress next to the Tasks tab ("3/8") */
+    tasksLabel?: string;
     /** extra job tools (e.g. Lien waiver), shown in the tools row */
     toolsSlot?: React.ReactNode;
     /** permits / papers of this job, under the details */
@@ -136,21 +140,22 @@ const DocumentTile: React.FC<{
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onCopyDocumentToJob, onDeleteDocument, onStatusChange,
-    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, punchSlot, punchLabel, toolsSlot, papersSlot, crewSlot,
+    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, punchSlot, punchLabel, toolsSlot, papersSlot, crewSlot, tasksSlot, tasksLabel,
 }) => {
-    // Documents / Photos / Punch list / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on the tab).
-    type JobTab = 'docs' | 'photos' | 'punch' | 'crew';
+    // Documents / Photos / Tasks / Punch list / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on the tab).
+    type JobTab = 'docs' | 'photos' | 'punch' | 'crew' | 'tasks';
     const [tabState, setTabState] = useState<JobTab>(() => {
         const h = typeof window !== 'undefined' ? window.location.hash : '';
-        return h === '#photos' ? 'photos' : h === '#punch' ? 'punch' : h === '#crew' ? 'crew' : 'docs';
+        return h === '#photos' ? 'photos' : h === '#punch' ? 'punch' : h === '#crew' ? 'crew' : h === '#tasks' ? 'tasks' : 'docs';
     });
-    const tab: JobTab = (tabState === 'photos' && !photosSlot) || (tabState === 'punch' && !punchSlot) || (tabState === 'crew' && !crewSlot) ? 'docs' : tabState;
+    const tab: JobTab = (tabState === 'photos' && !photosSlot) || (tabState === 'punch' && !punchSlot) || (tabState === 'crew' && !crewSlot) || (tabState === 'tasks' && !tasksSlot) ? 'docs' : tabState;
     const setTab = (next: JobTab) => {
         setTabState(next);
         try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next === 'docs' ? '' : `#${next}`}`); } catch { /* ignore */ }
     };
     const tabs: Array<[JobTab, string, string?]> = [['docs', t.projectDocs || 'Documents']];
     if (photosSlot) tabs.push(['photos', 'Photos']);
+    if (tasksSlot) tabs.push(['tasks', 'Tasks', tasksLabel]);
     if (punchSlot) tabs.push(['punch', 'Punch list', punchLabel]);
     if (crewSlot) tabs.push(['crew', 'Crew']);
     // Filters live here, so they reset when another job opens (CORE-025).
@@ -270,7 +275,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 </div>
             )}
 
-            {photosSlot && tab === 'photos' ? photosSlot : punchSlot && tab === 'punch' ? punchSlot : crewSlot && tab === 'crew' ? crewSlot : (
+            {photosSlot && tab === 'photos' ? photosSlot : tasksSlot && tab === 'tasks' ? tasksSlot : punchSlot && tab === 'punch' ? punchSlot : crewSlot && tab === 'crew' ? crewSlot : (
             /* Documents */
             <section aria-labelledby="docs-heading">
                 <div className="mb-3 flex items-center justify-between gap-2">
