@@ -23,11 +23,12 @@ import DataExportSection from './export/DataExportSection.tsx';
 import { AICreditsRow } from './billing/AICredits.tsx';
 import DocumentDesignSettings from './settings/DocumentDesignSettings.tsx';
 import NotificationSettingsCard from './notifications/NotificationSettingsCard.tsx';
+import AutomationsSettings from './automations/AutomationsSettings.tsx';
 import { SyncChip } from './offline/OfflineContext.tsx';
 import { errorText } from '../lib/offline/connection.ts';
 
 type ThemeName = 'light' | 'dark' | 'blue';
-export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'documents' | 'appearance' | 'billing' | 'reminders' | 'notifications' | 'data' | 'account';
+export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'documents' | 'appearance' | 'billing' | 'automations' | 'reminders' | 'notifications' | 'data' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
@@ -71,6 +72,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'documents', label: 'Document design' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'billing', label: 'Plan & billing' },
+    { id: 'automations', label: 'Automations' },
     { id: 'reminders', label: 'Reminders' },
     { id: 'notifications', label: 'Notifications' },
     { id: 'data', label: 'Your data' },
@@ -644,6 +646,9 @@ const Settings: React.FC<SettingsProps> = ({
                         {/* AI credit top-ups: renders nothing until the server enables them (components/billing/AICredits.tsx) */}
                         <AICreditsRow />
                     </Section>
+
+                    {/* Automations: the rules list (components/automations; id settings-automations). Its reminder and bell switches are bound to the settings of the cards below. */}
+                    <AutomationsSettings plan={plan} onUpgradeClick={onUpgradeClick} />
 
                     {/* Reminders & follow-ups (components/reminders; the card's id is settings-reminders) */}
                     <ReminderSettingsCard onUpgradeClick={onUpgradeClick} />

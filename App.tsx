@@ -3275,6 +3275,8 @@ const App: React.FC = () => {
                         online={isOnline}
                         forms={forms}
                         jobs={jobs}
+                        profile={profile}
+                        jobsReady={jobsLoaded && !usingCachedData}
                         inventory={inventory}
                         usage={usage}
                         docUsage={docUsage}

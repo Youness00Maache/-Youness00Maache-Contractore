@@ -59,11 +59,14 @@ export type NotificationKind =
     | 'crew_missed_out'
     | 'punch_ok' | 'punch_needs_work'
     | 'paper_expiring' | 'paper_expired'
-    | 'service_visit';
+    | 'service_visit'
+    /** Settings > Automations (lib/automations): the rules that tell you, or make a draft and tell you */
+    | 'auto_invoice_ready' | 'auto_invoice_made' | 'auto_warranty_ready' | 'auto_warranty_made'
+    | 'auto_task_overdue' | 'auto_lead_followup' | 'auto_client_reply' | 'auto_estimate_waiting';
 
 export type NotificationCategory =
     | 'clients' | 'payments' | 'overdue' | 'expiring' | 'requests' | 'stock' | 'orders' | 'community'
-    | 'reminders' | 'email' | 'sync' | 'limits' | 'crew' | 'papers' | 'service';
+    | 'reminders' | 'email' | 'sync' | 'limits' | 'crew' | 'papers' | 'service' | 'automations';
 
 export type NotificationTone = 'success' | 'info' | 'warning' | 'danger';
 
@@ -132,6 +135,14 @@ export const KIND_META: Record<NotificationKind, { category: NotificationCategor
     paper_expiring: { category: 'papers', tone: 'warning' },
     paper_expired: { category: 'papers', tone: 'danger' },
     service_visit: { category: 'service', tone: 'info' },
+    auto_invoice_ready: { category: 'automations', tone: 'success' },
+    auto_invoice_made: { category: 'automations', tone: 'success' },
+    auto_warranty_ready: { category: 'automations', tone: 'info' },
+    auto_warranty_made: { category: 'automations', tone: 'success' },
+    auto_task_overdue: { category: 'automations', tone: 'warning' },
+    auto_lead_followup: { category: 'automations', tone: 'warning' },
+    auto_client_reply: { category: 'automations', tone: 'info' },
+    auto_estimate_waiting: { category: 'automations', tone: 'info' },
 };
 
 /** Settings › Notifications, in this order. */
@@ -151,6 +162,7 @@ export const NOTIFICATION_CATEGORIES: ReadonlyArray<{ id: NotificationCategory; 
     { id: 'crew', label: 'Missed clock-outs', hint: 'A crew member is still clocked in at the end of the day (crew clock-in links).' },
     { id: 'papers', label: 'Papers about to expire', hint: 'An insurance certificate, license, permit or bond in your Papers expires within 30 days, 7 days, 1 day, or has expired.' },
     { id: 'service', label: 'Service plan visits', hint: 'A service plan visit is due today, tomorrow or the day after.' },
+    { id: 'automations', label: 'Automation rules', hint: 'Notes from the rules you switched on in Settings > Automations: overdue tasks, lead follow-ups, client answers, estimates with no answer, and drafts a rule made for you.' },
 ];
 
 const CATEGORY_IDS = NOTIFICATION_CATEGORIES.map(c => c.id) as readonly NotificationCategory[];

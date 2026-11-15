@@ -14,7 +14,7 @@ export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
-  | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments';
+  | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'automations';
 
 export interface HelpStep {
   title: string;
@@ -579,6 +579,28 @@ export const HELP_GUIDES: HelpGuide[] = [
       'Read and removed notifications follow your account to every device. Nothing is emailed.',
       'The list checks for news every few minutes while the app is open, and right away when you open the bell.',
       'The Clients, Tools and Community badges still work as before.',
+      'The rules in Settings › Automations (overdue tasks, lead follow-ups, client answers, drafts made for you) add their notes here too; the Automation rules switch turns them all off.',
+    ],
+  },
+  {
+    id: 'automations',
+    title: 'Automations',
+    summary: 'Rules that follow up for you: they tell you what needs you, or make a draft that you check and send yourself.',
+    where: ['Account menu', 'Settings', 'Automations'],
+    group: 'Account',
+    appPath: '/settings#automations',
+    steps: [
+      { title: 'Open the list', text: 'Open Settings and find Automations. The rules are grouped as Money, Jobs, Leads & clients and Stock & supplies. Each row says what happens when something happens, and has an on/off switch.' },
+      { title: 'Switch what you want', text: 'The switches for reminder emails and for bell notes (overdue invoices, low stock, papers about to expire…) are the same settings you already had in Reminders and Notifications: changing one here changes it there too. The new rules start as shown (most are on, [[Estimate with no answer]] is off); change any of them.' },
+      { title: 'Tell me, or do it for me', text: '[[Estimate approved, invoice next]] and [[Job completed, warranty next]] can make a draft instead of only telling you. Choose [[Just tell me]] or [[Do it for me]] (Premium). A draft is a normal Draft document: tap its note in the bell, check it, change it and send it yourself. A rule never sends, signs or bills anything.' },
+      { title: 'Only new things, never twice', text: '[[Do it for me]] starts the moment you choose it: it never makes drafts for estimates approved or jobs completed before that, and never makes a second one for the same estimate or job. If you already converted the estimate yourself, it leaves it alone.' },
+      { title: 'Pick how long to wait', text: 'For [[Estimate with no answer]] choose 3 days, 7 days or 14 days. It tells you once per estimate, so you can call the client.' },
+      { title: 'Find the notes', text: 'Notes from these rules show in the bell, once each (what you read or remove stays gone on every device). In Settings, Notifications, the Automation rules switch turns them all off at once. Rules for tools that are not switched on for your account yet (tasks, leads, client questions) are not listed.' },
+    ],
+    tips: [
+      `Free keeps every “just tell me” rule. Drafts made for you are part of ${premium.name}.`,
+      'Reminder emails still go from your own Gmail, on the schedule you set in Reminders ([[Days and wording]]).',
+      'Always on: receiving a purchase order adds its items to your stock, and stock moves when an invoice is paid or an estimate is accepted.',
     ],
   },
   {
