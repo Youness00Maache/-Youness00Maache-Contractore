@@ -163,6 +163,8 @@ const JobSelectionsPanel = lazy(() => import('./components/selections/JobSelecti
 const JobSubsPanel = lazy(() => import('./components/subs/JobSubsPanel.tsx'));
 const JobFeedbackButton = lazy(() => import('./components/feedback/JobFeedbackButton.tsx'));
 const JobBoardsPanel = lazy(() => import('./components/boards/JobBoardsPanel.tsx'));
+// Job timeline (roadmap N11): everything that happened on the job, derived from data already read; no tables of its own.
+const JobTimelinePanel = lazy(() => import('./components/timeline/JobTimelinePanel.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
@@ -2663,6 +2665,22 @@ const App: React.FC = () => {
                         />
                     </Suspense>
                 )}
+                timelineSlot={session ? (openTab) => (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobTimelinePanel
+                            job={job} userId={session.user.id} profile={profile} plan={plan} isOnline={isOnline}
+                            features={{
+                                tasks: tasksFeature === 'ready', questions: questionsFeature === 'ready', selections: selectionsFeature === 'ready', subs: subsFeature === 'ready',
+                                crew: crewFeature === 'ready', feedback: feedbackFeature === 'ready', punch: punchState.available,
+                            }}
+                            loadedDocuments={jobDocs} outboxItems={outbox.items} queueNote={(input) => outbox.queue(input)} jobWaiting={outbox.itemFor(job.id)?.kind === 'create'}
+                            onOpenDocument={(docId, formType) => navigate(`/jobs/${job.id}/forms/${encodeURIComponent(formType)}/${docId}`, { state: { fromJob: true } })}
+                            onOpenTab={openTab}
+                            onUpgrade={openUpgrade}
+                            onDocumentsChanged={() => { void loadDocumentsForJob(job.id, true); }}
+                        />
+                    </Suspense>
+                ) : undefined}
                 crewSlot={crewFeature === 'ready' ? (
                     <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
                         <JobCrewPanel
