@@ -224,6 +224,12 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   NOT pushed. RUNNING: D10 phase B Sonnet UI (agent-ae7bd8327b0ff78fc: warranty coverage + claims in the Warranty form,
   Warranties list, Automations rows for the 3 emails) and N7 Opus (agent-afaedc695c469247e). Ship D10 + N7 together next
   (merge, --sync-knowledge, full suite, push, redeploy ai-assistant, Done log).
+  2026-11-15 ~07:30 UTC: D10 + N7 + D8 SHIPPED (b7a13d0). RUNNING: N10 integrations + exports (Sonnet,
+  agent-a1cee4ebdecc3f694; ICS file, QuickBooks/Xero CSV layouts, price-book price-list import). REMAINING: N11 job timeline +
+  D11 email log (DB email_log written by the gmail function on send: Opus A: SQL + gmail edge function; Sonnet B: timeline
+  tab), N6 AI documents (Opus: Gemini vision for receipts/invoices; ai-assistant), N9 plan measurement (Opus: pdf.js,
+  measurements JSON in storage), D6 bills to pay (DB; Opus A -> Sonnet B), D12 push (needs the owner's VAPID secrets:
+  never type them; ask the owner). Weekly usage was ~44% (stop at 50% = resume Thu 2026-11-19 17:00 UTC).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -231,6 +237,15 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED D10 warranty tracking + post-job emails (DB 20261116000900 applied: reminders kind/step_key checks widened +
+  skip_reminder; `reminders` edge function REDEPLOYED, JWT verify OFF, new emails Premium + OFF by default; Warranty form
+  coverage + claims, Warranties list on the job page, 3 rows in Settings > Automations), N7 job AI (assistant answers from job /
+  business numbers; ai-assistant task `business_summary` + "Summarize with AI" in the Insights overview; ai-assistant REDEPLOYED)
+  and D8 client feedback + testimonials + richer public profile (DB 20261116001000 applied + 20261116001100 applied =
+  submit_feedback returns the Google link for EVERY rating: no review gating, Google forbids it; `/feedback/<token>` page,
+  Job > Ask for feedback, Settings > Request-a-quote link > Client feedback / Public profile, `/r/<slug>` extras).
+  main/my-branch b7a13d0; suite green (46 steps). Not clicked live (needs the owner's account); the Premium insert path of
+  feedback_responses could not be exercised (no Premium account yet); QuickBooks/Xero columns (N10) to be checked.
 - 2026-11-15 SHIPPED N3 business overview (top of Insights: period KPIs, best/worst jobs by profit, estimates waiting on a yes,
   active jobs, revenue by customer, filters, CSV, AI slot), N8 setup assistant (first-login sheet, "Setup x of y" hint, Settings
   resume + example project add/remove; new settings key `documents.money` = tax %, due days, terms for NEW docs only) and D7
