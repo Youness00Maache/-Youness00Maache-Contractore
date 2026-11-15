@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D8) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: feedback_responses with RLS + 4 owner policies + column-level update grants (browser can't write rating/status), 6 new request_pages columns, 3 triggers, no anon table grants, anon can run only get_feedback_request / submit_feedback / get_public_profile_extras, bad tokens and unknown pages refused, owner profile functions need a login. (The Premium insert path could not be exercised: no Premium account exists yet.)
 -- =====================================================================================
 -- ContractorDocs: client feedback / reviews + richer public profile (competitor roadmap batch D8: #36, #38)
 --
