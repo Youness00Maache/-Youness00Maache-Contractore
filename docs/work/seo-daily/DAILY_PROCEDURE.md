@@ -160,12 +160,29 @@ Run the slow ones in the background and read only the last lines. Also read the 
    and write the remaining URLs as "pending-index" in LOG.md so the next run requests them first. The sitemap is already
    known to Google, requests only speed things up.
 3. Bing Webmaster Tools: "Submit URLs" if available (also covered by IndexNow).
-Chrome rules: load the Chrome tools with ONE ToolSearch call; read the skill `anthropic-skills:chrome-browser` first. The
-owner's Search Console sessions were in the Chrome profile/device named "Browser 2" (see `list_connected_browsers` /
-`select_browser`; deviceId starts with 23a0a75c); pick the one that is signed in to Search Console. Open your own new
-tab, close it when done, do not touch other tabs (the Framitor daily job also uses Search Console around 20:00). These
-dashboards load slowly (up to a minute): wait; do not retry more than twice; if they will not load, log "dashboard did not
-load" and continue (IndexNow still covers Bing; Google finds the sitemap on its own).
+Chrome rules: load the Chrome tools with ONE ToolSearch call (tabs_context_mcp, navigate, read_page, get_page_text,
+find, computer, tabs_create_mcp, tabs_close_mcp, list_connected_browsers, select_browser, browser_batch); read the skill
+`anthropic-skills:chrome-browser` first. Use `list_connected_browsers`; the owner's device is the one with deviceId
+`23a0a75c-cc82-4d0f-b3b0-312e9279d13e` (shown as "Browser 1" on 2026-11-15, "Browser 2" in older notes); `select_browser`
+it if it is not already in use. Open your own new tab, close it when done, do not touch other tabs (the Framitor daily job
+also uses Search Console around 20:00). Both dashboards were already signed in on 2026-11-15 and loaded in 5 to 10 seconds
+(allow up to a minute); do not retry more than twice; if they will not load, log "dashboard did not load" and continue
+(IndexNow still covers Bing; Google finds the sitemap on its own). Use `browser_batch` (navigate, wait, get_page_text).
+Working links (tested 2026-11-15):
+- Search Console overview: `https://search.google.com/search-console?resource_id=https%3A%2F%2Fwww.contractordocs.app%2F`
+  Sitemaps: `.../search-console/sitemaps?resource_id=<same>`; Page indexing: `.../search-console/index?resource_id=<same>`;
+  Performance: `.../search-console/performance/search-analytics?resource_id=<same>&num_of_days=28` (use 7 for 7 days; the
+  Queries/Pages/Devices tabs are on that page, `get_page_text` reads the active table).
+- URL Inspection / Request indexing: there is NO working deep link. On the overview page use `find` for the combobox
+  "Inspect any URL in https://www.contractordocs.app/", click it, type the full URL, press Return, wait ~15 s, `find`
+  "Request indexing" (button ref) and click it, wait for the live test (up to ~1-2 min) and the "Indexing requested"
+  dialog, close it (Got it). "URL is on Google" means it is already indexed (still fine to request after edits).
+  A quota message ("Quota exceeded") means stop for today.
+- Bing: `https://www.bing.com/webmasters/home`; Sitemaps `https://www.bing.com/webmasters/sitemaps?siteUrl=https%3A%2F%2Fwww.contractordocs.app%2F`;
+  URL Submission `https://www.bing.com/webmasters/submiturl?siteUrl=https%3A%2F%2Fwww.contractordocs.app%2F` (quota 100 URLs
+  a day; paste the new URLs one per line and press Submit URLs); Search Performance and Site Explorer are in the left
+  menu of the same site (use `find` / `read_page` to get the links, then `get_page_text`).
+- The signed-in Google account in that Chrome is the owner's; never write its address into the repo or the logs.
 
 ## G. Log
 Append today's entry at the TOP of the "Daily entries" in LOG.md (format below), update the "State" block, commit
