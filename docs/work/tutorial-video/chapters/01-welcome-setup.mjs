@@ -1,4 +1,13 @@
 // Chapter 1: Welcome and your first 10 minutes (source: help guide "setup-assistant", components/help/AppTour.tsx, Settings).
+//
+// This chapter needs a BRAND-NEW account (empty business, tour and setup sheet not seen). The recorder resets the demo backend
+// without saying which chapter it records, so when the RECORDER (record/chapter.mjs) loads this file it asks for that state itself.
+// (The validator and the voice step load this file too and must not touch the backend: hence the argv check.)
+if (/record[\\/]chapter\.mjs$/.test(process.argv[1] || '')) {
+  const backend = process.env.TUTORIAL_BACKEND || 'http://127.0.0.1:54329';
+  await fetch(`${backend}/__reset?chapter=01`).catch(() => {});
+}
+
 export default {
   id: 'welcome-setup',
   number: 1,
@@ -22,7 +31,9 @@ export default {
       ],
       do: [
         { with: 0, act: 'caption', text: 'Chapter 1: Welcome and your first 10 minutes' },
-        { with: 2, act: 'state', note: 'Brand-new account: the product tour opens on the dashboard' },
+        // a brand-new account gets the tour by itself; in the recording stack it is started from the help panel instead
+        { with: 2, act: 'click', target: 'How it works' },
+        { with: 2, act: 'click', target: 'Take the app tour' },
       ],
     },
     {
@@ -38,8 +49,14 @@ export default {
         { with: 2, act: 'click', target: 'Next', role: 'button' },
         { with: 2, act: 'click', target: 'Next', role: 'button' },
         { with: 2, act: 'highlight', target: 'Skip tour' },
-        { with: 2, act: 'key', key: 'Escape' },
-        { with: 3, act: 'highlight', target: 'Account menu', label: 'Replay the tour: Help & tutorials', unsure: true },
+        { with: 3, act: 'key', key: 'ArrowRight' },
+        { with: 3, act: 'wait', s: 0.6 },
+        { with: 3, act: 'key', key: 'ArrowRight' },
+        { with: 3, act: 'wait', s: 0.6 },
+        { with: 3, act: 'key', key: 'ArrowRight' },
+        { with: 3, act: 'wait', s: 0.6 },
+        { with: 3, act: 'key', key: 'ArrowRight' },
+        { with: 3, act: 'highlight', target: 'Account menu', label: 'Replay the tour: Help & tutorials' },
       ],
     },
     {
@@ -51,9 +68,12 @@ export default {
         'A step you already filled in is marked Already set up.',
       ],
       do: [
-        { with: 0, act: 'state', note: 'The setup sheet opens on its first step' },
-        { with: 2, act: 'highlight', target: 'Save and continue' },
+        { with: 0, act: 'click', target: 'Done', role: 'button' },
+        { with: 2, act: 'highlight', target: 'Save and continue', patience: 20000 },
         { with: 2, act: 'highlight', target: 'Skip this step' },
+        { with: 3, act: 'click', target: 'Contact and address' },
+        { with: 3, act: 'highlight', target: 'Already set up' },
+        { with: 3, act: 'click', target: 'Your business' },
       ],
     },
     {
@@ -68,11 +88,13 @@ export default {
         { with: 0, act: 'type', target: 'Company name', text: 'Northline Remodeling' },
         { with: 0, act: 'highlight', target: 'Logo' },
         { with: 1, act: 'click', target: 'Save and continue' },
-        { with: 1, act: 'type', target: 'Business address', text: '418 Cedar Street, Maple Grove, OH 45000' },
+        { with: 1, act: 'highlight', target: 'Phone' },
+        { with: 1, act: 'highlight', target: 'Business address' },
         { with: 2, act: 'click', target: 'Save and continue' },
         { with: 2, act: 'type', target: 'Sales tax (%)', text: '7.5' },
-        { with: 2, act: 'highlight', target: 'Invoices are due' },
+        { with: 2, act: 'click', target: '30 days' },
         { with: 3, act: 'highlight', target: 'Deposit and payment terms on estimates' },
+        { with: 3, act: 'click', target: 'Use 50% deposit wording' },
         { with: 3, act: 'click', target: 'Save and continue' },
       ],
     },
@@ -87,10 +109,12 @@ export default {
       ],
       do: [
         { with: 0, act: 'highlight', target: 'Your trades (pick any)' },
+        { with: 0, act: 'click', target: 'Kitchen' },
+        { with: 0, act: 'click', target: 'Bathroom' },
         { with: 1, act: 'type', target: 'Hourly labor rate ($/hour)', text: '65' },
         { with: 1, act: 'click', target: 'Save and continue' },
         { with: 3, act: 'highlight', target: 'Choose which ones, with details' },
-        { with: 3, act: 'click', target: 'Save and continue' },
+        { with: 3, act: 'click', target: 'Import', role: 'button' },
         { with: 4, act: 'highlight', target: 'Keep Classic (Basic) for now' },
         { with: 4, act: 'click', target: 'Keep Classic (Basic) for now' },
       ],
@@ -104,7 +128,8 @@ export default {
         'On Premium, one more step is your team. Type a worker name, and click Add and get link for a private clock-in link.',
       ],
       do: [
-        { with: 0, act: 'type', target: 'Payment link', text: 'https://pay.example/northline' },
+        { with: 0, act: 'click', target: 'PayPal' },
+        { with: 0, act: 'type', target: 'Payment link', text: 'https://paypal.me/northline' },
         { with: 2, act: 'type', target: 'Google review link (optional)', text: 'https://g.page/r/northline-demo/review' },
         { with: 2, act: 'click', target: 'Save and continue' },
         { with: 3, act: 'type', target: 'Their name', text: 'Jamal' },
@@ -120,29 +145,32 @@ export default {
         'Need to stop halfway? Click Skip for now. Everything you saved stays saved.',
       ],
       do: [
+        { with: 0, act: 'click', target: 'Continue', role: 'button' },
         { with: 0, act: 'click', target: 'Add an example project' },
         { with: 1, act: 'wait', s: 2 },
         { with: 2, act: 'click', target: 'Remove example data' },
+        { with: 2, act: 'click', target: 'Yes, remove it' },
         { with: 3, act: 'highlight', target: 'Skip for now' },
         { with: 3, act: 'click', target: 'Skip for now' },
       ],
     },
     {
-      id: 's08', kind: 'app', device: 'desktop', route: '/settings',
+      id: 's08', kind: 'app', device: 'desktop',
       say: [
         'Everything the checklist saved lives in Settings, so you can change it any time.',
         'Under Company, you find your company name, business email, phone, address and logo.',
         'Under Appearance and language, choose Light, Dark or Blue, and pick the language you want the app in.',
-        'To bring the checklist back, click Resume setup under Setup assistant.',
+        'To bring the checklist back, click Resume setup under Setup assistant, or Review setup once every step is done.',
         'Your account is ready. Next, let us explore the dashboard and find your way around.',
       ],
       do: [
-        { with: 1, act: 'scroll', to: 'Company' },
-        { with: 1, act: 'highlight', target: 'Company name' },
+        { with: 0, act: 'click', target: 'Account menu' },
+        { with: 0, act: 'click', target: 'Settings', role: 'menuitem' },
+        { with: 1, act: 'highlight', target: 'Company name', patience: 30000 },
         { with: 2, act: 'scroll', to: 'Appearance & language' },
         { with: 2, act: 'highlight', target: 'Theme' },
         { with: 2, act: 'highlight', target: 'Language' },
-        { with: 3, act: 'highlight', target: 'Resume setup', unsure: true },
+        { with: 3, act: 'highlight', target: 'Review setup', label: 'Resume setup' },
       ],
     },
   ],

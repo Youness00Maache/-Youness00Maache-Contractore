@@ -44,7 +44,7 @@ try {
     await waitFor(`http://localhost:${appPort}/`, 'app dev server');
   }
   for (const nn of chapters) {
-    await up(`http://127.0.0.1:${backendPort}/__reset`);
+    await up(`http://127.0.0.1:${backendPort}/__reset?chapter=${nn}`);
     // placeholder timing when this chapter has no narration for the language yet
     const audioDir = path.join(work, 'cache', 'audio', lang);
     const has = fs.existsSync(audioDir) && fs.readdirSync(audioDir).some((d) => fs.existsSync(path.join(audioDir, d)));

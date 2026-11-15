@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: what the client sees when approving an estimate</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b1220; --line:#22304a; --text:#e6ebf5; --mute:#8fa0bd; --accent:#4f7cff; --ok:#34d399; --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: Inter, system-ui, 'Segoe UI', sans-serif; overflow:hidden; }
+  .stage { position:relative; width:100vw; height:100vh; display:grid; place-items:center; }
+  .grid { position:absolute; inset:0; background-image:linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size:48px 48px; opacity:.22; mask-image:radial-gradient(circle at 50% 45%, #000 20%, transparent 75%); }
+  .tag { position:absolute; left:6vw; top:50%; transform:translateY(-50%); max-width:26vw; }
+  .tag small { color:var(--mute); font-size:20px; letter-spacing:.08em; text-transform:uppercase; }
+  .tag b { display:block; font-size:44px; line-height:1.1; margin-top:10px; letter-spacing:-.01em; }
+  .tag p { color:var(--mute); font-size:22px; margin:14px 0 0; }
+  .step { position:absolute; right:6vw; top:50%; transform:translateY(-50%); width:24vw; display:grid; gap:14px; }
+  .step div { font-size:24px; font-weight:600; padding:14px 18px; border-radius:14px; border:1px solid var(--line); color:var(--mute); transition:all .35s; }
+  .step div.on { color:var(--text); border-color:#2f4a85; background:linear-gradient(160deg,#1b2a4d,#16223c); }
+  .phone { position:relative; width:344px; height:684px; border-radius:46px; background:#1a2338; padding:12px; border:2px solid #2b3a58; box-shadow:0 40px 90px rgba(0,0,0,.55); }
+  .screen { position:relative; width:100%; height:100%; border-radius:36px; background:#f6f7fb; color:#111827; overflow:hidden; }
+  .notch { position:absolute; top:8px; left:50%; width:96px; height:22px; margin-left:-48px; border-radius:12px; background:#1a2338; z-index:5; }
+  .scroll { position:absolute; left:0; right:0; top:0; padding:44px 18px 40px; will-change:transform; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .logo { width:38px; height:38px; border-radius:10px; background:#1f3a5f; color:#fff; display:grid; place-items:center; font-weight:800; font-size:17px; }
+  .brand b { font-size:16px; } .brand span { display:block; font-size:12px; color:#6b7280; }
+  h2 { margin:18px 0 2px; font-size:21px; letter-spacing:-.01em; }
+  .meta { font-size:12.5px; color:#6b7280; }
+  .box { margin-top:14px; background:#fff; border:1px solid #e5e7eb; border-radius:14px; overflow:hidden; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:11px 14px; font-size:13.5px; border-bottom:1px solid #eef0f4; }
+  .row:last-child { border-bottom:0; } .row.total { font-weight:800; font-size:15px; background:#f3f5fb; }
+  h3 { margin:22px 0 8px; font-size:15px; }
+  label { display:block; font-size:12px; font-weight:700; color:#374151; margin:12px 0 5px; }
+  .input { height:44px; border:1.5px solid #d1d5db; border-radius:11px; background:#fff; padding:0 12px; display:flex; align-items:center; font-size:15px; }
+  .input.focus { border-color:#4f7cff; box-shadow:0 0 0 3px rgba(79,124,255,.18); }
+  .caret { display:inline-block; width:2px; height:18px; background:#4f7cff; margin-left:1px; animation:blink 1s steps(1) infinite; } @keyframes blink { 50% { opacity:0; } }
+  .pad { position:relative; height:118px; border:1.5px dashed #b8c0d0; border-radius:12px; background:#fff; }
+  .pad svg { position:absolute; inset:0; width:100%; height:100%; }
+  #sig { stroke-dasharray:900; stroke-dashoffset:900; } /* hidden until the finger draws it */
+  .pad .hint { position:absolute; left:12px; bottom:8px; font-size:11.5px; color:#9ca3af; }
+  .finger { position:absolute; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%; background:rgba(79,124,255,.35); border:2px solid #4f7cff; opacity:0; z-index:3; }
+  .consent { display:flex; gap:10px; margin-top:14px; font-size:12.5px; color:#374151; align-items:flex-start; }
+  .cb { width:20px; height:20px; border-radius:6px; border:1.5px solid #9ca3af; flex:0 0 auto; display:grid; place-items:center; color:#fff; font-size:13px; }
+  .cb.on { background:#16a34a; border-color:#16a34a; }
+  .btns { display:flex; gap:10px; margin-top:16px; }
+  .btn { flex:1; height:48px; border-radius:12px; display:grid; place-items:center; font-weight:800; font-size:15px; }
+  .btn.ok { background:#16a34a; color:#fff; } .btn.no { background:#fff; color:#b91c1c; border:1.5px solid #fecaca; flex:.75; }
+  .btn.ok.dim { background:#a7d8b8; }
+  .ripple { position:absolute; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%; border:3px solid #4f7cff; background:rgba(79,124,255,.25); opacity:0; z-index:6; pointer-events:none; }
+  .done { position:absolute; inset:0; background:#f6f7fb; z-index:4; display:grid; place-items:center; text-align:center; padding:30px; opacity:0; pointer-events:none; }
+  .done .ring { width:96px; height:96px; border-radius:50%; background:#dcfce7; border:3px solid #16a34a; display:grid; place-items:center; margin:0 auto 18px; color:#16a34a; font-size:54px; }
+  .done b { font-size:22px; display:block; } .done p { font-size:14px; color:#4b5563; margin:8px 0 0; line-height:1.4; }
+  .decline { position:absolute; inset:0; background:#f6f7fb; z-index:4; padding:56px 18px 20px; transform:translateY(100%); }
+  .decline h2 { margin-top:0; color:#b91c1c; } .ta { height:110px; border:1.5px solid #d1d5db; border-radius:11px; background:#fff; padding:11px 12px; font-size:14.5px; line-height:1.4; }
+  .btn.send { background:#b91c1c; color:#fff; margin-top:16px; flex:none; }
+</style></head>
+<body><div class="stage"><div class="grid"></div>
+  <div class="tag"><small>On their phone</small><b>What your client sees</b><p>No login. No app. Just the link.</p></div>
+  <div class="phone" id="phone"><div class="notch"></div><div class="screen" id="screen">
+    <div class="scroll" id="scroll">
+      <div class="brand"><div class="logo">N</div><div><b>Northline Remodeling</b><span>Estimate EST-1045 &middot; for Greg Halvorsen</span></div></div>
+      <h2>Halvorsen Deck Estimate</h2><div class="meta">Valid until Dec 5 &middot; 8 Quarry Hill, Lakeside</div>
+      <div class="box">
+        <div class="row"><span>Composite deck, 12 x 16 ft</span><b>$4,800.00</b></div>
+        <div class="row"><span>Stairs and railing</span><b>$1,350.00</b></div>
+        <div class="row"><span>Permit and haul-away</span><b>$450.00</b></div>
+        <div class="row total"><span>Total</span><span>$6,600.00</span></div>
+      </div>
+      <h3>Review &amp; sign</h3>
+      <label>Your full name</label><div class="input" id="name"><span id="nameText"></span><span class="caret" id="caret" style="display:none"></span></div>
+      <label>Your signature</label>
+      <div class="pad" id="pad"><svg viewBox="0 0 300 118" preserveAspectRatio="none"><path id="sig" d="M24 78 C34 30 52 28 50 66 C48 92 70 40 88 56 C100 66 84 86 104 70 C122 54 134 48 146 62 C156 74 164 50 184 46 C206 42 206 76 232 60 C246 52 258 52 274 44" fill="none" stroke="#1d3b8b" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="hint" id="hint">Draw your signature with your finger</div><div class="finger" id="finger"></div></div>
+      <div class="consent"><div class="cb" id="cb"></div><div>I have reviewed this estimate and agree to its terms.</div></div>
+      <div class="btns"><div class="btn no" id="declineBtn">Decline</div><div class="btn ok dim" id="approveBtn">Approve &amp; sign</div></div>
+    </div>
+    <div class="done" id="done"><div><div class="ring">&#10003;</div><b>Estimate approved</b><p>Thank you, Greg. Northline Remodeling has been told and will get in touch.</p></div></div>
+    <div class="decline" id="decline"><h2>Decline estimate</h2><div class="meta">Tell Northline Remodeling why (optional).</div><label>Your reason</label><div class="ta" id="reason"></div><div class="btn send" id="sendBtn">Send decline</div></div>
+    <div class="ripple" id="ripple"></div>
+  </div></div>
+  <div class="step" id="steps"><div>1 &middot; Open the link and read it</div><div>2 &middot; Type their full name</div><div>3 &middot; Draw a signature, tap Approve</div><div>4 &middot; Or tap Decline and say why</div></div>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const D = Math.max(8, parseFloat(params.get('d')) || 20);          // scene length in seconds: everything is scaled to it
+  const t0 = performance.now();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (f) => { const ms = f * D * 1000 - (performance.now() - t0); if (ms > 0) await sleep(ms); };
+  const $ = (id) => document.getElementById(id);
+  const setStep = (i) => [...$('steps').children].forEach((el, k) => el.classList.toggle('on', k === i));
+  const typeText = async (el, text, f0, f1) => { await until(f0); const gap = ((f1 - f0) * D * 1000) / text.length; for (const ch of text) { el.textContent += ch; await sleep(gap); } };
+  const scrollTo = (y, ms) => $('scroll').animate([{ transform: getComputedStyle($('scroll')).transform }, { transform: `translateY(${-y}px)` }], { duration: ms, easing: 'ease-in-out', fill: 'forwards' });
+  const tap = (el, ms = 600) => { const r = el.getBoundingClientRect(), s = $('screen').getBoundingClientRect(); const rp = $('ripple'); rp.style.left = (r.left + r.width / 2 - s.left) + 'px'; rp.style.top = (r.top + r.height / 2 - s.top) + 'px'; rp.animate([{ transform: 'scale(.4)', opacity: 1 }, { transform: 'scale(1.6)', opacity: 0 }], { duration: ms, easing: 'ease-out' }); };
+  const draw = (path, ms) => new Promise((resolve) => {
+    const len = path.getTotalLength(), f = $('finger'), pad = $('pad'); const k = pad.clientWidth / 300, kh = pad.clientHeight / 118;
+    path.style.strokeDasharray = len; path.style.strokeDashoffset = len; f.style.opacity = 1; $('hint').style.opacity = 0;
+    const s = performance.now();
+    (function frame(now) { const p = Math.min(1, (now - s) / ms); path.style.strokeDashoffset = len * (1 - p); const pt = path.getPointAtLength(len * p); f.style.left = pt.x * k + 'px'; f.style.top = pt.y * kh + 'px'; if (p < 1) requestAnimationFrame(frame); else { f.style.opacity = 0; resolve(); } })(s);
+  });
+  (async () => {
+    // phone slides up
+    $('phone').animate([{ transform: 'translateY(90px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: Math.min(900, D * 60), easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' });
+    setStep(0);
+    await until(0.10); scrollTo(150, D * 130);                       // read the estimate
+    await until(0.24); setStep(1); $('name').classList.add('focus'); $('caret').style.display = 'inline-block';
+    await typeText($('nameText'), 'Greg Halvorsen', 0.27, 0.40);
+    await until(0.44); setStep(2); $('name').classList.remove('focus'); $('caret').style.display = 'none'; scrollTo(300, D * 90);
+    await until(0.50); await draw($('sig'), D * 130);              // the signature
+    await until(0.62); $('cb').classList.add('on'); $('cb').textContent = '✓'; $('approveBtn').classList.remove('dim'); tap($('cb'));
+    await until(0.66); tap($('approveBtn'));
+    await until(0.68); $('done').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, fill: 'forwards' });
+    await until(0.76); setStep(3);                                    // back to the page: now the decline path
+    $('done').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: 'forwards' });
+    await until(0.79); tap($('declineBtn'));
+    await until(0.81); $('decline').animate([{ transform: 'translateY(100%)' }, { transform: 'none' }], { duration: 450, easing: 'ease-out', fill: 'forwards' });
+    await typeText($('reason'), 'Can you lower the price of the stairs?', 0.85, 0.95);
+    window.__done = true;
+  })();
+</script></body></html>

@@ -30,12 +30,22 @@ const chain = (base, key) => {
     return undefined;
   }]));
 };
+// A module may export `insertHooks = { table_name: (row, tables) => row }`: it completes a NEW row the way a database trigger would (token, snapshot columns...).
+const insertHooks = Object.assign({}, ...demo.map((m) => m.insertHooks || {}));
 const rpcAll = chain(rpcHandlers, 'rpc');
 const fnAll = chain(functionHandlers, 'functions');
 // `chapter` ("01", "30" ...) is only known when the caller says so: GET /__reset?chapter=NN. A demo module that needs a special
 // starting state for one chapter (e.g. a brand-new empty account) checks `chapter` in its default function; without it every
 // module builds the normal demo business.
-const build = (chapter) => { const t = new Map(Object.entries(seed())); for (const m of demo) if (typeof m.default === 'function') m.default({ tables: t, uid: DEMO_USER.id, day, iso, id: newId, chapter }); return t; };
+// A module may also `export const finalize = (ctx) => {...}`: it runs after EVERY module's default function (so it can empty or
+// reshape what the others added, without making their `tables.get('jobs').find(...)` lookups fail).
+const build = (chapter) => {
+  const t = new Map(Object.entries(seed()));
+  const ctx = { tables: t, uid: DEMO_USER.id, day, iso, id: newId, chapter };
+  for (const m of demo) if (typeof m.default === 'function') m.default(ctx);
+  for (const m of demo) if (typeof m.finalize === 'function') m.finalize(ctx);
+  return t;
+};
 const tables = build();
 const log = (...a) => { if (process.env.FAKE_BACKEND_LOG) console.log(...a); };
 
@@ -83,7 +93,8 @@ function test(row, col, expr) {
   let negate = false;
   let [op, ...rest] = [expr.slice(0, expr.indexOf('.')), expr.slice(expr.indexOf('.') + 1)];
   if (op === 'not') { negate = true; [op, ...rest] = [rest[0].slice(0, rest[0].indexOf('.')), rest[0].slice(rest[0].indexOf('.') + 1)]; }
-  const val = rest.join('.');
+  let val = rest.join('.');
+  if (op !== 'in' && /^".*"$/s.test(val)) val = val.slice(1, -1).replace(/\\(["\\])/g, '$1'); // a quoted value: eq."Jo, Inc."
   const cell = getPath(row, col);
   let ok;
   switch (op) {
@@ -104,6 +115,13 @@ function test(row, col, expr) {
 }
 function orTest(row, group) {
   return splitTop(group.replace(/^\(|\)$/g, '')).some((part) => {
+    // a nested group: and(a.eq.1,b.is.null)  /  or(...)
+    const nested = part.match(/^(and|or)\((.*)\)$/s);
+    if (nested) {
+      const items = splitTop(nested[2]);
+      const one = (p) => { const mm = p.match(/^([^.]+)\.(.+)$/); return mm ? test(row, mm[1], mm[2]) : false; };
+      return nested[1] === 'and' ? items.every(one) : items.some(one);
+    }
     const m = part.match(/^([^.]+)\.(.+)$/);
     return m ? test(row, m[1], m[2]) : false;
   });
@@ -177,7 +195,8 @@ async function rest(req, res, url, name) {
     const conflict = (url.searchParams.get('on_conflict') || 'id').split(',');
     const saved = [];
     for (const item of list) {
-      const row = { id: randomUUID(), created_at: new Date().toISOString(), user_id: DEMO_USER.id, ...item };
+      let row = { id: randomUUID(), created_at: new Date().toISOString(), user_id: DEMO_USER.id, ...item };
+      if (insertHooks[name]) row = insertHooks[name](row, tables) || row;
       const existing = (merge || ignore) ? rows.find((r) => conflict.every((c) => r[c] != null && r[c] === row[c])) : undefined;
       if (existing) { if (merge) Object.assign(existing, item, { updated_at: new Date().toISOString() }); saved.push(existing); }
       else { rows.push(row); saved.push(row); }
@@ -222,9 +241,12 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
   try {
-    if (p === '/__health') return send(res, 200, { ok: true, tables: [...tables.keys()] });
-    if (p === '/__tables') return send(res, 200, Object.fromEntries([...tables].map(([k, v]) => [k, v.length])));
-    if (p === '/__reset') { tables.clear(); for (const [k, v] of build()) tables.set(k, v); return send(res, 200, { ok: true }); }
+    // control endpoints answer with "connection: close": record/run.mjs asks for /__reset with a pooled keep-alive socket and then blocks
+    // (spawnSync) for minutes; the next chapter's /__reset would reuse a socket the server already closed and silently never arrive.
+    const ctl = { connection: 'close' };
+    if (p === '/__health') return send(res, 200, { ok: true, tables: [...tables.keys()] }, ctl);
+    if (p === '/__tables') return send(res, 200, Object.fromEntries([...tables].map(([k, v]) => [k, v.length])), ctl);
+    if (p === '/__reset') { const chapter = url.searchParams.get('chapter') || undefined; console.log(new Date().toISOString(), 'reset', chapter || '(baseline)'); tables.clear(); for (const [k, v] of build(chapter)) tables.set(k, v); return send(res, 200, { ok: true, chapter: chapter || null }, ctl); }
     // auth
     if (p.startsWith('/auth/v1/')) {
       if (p.endsWith('/user')) return send(res, 200, DEMO_USER);

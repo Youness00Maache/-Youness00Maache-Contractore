@@ -44,23 +44,27 @@ export default {
         'Click Create job, and you land on the job page.',
       ],
       do: [
-        { with: 0, act: 'type', target: 'Job site address', text: '27 Maple Lane, Maple Grove' },
+        { with: 0, act: 'type', target: 'Job site address', text: '55 Lakeview Drive, Lakeside, OH' },
         { with: 1, act: 'highlight', target: 'End date' },
+        { with: 1, act: 'type', target: 'Assigned worker (optional)', text: 'Jamal' },
+        { with: 2, act: 'type', target: 'Client name', text: 'Dale Pruitt' },
         { with: 2, act: 'highlight', target: 'Mark as temporary client' },
+        { with: 2, act: 'click', target: 'Mark as temporary client' },
         { with: 3, act: 'click', target: 'Create job' },
       ],
     },
     {
-      id: 's04', kind: 'app', device: 'desktop', route: '/dashboard',
+      id: 's04', kind: 'app', device: 'desktop',
       say: [
         'Back on the dashboard, open any job with View Project.',
-        'At the top of the job page, the status menu next to the name tells you where the project stands: Active, Paused, Completed or Inactive.',
+        'At the top of the job page, the status menu under the name tells you where the project stands: Active, Paused, Completed or Inactive.',
         'Change it whenever the job changes. Your dashboard and your pipeline follow along.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'View Project', nth: 1 },
-        { with: 1, act: 'highlight', target: 'Active', label: 'Status' },
-        { with: 2, act: 'select', target: 'Active', option: 'Paused' },
+        { with: 0, act: 'click', target: 'Dashboard', role: 'button' },
+        { with: 0, act: 'click', target: 'Whitfield Kitchen Remodel' },
+        { with: 1, act: 'highlight', target: 'Job status', label: 'Status' },
+        { with: 2, act: 'select', target: 'Job status', option: 'Paused' },
       ],
     },
     {
@@ -91,14 +95,16 @@ export default {
       ],
     },
     {
-      id: 's07', kind: 'app', device: 'desktop', route: '/dashboard',
+      id: 's07', kind: 'app', device: 'desktop',
       say: [
         'Doing the same kind of job again? Open the three-dot menu on the job card and choose Duplicate job.',
         'You can copy its documents too, so you do not start from a blank page.',
         'The same menu has Delete job, so be careful with that one.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'More actions', nth: 0, unsure: true },
+        { with: 0, act: 'key', key: 'Escape' },
+        { with: 0, act: 'click', target: 'Dashboard', role: 'button' },
+        { with: 0, act: 'click', target: 'Job actions', nth: 0 },
         { with: 1, act: 'highlight', target: 'Duplicate job' },
         { with: 2, act: 'highlight', target: 'Delete job' },
         { with: 2, act: 'key', key: 'Escape' },

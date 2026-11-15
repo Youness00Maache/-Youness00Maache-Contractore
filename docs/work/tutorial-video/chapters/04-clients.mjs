@@ -24,7 +24,9 @@ export default {
       do: [
         { with: 0, act: 'caption', text: 'Chapter 4: Clients' },
         { with: 2, act: 'type', target: 'Search name, email or phone', text: 'Whitfield' },
-        { with: 2, act: 'state', note: 'Clear the client search box before the next scene' },
+        { with: 2, act: 'wait', s: 1.5 },
+        { with: 2, act: 'key', key: 'Control+A' },
+        { with: 2, act: 'key', key: 'Backspace' },
       ],
     },
     {
@@ -38,7 +40,7 @@ export default {
       ],
       do: [
         { with: 0, act: 'click', target: 'Add client', role: 'button', nth: 0 },
-        { with: 1, act: 'type', target: 'Name', text: 'Maria Delgado' },
+        { with: 1, act: 'type', target: 'Name *', text: 'Maria Delgado' },
         { with: 1, act: 'type', target: 'Email', text: 'maria.delgado@example.com' },
         { with: 1, act: 'type', target: 'Phone', text: '(555) 010-3106' },
         { with: 2, act: 'type', target: 'Notes', text: 'Gate code 4417. Call after 4 pm.' },
@@ -57,7 +59,7 @@ export default {
       do: [
         { with: 0, act: 'click', target: 'Sarah Whitfield' },
         { with: 1, act: 'highlight', target: 'Outstanding' },
-        { with: 2, act: 'click', target: 'Edit', role: 'button', unsure: true },
+        { with: 2, act: 'click', target: 'Edit', role: 'button', nth: 1 },
         { with: 2, act: 'type', target: 'Client notes', text: 'Prefers text messages. Dog at the house. Side gate is open.' },
         { with: 2, act: 'click', target: 'Save notes' },
       ],
@@ -76,12 +78,12 @@ export default {
         { with: 1, act: 'highlight', target: 'Copy', role: 'button' },
         { with: 2, act: 'highlight', target: 'New link' },
         { with: 3, act: 'click', target: 'Get approval' },
-        { with: 3, act: 'highlight', target: 'Copy link', unsure: true },
+        { with: 3, act: 'highlight', target: 'Copy link' },
         { with: 4, act: 'key', key: 'Escape' },
       ],
     },
     {
-      id: 's05', kind: 'app', device: 'desktop', route: '/clients',
+      id: 's05', kind: 'app', device: 'desktop',
       say: [
         'Moving over from another app? Import and export reads and writes a CSV file, so you can bring your list along.',
         'One-off customers live under Temporary, so they stay out of your main list.',
@@ -90,12 +92,15 @@ export default {
         'Next, we will create your documents.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Import / export' },
+        { with: 0, act: 'click', target: 'Back', role: 'button' },
+        { with: 0, act: 'click', target: 'Import or export clients' },
+        { with: 0, act: 'wait', s: 1.5 },
         { with: 0, act: 'key', key: 'Escape' },
-        { with: 1, act: 'click', target: 'Temporary', unsure: true },
-        { with: 1, act: 'key', key: 'Escape' },
+        { with: 1, act: 'click', target: 'Temporary', role: 'button' },
+        { with: 1, act: 'wait', s: 2 },
+        { with: 2, act: 'key', key: 'Escape' },
         { with: 2, act: 'click', target: 'Sarah Whitfield' },
-        { with: 2, act: 'highlight', target: 'Activity', unsure: true },
+        { with: 2, act: 'highlight', target: 'Recent activity' },
       ],
     },
   ],

@@ -26,7 +26,7 @@ export default {
       do: [
         { with: 0, act: 'caption', text: 'Chapter 2: The dashboard' },
         { with: 1, act: 'highlight', target: 'Active jobs', label: 'Your numbers' },
-        { with: 2, act: 'highlight', target: 'Signed by clients' },
+        { with: 2, act: 'highlight', target: 'Low stock', label: 'This card changes' },
       ],
     },
     {
@@ -40,8 +40,11 @@ export default {
       ],
       do: [
         { with: 0, act: 'type', target: 'Search jobs, clients, addresses...', text: 'Nair' },
-        { with: 1, act: 'click', target: 'Active', role: 'button', unsure: true },
-        { with: 2, act: 'state', note: 'Clear the search box and set the status chip back to All before the next scene' },
+        { with: 1, act: 'click', target: 'Active3', role: 'radio' },
+        { with: 2, act: 'click', target: 'Search jobs, clients, addresses...' },
+        { with: 2, act: 'key', key: 'Control+A' },
+        { with: 2, act: 'key', key: 'Backspace' },
+        { with: 2, act: 'click', target: 'All', role: 'radio' },
         { with: 3, act: 'highlight', target: 'View Project' },
         { with: 4, act: 'highlight', target: 'New Job' },
       ],
@@ -109,6 +112,8 @@ export default {
       do: [
         { with: 0, act: 'click', target: 'Notifications', unsure: true },
         { with: 1, act: 'highlight', target: 'Today' },
+        { with: 2, act: 'hover', target: 'Today' },
+        { with: 2, act: 'scroll', by: 300 },
         { with: 3, act: 'highlight', target: 'Mark all read' },
         { with: 4, act: 'highlight', target: 'Notification settings' },
         { with: 4, act: 'key', key: 'Escape' },
