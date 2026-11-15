@@ -52,6 +52,22 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 
 # >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
 Read docs/work/tutorial-video/PLAN.md + README.md first. STATE 2026-11-15 ~15:10 (branch my-branch, last commit d647e27, NOTHING PUSHED):
+**UPDATE 2026-11-15 ~19:45 (newest; older bullets below may be outdated):** OWNER RESUMED ("continue, tell me the % done") and CUT THE SCOPE:
+  ENGLISH voice for every chapter + subtitles only; no new voice languages (Spanish voice stays for 01-11 only; subtitles: 10 languages for
+  01-11, Spanish+English for 12-30). SYNC FIXED and measured (clicks land 0.02-0.3 s from the spoken word on average, elastic timing):
+  chapters 01-11 re-recorded with it; English voice for 12-30 generated (cache/audio/en), Spanish subtitles 12-30 done. WAVE 1 IS LIVE IN THE
+  BUCKET: public `tutorial-media` (FLAT folder: manifest.json, NN-id.video.mp4, NN-id.<lang>.m4a, subtitles.<lang>.json; 44 files, 52 MB),
+  uploaded through the owner's Chrome (chrome tool file_upload into the hidden input of the bucket page, <10 MB per call, ~8 calls;
+  re-uploading an existing name needs deleting it first). The real app loads it from there (tested: 11 chapters, play, captions, language
+  switch). my-branch PUSHED (a0f13f7); MAIN NOT PUSHED yet: the course becomes visible in production the moment main is pushed, so wait
+  for the owner's OK after they watch the new chapters (watch page: node scripts/make-watch-page.mjs <notes folder>; node scripts/
+  serve-media.mjs <notes folder> 3999). All checks pass for wave 1 (tsc, build, seo:check, qa:document-ai, 40+ check scripts, forms,
+  payments, templates). IN PROGRESS: two Sonnet helpers record chapters 12-20 (slot a) and 21-30 (slot b) as FINAL videos
+  (`TUTORIAL_WORK_DIR=C:/Users/JAAF/contractordocs-tutorial-work node record/run.mjs <slot> NN --langs en`); coordinator released them by
+  writing GO.txt in that folder. THEN: assemble all (`node build/assemble.mjs`, TUTORIAL_WORK_DIR as above), re-upload: delete manifest.json
+  and subtitles.en.json/subtitles.es.json in the bucket first, upload the new NN-id files, subtitles.en/es, then manifest.json LAST
+  (copy the publish/v1 files to the notes folder `upload/` so the chrome tool can read them; scripts in scratchpad plan-batches.mjs).
+  Then push main (verification script: scratchpad verify-all.sh; all green at 19:41) and curl the live site.
 - Owner decisions: voice English + Spanish (subtitles in all 10 languages), public bucket `tutorial-media`, ship in waves
   (wave 1 = chapters 1-11, wave 2 = 12-22, wave 3 = 23-30). The bucket EXISTS (created by the assistant in the Supabase
   Storage UI 2026-11-15: public, 50 MB limit; supabase/migrations/20261116001300_tutorial_media_bucket.sql records it). It is
