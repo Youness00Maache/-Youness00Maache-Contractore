@@ -683,7 +683,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             },
             {
                 "title": "Move a date",
-                "text": "When you change a date and other tasks wait for it, the app asks [[Move the tasks that follow too?]]. the first button (for example [[Move the 3 tasks 2 days later]]) shifts each of them by the same number of days; [[Only as far as needed]] moves just the ones that would now start before this task ends; [[No, leave them]] changes only this task."
+                "text": "When you change a date and other tasks wait for it, the app asks [[Move the tasks that follow too?]]. the first button (for example “Move the 3 tasks 2 days later”) shifts each of them by the same number of days; [[Only as far as needed]] moves just the ones that would now start before this task ends; [[No, leave them]] changes only this task."
             },
             {
                 "title": "List, order or timeline",

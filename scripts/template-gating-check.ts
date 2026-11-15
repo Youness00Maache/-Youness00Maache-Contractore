@@ -136,8 +136,11 @@ for (const id of premiumIds) {
     const basicDefault = applyDesignDefault(base, { templateId: B1 }, 'free') as any;
     ok('Basic default on Free', basicDefault.templateId === B1 && basicDefault.themeColors.primary === '#000000');
 
-    eq('default from a document', designDefaultFromDocument({ templateId: P2, themeColors: { primary: '#abcdef', secondary: '#123123', custom: true }, designOptions: { density: 'compact' }, notes: 'x' }),
-        { templateId: P2, themeColors: { primary: '#abcdef', secondary: '#123123', custom: true }, designOptions: { density: 'compact' }, updatedAt: (designDefaultFromDocument({ templateId: P2 }) as any).updatedAt });
+    const fromDoc = designDefaultFromDocument({ templateId: P2, themeColors: { primary: '#abcdef', secondary: '#123123', custom: true }, designOptions: { density: 'compact' }, notes: 'x' }) as any;
+    // updatedAt is "now" at call time: compare it separately so a millisecond tick between two calls can't fail the check
+    ok('default from a document has a timestamp', typeof fromDoc.updatedAt === 'string' && Math.abs(Date.now() - Date.parse(fromDoc.updatedAt)) < 5000);
+    eq('default from a document', { ...fromDoc, updatedAt: 'x' },
+        { templateId: P2, themeColors: { primary: '#abcdef', secondary: '#123123', custom: true }, designOptions: { density: 'compact' }, updatedAt: 'x' });
 
     const saved: unknown[] = [];
     const store = { readLocal: () => saved[saved.length - 1] ?? null, load: async () => saved[saved.length - 1] ?? null, save: async (v: unknown) => { saved.push(v); return 'account'; } };
