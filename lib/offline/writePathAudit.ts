@@ -245,6 +245,24 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').delete()", what: 'delete supplier item', offline: 'needs_connection' },
     { file: 'lib/suppliers/suppliersDb.ts', match: "from('saved_items').update(row)", what: 'price-book item: link, specs, preferred supplier', offline: 'needs_connection' },
     { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').insert(chunk)", what: 'supplier price list import: new items', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------- job files + questions / submittals (D3)
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').insert(row)", what: 'add a job file / version / link', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: 'storage.from(JOB_FILES_BUCKET).upload(storagePath, input.file', what: 'job file upload (document-assets)', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').delete().eq('id', saved.id)", what: 'failed job file upload: remove its row again', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').update(row)", what: 'edit a job file / link (title, category, tags, notes, url)', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').update(body)", what: 'show / hide a link, hide a file in the client portal', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: '.copy(file.storagePath, portalPath', what: 'share an image file in the portal: public copy', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: 'storage.from(JOB_FILES_PORTAL_BUCKET).upload(portalPath, blob', what: 'share an image file in the portal: public copy (older storage servers)', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').update({ shared_in_portal: true, portal_path: portalPath })", what: 'share an image file in the portal', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: 'storage.from(JOB_FILES_PORTAL_BUCKET).remove([portalPath])', what: 'failed share: remove the public copy again', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').delete().in('id', ids)", what: 'delete a job file / every version of a document', offline: 'needs_connection' },
+    { file: 'lib/jobFiles/jobFilesApi.ts', match: 'storage.from(JOB_FILES_BUCKET).remove(paths)', what: 'delete a job file: its private file', offline: 'needs_connection' },
+    { file: 'lib/questions/questionsApi.ts', match: "from('job_questions').insert(row)", what: 'add a client question / submittal (draft or sent)', offline: 'needs_connection' },
+    { file: 'lib/questions/questionsApi.ts', match: "from('job_questions').update(row)", what: 'edit a client question / submittal', offline: 'needs_connection' },
+    { file: 'lib/questions/questionsApi.ts', match: "from('job_questions').update({ status })", what: 'send / close / ask again / reopen a question', offline: 'needs_connection' },
+    { file: 'lib/questions/questionsApi.ts', match: "from('job_questions').delete()", what: 'delete a client question / submittal', offline: 'needs_connection' },
+    { file: 'lib/portal/questionsApi.ts', match: "rpc('answer_portal_question'", what: 'client answers a question / approves or rejects a submittal (portal)', offline: 'public' },
 ];
 
 /** Rows of the table that cover a scanned line. */
