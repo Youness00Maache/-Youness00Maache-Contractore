@@ -1,5 +1,5 @@
 -- =====================================================================================
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D13) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: 3 new functions + 2 replaced (bodies diffed against the originals: only the marked add-on lines differ), anon can run only the two new signing functions, a read-only test of _estimate_addon_patch (chosen id selected, others not, non-optional / unknown ids refused), bad portal key refused.
 -- Optional add-ons chosen by the client when signing (roadmap D13, after N4 "proposal builder").
 --
 -- An estimate's optional add-on lines (documents.data.lineItems[i].optional = true) count in the money only when

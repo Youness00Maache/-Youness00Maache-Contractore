@@ -56,7 +56,7 @@ const EXPECTED = ['_estimate_addon_patch', 'sign_document_addons_via_portal', 'a
 {
     const created = [...code.matchAll(/create\s+(?:or\s+replace\s+)?function\s+public\.([a-z_0-9]+)\s*\(/gi)].map(m => m[1]);
     eq('SQL: replaces / creates exactly the listed functions', created, EXPECTED);
-    check('SQL: header says not applied yet', sql.includes('Applied: NOT YET (needs owner OK)'));
+    check('SQL: header says applied with the owner OK', sql.includes("Applied 2026-11-15 with the owner's OK"));
     for (const n of EXPECTED) check(`SQL header lists ${n}`, sql.split('\n').filter(l => l.startsWith('--')).some(l => l.includes(n)));
     check('SQL: header names where each replaced body came from',
         /guard_document_write\s+REPLACED, body = 20261114000100_estimate_options_choice\.sql/.test(sql)
