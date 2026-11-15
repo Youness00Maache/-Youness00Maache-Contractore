@@ -235,9 +235,7 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   N8, D7, D10, N7, D8, N10, N6. All migrations 20261116000100..001100 are APPLIED (headers say so). No helper is running.
   REMAINING (each = Opus phase A, review SQL, apply, Sonnet phase B UI, then ship):
     1. (DONE: N11 timeline 57fce1c and D11 email log 9885078 are shipped; nothing pending to deploy.)
-    2. N9 plan measurement (#7): job "Plans" tool (PDF/image upload to document-assets <user>/plans/<job>/, pdf.js render,
-       calibrate by a known length, line/area/count tools with labels, totals per label, send to an estimate as lines with
-       price-book match; measurements JSON stored next to the plan). No DB. Opus.
+    2. (DONE: N9 plan measurement shipped, 5bcedaa.)
     3. D6 bills to pay (#32): bills + bill_payments tables, overdue notifications (extend N12 automations), job cost. DB.
     4. D12 push notifications (#24): push_subscriptions table + service-worker push + a sender edge function; needs VAPID
        secrets that THE OWNER adds (never type/create them): ask the owner first.
@@ -264,6 +262,16 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED N9 plan measurement (job "Plans" tab, Premium: PDF up to 10 pages / image up to 15 MB in document-assets
+  `<user>/plans/<job>/...`; viewer with zoom/pan/pages, calibrate by a known length or a drawing-scale preset, line / area
+  with cut-outs / count tools with colour labels + waste %, totals sheet, marked-up PNG + totals CSV, "Add to estimate" with
+  price-book match; quick-measure untouched). NO DB: measurements are stored in a tiny PNG `<plan>.measure.png` next to
+  the plan (the bucket only accepts PDF/images) = UNTESTED against the real bucket: test once with a real account. pdfjs-dist
+  4.10.38 added (legacy build, lazy chunk, worker served from our own origin; vercel.json: Content-Type text/javascript for
+  /assets/*.mjs). main/my-branch 5bcedaa; suite green (51 steps); live: worker served as text/javascript (1.4 MB), main
+  bundle has no pdf.js. ai-assistant NOT redeployed for the plans help guide (help knowledge only): redeploy with the next
+  release. Untested: real storage upload of the .measure.png, iOS Safari, real touch pinch.
+  REMAINING: D6 bills to pay, D12 push notifications.
 - 2026-11-15 SHIPPED D11 sent-email log (DB 20261116001200 applied: `email_log` = who/what/when only, no body/attachments/
   tokens; owner SELECT + DELETE only, rows written by the `gmail` edge function with the service role, newest 5000 per user kept;
   `gmail` function REDEPLOYED: logging is best-effort in its own try/catch, response unchanged; the job timeline now shows
