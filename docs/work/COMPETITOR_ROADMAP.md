@@ -186,6 +186,16 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   20261116000700_optional_addons_choice.sql replaces signing + stock functions: REVIEW the diff vs the originals carefully;
   apply the SQL BEFORE shipping the app part). After: D5 phase B (Sonnet UI), N5 assemblies (Sonnet), D7, D10, N7, D8, N3, N6,
   N8, N9, N10, N11 + D11, D6, D12.
+  2026-11-15 ~07:30 UTC: D13 (client picks add-ons at signing) merged on my-branch (b01a22f) + its SQL APPLIED + verified
+  (20261116000700: 3 new functions sign_document_addons_via_portal / approve_document_addons_by_token / _estimate_addon_patch,
+  guard_document_write + _document_stock_lines replaced with only the marked add-on lines changed). The app part is NOT pushed
+  yet (tolerant: retries without the add-on parameter when the function is missing). D5 phase A merged (f2675f7) + SQL APPLIED
+  + verified (20261116000600). NOT pushed yet: D13 app part + D5 data layer. RUNNING (Sonnet): D5 phase B UI
+  (agent-a1b48bbae8e2b8d8b) and N5 assemblies (agent-aeded001445c9d2b5). NEXT: merge both, sync help knowledge, full suite,
+  push, redeploy ai-assistant (+ reminders only if its shared/ code changed), Done log (D13 + D5 + N5). Then D7 subs + quote
+  comparison (Opus A -> Sonnet B), D10 warranty/email automations (touches reminders edge function), N7 job AI (Opus,
+  ai-assistant), D8 profile + reviews, N3 overview (Sonnet), N6 AI documents (Opus), N8 setup (Sonnet), N9 plan measurement
+  (Opus), N10 integrations (Sonnet), N11 timeline + D11 email log, D6 bills, D12 push (needs the owner's VAPID secrets).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
