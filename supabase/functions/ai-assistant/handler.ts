@@ -15,6 +15,8 @@
  * see handleExtractTasks (proposals only, nothing is written).
  * Business summary (body.task = "business_summary", shared/businessSummary.ts): the Business overview's aggregates ->
  * headline, bullets, next actions, Premium + AI; see handleBusinessSummary (read-only).
+ * Document reading (body.task = "read_document", shared/documentReading.ts): photos / one PDF of a receipt or supplier invoice ->
+ * the printed facts (validated), Premium + AI; see handleReadDocument (read-only; the app saves through the Expense Log).
  * Business numbers in the assistant (context.job_facts / business_facts, shared/businessFacts.ts): rule 24, CHAT answers.
  */
 import {
@@ -37,6 +39,10 @@ import {
     buildBusinessSummarySchema, buildBusinessSummarySystemPrompt, buildBusinessSummaryUserText, BUSINESS_SUMMARY_TIER, BUSINESS_SUMMARY_UPGRADE_MESSAGE,
     isBusinessSummaryBody, mockBusinessSummaryOutput, parseBusinessSummary, sanitizeBusinessSummaryRequest, type BusinessSummaryRequest,
 } from './shared/businessSummary.ts';
+import {
+    buildReadDocumentSchema, buildReadDocumentSystemPrompt, buildReadDocumentUserParts, hasUsableReading, isReadDocumentBody, mockReadDocumentOutput,
+    normalizeReadDocument, READ_DOCUMENT_TIER, READ_DOCUMENT_UPGRADE_MESSAGE, sanitizeReadDocumentRequest, type ReadDocumentRequest,
+} from './shared/documentReading.ts';
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
 import { mockModelOutput } from './shared/mockModel.ts';
 import { REQUEST_LIMITS } from './shared/routerContract.ts';
@@ -811,6 +817,56 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         return json({ ok: true, task: request.task, summary, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
     }
 
+    /** Document reading: the category list, then the photos / PDF as inline data, own prompt and schema. */
+    async function callGeminiReadDocument(request: ReadDocumentRequest): Promise<{ output: Record<string, unknown>; model: string }> {
+        const thinkingLevel = thinkingLevelOf();
+        const contents = [{ role: 'user', parts: buildReadDocumentUserParts(request) }];
+        const system = buildReadDocumentSystemPrompt(request);
+        const makeBody = (model: string, opts: { thinking: boolean; compact: boolean }) => {
+            const modern = geminiGeneration(model) >= 3;
+            return JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: buildReadDocumentSchema(request, { compact: opts.compact }),
+                    ...(modern ? {} : { temperature: 0.1 }),
+                    maxOutputTokens: 8192,
+                    ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),
+                },
+            });
+        };
+        return generateJson(makeBody);
+    }
+
+    /**
+     * "Read with AI" in the Expense Log (Premium + AI): photos / one PDF of a receipt, supplier invoice, quote or delivery
+     * note → { ok, task: 'read_document', document, meta }. Read-only: the app shows a review screen and saves one
+     * expense through the normal save. Metered as one AI request only when something usable was read and the browser
+     * is still waiting. Never logs the document's content.
+     */
+    async function handleReadDocument(req: Request, userId: string, body: unknown, cors: Record<string, string>): Promise<Response> {
+        const request = sanitizeReadDocumentRequest(body);
+        const admission = await admit(userId, cors, READ_DOCUMENT_TIER, READ_DOCUMENT_UPGRADE_MESSAGE);
+        if (admission instanceof Response) return admission;
+
+        const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
+        const { output, model } = provider === 'mock'
+            ? { output: mockReadDocumentOutput(request), model: 'mock' }
+            : await callGeminiReadDocument(request);
+        const document = normalizeReadDocument(output, request);
+        if (req.signal?.aborted) {
+            log('client went away before the answer; not metered');
+            return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
+        }
+        if (!hasUsableReading(document)) {
+            // nothing could be read: answered (with the warnings), not metered
+            return json({ ok: true, task: request.task, document, meta: { provider, model, usage: { used: admission.used, limit: admission.limit, tier: admission.tier } } }, 200, cors);
+        }
+        const spent = await recordUsage(userId, admission);
+        return json({ ok: true, task: request.task, document, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
+    }
+
     return async function handle(req: Request): Promise<Response> {
         const cors = corsHeaders(req, env);
         if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -828,6 +884,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             if (isEstimateReviewBody(body)) return await handleEstimateReview(req, user.id, body, cors);
             if (isExtractTasksBody(body)) return await handleExtractTasks(req, user.id, body, cors);
             if (isBusinessSummaryBody(body)) return await handleBusinessSummary(req, user.id, body, cors);
+            if (isReadDocumentBody(body)) return await handleReadDocument(req, user.id, body, cors);
             const request = sanitizeRequest(body);
 
             const admission = await admit(user.id, cors);

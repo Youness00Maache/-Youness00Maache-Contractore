@@ -12,6 +12,8 @@ import { blankLineItem, formatDisplayDate, isISODate, normalizeLineItems, todayI
 import { EXPENSE_CATEGORIES } from './forms/documentFields.ts';
 import { processReceiptImage, terminateOCRWorker, type OCRResult } from '../utils/ocr.ts';
 import { assertUsableImage, compressImage, describeImageError } from '../utils/imageCompression.ts';
+import ReadDocumentAI from './expenses/ReadDocumentAI.tsx';
+import type { JobRef } from '../src/ai/readDocumentReview.ts';
 
 interface Props {
     job: Job;
@@ -24,6 +26,9 @@ interface Props {
     prefillData?: unknown;
     documentId?: string;
     existingNumbers?: string[];
+    /** "Read with AI" (Premium + AI, online only): connection state and the account's jobs (a mentioned job is a hint) */
+    isOnline?: boolean;
+    jobs?: readonly JobRef[];
 }
 
 type ExpenseState = ExpenseLogData & { clientId?: string };
@@ -43,7 +48,7 @@ const legacyItems = (d: ExpenseLogData): LineItem[] => {
     return [blankLineItem()];
 };
 
-const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData }) => {
+const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onSave, onBack, onUploadImage, prefillData, isOnline, jobs }) => {
     const uploadRef = useRef<HTMLInputElement>(null);
     const [scanning, setScanning] = useState(false);
     const [scanNote, setScanNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
@@ -55,10 +60,13 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
     });
 
     useEffect(() => () => { void terminateOCRWorker(); }, []);
+    // read at save time (the AI review sets it right before saving, before React re-renders)
+    const autoTotalRef = useRef(autoTotal);
+    autoTotalRef.current = autoTotal;
 
     const withTotal = (d: ExpenseState): ExpenseState => {
         const sub = itemsSubtotal(d.lineItems);
-        return autoTotal && sub > 0 ? { ...d, amount: roundMoney(sub + toNumber(d.tax)) } : d;
+        return autoTotalRef.current && sub > 0 ? { ...d, amount: roundMoney(sub + toNumber(d.tax)) } : d;
     };
 
     const form = useDocumentForm<ExpenseState>({
@@ -207,6 +215,22 @@ const ExpenseLogForm: React.FC<Props> = ({ job, profile, data, clients = [], onS
                         {scanNote.text}
                     </p>
                 )}
+                <ReadDocumentAI
+                    categories={EXPENSE_CATEGORIES}
+                    isOnline={isOnline ?? (typeof navigator === 'undefined' ? true : navigator.onLine)}
+                    job={{ id: job.id, name: job.name }}
+                    jobs={jobs}
+                    getCurrent={() => ({ notes: d.notes, title: d.title })}
+                    onUploadImage={onUploadImage}
+                    onSave={async ({ patch, autoTotal: computeTotal }) => {
+                        // the reviewed values go into this form and are saved by its normal save (online or outbox)
+                        update(patch as Partial<ExpenseState>);
+                        autoTotalRef.current = computeTotal;
+                        setAutoTotal(computeTotal);
+                        setScanNote(null);
+                        return form.save();
+                    }}
+                />
             </FormSection>
 
             <FormSection title="Expense details" icon={FileTextIcon}>
