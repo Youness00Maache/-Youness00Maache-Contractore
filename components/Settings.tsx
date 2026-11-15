@@ -21,6 +21,7 @@ import RequestLinkSettings from './requests/RequestLinkSettings.tsx';
 import FeedbackSection from './feedback/FeedbackSection.tsx';
 import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
 import DataExportSection from './export/DataExportSection.tsx';
+import IntegrationsSettings from './integrations/IntegrationsSettings.tsx';
 import { AICreditsRow } from './billing/AICredits.tsx';
 import DocumentDesignSettings from './settings/DocumentDesignSettings.tsx';
 import NotificationSettingsCard from './notifications/NotificationSettingsCard.tsx';
@@ -29,7 +30,7 @@ import { SyncChip } from './offline/OfflineContext.tsx';
 import { errorText } from '../lib/offline/connection.ts';
 
 type ThemeName = 'light' | 'dark' | 'blue';
-export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'documents' | 'appearance' | 'billing' | 'automations' | 'reminders' | 'notifications' | 'data' | 'account';
+export type SettingsSection = 'profile' | 'company' | 'payments' | 'requests' | 'signature' | 'documents' | 'appearance' | 'billing' | 'automations' | 'reminders' | 'notifications' | 'integrations' | 'data' | 'account';
 
 interface SettingsProps {
     mode: 'settings' | 'profile';
@@ -58,6 +59,8 @@ interface SettingsProps {
     initialSection?: SettingsSection;
     /** Setup assistant section (Resume setup, Remove example data); renders its own card, nothing until it has loaded. */
     setupSlot?: React.ReactNode;
+    /** A price list was applied (Integrations & data): the app reloads its copy of the price book. */
+    onPriceBookChanged?: () => void;
 }
 
 const THEMES: { value: ThemeName; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; swatch: string }[] = [
@@ -78,6 +81,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
     { id: 'automations', label: 'Automations' },
     { id: 'reminders', label: 'Reminders' },
     { id: 'notifications', label: 'Notifications' },
+    { id: 'integrations', label: 'Integrations & data' },
     { id: 'data', label: 'Your data' },
     { id: 'account', label: 'Account' },
 ];
@@ -117,7 +121,7 @@ const Meter: React.FC<{ label: string; used: number; limit: number | null }> = (
 
 const Settings: React.FC<SettingsProps> = ({
     mode, profile: initialProfile, onSave, onBack, theme, setTheme, onLogout, onUpgradeClick,
-    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection, syncState, setupSlot,
+    usage, onManageBilling, onSaveSignature, onDeleteAccount, initialSection, syncState, setupSlot, onPriceBookChanged,
 }) => {
     const [profile, setProfile] = useState<UserProfile>(initialProfile);
     const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -662,6 +666,9 @@ const Settings: React.FC<SettingsProps> = ({
 
                     {/* Notifications: the bell's types, quiet mode, browser pop-ups (components/notifications; id settings-notifications) */}
                     <NotificationSettingsCard />
+
+                    {/* Integrations & data: Gmail, calendar file, QuickBooks / Xero files, price list import (components/integrations; id settings-integrations) */}
+                    <IntegrationsSettings profile={initialProfile} plan={plan} onUpgradeClick={onUpgradeClick} onPriceBookChanged={onPriceBookChanged} />
 
                     {/* Your data: export everything + bookkeeper CSV, on every plan (components/export; id settings-data) */}
                     <DataExportSection profile={initialProfile} onUpgradeClick={onUpgradeClick} />
