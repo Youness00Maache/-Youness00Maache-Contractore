@@ -219,6 +219,10 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
                 "text": "Under Items, open Optional add-ons and click [[Add an add-on]], or pick a line in Move a line here. Add-ons print with their price and an Optional tag, but are not in the subtotal, tax or total. Tick In the total when the client wants one: it then counts like a normal line. [[Make it a regular line]] moves it back."
             },
             {
+                "title": "Let the client choose add-ons",
+                "text": "On the approval link and in the portal, the client ticks Add to my estimate next to each add-on they want. The total and the payment schedule update as they tick, and the add-ons they chose are part of what they sign. Add-ons you already switched on start ticked. Once signed, the estimate shows Client chose it or Not chosen next to each add-on, and its totals, invoices and stock use the client’s choice. Estimates with good / better / best options keep their add-ons as they are."
+            },
+            {
                 "title": "Write the scope",
                 "text": "In the Proposal section, Scope tab, add Scope of work, Inclusions, Exclusions, Assumptions and Timeline / schedule. Type one item per line for a list, or switch Print as to Paragraphs. The arrows change the order they print in."
             },
@@ -240,7 +244,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             }
         ],
         "tips": [
-            "Clients see the scope, add-ons (marked not included in the total), payment schedule and photos on the approval link and in the portal. Choosing add-ons online comes later.",
+            "Clients see the scope, add-ons (with a tick box to add each one), payment schedule and photos on the approval link and in the portal.",
             "Optional add-ons are left out of invoices, the job budget, Insights and the bookkeeper export until they are switched on.",
             "Once the client signs, the scope, schedule, photos and add-ons are locked with the rest of the estimate."
         ]
@@ -407,7 +411,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             },
             {
                 "title": "Read the budget",
-                "text": "The budget is the accepted estimate plus approved change orders, split into Labor, Materials, Expenses and Subs & other by the kind of each line (its price-book type, an inventory item, or words such as labor, install or permit). A line that mixes both stays Not split."
+                "text": "The budget is the accepted estimate plus approved change orders, split into Labor, Materials, Expenses and Subs & other by the kind of each line (its price-book type, an inventory item, or words such as labor, install or permit). A line that mixes both stays Not split, except a price-book kit with labor and expense rows, which is split by those rows."
             },
             {
                 "title": "Read what it has cost",
@@ -960,6 +964,122 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "job-selections",
+        "title": "Client selections",
+        "summary": "Let your client choose the tile, the paint colour or the fixtures from two or three options with photos and prices. You keep the choice, who made it and when, and an approved choice becomes a purchase order.",
+        "where": [
+            "Job",
+            "Selections"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open the Selections tab",
+                "text": "On a job page, switch to [[Selections]]. The note next to it shows how many wait for your client and how many are chosen and ready for you to approve; the job header shows the same. The job needs a client, because the client chooses from their project link."
+            },
+            {
+                "title": "Write one",
+                "text": "Tap [[New]] and start from a ready-made one (Tile, Paint colour, Flooring, Fixtures, Appliances, Countertops) or from blank. Add a title, the room, a message, a date to choose by and the allowance the contract includes. Then add 1 to 6 options: a photo, a name, a description, a product link (https only), the quantity and the price to the client."
+            },
+            {
+                "title": "Your cost stays yours",
+                "text": "Each option also has [[Your cost (each)]], a SKU and a supplier. Only you see these. The client never gets your cost, SKU or supplier. As you type, the option shows its total and the upgrade or credit against the allowance: above the allowance is an upgrade the client pays, below it is a credit."
+            },
+            {
+                "title": "Save it or send it",
+                "text": "[[Save draft]] keeps it to yourself. [[Send to client]] puts it on their project link and copies the photos to the client side. Use [[Copy client link]] on the Selections tab to give the client the link. A sent selection can still be changed: the client sees the new options at once."
+            },
+            {
+                "title": "Approve the choice",
+                "text": "When the client chooses, the row says Chosen with the option, the price and their comment. Tap it to see the options, their name, the date and the history. [[Approve]] confirms it. [[Ask for changes]] sends it back to you to edit and send again. [[Ask again]] lets the client choose again; the earlier choice stays in the history. While a choice stands the options are locked, so nothing changes under it."
+            },
+            {
+                "title": "Order it",
+                "text": "On an approved selection, [[Create purchase order]] shows the Draft order first: the supplier (the one on the option, else the best match from your suppliers and price book, which you can change) and the one line at your cost, shipped to the job site. Confirm and the selection becomes Ordered, linked to the order. If the order is made but the link fails, the window says so and [[Link it now]] fixes it. [[Mark ordered]] records an order made elsewhere; [[Cancel order]] goes back to Approved."
+            },
+            {
+                "title": "See it in the job numbers",
+                "text": "In Job financials, a Selections line appears under Budget vs actual when the job has approved or chosen selections: the cost of approved choices not on a purchase order yet, and the upgrades and credits against the allowances. It sits next to the existing numbers and never changes them; a job without selections shows nothing."
+            }
+        ],
+        "tips": [
+            "Client selections are part of Premium.",
+            "Selections need a connection: when you are offline the app says so and the list comes back when you are online again.",
+            "The client can choose only once for each time you send it. To get a new choice use [[Ask again]].",
+            "An upgrade changes what the client pays, not what it costs you. Add a change order for the difference."
+        ]
+    },
+    {
+        "id": "job-boards",
+        "title": "Mood boards",
+        "summary": "Collect pictures, links, colours and notes for a room on one board, preview it as your client would see it, and share it when you are ready.",
+        "where": [
+            "Job",
+            "Boards"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Make a board",
+                "text": "On a job page, switch to [[Boards]] and tap [[New board]]. Give it a name such as Kitchen ideas. A new board is private."
+            },
+            {
+                "title": "Add to it",
+                "text": "Choose Image, Link, Note or Colour and add it. A picture is uploaded from your phone or computer (JPG, PNG or WebP, up to 5 MB) or pasted as an https link. Give any item a title and a caption. A board holds up to 60 items."
+            },
+            {
+                "title": "Put them in order",
+                "text": "Use the up and down arrows on an item to move it, and the bin to remove it. Your changes stay as a draft until you tap [[Save changes]]; [[Discard]] drops them."
+            },
+            {
+                "title": "Preview it",
+                "text": "Tap [[Client preview]] to see the board exactly as your client sees it: pictures first, then colours, links and notes."
+            },
+            {
+                "title": "Share it",
+                "text": "Switch on [[Share with client]] and the board appears on their project link, read-only. Captions and notes you add to shared items are visible to your client; your board notes stay private. Switch it off and the client stops seeing it, and the copies of your pictures made for them are removed."
+            }
+        ],
+        "tips": [
+            "Mood boards are part of Premium.",
+            "[[Your notes (private)]] on a board are never shown to the client, even when the board is shared.",
+            "Save your changes first: sharing can only be changed when nothing is waiting to be saved."
+        ]
+    },
+    {
+        "id": "client-selections-view",
+        "title": "What your client sees: selections and ideas boards",
+        "summary": "On their project link your client chooses between your options and looks through the boards you shared. They never see your cost, supplier or private notes.",
+        "where": [
+            "Client portal",
+            "Project"
+        ],
+        "appPath": "/clients",
+        "steps": [
+            {
+                "title": "A badge on Project",
+                "text": "When a selection waits for the client to choose, the Project tab of their link shows a small number, and [[Your selections]] sits right under the questions. Each item shows the job, the date to choose by, your message, the allowance and the options."
+            },
+            {
+                "title": "Choosing",
+                "text": "Each option shows its photo (tap Zoom to see it big), name, description, product link and total, with what it adds or saves against the allowance: +$120 upgrade, -$40 credit or Included. The client taps one, may add a comment, types their name to confirm and taps [[Send my choice]]. You see it at once on the job."
+            },
+            {
+                "title": "After choosing",
+                "text": "The client sees their choice and where it stands: waiting for you, approved or ordered, with the history. Chosen, approved and ordered items fold under [[Decided]] the next time they open the link. If you [[Ask again]] or send changed options, it comes back as waiting."
+            },
+            {
+                "title": "Ideas boards",
+                "text": "Boards you switched on with [[Share with client]] show under Ideas board as a gallery: pictures open large, links open in a new tab, colours show as swatches and notes as quotes. When you have shared nothing, the section is not there at all."
+            }
+        ],
+        "tips": [
+            "The client sees the photo, name, description, link, quantity and price of each option. Your cost, SKU and supplier are never sent to them.",
+            "On a shared board the client sees the titles and captions you wrote on its items. Your private board notes are never sent.",
+            "Drafts, closed selections and private boards are never shown to the client."
+        ]
+    },
+    {
         "id": "papers",
         "title": "Papers: insurance, licenses, permits and lien waivers",
         "summary": "Keep your COI, licenses, permits, bonds and W-9 with their expiry dates, get reminded before they expire, send them in two taps, and make lien waivers.",
@@ -1154,6 +1274,26 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             {
                 "title": "Build kits",
                 "text": "[[New kit]] bundles items: add the components, quantities and any price override. The kit’s cost comes from its parts."
+            },
+            {
+                "title": "Labor in a kit",
+                "text": "In a kit, [[Add labor]] adds the hours of work for one kit. The rate starts at your labor rate (the one in Job financials); change it for this kit if you like. Burden (%) is what the labor costs you on top of wages (payroll taxes, insurance, workers comp). Markup (%) is the profit you add when you price the labor. The kit’s cost and price include it."
+            },
+            {
+                "title": "Expenses in a kit",
+                "text": "Costs that are not stock go in as expenses: tap [[Equipment rental]], [[Dump fee]], [[Permit fee]], [[Subcontract]] or [[Other]], then set the quantity, your cost and an optional markup (%). A permit passed on at cost needs no markup."
+            },
+            {
+                "title": "Read the breakdown",
+                "text": "Under the parts, the breakdown shows materials, labor and expenses (your cost and the price of each), the total, and the markup on top of your cost. Kit price follows the parts until you type your own price."
+            },
+            {
+                "title": "Kits on estimates and invoices",
+                "text": "A kit is still one line at the kit price. [[View kit contents]] lists the materials, the labor (hours) and the expenses that make it up; [[Hide contents on PDF]] keeps them off the printed page. Only names and prices are on the document, never your costs. Kits you saved before keep exactly the same price."
+            },
+            {
+                "title": "Starter kits",
+                "text": "[[Starter kits]] is a small library per trade: bathroom, kitchen, painting, electrical, plumbing, roofing and flooring. Pick the kits you want, look at Details, then [[Import]]. They land in your price book as normal kits. Starter prices: set your own. The prices are placeholders, so check every material, the labor hours and the markup before you quote with a kit. Labor uses your labor rate. A kit with the same name as one you already have is skipped."
             },
             {
                 "title": "Use it in documents",
