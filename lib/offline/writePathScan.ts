@@ -18,6 +18,8 @@ export const READ_ONLY_RPCS = new Set([
     'get_my_request_page', 'reminders_config',
     // crew clock-in links and field features: stable functions that only read
     'crew_links', 'get_portal_punch_list', 'get_portal_credentials', 'get_portal_service_plans',
+    // client portal project dashboard (D9, 20261116000300): stable, read-only
+    'get_portal_project_dashboard',
 ]);
 
 const DB_WRITE = /\.(insert|update|upsert|delete)\(/;
