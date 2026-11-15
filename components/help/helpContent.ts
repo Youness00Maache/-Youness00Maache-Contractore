@@ -14,7 +14,7 @@ export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
-  | 'estimate-review' | 'job-tasks';
+  | 'estimate-review' | 'job-tasks' | 'job-files' | 'job-questions' | 'client-questions-view';
 
 export interface HelpStep {
   title: string;
@@ -367,6 +367,66 @@ export const HELP_GUIDES: HelpGuide[] = [
       `Job tasks, the timeline and templates are part of ${premium.name}. Turning a note into tasks is part of ${ai.name}.`,
       'Tasks need a connection: when you are offline the app says so and the list comes back when you are online again.',
       'Give your workers tasks by choosing them in [[Who]]. Add workers first in Tools › Crew.',
+    ],
+  },
+  {
+    id: 'job-files',
+    title: 'Job files and links',
+    summary: 'Keep the plans, permits, contracts, specs and receipts of a job in one place, with versions, tags and a search. Show the ones your client should see.',
+    where: ['Job', 'Files'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open the Files tab', text: 'On a job page, switch to [[Files]]. Files are listed under their category (Plans, Permits, Contracts, Specs, Receipts, Visuals / renders, Other). Tap a file to open it.' },
+      { title: 'Add a file or a link', text: '[[Add file]] takes PDFs and images (JPG, PNG, WebP, GIF) up to 15 MB. [[Take photo]] uses the camera. Pick several files at once and they are added with a category guessed from the name. For anything bigger, or a folder, a 3D walkthrough or a supplier page, use [[Add link]].' },
+      { title: 'Name it, sort it, tag it', text: 'When you add one file, check its name, category, tags (separate with commas, like kitchen, rev B) and a note only you see. Later, open ⋯ › [[Details and versions]] to change them. The search box and the category and tag chips narrow the list.' },
+      { title: 'Keep every revision', text: 'In ⋯ › [[Upload new version]] (or inside the file) add the new drawing. The list shows the newest as v2, v3 and keeps its name, category and tags; the earlier ones fold under [[Older versions]] and can still be opened, downloaded or deleted one by one.' },
+      { title: 'Show a file to your client', text: 'Switch on [[Show in client portal]] (or ⋯ › [[Show to client]]). Images up to 5 MB and links can be shown; the client sees them under Files on their project page, images large and links in a new tab. A PDF cannot be shown yet: add a link to it (Google Drive, Dropbox) and show the link. When a shown file gets a new version, switch the new version on so the client sees it.' },
+      { title: 'Delete', text: '⋯ › [[Delete]] removes the whole document with all its versions after you confirm. Inside the file you can delete a single version.' },
+    ],
+    tips: [
+      `Job files, links and versions are part of ${premium.name}. Without it you can still open files you already have.`,
+      'Files need a connection: when you are offline the app says so and the list comes back when you are online again.',
+      'Attach a file or link to a client question with [[Attach from this job]] in [[Questions]].',
+    ],
+  },
+  {
+    id: 'job-questions',
+    title: 'Client questions and submittals',
+    summary: 'Ask your client which tile or paint colour, or send a change order or product sheet for approval. They answer from their project link and you keep who said what and when.',
+    where: ['Job', 'Questions'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open the Questions tab', text: 'On a job page, switch to [[Questions]]. The number next to it is how many are waiting for your client, and the job header shows the same. The job needs a client, because the client opens the questions from their project link.' },
+      { title: 'Write one', text: 'Tap [[New]] and start from a ready-made one (Which tile?, Paint colour, Approve the change order, Submittal: product data sheet) or from blank. A [[Question]] is answered in words. A [[Submittal]] is approved or rejected (the client needs a note to reject). Add a message, an optional date to answer by, and up to 10 attachments: files and links of this job with [[Attach from this job]], or a pasted link.' },
+      { title: 'Save it or send it', text: '[[Save draft]] keeps it to yourself. [[Send to client]] puts it on their project link. Use [[Copy client link]] on the Questions tab to give the client the link. A client sees images you have shown in the client portal and links; a PDF or an unshared file is shown by its name only, so attach a link to it.' },
+      { title: 'See the answer', text: 'When the client answers, the row says Answered, Approved or Rejected with their name, the date and their words. Tap the row for the whole history: when it was sent, edited, answered and asked again. Waiting items that pass their date show in red as overdue.' },
+      { title: 'Ask again, close or reopen', text: 'In ⋯ or inside the item: [[Ask again]] sends it back to the client (the earlier answer stays in the history), [[Close it]] ends it, [[Reopen]] sends a closed one again, [[Change it]] fixes the text of one already sent, and [[Delete]] removes it. Nothing is deleted by a close.' },
+    ],
+    tips: [
+      `Client questions and submittals are part of ${premium.name}.`,
+      'Questions need a connection: when you are offline the app says so and the list comes back when you are online again.',
+      'The client can answer only once for each time you send it. To get a new answer use [[Ask again]].',
+    ],
+  },
+  {
+    id: 'client-questions-view',
+    title: 'What your client sees: questions, approvals and files',
+    summary: 'On their project link your client answers your questions, approves or rejects submittals and opens the files you chose to show.',
+    where: ['Client portal', 'Project'],
+    group: 'Clients & messages',
+    appPath: '/clients',
+    steps: [
+      { title: 'A badge on Project', text: 'When something waits for the client, the Project tab of their link shows a small number, and [[Questions for you]] is the first thing on the page. Each item shows the job, the date it is due, your message and its attachments (links open in a new tab, shown images open large).' },
+      { title: 'A question', text: 'The client types their answer in the box and taps [[Send answer]]. They cannot send an empty answer.' },
+      { title: 'A submittal', text: 'The client taps [[Approve]] or [[Reject]], types their name and, to reject, a note about what should change, then taps [[Send decision]]. Typing the name confirms the decision. You see it at once on the job, with the name and the date.' },
+      { title: 'After answering', text: 'The client sees what they said, a thank-you and the history. Finished items fold under [[Answered]] the next time they open the link. If you [[Ask again]], the item comes back to them as waiting.' },
+      { title: 'Files', text: 'Under Files on the Project page the client finds the links and images you switched on with [[Show in client portal]], by category. When you have shown nothing, the section is not there at all.' },
+    ],
+    tips: [
+      'The client needs no account: the project link is enough. Use [[Copy client link]] on the Questions tab, or Copy portal link on the client.',
+      'Drafts and closed items are never shown to the client.',
     ],
   },
   {

@@ -30,7 +30,8 @@ export const categoryLabel = (id: JobFileCategory): string => JOB_FILE_CATEGORIE
 
 /** A first guess from the file name (the user can change it). */
 export const guessCategory = (fileName: string, mime?: string | null): JobFileCategory => {
-    const n = (fileName || '').toLowerCase();
+    // "Kitchen_plan_A101.pdf": an underscore is a word character, so it would hide the word boundary
+    const n = (fileName || '').toLowerCase().replace(/_+/g, ' ');
     if (/\b(plan|plans|drawing|blueprint|floor|elevation|layout|dwg|sheet[-_ ]?a\d)/.test(n)) return 'plans';
     if (/permit|inspection|approval/.test(n)) return 'permits';
     if (/contract|agreement|signed|change[-_ ]?order/.test(n)) return 'contracts';

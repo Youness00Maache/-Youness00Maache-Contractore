@@ -8,6 +8,10 @@
  * Project view (roadmap D9, components/portal/): a client who has jobs also gets "Project" (the job's progress,
  * milestones, what happens next, balance + its documents, photos) next to "All documents" (the list below, unchanged).
  * Without jobs, or while the database doesn't have get_portal_project_dashboard yet, the page is exactly the old one.
+ *
+ * Questions + files (roadmap D3, components/portal/): on the Project view, "Questions for you" (questions and submittals
+ * the contractor sent: answer, or approve / reject) sits on top with a badge on the Project tab, and "Files" (links and
+ * images the contractor chose to show) sits below. Both render nothing until the database has them and while empty.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
@@ -21,6 +25,9 @@ import PortalPunchList from './punch/PortalPunchList.tsx';
 import PortalCredentials from './papers/PortalCredentials.tsx';
 import PortalProjectDashboard, { JobSwitcher, ProjectSkeleton } from './portal/PortalProjectDashboard.tsx';
 import { usePortalDashboard } from './portal/usePortalDashboard.ts';
+import PortalQuestions from './portal/PortalQuestions.tsx';
+import PortalFiles from './portal/PortalFiles.tsx';
+import { usePortalQuestions } from './portal/usePortalQuestions.ts';
 import type { DashboardDocumentRow, NextStep } from '../lib/portal/dashboardTypes.ts';
 import type { StepAction } from '../lib/portal/dashboardLogic.ts';
 import PortalServicePlans from './service/PortalServicePlans.tsx';
@@ -195,6 +202,8 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
     /** only for clients with jobs: the project view (default) or the full document list */
     const [section, setSection] = useState<'project' | 'documents'>('project');
     const dash = usePortalDashboard(key);
+    /** questions / submittals waiting for the client + the files the contractor shared (roadmap D3); nothing is shown while the database has none */
+    const pq = usePortalQuestions(key, dash.phase === 'ready');
     const [openDoc, setOpenDoc] = useState<{ id: string; signing: boolean; session: number } | null>(null);
     const [outcomes, setOutcomes] = useState<Record<string, SigningOutcome>>({});
     const [problems, setProblems] = useState<Record<string, LinkProblem>>({});
@@ -364,6 +373,9 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                 >
                                     <span className="truncate">{label}</span>
                                     {count !== null && <span className={cx('rounded-full px-1.5 text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-background/60')}>{count}</span>}
+                                    {id === 'project' && pq.waiting > 0 && (
+                                        <span className="rounded-full bg-warning/20 px-1.5 text-[11px] font-bold tabular-nums text-warning" aria-label={`${pq.waiting} ${pq.waiting === 1 ? 'question waits' : 'questions wait'} for you`}>{pq.waiting}</span>
+                                    )}
                                 </button>
                             );
                         })}
@@ -408,6 +420,15 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
 
                 {showProject ? (
                     <div className="mt-6">
+                        {pq.phase === 'error' && (
+                            <p className="mb-4 text-sm text-muted-foreground" role="status">
+                                We couldn&apos;t load your questions.{' '}
+                                <button type="button" className="font-semibold text-primary underline underline-offset-2" onClick={pq.reload}>Try again</button>
+                            </p>
+                        )}
+                        {pq.phase === 'ready' && (
+                            <PortalQuestions portalKey={key} questions={pq.questions} company={company} onAnswered={pq.replace} onStale={pq.reload} className="mb-7" />
+                        )}
                         {dash.jobPhase === 'ready' && dash.view ? (
                             <PortalProjectDashboard
                                 view={dash.view}
@@ -427,6 +448,7 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                 ) : <ProjectSkeleton />}
                             </div>
                         )}
+                        {pq.files.length > 0 && dash.jobPhase === 'ready' && <PortalFiles files={pq.files} jobId={dash.jobId} className="mt-7" />}
                     </div>
                 ) : (
                     <>
