@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D3) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: RLS on both tables, 8 owner policies, 6 triggers, no anon table grants, anon can run only get_portal_questions / answer_portal_question / get_portal_job_files, a bad portal key is refused by both reads and the answer function.
 -- =====================================================================================
 -- ContractorDocs: job files + project questions + submittals (competitor roadmap batch D3: #12, #20, #21, #22)
 --

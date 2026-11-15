@@ -257,7 +257,7 @@ const MIGRATION = 'supabase/migrations/20261116000500_leads_appointments.sql';
 const sqlRaw = readFileSync(join(root, MIGRATION), 'utf8').replace(/\r\n/g, '\n');
 const sql = sqlRaw.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
 const lower = sql.toLowerCase();
-ok(/Applied: NOT YET \(needs owner OK\)/.test(sqlRaw.split('\n')[0]), 'header says not applied');
+ok(/^-- Applied 2026-11-15 with the owner's OK/.test(sqlRaw.split('\n')[0]), 'header says applied with the owner OK');
 ok(!/kelviq|merchant of record/i.test(sqlRaw), 'no billing provider names');
 
 // quote_requests: only ADD COLUMN IF NOT EXISTS (+ the NOT VALID constraints, added once)

@@ -1,5 +1,4 @@
--- Applied: NOT YET (needs owner OK). Covered by the owner's "Yes, approve all" for roadmap D1 (2026-11-14), but it
--- is applied only when the coordinator asks; keep this line until then.
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D1) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: 10 new quote_requests columns, 6 checks, guard trigger (a rolled-back test showed a public row loses owner-only fields, a manual row is forced to source manual / status seen / no photos), appointments RLS + 4 owner policies, no anon grants, existing rows untouched.
 -- =====================================================================================
 -- ContractorDocs: leads + appointments (competitor roadmap D1, gaps #3, #6)
 --

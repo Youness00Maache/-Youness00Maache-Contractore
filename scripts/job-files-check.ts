@@ -233,7 +233,7 @@ const SQL = readFileSync(join(ROOT, 'supabase/migrations/20261116000400_job_file
 const code = SQL.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
 const lower = code.toLowerCase();
 
-ok('header: not applied yet', /^-- Applied: NOT YET \(needs owner OK\)/.test(SQL));
+ok('header: applied with the owner OK', /^-- Applied 2026-11-15 with the owner's OK/.test(SQL));
 ok('no Kelviq / merchant of record', !/kelviq|merchant of record/i.test(SQL));
 
 // additive only
