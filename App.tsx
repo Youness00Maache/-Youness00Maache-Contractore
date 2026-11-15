@@ -3042,7 +3042,19 @@ const App: React.FC = () => {
             case 'help':
                 return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;
             case 'analytics':
-                return <AnalyticsView jobs={jobs} defaultLaborRate={profile?.defaultLaborRate} onBack={navigateToDashboard} />;
+                return <AnalyticsView
+                    jobs={jobs}
+                    defaultLaborRate={profile?.defaultLaborRate}
+                    onBack={navigateToDashboard}
+                    overview={{
+                        clients,
+                        profile,
+                        isOnline,
+                        tasksReady: tasksFeature === 'ready',
+                        leadsUserId: leadsReady && session ? session.user.id : null,
+                        onOpenJob: (jobId: string) => setView({ screen: 'jobDetails', jobId }),
+                    }}
+                />;
             case 'calendar':
                 return <CalendarView
                     jobs={jobs}
