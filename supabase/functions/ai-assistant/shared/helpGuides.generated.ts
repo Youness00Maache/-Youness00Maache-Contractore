@@ -204,6 +204,48 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "proposals",
+        "title": "Proposals: optional add-ons, scope, payment schedule, photos",
+        "summary": "Turn an estimate into a full proposal: extras the client can ask for, a clear scope, a payment schedule and project photos, printed in every design.",
+        "where": [
+            "Job",
+            "Estimate",
+            "Proposal"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Add optional add-ons",
+                "text": "Under Items, open Optional add-ons and click [[Add an add-on]], or pick a line in Move a line here. Add-ons print with their price and an Optional tag, but are not in the subtotal, tax or total. Tick In the total when the client wants one: it then counts like a normal line. [[Make it a regular line]] moves it back."
+            },
+            {
+                "title": "Write the scope",
+                "text": "In the Proposal section, Scope tab, add Scope of work, Inclusions, Exclusions, Assumptions and Timeline / schedule. Type one item per line for a list, or switch Print as to Paragraphs. The arrows change the order they print in."
+            },
+            {
+                "title": "Set the payment schedule",
+                "text": "In the Payments tab pick 50 / 50, 30 / 40 / 30 or 10 / 40 / 40 / 10, or click [[Add payment]]. Each payment is a % of the total or a fixed amount (% → $ switches). The payments must add up to the total; amounts are rounded to the cent and the last payment takes the leftover cents."
+            },
+            {
+                "title": "Add project photos",
+                "text": "In the Photos tab click [[Upload photo]] or [[From job photos]] (up to 8, JPG, PNG or WebP) and add a caption. They print as a photo page with captions; hiding Photos in a Premium design leaves them out."
+            },
+            {
+                "title": "Bill the schedule",
+                "text": "On an accepted estimate, [[Convert to invoice]] asks What to invoice: the whole estimate, the deposit (one line for the exact amount) or a later payment (a progress billing invoice with the right % complete and what was billed before)."
+            },
+            {
+                "title": "Reuse it",
+                "text": "Click [[Save as template]] to keep the scope sections, payment schedule and terms. On the next estimate, Use a template fills them in. Free keeps one template; Premium keeps up to 20."
+            }
+        ],
+        "tips": [
+            "Clients see the scope, add-ons (marked not included in the total), payment schedule and photos on the approval link and in the portal. Choosing add-ons online comes later.",
+            "Optional add-ons are left out of invoices, the job budget, Insights and the bookkeeper export until they are switched on.",
+            "Once the client signs, the scope, schedule, photos and add-ons are locked with the rest of the estimate."
+        ]
+    },
+    {
         "id": "estimate-review",
         "title": "Review an estimate before you send it",
         "summary": "A second look at an estimate: math, missing prices, odd quantities, margin, price book and tax, plus (Premium + AI) items and costs you may have forgotten.",
@@ -1294,7 +1336,50 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         "tips": [
             "Read and removed notifications follow your account to every device. Nothing is emailed.",
             "The list checks for news every few minutes while the app is open, and right away when you open the bell.",
-            "The Clients, Tools and Community badges still work as before."
+            "The Clients, Tools and Community badges still work as before.",
+            "The rules in Settings › Automations (overdue tasks, lead follow-ups, client answers, drafts made for you) add their notes here too; the Automation rules switch turns them all off."
+        ]
+    },
+    {
+        "id": "automations",
+        "title": "Automations",
+        "summary": "Rules that follow up for you: they tell you what needs you, or make a draft that you check and send yourself.",
+        "where": [
+            "Account menu",
+            "Settings",
+            "Automations"
+        ],
+        "appPath": "/settings#automations",
+        "steps": [
+            {
+                "title": "Open the list",
+                "text": "Open Settings and find Automations. The rules are grouped as Money, Jobs, Leads & clients and Stock & supplies. Each row says what happens when something happens, and has an on/off switch."
+            },
+            {
+                "title": "Switch what you want",
+                "text": "The switches for reminder emails and for bell notes (overdue invoices, low stock, papers about to expire…) are the same settings you already had in Reminders and Notifications: changing one here changes it there too. The new rules start as shown (most are on, [[Estimate with no answer]] is off); change any of them."
+            },
+            {
+                "title": "Tell me, or do it for me",
+                "text": "[[Estimate approved, invoice next]] and [[Job completed, warranty next]] can make a draft instead of only telling you. Choose [[Just tell me]] or [[Do it for me]] (Premium). A draft is a normal Draft document: tap its note in the bell, check it, change it and send it yourself. A rule never sends, signs or bills anything."
+            },
+            {
+                "title": "Only new things, never twice",
+                "text": "[[Do it for me]] starts the moment you choose it: it never makes drafts for estimates approved or jobs completed before that, and never makes a second one for the same estimate or job. If you already converted the estimate yourself, it leaves it alone."
+            },
+            {
+                "title": "Pick how long to wait",
+                "text": "For [[Estimate with no answer]] choose 3 days, 7 days or 14 days. It tells you once per estimate, so you can call the client."
+            },
+            {
+                "title": "Find the notes",
+                "text": "Notes from these rules show in the bell, once each (what you read or remove stays gone on every device). In Settings, Notifications, the Automation rules switch turns them all off at once. Rules for tools that are not switched on for your account yet (tasks, leads, client questions) are not listed."
+            }
+        ],
+        "tips": [
+            "Free keeps every “just tell me” rule. Drafts made for you are part of Premium.",
+            "Reminder emails still go from your own Gmail, on the schedule you set in Reminders ([[Days and wording]]).",
+            "Always on: receiving a purchase order adds its items to your stock, and stock moves when an invoice is paid or an estimate is accepted."
         ]
     },
     {
