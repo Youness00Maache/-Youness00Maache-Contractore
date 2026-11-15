@@ -272,6 +272,12 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   bundle has no pdf.js. ai-assistant NOT redeployed for the plans help guide (help knowledge only): redeploy with the next
   release. Untested: real storage upload of the .measure.png, iOS Safari, real touch pinch.
   REMAINING: D6 bills to pay, D12 push notifications.
+- 2026-11-15 FIXED (owner screenshot): "Leads" was shown twice (top bar on wide screens AND first entry of Tools). The top-bar
+  copy is removed; Leads is only in Tools; its follow-ups-due count now shows on the Tools button (components/AppNav.tsx,
+  scripts/leads-check.ts). main/my-branch dcc1083, suite green (51 steps), live. The TUTORIAL VIDEO (owner request, one long
+  video with chapters, voiceover via the AI33 API from the Fremator project, multi-language subtitles, in the in-app
+  tutorial) was handed to its own session: "Full tutorial video with chapters, voiceover, subtitles" (work files under
+  docs/work/tutorial-video/, untracked by this session).
 - 2026-11-15 SHIPPED D11 sent-email log (DB 20261116001200 applied: `email_log` = who/what/when only, no body/attachments/
   tokens; owner SELECT + DELETE only, rows written by the `gmail` edge function with the service role, newest 5000 per user kept;
   `gmail` function REDEPLOYED: logging is best-effort in its own try/catch, response unchanged; the job timeline now shows
