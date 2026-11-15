@@ -218,6 +218,12 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   those: D10 phase B UI (Sonnet), D8 profile + reviews (Opus A -> Sonnet B), N6 AI documents (Opus; Gemini vision), N9 plan
   measurement (Opus), N10 integrations (Sonnet), N11 timeline + D11 email log, D6 bills, D12 push (owner adds VAPID
   secrets; never type them).
+  2026-11-15 ~06:10 UTC: D10 phase A merged (f6c9a10) + migration 20261116000900_reminder_kinds_warranty.sql APPLIED +
+  verified (reminders kind/step_key checks widened; skip_reminder with the 3 kinds) + `reminders` edge function REDEPLOYED
+  (JWT verify still OFF; new kinds are off by default so nothing sends yet). App part (lib/warranty etc.) merged on my-branch,
+  NOT pushed. RUNNING: D10 phase B Sonnet UI (agent-ae7bd8327b0ff78fc: warranty coverage + claims in the Warranty form,
+  Warranties list, Automations rows for the 3 emails) and N7 Opus (agent-afaedc695c469247e). Ship D10 + N7 together next
+  (merge, --sync-knowledge, full suite, push, redeploy ai-assistant, Done log).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
