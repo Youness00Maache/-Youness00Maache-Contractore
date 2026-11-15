@@ -176,6 +176,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   assemblies, D5 selections + boards, D7 subs + quote comparison, D10 warranty/email automations, N7 job AI, D8 profile +
   reviews, N3 business overview, N6 AI documents, N8 setup, N9 plan measurement, N10 integrations, N11 timeline + D11,
   D6 bills, D12 push (needs VAPID secrets from the owner).
+  2026-11-15 ~04:30 UTC: D1 + D3 SHIPPED (see Done log). RUNNING: N12 automations (Sonnet, agent-a93109e97f5456518) and
+  N4 proposal builder (Opus, agent-a9e8be64fa26cafe4; no DB; D13 = SQL change to the signing functions comes AFTER, needs
+  its own careful review: the helper reports portal/SQL risks). After them: D5 selections + boards (Opus phase A) -> UI,
+  N5 assemblies (Sonnet), D7 subs + quote comparison, D10 warranty/email automations, N7 job AI, D8 profile + reviews, N3,
+  N6, N8, N9, N10, N11 + D11, D6 bills, D12 push (needs the owner's VAPID secrets).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -183,6 +188,13 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED D1 leads + appointments (Leads board/list, lead window, manual add, follow-ups + appointments on the
+  Schedule, .ics, "due" count) and D3 job files + client questions/submittals (job Files/Questions tabs; portal "Questions
+  for you" + Files). DB 20261116000400 + 20261116000500 applied 2026-11-15 (verified; D1 guard trigger tested with a
+  rolled-back insert). main/my-branch 23cd475; suite green (36 steps); ai-assistant redeployed (help for leads/files/questions);
+  live bundle has "Needs follow-up", "Add lead", "Questions for you", "Upload new version". Click paths: Leads (nav);
+  lead > Book appointment / Convert to job; Job > Files / Questions; /?portal=<key> > Project > "Questions for you"
+  (not clicked live: needs the owner's account).
 - 2026-11-15 SHIPPED D2 job tasks + schedule UI (Tasks tab, Timeline, calendar markers, templates, AI "Note to tasks", work-order
   tasks, worker "My tasks") and D9 client portal project dashboard (portal Project tab, owner "What my client sees"); DB:
   20261116000100 (applied 2026-11-15), 20261116000300 get_portal_project_dashboard (applied 2026-11-15). main/my-branch
