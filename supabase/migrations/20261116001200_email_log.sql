@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D11) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: RLS on, owner SELECT + DELETE policies only, anon has no access, trigger cleans text / drops foreign links / clears the error on a sent row, a bogus kind is refused, trigger function not executable by anon.
 -- =====================================================================================
 -- ContractorDocs: sent-email log (competitor roadmap D11, #4 job communication timeline, #46 Gmail)
 --

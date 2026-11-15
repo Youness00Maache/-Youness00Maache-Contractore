@@ -33,7 +33,7 @@ const sqlRaw = read('supabase/migrations/20261116001200_email_log.sql');
 const sql = sqlRaw.split('\n').map(l => l.replace(/--.*$/, '')).join('\n');
 const lower = sql.toLowerCase();
 
-ok('migration: header says not applied yet', /^-- Applied: NOT YET \(needs owner OK\)/.test(sqlRaw));
+ok('migration: header says applied with the owner OK', /^-- Applied 2026-11-15 with the owner's OK/.test(sqlRaw));
 eq('migration: exactly one table created', (lower.match(/create table/g) || []).length, 1);
 ok('migration: the table is public.email_log, idempotent', /create table if not exists public\.email_log \(/.test(lower));
 ok('migration: RLS on', /alter table public\.email_log enable row level security;/.test(lower));
