@@ -79,6 +79,7 @@ import { listJobQuestions, useQuestionsFeature } from './lib/questions/questions
 import { summarizeQuestions } from './lib/questions/questionLogic.ts';
 import { tabWaiting, waitingChip } from './lib/questions/questionView.ts';
 import { listJobSelections, useSelectionsFeature } from './lib/selections/selectionsApi.ts';
+import { useSubsFeature } from './lib/subs/subsApi.ts';
 import { summarizeSelections } from './lib/selections/selectionLogic.ts';
 import { headerChip as selectionsHeaderChip, tabBadge as selectionsTabBadge } from './lib/selections/selectionView.ts';
 import type { SelectionSummary } from './lib/selections/selectionTypes.ts';
@@ -158,6 +159,7 @@ const JobFilesPanel = lazy(() => import('./components/jobFiles/JobFilesPanel.tsx
 const JobQuestionsPanel = lazy(() => import('./components/questions/JobQuestionsPanel.tsx'));
 // Client selections + mood boards (roadmap D5): job page tabs, hidden until the database has them.
 const JobSelectionsPanel = lazy(() => import('./components/selections/JobSelectionsPanel.tsx'));
+const JobSubsPanel = lazy(() => import('./components/subs/JobSubsPanel.tsx'));
 const JobBoardsPanel = lazy(() => import('./components/boards/JobBoardsPanel.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
@@ -1159,6 +1161,7 @@ const App: React.FC = () => {
     // Client selections + mood boards (Premium): their tabs stay hidden until they are in the database. The "2 waiting" next to
     // the Selections tab is read when a job page opens and kept up to date by the Selections panel itself.
     const selectionsFeature = useSelectionsFeature(session?.user?.id ?? null, isOnline);
+    const subsFeature = useSubsFeature(session?.user?.id ?? null, isOnline);
     const boardsFeature = useBoardsFeature(session?.user?.id ?? null, isOnline);
     const [selectionSummaries, setSelectionSummaries] = useState<Record<string, SelectionSummary>>({});
     const handleSelectionSummary = useCallback((jobId: string, s: SelectionSummary) => {
@@ -2698,6 +2701,11 @@ const App: React.FC = () => {
                 ) : undefined}
                 selectionsLabel={selectionsFeature === 'ready' && selectionSummaries[job.id] ? selectionsTabBadge(selectionSummaries[job.id]) || undefined : undefined}
                 selectionsChip={selectionsFeature === 'ready' && selectionSummaries[job.id] ? selectionsHeaderChip(selectionSummaries[job.id]) || undefined : undefined}
+                subsSlot={subsFeature === 'ready' && session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobSubsPanel job={job} userId={session.user.id} companyName={profile?.companyName || profile?.name || ''} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} />
+                    </Suspense>
+                ) : undefined}
                 boardsSlot={boardsFeature === 'ready' && session ? (
                     <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
                         <JobBoardsPanel job={job} client={client} userId={session.user.id} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} />

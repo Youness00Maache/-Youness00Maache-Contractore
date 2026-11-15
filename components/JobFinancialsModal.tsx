@@ -12,6 +12,7 @@ import { CalculatorIcon, XCircleIcon, InfoIcon } from './Icons.tsx';
 import { Skeleton } from './ui/Skeleton.tsx';
 import JobCostingPanel from './costing/JobCostingPanel.tsx';
 import SelectionsBudgetLine from './selections/SelectionsBudgetLine.tsx';
+import SubsBudgetLine from './subs/SubsBudgetLine.tsx';
 import { errorText } from '../lib/offline/connection.ts';
 
 interface JobFinancialsModalProps {
@@ -114,6 +115,8 @@ const JobFinancialsModal: React.FC<JobFinancialsModalProps> = ({ job, defaultLab
 
                             {/* client selections (roadmap D5): an extra line next to the numbers; nothing for a job without selections */}
                             <SelectionsBudgetLine jobId={job.id} />
+                            {/* subcontracts (roadmap D7): committed / paid / still to pay next to the numbers; nothing for a job without subcontracts */}
+                            <SubsBudgetLine jobId={job.id} />
 
                             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
                                 <Cell

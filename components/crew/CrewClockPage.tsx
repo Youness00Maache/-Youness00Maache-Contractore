@@ -27,6 +27,8 @@ import { registerOfflineShell, warmOfflineShell } from '../../lib/offline/offlin
 
 // "My tasks" (job tasks the boss gave this worker): its own small chunk; renders nothing when the task list can't be reached
 const CrewMyTasks = lazy(() => import('./CrewMyTasks.tsx'));
+// "My subcontract" (roadmap D7): for a subcontractor with work sent to them; renders nothing for workers or when it can't be reached
+const CrewMySubcontract = lazy(() => import('./CrewMySubcontract.tsx'));
 
 /** A problem inside the task list must never break the clock-in page. */
 class TasksBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
@@ -646,6 +648,15 @@ const CrewClockPage: React.FC<{ token: string }> = ({ token }) => {
                         </div>
                     )}
                 </section>
+            )}
+
+            {/* my subcontract (subcontractors only): nothing at all for workers or when it can't be reached */}
+            {!paused && (
+                <TasksBoundary>
+                    <Suspense fallback={null}>
+                        <CrewMySubcontract token={token} lang={lang} today={today} online={online} />
+                    </Suspense>
+                </TasksBoundary>
             )}
 
             {/* my tasks (job tasks); nothing at all when they can't be reached */}

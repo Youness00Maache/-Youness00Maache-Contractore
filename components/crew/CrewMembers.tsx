@@ -2,17 +2,21 @@
  * Crew members (Crew page › Crew members, and the job Crew tab): add / edit people, the jobs they may clock in to,
  * and their private clock-in link (copy, text, email, QR, new link, turn off). Workers need no login and cost no seat.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Job } from '../../types.ts';
 import { CREW_LIMITS, crewInviteText, crewLinkUrl, firstName } from '../../lib/crew/crewLogic.ts';
 import {
     assignJob, createMember, deleteMember, setMemberLink, unassignJob, updateMember, type CrewData, type CrewMember,
 } from '../../lib/crew/crewApi.ts';
 import { qrSvg } from '../../lib/qrcode.ts';
-import { ConfirmDialog, Modal, timeAgo } from '../viewKit.tsx';
+import { ConfirmDialog, Modal, Segmented, timeAgo } from '../viewKit.tsx';
 import { toast } from '../Toast.tsx';
 import { CopyIcon, MailIcon, PhoneIcon, PlusIcon, RefreshCwIcon, TrashIcon } from '../Icons.tsx';
 import { cx } from './crewUi.tsx';
+import { updateSubMember, useSubsFeature } from '../../lib/subs/subsApi.ts';
+import { KIND_LABEL, MEMBER_FILTERS, memberFilterMatches, memberSubLine, subInviteText, type MemberFilter } from '../../lib/subs/subView.ts';
+import { SUB_LIMITS, type CrewKind, type SubMember } from '../../lib/subs/subTypes.ts';
+import { useSubMembers } from '../subs/useJobSubs.ts';
 
 const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const money = (n: number) => `$${n.toFixed(2).replace(/\.00$/, '')}`;
@@ -55,9 +59,12 @@ export const MemberEditor: React.FC<{
     /** a job to tick for a new member (job page) */
     presetJobId?: string;
     onClose: () => void;
-    onSaved: (member: CrewMember, token: string | null, jobIds: string[]) => void;
+    /** `quiet`: the person was saved but the subcontractor details were not (the error is already on screen): skip the "Saved." message */
+    onSaved: (member: CrewMember, token: string | null, jobIds: string[], opts?: { quiet?: boolean }) => void;
     onUpgrade: (reason?: string) => void;
-}> = ({ open, member, jobs, data, presetJobId, onClose, onSaved, onUpgrade }) => {
+    /** worker / subcontractor details (roadmap D7), shown when the database has them; the job page's "new crew member" passes nothing */
+    subs?: { loaded: boolean; info: SubMember | null; onSaved: (member: SubMember) => void };
+}> = ({ open, member, jobs, data, presetJobId, onClose, onSaved, onUpgrade, subs }) => {
     const assigned = useMemo(() => new Set(member ? data.assignments.filter(a => a.memberId === member.id).map(a => a.jobId) : presetJobId ? [presetJobId] : []), [member, data.assignments, presetJobId]);
     const [name, setName] = useState(member?.name || '');
     const [phone, setPhone] = useState(member?.phone || '');
@@ -66,6 +73,21 @@ export const MemberEditor: React.FC<{
     const [jobIds, setJobIds] = useState<Set<string>>(() => new Set(assigned));
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState('');
+    // worker / subcontractor (roadmap D7): hidden until the database has it
+    const subsReady = useSubsFeature(undefined, false) === 'ready';
+    const showKind = subsReady && (member === null || !!subs?.loaded);
+    const [kind, setKind] = useState<CrewKind>(subs?.info?.kind || 'employee');
+    const [company, setCompany] = useState(subs?.info?.company || '');
+    const [trade, setTrade] = useState(subs?.info?.trade || '');
+    const kindTouched = useRef(false);
+    // the kinds can arrive just after the window opens: fill them in unless the owner already changed them
+    useEffect(() => {
+        const i = subs?.info;
+        if (!i || kindTouched.current) return;
+        setKind(i.kind);
+        setCompany(i.company);
+        setTrade(i.trade);
+    }, [subs?.info]);
     const list = useMemo(() => {
         const visible = openJobs(jobs);
         // jobs already assigned stay visible even when finished, so they can be unticked
@@ -89,7 +111,20 @@ export const MemberEditor: React.FC<{
             const remove = member ? [...assigned].filter(id => !jobIds.has(id)) : [];
             for (const id of add) await assignJob(saved.id, id);
             for (const id of remove) await unassignJob(saved.id, id);
-            onSaved(saved, token, [...jobIds]);
+            let quiet = false;
+            if (showKind) {
+                const before = subs?.info || { kind: 'employee' as CrewKind, company: '', trade: '' };
+                if (kind !== before.kind || company.trim() !== before.company.trim() || trade.trim() !== before.trade.trim()) {
+                    try {
+                        const sm = await updateSubMember(saved.id, { kind, company, trade });
+                        subs?.onSaved(sm);
+                    } catch (e) {
+                        quiet = true;
+                        toast.error(`${saved.name} was saved, but the subcontractor details were not: ${(e as Error)?.message || 'try again from Edit.'}`);
+                    }
+                }
+            }
+            onSaved(saved, token, [...jobIds], { quiet });
         } catch (e) {
             const kind = (e as { kind?: string })?.kind;
             if (kind === 'premium') { onClose(); onUpgrade('Crew clock-in links are part of Premium.'); return; }
@@ -118,6 +153,30 @@ export const MemberEditor: React.FC<{
                     <span className="label">Name</span>
                     <input className="input" value={name} onChange={e => setName(e.target.value.slice(0, CREW_LIMITS.name))} autoFocus={!member} placeholder="e.g. Maria Lopez" autoComplete="off" />
                 </label>
+                {showKind && (
+                    <div>
+                        <span className="label">Type</span>
+                        <Segmented<CrewKind>
+                            ariaLabel="Worker or subcontractor"
+                            value={kind}
+                            onChange={v => { kindTouched.current = true; setKind(v); }}
+                            options={[{ value: 'employee', label: KIND_LABEL.employee }, { value: 'subcontractor', label: KIND_LABEL.subcontractor }]}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">{kind === 'subcontractor' ? 'Paid per scope of work. Their link also shows the subcontracts you send them, to accept.' : 'Clocks in and out. Their hours become time sheets.'}</p>
+                        {kind === 'subcontractor' && (
+                            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                                <label className="block">
+                                    <span className="label">Company <span className="font-normal text-muted-foreground">(optional)</span></span>
+                                    <input className="input" value={company} onChange={e => { kindTouched.current = true; setCompany(e.target.value.slice(0, SUB_LIMITS.company)); }} placeholder="e.g. Bay Electric" autoComplete="off" />
+                                </label>
+                                <label className="block">
+                                    <span className="label">Trade <span className="font-normal text-muted-foreground">(optional)</span></span>
+                                    <input className="input" value={trade} onChange={e => { kindTouched.current = true; setTrade(e.target.value.slice(0, SUB_LIMITS.trade)); }} placeholder="e.g. Electrical" autoComplete="off" />
+                                </label>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
                         <span className="label">Phone <span className="font-normal text-muted-foreground">(optional, to text the link)</span></span>
@@ -166,13 +225,15 @@ export const LinkSheet: React.FC<{
     isOnline: boolean;
     onClose: () => void;
     onToken: (token: string | null) => void;
-}> = ({ member, token, company, isOnline, onClose, onToken }) => {
+    /** a subcontractor (roadmap D7): the same link, worded for them */
+    isSub?: boolean;
+}> = ({ member, token, company, isOnline, onClose, onToken, isSub }) => {
     const [busy, setBusy] = useState(false);
     const [confirm, setConfirm] = useState<'new' | 'off' | null>(null);
     const url = token ? crewLinkUrl(window.location.origin, token) : '';
-    const text = url ? crewInviteText(member.name, company, url) : '';
+    const text = url ? (isSub ? subInviteText(member.name, company, url) : crewInviteText(member.name, company, url)) : '';
     const sms = url && member.phone ? smsHref(member.phone, text) : '';
-    const mail = url && member.email ? mailHref(member.email, `${company || 'Your'} clock-in link`, text) : '';
+    const mail = url && member.email ? mailHref(member.email, `${company || 'Your'} ${isSub ? 'subcontract' : 'clock-in'} link`, text) : '';
     const qr = useMemo(() => (url ? qrSvg(url, { size: 168, margin: 2, title: `Clock-in link for ${member.name}` }) : ''), [url, member.name]);
 
     const run = async (action: 'new' | 'off') => {
@@ -194,8 +255,8 @@ export const LinkSheet: React.FC<{
             open
             onClose={onClose}
             busy={busy}
-            title={`${member.name}'s clock-in link`}
-            description="Private to them: it works only for the jobs you give them, and only until you turn it off."
+            title={isSub ? `${member.name}'s link` : `${member.name}'s clock-in link`}
+            description={isSub ? 'Private to them: it shows the subcontracts and tasks you give them, and works only until you turn it off.' : 'Private to them: it works only for the jobs you give them, and only until you turn it off.'}
             footer={<button type="button" className="btn btn-outline" onClick={onClose}>Done</button>}
         >
             {url ? (
@@ -265,10 +326,18 @@ const CrewMembers: React.FC<{
     const [removing, setRemoving] = useState<CrewMember | null>(null);
     const [busy, setBusy] = useState(false);
     const jobName = useMemo(() => new Map(jobs.map(j => [j.id, j.name])), [jobs]);
-    const active = data.members.filter(m => m.active);
-    const archived = data.members.filter(m => !m.active);
+    // worker / subcontractor (roadmap D7): hidden until the database has it
+    const subsReady = useSubsFeature(userId, isOnline) === 'ready';
+    const sub = useSubMembers(subsReady, isOnline);
+    const [filter, setFilter] = useState<MemberFilter>('all');
+    const kindOf = (id: string): CrewKind => (subsReady ? sub.byId.get(id)?.kind || 'employee' : 'employee');
+    const shown = (m: CrewMember) => !subsReady || memberFilterMatches(filter, kindOf(m.id));
+    const everyActive = data.members.filter(m => m.active);
+    const active = everyActive.filter(shown);
+    const archived = data.members.filter(m => !m.active && shown(m));
+    const filterCount = (id: MemberFilter) => everyActive.filter(m => memberFilterMatches(id, kindOf(m.id))).length;
 
-    const saved = (m: CrewMember, token: string | null, jobIds: string[]) => {
+    const saved = (m: CrewMember, token: string | null, jobIds: string[], opts?: { quiet?: boolean }) => {
         const members = data.members.some(x => x.id === m.id) ? data.members.map(x => (x.id === m.id ? m : x)) : [...data.members, m].sort((a, b) => a.name.localeCompare(b.name));
         const assignments = [
             ...data.assignments.filter(a => a.memberId !== m.id),
@@ -281,7 +350,7 @@ const CrewMembers: React.FC<{
         setEditing(null);
         setAdding(false);
         if (isNew) setLinkFor(m);
-        else toast.success('Saved.');
+        else if (!opts?.quiet) toast.success('Saved.');
     };
 
     const setActive = async (m: CrewMember, next: boolean) => {
@@ -316,6 +385,8 @@ const CrewMembers: React.FC<{
         const mine = data.assignments.filter(a => a.memberId === m.id).map(a => jobName.get(a.jobId)).filter(Boolean) as string[];
         const st = status[m.id];
         const token = data.links[m.id] || null;
+        const subInfo = subsReady ? sub.byId.get(m.id) : undefined;
+        const subLine = subInfo ? memberSubLine(subInfo) : '';
         return (
             <li key={m.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
                 <div className="min-w-0 flex-1">
@@ -324,6 +395,9 @@ const CrewMembers: React.FC<{
                         {st && <span className={cx('text-xs font-semibold', st.tone === 'success' ? 'text-success' : st.tone === 'warning' ? 'text-warning' : 'text-destructive')}>{st.text}</span>}
                         {!m.active && <span className="text-xs font-medium text-muted-foreground">Archived</span>}
                     </p>
+                    {subInfo?.kind === 'subcontractor' && (
+                        <p className="truncate text-xs"><span className="font-semibold text-primary">Subcontractor</span>{subLine ? <span className="text-muted-foreground"> · {subLine}</span> : null}</p>
+                    )}
                     <p className="truncate text-xs text-muted-foreground">
                         {[m.phone, m.email, m.costRate !== null ? `${money(m.costRate)}/h cost` : ''].filter(Boolean).join(' · ') || 'No contact details'}
                     </p>
@@ -349,7 +423,17 @@ const CrewMembers: React.FC<{
 
     return (
         <div className="space-y-4">
-            {active.length === 0 ? (
+            {subsReady && sub.members !== null && everyActive.length > 0 && (
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Show">
+                    {MEMBER_FILTERS.map(f => (
+                        <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}
+                            className={cx('inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-3 text-sm font-semibold transition', filter === f.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground')}>
+                            {f.label}<span className="tabular-nums opacity-70">{filterCount(f.id)}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+            {everyActive.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border bg-card/50 px-5 py-8 text-center">
                     <p className="font-semibold">No crew yet</p>
                     <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">Add the people who work for you. Each one gets a private link to clock in and out from their phone.</p>
@@ -357,6 +441,8 @@ const CrewMembers: React.FC<{
                         <PlusIcon className="h-4 w-4" /> Add crew member
                     </button>
                 </div>
+            ) : active.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">{filter === 'subs' ? 'No subcontractors yet. Open a crew member, tap Edit and set Type to Subcontractor.' : 'No workers in this list.'}</p>
             ) : (
                 <ul className="divide-y divide-border rounded-2xl border border-border bg-card">{active.map(row)}</ul>
             )}
@@ -376,12 +462,14 @@ const CrewMembers: React.FC<{
                     onClose={() => { setEditing(null); setAdding(false); }}
                     onSaved={saved}
                     onUpgrade={onUpgrade}
+                    subs={subsReady ? { loaded: sub.members !== null, info: editing ? sub.byId.get(editing.id) || null : null, onSaved: sub.set } : undefined}
                 />
             )}
             {linkFor && (
                 <LinkSheet
                     member={data.members.find(m => m.id === linkFor.id) || linkFor}
                     token={data.links[linkFor.id] || null}
+                    isSub={subsReady && sub.byId.get(linkFor.id)?.kind === 'subcontractor'}
                     company={company}
                     isOnline={isOnline}
                     onClose={() => setLinkFor(null)}
