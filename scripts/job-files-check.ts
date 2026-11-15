@@ -6,7 +6,7 @@
  * No database needed:
  *   npx tsx scripts/job-files-check.ts
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -22,6 +22,25 @@ import {
 import { QUESTION_LIMITS, type JobQuestion, type QuestionStatus } from '../lib/questions/questionTypes.ts';
 import { READ_ONLY_RPCS } from '../lib/offline/writePathScan.ts';
 import { WRITE_PATHS } from '../lib/offline/writePathAudit.ts';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import {
+    FILES_NEED_CONNECTION, FILES_PREMIUM_REASON, FILE_ACCEPT, addedMessage, categoryChips, checkPickedFiles, filesSummary, filterGroups,
+    groupByCategory, linkHost, rowMeta, shareInfo, sharedDocuments, shortDate, stampOf, versionBadge, ymdOfIso,
+} from '../lib/jobFiles/jobFileView.ts';
+import {
+    CLIENT_ANSWERS_LINE, QUESTIONS_NEED_CONNECTION, QUESTIONS_PREMIUM_REASON, answerLine, attachableFiles, attachmentFromFile, attachmentFromLink,
+    attachmentReach, clientLinkNote, countsLine, countsParts, dueInfo, groupQuestions, historyNotes, historyRows, questionMeta, reachNote,
+    statusTone, tabWaiting, waitingChip,
+} from '../lib/questions/questionView.ts';
+import {
+    isImageFile, openablePortalFiles, portalDueInfo, portalFileSections, portalHistoryRows, portalStatusLabel, splitPortalQuestions,
+    validatePortalAnswer, waitingCount,
+} from '../lib/portal/questionView.ts';
+import { parsePortalJobFile, parsePortalQuestion, type PortalJobFile, type PortalQuestion } from '../lib/portal/questionsApi.ts';
+import { HELP_GUIDES } from '../components/help/helpContent.ts';
+import PortalQuestions from '../components/portal/PortalQuestions.tsx';
+import PortalFiles from '../components/portal/PortalFiles.tsx';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -98,6 +117,7 @@ eq('guess: receipt', guessCategory('HomeDepot receipt.jpg', 'image/jpeg'), 'rece
 eq('guess: spec', guessCategory('faucet datasheet.pdf'), 'specs');
 eq('guess: image -> visuals', guessCategory('IMG_0001.jpg', 'image/jpeg'), 'visuals');
 eq('guess: other', guessCategory('notes.pdf', 'application/pdf'), 'other');
+eq('guess: underscores are word breaks', [guessCategory('Kitchen_plan_sheet_A101.pdf'), guessCategory('City_permit_final.pdf'), guessCategory('Signed_contract.pdf'), guessCategory('IMG_0001.jpg', 'image/jpeg')], ['plans', 'permits', 'contracts', 'visuals']);
 
 // ============================================================================================ job files: rows, versions
 const row = (o: Partial<Record<string, unknown>>): Record<string, unknown> => ({
@@ -331,6 +351,228 @@ ok('files: 500 per job', fnText('public.guard_job_file').includes('v_count >= 50
 ok('files: bucket path prefix checked', fnText('public.guard_job_file').includes("'/job-files/'"));
 ok('cleanup: only the portal-photos bucket', [...code.matchAll(/insert into public\.storage_cleanup_queue[^;]*;/g)].every(m => m[0].includes("'portal-photos'")));
 ok('no new bucket / storage policy', !/storage\.buckets/.test(lower) && !/on storage\.objects/.test(lower));
+
+// ============================================================================================ phase B: the screens' logic
+const jf = (over: Partial<JobFile> & { id: string }): JobFile => ({
+    userId: U, jobId: J, kind: 'file', category: 'plans', title: 'Floor plan', notes: null, tags: [], storagePath: `${U}/job-files/${J}/aaaaaaaa-plan.pdf`,
+    fileName: 'plan.pdf', mime: 'application/pdf', sizeBytes: 2_500_000, url: null, version: 1, versionGroup: over.id, sharedInPortal: false,
+    portalPath: null, createdAt: '2026-11-10T12:00:00Z', updatedAt: '2026-11-10T12:00:00Z', ...over,
+});
+const TODAY = '2026-11-15';
+
+// ---- dates and rows
+eq('shortDate: this year', shortDate('2026-11-16T12:00:00Z', TODAY), 'Nov 16');
+eq('shortDate: another year', shortDate('2025-12-30T12:00:00Z', TODAY), 'Dec 30, 2025');
+eq('shortDate: bad / empty', [shortDate('nope', TODAY), shortDate(null, TODAY)], ['', '']);
+eq('ymdOfIso: bad', ymdOfIso('x'), null);
+eq('stamps', [stampOf({ kind: 'link', mime: null }), stampOf({ kind: 'file', mime: 'application/pdf' }), stampOf({ kind: 'file', mime: 'image/jpeg' }), stampOf({ kind: 'file', mime: 'image/webp' })], ['LINK', 'PDF', 'JPG', 'WEBP']);
+eq('linkHost', [linkHost('https://www.drive.google.com/x/y'), linkHost('nope'), linkHost(null)], ['drive.google.com', '', '']);
+eq('row meta: file', rowMeta(jf({ id: 'a' }), TODAY), ['2.4 MB', 'Nov 10']);
+eq('row meta: link', rowMeta(jf({ id: 'b', kind: 'link', url: 'https://matterport.com/show/1', sizeBytes: null, mime: null, storagePath: null }), TODAY), ['matterport.com', 'Nov 10']);
+eq('version badge', [versionBadge({ kind: 'file', version: 3 }), versionBadge({ kind: 'link', version: 1 })], ['v3', '']);
+
+// ---- list: versions, chips, filters, sections
+const docs: JobFile[] = [
+    jf({ id: 'p1', title: 'Floor plan', category: 'plans', tags: ['kitchen', 'rev b'], version: 1, versionGroup: 'gp', createdAt: '2026-11-01T12:00:00Z' }),
+    jf({ id: 'p2', title: 'Floor plan', category: 'plans', tags: ['kitchen', 'rev b'], version: 2, versionGroup: 'gp', createdAt: '2026-11-05T12:00:00Z', sharedInPortal: false }),
+    jf({ id: 'pm', title: 'City permit', category: 'permits', version: 1, versionGroup: 'gm', createdAt: '2026-11-03T12:00:00Z' }),
+    jf({ id: 'ph', title: 'Tile sample', category: 'visuals', mime: 'image/jpeg', fileName: 't.jpg', sizeBytes: 800_000, versionGroup: 'gt', createdAt: '2026-11-08T12:00:00Z', sharedInPortal: true, portalPath: `${U}/abc.jpg` }),
+    jf({ id: 'lk', title: 'Supplier folder', category: 'other', kind: 'link', url: 'https://drive.google.com/drive/folders/x', mime: null, sizeBytes: null, storagePath: null, fileName: null, versionGroup: 'gl', createdAt: '2026-11-09T12:00:00Z', sharedInPortal: true }),
+];
+const grp = groupVersions(docs);
+eq('groups: 4 documents, newest activity first', grp.map(g => g.versionGroup), ['gl', 'gt', 'gp', 'gm']);
+eq('groups: versions of a document', grp.find(g => g.versionGroup === 'gp')!.versions.map(v => v.version), [2, 1]);
+eq('chips: All + non-empty categories in order', categoryChips(grp).map(c => `${c.id}:${c.count}`), ['all:4', 'plans:1', 'permits:1', 'visuals:1', 'other:1']);
+eq('filter: category', filterGroups(grp, { category: 'plans' }).map(g => g.versionGroup), ['gp']);
+eq('filter: tag', filterGroups(grp, { tag: 'Kitchen' }).map(g => g.versionGroup), ['gp']);
+eq('filter: search title / host', [filterGroups(grp, { search: 'permit' }).length, filterGroups(grp, { search: 'drive.google' }).length, filterGroups(grp, { search: 'zzz' }).length], [1, 1, 0]);
+eq('filter: none = all', filterGroups(grp, {}).length, 4);
+eq('sections: category order, empty ones left out', groupByCategory(grp).map(s => `${s.category}:${s.groups.length}`), ['plans:1', 'permits:1', 'visuals:1', 'other:1']);
+eq('shared documents (any version shown)', sharedDocuments(grp), 2);
+eq('summary line', filesSummary(grp), '4 documents · 2 shown to the client');
+eq('summary: empty / single', [filesSummary([]), filesSummary(grp.filter(g => g.versionGroup === 'gm'))], ['', '1 document']);
+
+// ---- sharing
+eq('share: pdf can\'t, and the reason suggests a link', (({ can, shared, reason }) => [can, shared, /link/i.test(reason || '')])(shareInfo(jf({ id: 'x' }))), [false, false, true]);
+eq('share: small image can', (({ can, reason }) => [can, reason])(shareInfo(jf({ id: 'x', mime: 'image/png', sizeBytes: 1_000_000 }))), [true, null]);
+eq('share: image over 5 MB can\'t (reason names the limit)', (({ can, reason }) => [can, /5 MB/.test(reason || '')])(shareInfo(jf({ id: 'x', mime: 'image/png', sizeBytes: 6_000_000 }))), [false, true]);
+eq('share: link can', shareInfo(jf({ id: 'x', kind: 'link', mime: null, sizeBytes: null })).can, true);
+eq('share: gif can\'t', shareInfo(jf({ id: 'x', mime: 'image/gif', sizeBytes: 100 })).can, false);
+
+// ---- picking files
+eq('picked files: ok + readable problems', (({ ok: good, problems }) => [good.map(f => f.name), problems])(checkPickedFiles([
+    { name: 'a.pdf', size: 100 }, { name: 'b.docx', size: 100 }, { name: 'huge.pdf', size: 20 * 1024 * 1024 }, { name: 'empty.jpg', size: 0 }, { name: 'c.jpg', size: 5, type: 'image/jpeg' },
+])), [['a.pdf', 'c.jpg'], [
+    'b.docx: Add PDFs or images (JPG, PNG, WebP, GIF). For other files, add a link instead.',
+    'huge.pdf: Files can be up to 15 MB. For bigger files, add a link instead.',
+    'empty.jpg: This file is empty.',
+]]);
+eq('picked files: room left', (({ ok: good, problems }) => [good.length, problems.length])(checkPickedFiles([{ name: 'a.pdf', size: 1 }, { name: 'b.pdf', size: 1 }], 1)), [1, 1]);
+eq('accept list', FILE_ACCEPT.split(',').sort(), ['application/pdf', 'image/gif', 'image/jpeg', 'image/png', 'image/webp']);
+eq('added messages', [addedMessage(3), addedMessage(1), addedMessage(1, 'Plan', 1), addedMessage(1, 'Plan', 3)], ['Added 3 files.', 'Added 1 file.', 'Added “Plan”.', 'Added v3 of “Plan”.']);
+ok('offline / premium sentences', /offline/i.test(FILES_NEED_CONNECTION) && /Premium/.test(FILES_PREMIUM_REASON) && /offline/i.test(QUESTIONS_NEED_CONNECTION) && /Premium/.test(QUESTIONS_PREMIUM_REASON));
+
+// ---- questions: chips, rows, history
+const jq = (over: Partial<JobQuestion> & { id: string }): JobQuestion => ({
+    userId: U, jobId: J, kind: 'question', title: 'Which tile?', body: null, dueDate: null, status: 'sent', attachments: [], answer: null, answeredBy: null,
+    answeredAt: null, decision: null, history: [], sharedInPortal: true, sentAt: '2026-11-10T12:00:00Z', closedAt: null, createdAt: '2026-11-10T12:00:00Z',
+    updatedAt: '2026-11-10T12:00:00Z', ...over,
+});
+eq('status tones', ALL.map(statusTone), ['muted', 'warning', 'primary', 'success', 'danger', 'muted']);
+eq('chips: waiting / tab', [waitingChip(0), waitingChip(1), waitingChip(3), tabWaiting(0), tabWaiting(2)], ['', '1 waiting for client', '3 waiting for client', '', '2 waiting']);
+const sum = summarizeQuestions([
+    jq({ id: '1', status: 'sent', dueDate: '2026-11-01' }), jq({ id: '2', status: 'sent', dueDate: '2026-12-01' }), jq({ id: '3', status: 'answered' }),
+    jq({ id: '4', status: 'approved' }), jq({ id: '5', status: 'draft' }), jq({ id: '6', status: 'closed' }),
+], TODAY);
+eq('counts line', countsLine(sum), '2 waiting for client · 1 overdue · 2 answered · 1 draft · 1 closed');
+eq('counts parts: tones', countsParts(sum).map(p => p.tone), ['strong', 'late', 'normal', 'normal', 'normal']);
+eq('counts line: nothing', countsLine(summarizeQuestions([], TODAY)), '');
+eq('due: overdue', dueInfo({ status: 'sent', dueDate: '2026-11-12' }, TODAY), { text: '3 days overdue', tone: 'late' });
+eq('due: one day overdue', dueInfo({ status: 'sent', dueDate: '2026-11-14' }, TODAY).text, '1 day overdue');
+eq('due: today / future / none', [dueInfo({ status: 'sent', dueDate: TODAY }, TODAY).text, dueInfo({ status: 'sent', dueDate: '2026-11-20' }, TODAY).text, dueInfo({ status: 'sent', dueDate: null }, TODAY).text], ['Due today', 'Due Fri Nov 20', '']);
+eq('due: answered items are never overdue', dueInfo({ status: 'answered', dueDate: '2026-11-01' }, TODAY).tone, 'none');
+eq('question meta: waiting', questionMeta(jq({ id: 'm', dueDate: '2026-11-20', attachments: [{ url: 'https://x.com', title: 'x' }] }), TODAY), ['Question', 'Due Fri Nov 20', '1 attached']);
+eq('question meta: answered shows the date, not the due date', questionMeta(jq({ id: 'm', kind: 'submittal', status: 'approved', dueDate: '2026-11-01', answeredAt: '2026-11-12T12:00:00Z' }), TODAY), ['Submittal', 'Nov 12']);
+eq('answer lines', [answerLine({ status: 'approved', kind: 'submittal', answeredBy: 'Ann', decision: 'approved' }), answerLine({ status: 'rejected', kind: 'submittal', answeredBy: null, decision: 'rejected' }),
+    answerLine({ status: 'answered', kind: 'question', answeredBy: 'Bo', decision: null }), answerLine({ status: 'sent', kind: 'question', answeredBy: null, decision: null })],
+['Approved by Ann', 'Rejected by the client', 'Answered by Bo', '']);
+const qs = [
+    jq({ id: 'closed', status: 'closed', createdAt: '3' }), jq({ id: 'draft', status: 'draft', createdAt: '2' }), jq({ id: 'late', status: 'sent', dueDate: '2026-11-01', createdAt: '1' }),
+    jq({ id: 'soon', status: 'sent', dueDate: '2026-11-20', createdAt: '5' }), jq({ id: 'ans', status: 'answered', createdAt: '4' }), jq({ id: 'rej', status: 'rejected', createdAt: '6' }),
+];
+eq('groups of questions', (g => [g.waiting, g.drafts, g.decided, g.closed].map(l => l.map(q => q.id)))(groupQuestions(qs)), [['late', 'soon'], ['draft'], ['rej', 'ans'], ['closed']]);
+const hist = jq({ id: 'h', status: 'approved', kind: 'submittal', answer: 'Looks fine, go ahead', history: [
+    { at: '2026-11-12T10:00:00Z', by: 'client', action: 'approved', note: 'Looks fine, go ahead' },
+    { at: '2026-11-10T10:00:00Z', by: 'owner', action: 'sent', note: null },
+    { at: '2026-11-11T10:00:00Z', by: 'client', action: 'rejected', note: 'Too dark' },
+    { at: '2026-11-11T11:00:00Z', by: 'owner', action: 'reopened', note: null },
+] });
+eq('history: oldest first, owner / client words', historyRows(hist).map(r => `${r.client ? 'C' : 'O'}:${r.label}`), ['O:You sent it to the client portal', 'C:Client rejected', 'O:You asked again', 'C:Client approved']);
+eq('history: the newest reply is not repeated, earlier rounds keep their note', historyNotes(historyRows(hist), hist).map(r => r.note), [null, 'Too dark', null, null]);
+eq('history: still waiting keeps every note', historyNotes(historyRows(hist), { status: 'sent', answer: null }).map(r => r.note), [null, 'Too dark', null, 'Looks fine, go ahead']);
+
+// ---- attachments
+const picked = [
+    jf({ id: F, title: 'Spec sheet', category: 'specs', mime: 'application/pdf' }),
+    jf({ id: 'ph', title: 'Tile sample', category: 'visuals', mime: 'image/jpeg', sharedInPortal: true, portalPath: `${U}/abc.jpg` }),
+    jf({ id: 'ph2', title: 'Hidden photo', category: 'visuals', mime: 'image/jpeg' }),
+    jf({ id: 'lk', title: 'Folder', category: 'other', kind: 'link', url: 'https://drive.google.com/x', mime: null }),
+];
+eq('attachment from a file / a link', [attachmentFromFile(picked[0]), attachmentFromLink('https://x.com/a', ' Data '), attachmentFromLink('https://x.com/a')], [{ fileId: F, title: 'Spec sheet' }, { url: 'https://x.com/a', title: 'Data' }, { url: 'https://x.com/a', title: 'https://x.com/a' }]);
+eq('reach: pasted link, pdf, shared image, unshared image, job link, deleted', [
+    attachmentReach({ url: 'https://x.com', title: 't' }, picked), attachmentReach({ fileId: F, title: 't' }, picked), attachmentReach({ fileId: 'ph', title: 't' }, picked),
+    attachmentReach({ fileId: 'ph2', title: 't' }, picked), attachmentReach({ fileId: 'lk', title: 't' }, picked), attachmentReach({ fileId: 'gone', title: 't' }, picked),
+], ['opens', 'title_only', 'opens', 'title_only', 'opens', 'gone']);
+eq('reach notes', [reachNote('opens'), reachNote('title_only'), reachNote('gone')], ['The client can open it', 'The client sees the title only', 'This file was deleted']);
+eq('attachable: newest version of each document, by category', attachableFiles([...docs]).map(f => f.id), ['p2', 'pm', 'ph', 'lk']);
+eq('client link sentences', [clientLinkNote(true), /Add a client/.test(clientLinkNote(false))], [CLIENT_ANSWERS_LINE, true]);
+eq('the sentence the owner asked for', CLIENT_ANSWERS_LINE, 'Your client answers from their project link.');
+
+// ---- the client portal's logic
+const pq = (over: Partial<PortalQuestion> & { id: string }): PortalQuestion => ({
+    jobId: J, jobName: 'Kitchen', kind: 'question', title: 'Which tile?', body: 'Tell us', dueDate: null, sentAt: '2026-11-10T12:00:00Z', status: 'sent', decision: null,
+    answer: null, answeredBy: null, answeredAt: null, attachments: [], history: [{ at: '2026-11-10T12:00:00Z', by: 'owner', action: 'sent', note: null }], ...over,
+});
+const plist = [
+    pq({ id: 'a', status: 'answered', answeredAt: '2026-11-11T12:00:00Z', answer: 'x' }), pq({ id: 'b', dueDate: '2026-11-25' }), pq({ id: 'c', dueDate: '2026-11-18' }),
+    pq({ id: 'd', status: 'approved', kind: 'submittal', answeredAt: '2026-11-13T12:00:00Z' }), pq({ id: 'e' }),
+];
+eq('portal split: waiting by due date, then answered newest first', (s => [s.waiting.map(q => q.id), s.answered.map(q => q.id)])(splitPortalQuestions(plist)), [['c', 'b', 'e'], ['d', 'a']]);
+eq('portal badge count', waitingCount(plist), 3);
+const Q = pq({ id: 'q' });
+const S = pq({ id: 's', kind: 'submittal' });
+eq('answer: a question needs words', [validatePortalAnswer(Q, { answer: '  ' }), validatePortalAnswer(Q, { answer: 'Marble' }), validatePortalAnswer(Q, { answer: 'x'.repeat(4001) })],
+    ['Please write your answer.', null, 'Please keep it under 4000 characters.']);
+eq('answer: a submittal needs a choice, a note to reject and a name', [
+    validatePortalAnswer(S, { name: 'Ann' }), validatePortalAnswer(S, { decision: 'rejected', name: 'Ann' }), validatePortalAnswer(S, { decision: 'approved' }),
+    validatePortalAnswer(S, { decision: 'approved', name: 'Ann' }), validatePortalAnswer(S, { decision: 'rejected', answer: 'Darker', name: 'Ann' }),
+], ['Please choose Approve or Reject.', 'Please say what needs to change.', 'Please type your name.', null, null]);
+eq('portal words', [portalStatusLabel(Q), portalStatusLabel(S), portalStatusLabel(pq({ id: 'x', status: 'approved' })), portalStatusLabel(pq({ id: 'x', status: 'rejected' })), portalStatusLabel(pq({ id: 'x', status: 'answered' }))],
+    ['Waiting for your answer', 'Waiting for your approval', 'You approved', 'You rejected', 'You answered']);
+eq('portal due', [portalDueInfo({ ...Q, dueDate: '2026-11-20' }, TODAY), portalDueInfo({ ...S, dueDate: '2026-11-15' }, TODAY), portalDueInfo({ ...Q, dueDate: '2026-11-10' }, TODAY), portalDueInfo({ ...Q, dueDate: null }, TODAY), portalDueInfo({ ...Q, status: 'answered', dueDate: '2026-11-10' }, TODAY)],
+    [{ text: 'Please answer by Fri Nov 20', tone: 'normal' }, { text: 'Please decide by today', tone: 'today' }, { text: 'Was due Tue Nov 10', tone: 'late' }, { text: '', tone: 'none' }, { text: '', tone: 'none' }]);
+const phist = pq({ id: 'ph', status: 'approved', kind: 'submittal', answer: 'Fine by me', history: [
+    { at: '2026-11-12T10:00:00Z', by: 'client', action: 'approved', note: 'Fine by me' }, { at: '2026-11-10T10:00:00Z', by: 'owner', action: 'sent', note: null },
+    { at: '2026-11-11T10:00:00Z', by: 'client', action: 'rejected', note: 'No' }, { at: '2026-11-11T11:00:00Z', by: 'owner', action: 'reopened', note: null },
+] });
+eq('portal history: client wording, no repeat of the newest reply', portalHistoryRows(phist, 'Acme').map(r => `${r.label}|${r.note}`),
+    ['Sent by Acme|null', 'You rejected|No', 'Acme asked again|null', 'You approved|null']);
+const pf = (over: Partial<PortalJobFile> & { id: string }): PortalJobFile => ({ jobId: J, jobName: 'Kitchen', kind: 'link', category: 'plans', title: 'T', version: 1, url: 'https://x.com', path: null, mime: null, href: 'https://x.com', ...over });
+const pfiles = [
+    pf({ id: '1', title: 'Drive folder' }), pf({ id: '2', kind: 'file', url: null, path: 'u/a.jpg', mime: 'image/jpeg', href: 'https://cdn/u/a.jpg', category: 'visuals', version: 2 }),
+    pf({ id: '3', kind: 'file', url: null, path: null, mime: 'application/pdf', href: null }), pf({ id: '4', category: 'weird' }), pf({ id: '5', jobId: 'other-job', category: 'permits' }),
+    pf({ id: '6', url: null, href: null }),
+];
+eq('portal files: only what can be opened', openablePortalFiles(pfiles).map(f => f.id), ['1', '2', '4', '5']);
+eq('portal files: image or not', [isImageFile(pfiles[1]), isImageFile(pfiles[0]), isImageFile(pfiles[2])], [true, false, false]);
+eq('portal files: one job, category order, unknown category = other', portalFileSections(pfiles, J).map(s => `${s.category}:${s.files.map(f => f.id).join('')}`), ['plans:1', 'visuals:2', 'other:4']);
+eq('portal files: all jobs', portalFileSections(pfiles, null).map(s => s.category), ['plans', 'permits', 'visuals', 'other']);
+eq('portal files: nothing', portalFileSections([], J), []);
+// what the database sends is parsed the same way the UI reads it
+eq('parse: an attachment that is a shared image gets a public address, a PDF only its title', (p => p!.attachments.map(a => [a.kind, !!a.href]))(parsePortalQuestion({
+    id: 'z', status: 'sent', kind: 'question', title: 't', attachments: [{ kind: 'link', title: 'L', url: 'https://x.com', path: null }, { kind: 'file', title: 'I', url: null, path: 'u/i.jpg' }, { kind: 'file', title: 'P', url: null, path: null }, { kind: 'link', title: 'bad', url: 'javascript:alert(1)', path: null }],
+})), [['link', true], ['file', true], ['file', false], ['link', false]]);
+eq('parse: a file row', (f => [f!.kind, !!f!.href, f!.version])(parsePortalJobFile({ id: 'f', kind: 'link', category: 'plans', title: 'x', version: 2, url: 'https://x.com' })), ['link', true, 2]);
+
+// ---- the portal sections render (server-side, no browser): nothing when empty, the right words and controls otherwise
+const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+const noop = () => undefined;
+eq('portal files: empty renders nothing at all', html(React.createElement(PortalFiles, { files: [], jobId: J })), '');
+eq('portal files: only unopenable renders nothing', html(React.createElement(PortalFiles, { files: [pf({ id: 'p', kind: 'file', url: null, href: null, mime: 'application/pdf' })], jobId: J })), '');
+const filesHtml = html(React.createElement(PortalFiles, { files: pfiles, jobId: J }));
+ok('portal files: heading, category labels, a link that opens in a new tab, an image button', filesHtml.includes('>Files<') && filesHtml.includes('>Plans<') && filesHtml.includes('>Visuals / renders<')
+    && /<a [^>]*href="https:\/\/x\.com"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/.test(filesHtml) && filesHtml.includes('aria-label="View T"') && !filesHtml.includes('other-job'));
+eq('portal questions: nothing at all when empty', html(React.createElement(PortalQuestions, { portalKey: 'k'.repeat(40), questions: [], company: 'Acme', onAnswered: noop, onStale: noop })), '');
+const qHtml = html(React.createElement(PortalQuestions, {
+    portalKey: 'k'.repeat(40), company: 'Acme', onAnswered: noop, onStale: noop,
+    questions: [
+        pq({ id: '11111111-1111-4111-8111-111111111111', title: 'Which tile?', dueDate: '2099-01-01', attachments: [{ kind: 'link', title: 'Tile site', url: 'https://tiles.com', path: null, href: 'https://tiles.com' }, { kind: 'file', title: 'Spec', url: null, path: null, href: null }] }),
+        pq({ id: '22222222-2222-4222-8222-222222222222', kind: 'submittal', title: 'Approve the change order' }),
+        pq({ id: '33333333-3333-4333-8333-333333333333', status: 'approved', kind: 'submittal', title: 'Old sheet', answeredBy: 'Ann', answer: 'ok' }),
+    ],
+}));
+ok('portal questions: heading + count, job name, both forms', qHtml.includes('Questions for you') && qHtml.includes('2 waiting') && qHtml.includes('Kitchen') && qHtml.includes('Send answer')
+    && qHtml.includes('Send decision') && qHtml.includes('>Approve<') && qHtml.includes('>Reject<') && qHtml.includes('Your name'));
+ok('portal questions: attachments (link opens in a new tab; a file the portal cannot open shows its title)', /href="https:\/\/tiles\.com"[^>]*target="_blank"/.test(qHtml) && qHtml.includes('Spec') && qHtml.includes('ask your contractor for a copy'));
+ok('portal questions: answered ones are folded away', qHtml.includes('Answered') && !qHtml.includes('Old sheet'));
+ok('portal questions: the submittal form asks for no name on a question', (qHtml.match(/Your name/g) || []).length === 1);
+const onlyAnswered = html(React.createElement(PortalQuestions, { portalKey: 'k'.repeat(40), company: 'Acme', onAnswered: noop, onStale: noop, questions: [pq({ id: '33333333-3333-4333-8333-333333333333', status: 'answered', answer: 'ok', title: 'Old' })] }));
+ok('portal questions: nothing waiting still lets the client find the answered ones', onlyAnswered.includes('Nothing is waiting for you right now.') && onlyAnswered.includes('Answered'));
+
+// ---- wiring and house rules
+const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
+const uiFiles = ['components/jobFiles/JobFilesPanel.tsx', 'components/jobFiles/JobFileDetail.tsx', 'components/jobFiles/AddFileModal.tsx', 'components/jobFiles/useJobFiles.ts', 'components/jobFiles/openJobFile.ts',
+    'components/questions/JobQuestionsPanel.tsx', 'components/questions/QuestionEditorModal.tsx', 'components/questions/QuestionDetailModal.tsx', 'components/questions/useJobQuestions.ts',
+    'components/portal/PortalQuestions.tsx', 'components/portal/PortalFiles.tsx', 'components/portal/usePortalQuestions.ts',
+    'lib/jobFiles/jobFileView.ts', 'lib/questions/questionView.ts', 'lib/portal/questionView.ts'];
+ok('screens never talk to Supabase themselves (only the phase A APIs do)', uiFiles.every(f => !/supabase\.(from|rpc|storage)|from '..\/..\/lib\/supabase/.test(read(f))));
+ok('no forbidden words in the new screens', uiFiles.every(f => !/kelviq|merchant of record/i.test(read(f))));
+const app = read('App.tsx');
+ok('App: both tabs only when their feature is ready', /filesSlot=\{jobFilesFeature === 'ready' && session/.test(app) && /questionsSlot=\{questionsFeature === 'ready' && session/.test(app));
+ok('App: the waiting count', app.includes('questionsLabel=') && app.includes('questionsChip=') && app.includes('tabWaiting(') && app.includes('waitingChip('));
+const jobScreen = read('components/JobDetailsScreen.tsx');
+ok('job page: Files + Questions tabs with their own hashes, nothing in the main menu', jobScreen.includes("tabs.push(['files', 'Files'])") && jobScreen.includes("tabs.push(['questions', 'Questions', questionsLabel])")
+    && jobScreen.includes("'#files'") && jobScreen.includes("'#questions'"));
+const portal = read('components/PortalView.tsx');
+ok('portal: questions above the project, files below, a badge on the Project tab, nothing while hidden', portal.indexOf('<PortalQuestions') < portal.indexOf('<PortalProjectDashboard') && portal.indexOf('<PortalProjectDashboard') < portal.indexOf('<PortalFiles')
+    && portal.includes("id === 'project' && pq.waiting > 0") && portal.includes("pq.phase === 'ready'"));
+// help: three new guides, and every [[label]] in them is a real control in the app
+const newGuides = ['job-files', 'job-questions', 'client-questions-view'].map(id => HELP_GUIDES.find(g => g.id === id));
+ok('help: the three guides exist', newGuides.every(Boolean));
+{
+    const walk = (dir: string, out: string[] = []): string[] => {
+        for (const name of readdirSync(join(ROOT, dir))) {
+            const rel = `${dir}/${name}`;
+            if (statSync(join(ROOT, rel)).isDirectory()) walk(rel, out);
+            else if (/\.tsx?$/.test(name) && !/helpContent\.ts$/.test(name)) out.push(rel);
+        }
+        return out;
+    };
+    const source = [...walk('components'), ...walk('lib'), ...walk('pages'), 'App.tsx'].map(read).join('\n').replace(/&amp;/g, '&').replace(/&apos;|&#39;/g, "'").replace(/\s+/g, ' ');
+    const labels = newGuides.flatMap(g => [...JSON.stringify(g).matchAll(/\[\[(.+?)\]\]/g)].map(m => m[1].replace(/\s*\$?…$/, '').trim()));
+    eq('help: every [[label]] of the new guides is in the app', [...new Set(labels)].filter(l => !source.includes(l)), []);
+    ok('help: guides name the real tabs and the client sentence', newGuides.every(g => !!g) && JSON.stringify(newGuides).includes('[[Questions for you]]') && JSON.stringify(newGuides).includes('[[Show in client portal]]'));
+}
 
 console.log(`job-files-check: ${passes} passed, ${failures} failed`);
 if (failures) process.exit(1);
