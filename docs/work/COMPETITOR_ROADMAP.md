@@ -181,6 +181,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   its own careful review: the helper reports portal/SQL risks). After them: D5 selections + boards (Opus phase A) -> UI,
   N5 assemblies (Sonnet), D7 subs + quote comparison, D10 warranty/email automations, N7 job AI, D8 profile + reviews, N3,
   N6, N8, N9, N10, N11 + D11, D6 bills, D12 push (needs the owner's VAPID secrets).
+  2026-11-15 ~06:30 UTC: N4 + N12 SHIPPED. RUNNING (both Opus): D5 selections + boards phase A (agent-a3f89c75be3eef34f;
+  migration 20261116000600_selections_boards.sql) and D13 client picks add-ons at signing (agent-a6b861008a11a2d1a; migration
+  20261116000700_optional_addons_choice.sql replaces signing + stock functions: REVIEW the diff vs the originals carefully;
+  apply the SQL BEFORE shipping the app part). After: D5 phase B (Sonnet UI), N5 assemblies (Sonnet), D7, D10, N7, D8, N3, N6,
+  N8, N9, N10, N11 + D11, D6, D12.
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -188,6 +193,16 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED N4 proposal builder (optional add-ons excluded from totals via utils/money.ts isExcludedOptionalLine /
+  countedLineItems, structured scope, payment milestones + deposit invoice via progress billing, project photos, reusable
+  templates; owner-only for now) and N12 Settings > Automations (rules: estimate approved -> invoice draft, job completed ->
+  warranty draft, overdue tasks, lead follow-ups, client answers, estimate no-answer; existing reminders as switches). No DB.
+  main/my-branch 4abcf65; suite green (38 steps); ai-assistant AND reminders redeployed (reminders keeps JWT verify OFF;
+  its money.ts skips unselected optional lines); live bundle has "Optional add-ons", "Save as template", "What to invoice",
+  "Automations". Click paths: Estimate form > Optional add-ons / Proposal (Scope, Payments, Photos) / Save as template;
+  Convert to invoice > "What to invoice"; Settings > Automations. Not clicked live (needs the owner's account).
+  KNOWN RISK until D13: SQL stock function counts every line of an accepted estimate (an unselected add-on linked to an
+  inventory item would take stock); D13 (helper running) fixes it.
 - 2026-11-15 SHIPPED D1 leads + appointments (Leads board/list, lead window, manual add, follow-ups + appointments on the
   Schedule, .ics, "due" count) and D3 job files + client questions/submittals (job Files/Questions tabs; portal "Questions
   for you" + Files). DB 20261116000400 + 20261116000500 applied 2026-11-15 (verified; D1 guard trigger tested with a
