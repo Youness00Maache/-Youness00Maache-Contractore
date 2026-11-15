@@ -317,7 +317,7 @@ async function dispatchCheck() {
 /* ================================================================ 10. static scan: migration + wiring */
 function staticChecks() {
   const sql = read('supabase/migrations/20261116000900_reminder_kinds_warranty.sql');
-  ok('migration: header says not applied yet', sql.includes('Applied: NOT YET (needs owner OK)'));
+  ok('migration: header says applied with the owner OK', sql.includes("Applied 2026-11-15 with the owner's OK"));
   ok('migration: no new table', !/create\s+table/i.test(sql));
   ok('migration: no new column', !/add\s+column/i.test(sql));
   ok('migration: no drop table / function', !/drop\s+(table|function)/i.test(sql));

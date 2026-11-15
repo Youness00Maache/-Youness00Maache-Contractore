@@ -1,7 +1,7 @@
 -- =====================================================================================
 -- ContractorDocs: after-the-job reminder kinds (roadmap D10: #37 email automations, #40 warranty tracking)
 --
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D10: reminder kinds) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: reminders_kind_check now lists completion / warranty / maintenance, reminders_step_key_check accepts done / exp / oexp steps, skip_reminder is security definer with search_path '' and executable only by authenticated.
 --
 -- The `reminders` edge function (supabase/functions/reminders/postjob.ts + shared/postjob.ts) sends three more kinds
 -- through the existing log public.reminders (migration 20261113000300):
