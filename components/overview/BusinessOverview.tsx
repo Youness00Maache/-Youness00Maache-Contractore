@@ -11,7 +11,7 @@
  *   filters               period, customer, project: every section follows them (waiting estimates and active jobs
  *                         show what is true today, so they ignore the period but follow customer and project)
  *   "Download this overview as CSV"
- * The "AI summary" slot (OverviewAiSlot.tsx) renders nothing yet.
+ * The "AI summary" slot (OverviewAiSlot.tsx): "Summarize with AI" (Premium + AI, the ai-assistant task business_summary).
  */
 import React, { Suspense, lazy, useMemo, useState } from 'react';
 import type { Client, Job, UserProfile } from '../../types.ts';
@@ -259,7 +259,7 @@ const BusinessOverview: React.FC<BusinessOverviewProps> = ({ jobs, clients, prof
     const rangeOk = period !== 'custom' || isValidRange({ startYMD: customStart, endYMD: customEnd });
     const aiProps = {
         periodLabel: label, startYMD: range?.startYMD ?? null, endYMD: range?.endYMD ?? null, headline, kpis, leads, activeJobs: activeCount,
-        topJobs: ranking.top, bottomJobs: ranking.bottom, awaiting, customers: customers.rows, customerFilter: customerName, projectFilter: projectName, isOnline,
+        topJobs: ranking.top, bottomJobs: ranking.bottom, awaiting, customers: customers.rows, customerFilter: customerName, projectFilter: projectName, isOnline, onOpenJob,
     };
 
     return (

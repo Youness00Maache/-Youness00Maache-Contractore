@@ -10,6 +10,7 @@ import {
     type AppRoute, type ContextFormEstimate, type ContextFormLine, type ModelOutput, type ModelPlanStep, type RouterRequest,
 } from './routerContract.ts';
 import { scoreKnowledge } from './knowledge.ts';
+import { mockFactsAnswer } from './businessFacts.ts';
 import { isEstimateOptionsRequest } from './estimateOptionsDraft.ts';
 
 const DOC_PATTERNS: Array<[DocKey, RegExp]> = [
@@ -534,6 +535,10 @@ export function mockModelOutput(req: RouterRequest): ModelOutput {
         }
         return { action_type: 'GENERATE_DOCUMENT', reply_text: `I filled the ${DOC_LABELS[docType]} with what you told me.`, document_type: docType, ...extractFields(docType, text, today) };
     }
+
+    // 1b) Business numbers sent by the app (N7): profit / spend / who owes / overdue / order / this week, from the facts only.
+    const factsAnswer = c.job_facts || c.business_facts ? mockFactsAnswer(text, c) : null;
+    if (factsAnswer) return { action_type: 'CHAT', reply_text: factsAnswer };
 
     // 2) How-to / where-is questions about the app → the steps from the product knowledge.
     const howTo = mockHowTo(req);
