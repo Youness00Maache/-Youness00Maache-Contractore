@@ -7,6 +7,7 @@
 //   set_default { account_id }                               -> { success }
 //   disconnect  { account_id }                               -> { success }  (revokes at Google, deletes tokens)
 //   send        { account_id?, to, cc?, bcc?, reply_to?, subject, text?, html?, from_name?, attachments?[] }
+//               optional, for the sent-email log only: kind?, job_id?, client_id?, document_id?
 //                                                            -> { success, id, thread_id, from }
 // Errors: { error: <human message>, code: <MACHINE_CODE> } with a meaningful HTTP status.
 // Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SITE_URL, TOKEN_ENCRYPTION_KEY.
@@ -20,6 +21,7 @@ import {
   listAccounts, loadTokens, markNeedsReconnect, notConfigured, postForm, recordEmailUsage, resolveAccount, saveTokens, sendWithAccount,
   str, stripActiveHtml, tokenKeys, type AccountRow, type TokenRow,
 } from './core.ts';
+import { scheduleEmailLog } from './emailLog.ts';
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 const OAUTH_SCOPES = ['openid', 'email', GMAIL_SEND_SCOPE].join(' ');
@@ -331,6 +333,20 @@ async function actionSend(admin: SupabaseClient, body: Record<string, unknown>, 
   };
 }
 
+// D11 sent-email log: same result / same error as actionSend; one best-effort log row per attempt (never awaited,
+// scheduleEmailLog never throws). Optional request fields read for the log: kind, job_id, client_id, document_id.
+async function actionSendLogged(admin: SupabaseClient, body: Record<string, unknown>, userId: string) {
+  let result: Awaited<ReturnType<typeof actionSend>>;
+  try {
+    result = await actionSend(admin, body, userId);
+  } catch (e) {
+    try { scheduleEmailLog(admin, userId, body, { status: 'failed', error: e }); } catch { /* never affects the send */ }
+    throw e;
+  }
+  try { scheduleEmailLog(admin, userId, body, { status: 'sent', messageId: result.id }); } catch { /* never affects the send */ }
+  return result;
+}
+
 /* -------------------------------------------------------------------------------------- server */
 
 Deno.serve(async (req: Request) => {
@@ -358,7 +374,7 @@ Deno.serve(async (req: Request) => {
       case 'disconnect':
         return json(200, await actionDisconnect(admin, body, user.id), cors);
       case 'send':
-        return json(200, await actionSend(admin, body, user.id), cors);
+        return json(200, await actionSendLogged(admin, body, user.id), cors);
       case 'refresh':
         // The old client asked for raw access tokens. Tokens never leave the server any more.
         return json(410, { error: 'Please reload the page to update ContractorDocs.', code: 'DEPRECATED' }, cors);

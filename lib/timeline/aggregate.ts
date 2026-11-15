@@ -51,7 +51,7 @@ export interface TimelineData {
     feedback: FeedbackResponse[];
     reminders: RecordRow[];
     punches: Punch[];
-    /** reserved for roadmap D11 (email_log) */
+    /** emails sent from the app (roadmap D11, email_log); absent until the table exists */
     email: EmailLogRow[];
 }
 
@@ -78,7 +78,7 @@ export const buildEvents = (data: Partial<TimelineData>, ctx: TimelineContext): 
         ...safely(() => (data.feedback ? feedbackEvents({ responses: data.feedback }, ctx) : [])),
         ...safely(() => (data.reminders ? reminderEvents({ records: data.reminders, docs }, ctx) : [])),
         ...safely(() => (data.punches ? crewEvents({ punches: data.punches }, ctx) : [])),
-        ...safely(() => emailEvents({ rows: data.email }, ctx)),
+        ...safely(() => (data.email ? emailEvents({ rows: data.email, docs }, ctx) : [])),
     ];
     const today = dayOf(new Date(ctx.now).toISOString(), ctx.tz) || '';
     // nothing from the future (a payment dated tomorrow, a clock that ran ahead): the timeline is what HAPPENED.

@@ -4,6 +4,7 @@
  * job's own documents with the JSON paths the timeline needs (never the whole `data`: no signatures, no photos). Each
  * source is read only when its tool is available (the `useXFeature` 'ready' flags App already holds) and a source that
  * fails or is missing is left out quietly: the rest of the timeline still shows. Reads only.
+ * D11 adds one optional read: the sent-email log (`email_log`), only once that table exists.
  */
 import { supabase } from '../supabase.ts';
 import { listJobPhotos } from '../../components/photos/photosApi.ts';
@@ -19,6 +20,8 @@ import type { RecordRow } from '../reminders.ts';
 import { OPTION_SELECT_PATHS } from '../estimateOptions.ts';
 import type { TimelineData } from './aggregate.ts';
 import type { TimelineDoc } from './timelineTypes.ts';
+import { listEmailLog } from '../emailLog/emailLogApi.ts';
+import { checkEmailLogFeature, emailLogFeatureState } from '../emailLog/emailLogFeature.ts';
 
 /** Which optional tools this account has (App's `useXFeature(...) === 'ready'` flags). Documents and photos always. */
 export interface TimelineFeatures {
@@ -29,6 +32,8 @@ export interface TimelineFeatures {
     crew: boolean;
     feedback: boolean;
     punch: boolean;
+    /** sent-email log (D11). Left out = checked here (lib/emailLog/emailLogFeature.ts); no table = no email entries. */
+    email?: boolean;
 }
 export const NO_FEATURES: TimelineFeatures = { tasks: false, questions: false, selections: false, subs: false, crew: false, feedback: false, punch: false };
 
@@ -116,6 +121,17 @@ async function readReminders(jobId: string, docs: readonly TimelineDoc[]): Promi
     return [...rows.values()];
 }
 
+/** Emails sent from the app for this job (D11). Undefined (= no email entries) until the email_log table exists. */
+async function readEmailLog(jobId: string, userId: string, enabled: boolean | undefined): Promise<TimelineData['email'] | undefined> {
+    if (enabled === false) return undefined;
+    if (enabled === undefined) {
+        await checkEmailLogFeature(userId);
+        if (emailLogFeatureState() !== 'ready') return undefined;
+    }
+    const rows = await listEmailLog({ jobId, limit: 200 });
+    return rows ?? undefined;
+}
+
 /** Crew member names (the same read the Tasks "assigned to" list uses). */
 async function readMemberNames(): Promise<Record<string, string>> {
     const { data, error } = await supabase.from('crew_members').select('id, name').limit(300);
@@ -175,6 +191,7 @@ export async function loadTimelineData(args: LoadArgs): Promise<TimelineLoad> {
         (async () => { try { data.sentAt = await readSentAt(docs); } catch { /* the sent day is optional */ } })(),
         (async () => { try { data.reminders = await readReminders(jobId, docs); } catch { /* reminders are optional */ } })(),
         (async () => { if (features.crew || features.tasks) try { memberNames = await readMemberNames(); } catch { /* names are optional */ } })(),
+        (async () => { try { const rows = await readEmailLog(jobId, userId, features.email); if (rows) data.email = rows; } catch { /* the email log is optional */ } })(),
         step('photos', async () => { const list = await listJobPhotos(jobId); if (list) data.photos = list; }),
         features.punch ? step('punch', async () => { const res = await loadPunchList(userId, jobId); if (res) data.punchItems = res.items; }) : Promise.resolve(),
         features.tasks ? step('tasks', async () => { const list = await listJobTasks(jobId); if (list) data.tasks = list; }) : Promise.resolve(),

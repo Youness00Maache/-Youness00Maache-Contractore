@@ -18,7 +18,7 @@ export type HelpTopicId =
   | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview' | 'setup-assistant'
   | 'subcontractors' | 'compare-quotes' | 'sub-link' | 'warranty-tracking' | 'after-job-emails'
   | 'client-feedback' | 'public-profile'
-  | 'integrations' | 'calendar-file' | 'accounting-exports' | 'import-price-list' | 'read-documents' | 'job-timeline';
+  | 'integrations' | 'calendar-file' | 'accounting-exports' | 'import-price-list' | 'read-documents' | 'job-timeline' | 'sent-email-log';
 
 export interface HelpStep {
   title: string;
@@ -535,7 +535,25 @@ export const HELP_GUIDES: HelpGuide[] = [
       'The timeline is for you only: nothing on it is shown to your client.',
       'Offline, a note you add is kept on this device and syncs when you are back online (it shows “Waiting to sync”). A follow-up task needs a connection.',
       `The follow-up task is part of ${premium.name}, like the Tasks tab.`,
-      'Emails sent from the app will be added to the timeline in a later update.',
+      'Emails you send from the app with your Gmail show up too (“Emailed estimate E-1042 to jane@…”), once the sent-email log is turned on for your account.',
+    ],
+  },
+  {
+    id: 'sent-email-log',
+    title: 'Sent-email log',
+    summary: 'A private record of the emails you send from the app with your Gmail: to whom, what about, when, and whether it went out. Never the message itself.',
+    where: ['Clients', 'a client', 'Emails sent'],
+    group: 'Clients & messages',
+    appPath: '/clients',
+    steps: [
+      { title: 'What is recorded', text: 'Each time the app sends an email with your Gmail (documents, purchase orders, review requests, job updates, papers, bookkeeper exports) it keeps one line: the date, the address in To, the subject, the kind, the job, client and document it was about, and Sent or Failed (with a short reason).' },
+      { title: 'What is never kept', text: 'Not the message text, not the attachments, not Cc or Bcc addresses and no Google sign-in data. Reminder emails have their own list on the Messages page.' },
+      { title: 'Where you see it', text: 'On a client’s page, open [[Emails sent]] for the last 20 emails to that client. On a job page, the [[Timeline]] tab shows them with everything else (Client chip).' },
+      { title: 'Remove an entry', text: 'In [[Emails sent]], tap [[Remove from log]], then [[Remove]]. Only the log line goes; the email in your Gmail “Sent” folder is not touched. Deleting a client or job keeps the log line without the link; deleting your account removes the whole log.' },
+    ],
+    tips: [
+      'Only you can see the log. Your clients never see it.',
+      'The log keeps your newest 5000 emails; older lines are removed on their own.',
     ],
   },
   {

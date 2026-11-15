@@ -11,6 +11,7 @@ import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts'
 import { portalShareMessage } from '../lib/messaging.ts';
 import { MessageAppButtons } from './MessageAppButtons.tsx';
 import OwnerPortalPreview from './portal/OwnerPortalPreview.tsx';
+import ClientEmailLog from './emailLog/ClientEmailLog.tsx';
 import {
     approvalUrl,
     copyToClipboard,
@@ -1333,6 +1334,8 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                             <p className="mt-2 text-sm text-muted-foreground">No notes yet. Notes are private and never shown to the client.</p>
                         )}
                     </section>
+
+                    <ClientEmailLog clientId={client.id} userId={userId} />
                 </aside>
 
                 {/* Main content */}

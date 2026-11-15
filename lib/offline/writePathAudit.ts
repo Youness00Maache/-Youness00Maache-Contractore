@@ -154,6 +154,7 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/billing.ts', match: "action: 'portal'", what: 'billing portal', offline: 'needs_connection' },
     { file: 'lib/supabase.ts', match: 'supabase.functions.invoke(name', what: 'edge functions (all of them)', offline: 'needs_connection' },
     { file: 'services/gmailService.ts', match: "functions.invoke('gmail'", what: 'Gmail: send, accounts, connect', offline: 'needs_connection' },
+    { file: 'lib/emailLog/emailLogApi.ts', match: "from('email_log').delete()", what: 'delete a sent-email log entry', offline: 'needs_connection' },
 
     // ------------------------------------------------------------------------------------------- community, AI
     { file: 'components/ForumView.tsx', match: "rpc('toggle_forum_vote'", what: 'vote', offline: 'needs_connection' },

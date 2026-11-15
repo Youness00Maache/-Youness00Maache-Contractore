@@ -185,6 +185,11 @@ export async function sendEmailBatch(batch: EmailBatchItem[], ctx: BatchSendCont
                 html,
                 fromName: senderIdentity(ctx.profile).displayName || undefined,
                 attachments: attachments.map(({ filename, mimeType, dataBase64 }) => ({ filename, mimeType, dataBase64 })),
+                log: {
+                    kind: item.attachment_document_ids?.length ? 'document' : 'other',
+                    clientId: item.client_id || null,
+                    documentId: item.attachment_document_ids?.[0] || null,
+                },
             });
             sentKeys.add(key);
             sentSinceLast = true;

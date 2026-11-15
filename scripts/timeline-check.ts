@@ -364,7 +364,18 @@ ok('orders: created with vendor and total', oEvents.some(e => e.id === 'po:po1:c
 ok('orders: confirmed by the supplier (Client group), turned down with a reason', oEvents.some(e => e.id === 'po:po1:confirmed' && e.title === 'Acme Supply confirmed Purchase order PO-12' && e.group === 'client') && oEvents.some(e => e.id === 'po:po2:declined' && e.title === "Bolt LLC can't fill Purchase order PO-13" && e.detail === 'Out of stock'));
 ok('orders: a finished delivery is an entry, one still being received is not', oEvents.some(e => e.id === 'po:po1:delivery:dlv_abc123' && e.title === 'Delivery received on Purchase order PO-12 from Acme Supply' && e.detail === '1 item · Left at the gate') && !oEvents.some(e => e.id.includes('dlv_def456')));
 
-eq('email: slot reserved for the email log (D11), returns nothing', emailEvents({ rows: [{ id: 'e1', sent_at: '2026-11-09T10:00:00Z' }] }, ctx), []);
+eq('email: a row without a recipient makes no entry (D11)', emailEvents({ rows: [{ id: 'e1', sent_at: '2026-11-09T10:00:00Z' }] }, ctx), []);
+eq('email: no rows (table not there) = nothing', emailEvents({}, ctx), []);
+{
+    const est = doc('est9', 'Estimate', '2026-11-08T10:00:00Z', { estimateNumber: 'E-1042' });
+    const em = emailEvents({ docs: [est], rows: [
+        { id: 'm1', document_id: 'est9', kind: 'document', to_email: 'jane@example.com', subject: 'Your estimate', status: 'sent', sent_at: '2026-11-09T10:00:00Z' },
+        { id: 'm2', kind: 'review_request', to_email: 'jane@example.com', subject: 'How did we do?', status: 'failed', error: 'RECONNECT_REQUIRED: Please reconnect', sent_at: '2026-11-09T11:00:00Z' },
+    ] }, ctx);
+    ok('email: names the document, links it, client group, done by you', em[0]?.title === 'Emailed estimate E-1042 to jane@example.com' && em[0].link?.type === 'document' && em[0].group === 'client' && em[0].actor === 'you' && em[0].detail === 'Your estimate');
+    ok('email: a failed send says so, with the reason', em[1]?.title === 'Email to jane@example.com failed' && em[1].detail === 'How did we do? · RECONNECT_REQUIRED: Please reconnect' && !em[1].link);
+    ok('email: entries reach the aggregator', buildEvents({ docs: [est], email: [{ id: 'm3', to_email: 'a@b.co', status: 'sent', kind: 'job_update', sent_at: '2026-11-09T12:00:00Z' }] }, ctx).some(e => e.id === 'email:m3' && e.title === 'Emailed a job update to a@b.co'));
+}
 
 // =========================================================================================================== aggregator
 const all = buildEvents({
