@@ -211,6 +211,13 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   its worktree for commits, resume with SendMessage or restart from the brief in this file's history). NEXT: merge D7-B,
   `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, full suite (scratchpad fullsuite.sh), push my-branch + main,
   redeploy ai-assistant, Done log (N3 + D7 + N8). Then D10, N7, D8, N6, N9, N10, N11 + D11, D6, D12.
+  2026-11-15 ~05:25 UTC: N3 + N8 + D7 SHIPPED (94aac57). RUNNING (Opus): D10 warranty + post-job email reminders
+  (agent-a85366dce76fdb802: reminders edge function + maybe migration 20261116000900 for reminder kinds; REDEPLOY `reminders`
+  with JWT verify OFF after merge) and N7 job AI + AI business summary (agent-afaedc695c469247e: ai-assistant task
+  business_summary + aggregates; redeploy ai-assistant after merge + `--sync-knowledge` if help changed). REMAINING after
+  those: D10 phase B UI (Sonnet), D8 profile + reviews (Opus A -> Sonnet B), N6 AI documents (Opus; Gemini vision), N9 plan
+  measurement (Opus), N10 integrations (Sonnet), N11 timeline + D11 email log, D6 bills, D12 push (owner adds VAPID
+  secrets; never type them).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -218,6 +225,15 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED N3 business overview (top of Insights: period KPIs, best/worst jobs by profit, estimates waiting on a yes,
+  active jobs, revenue by customer, filters, CSV, AI slot), N8 setup assistant (first-login sheet, "Setup x of y" hint, Settings
+  resume + example project add/remove; new settings key `documents.money` = tax %, due days, terms for NEW docs only) and D7
+  subcontractors + quote comparison + sub link (DB 20261116000800 applied 2026-11-15: crew_members kind/company/trade,
+  job_quotes, sub_commitments, crew_sub_get / crew_sub_accept; job Subs tab, crew screen Worker/Subcontractor, "My subcontract"
+  on the crew link, "Subcontracts (committed)" in job financials). main/my-branch 94aac57; suite green (44 steps);
+  ai-assistant redeployed (help for overview / setup / subs). Click paths: Insights (top); Settings > Setup assistant;
+  dashboard "Setup x of y"; Job > Subs > Subcontracts / Quotes; Crew > Members > Edit > Type; /clock/<sub token> > My
+  subcontract > Accept. Not clicked live (needs the owner's account).
 - 2026-11-15 SHIPPED D13 client chooses add-ons when signing (DB 20261116000700 applied: 3 new functions + guard_document_write /
   _document_stock_lines with only the add-on lines changed; app tolerant when the function is missing), D5 client selections +
   mood boards (DB 20261116000600 applied; job Selections/Boards tabs, portal "Your selections" + "Ideas board", selections
