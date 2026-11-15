@@ -159,6 +159,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   migration (20261116000300_portal_project_dashboard.sql), start D9 phase B (Sonnet portal UI) + next Opus phase A (D3
   files/questions/submittals, then D1 leads...), ship D2 UI + D9 as the next pair (sync help knowledge + redeploy
   ai-assistant first).
+  2026-11-15 ~01:30 UTC: D9 phase A + B merged on my-branch (cd6630d); get_portal_project_dashboard APPLIED + verified
+  (20261116000300, header done). NOT pushed yet (ships with D2 UI). D9 UI: portal "Project" tab (PortalView.tsx), owner
+  button "What my client sees" in ClientDetails; click path: /?portal=<key> > Project tab; Clients > client > Client portal
+  card. Running: D2 phase B (Sonnet, agent-a39ca3c6a843e297a) and D3 phase A (Opus, agent-ad14aaf9362318f8c: migration
+  20261116000400_job_files_questions.sql, lib/jobFiles, lib/questions, portal RPCs get_portal_questions/answer_portal_question).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
