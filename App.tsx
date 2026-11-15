@@ -2961,6 +2961,7 @@ const App: React.FC = () => {
                         onDeleteAccount={handleDeleteAccount}
                         initialSection={location.hash === '#billing' ? 'billing' : location.hash === '#payments' ? 'payments' : location.hash === '#data' ? 'data' : undefined}
                         syncState={session?.user?.id ? outbox.stateOf(session.user.id) : null}
+                        onPriceBookChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadSavedItems(uid).catch(() => undefined); }}
                         setupSlot={(
                             <Suspense fallback={null}>
                                 <SetupHint t={t} variant="settings" />

@@ -87,6 +87,9 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'components/forms/inventory.ts', match: "from('saved_items').insert(row)", what: 'line item → price book (from a form)', offline: 'queue' },
     // setup assistant (N8): starter kits use the price book's own insert + outbox; the example project's removal needs a connection
     { file: 'components/setup/setupApi.ts', match: "from('saved_items').insert(p)", what: 'setup assistant: import starter kits (same insert as the price book; offline → outbox)', offline: 'queue' },
+    // Settings > Integrations & data (N10): the price list import saves through the price book's own calls (offline → the same outbox)
+    { file: 'components/integrations/priceBookImportApi.ts', match: "from('saved_items').update(p)", what: 'price list import: changed prices (same edit as the price book; offline → outbox)', offline: 'queue' },
+    { file: 'components/integrations/priceBookImportApi.ts', match: "from('saved_items').insert(p)", what: 'price list import: new price-book items (same insert as the price book; offline → outbox)', offline: 'queue' },
     { file: 'components/setup/setupApi.ts', match: "from('documents').delete()", what: 'setup assistant: remove the example estimate (exactly the id it created)', offline: 'needs_connection' },
     { file: 'components/setup/setupApi.ts', match: "from('jobs').delete()", what: 'setup assistant: remove the example job (only when nothing else is in it)', offline: 'needs_connection' },
     { file: 'components/setup/setupApi.ts', match: "from('clients').delete()", what: 'setup assistant: remove the example client (only when it has no other job)', offline: 'needs_connection' },
