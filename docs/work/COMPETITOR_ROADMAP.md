@@ -278,6 +278,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   video with chapters, voiceover via the AI33 API from the Fremator project, multi-language subtitles, in the in-app
   tutorial) was handed to its own session: "Full tutorial video with chapters, voiceover, subtitles" (work files under
   docs/work/tutorial-video/, untracked by this session).
+  NOTE (2026-11-15 ~13:40 UTC): the video session shares this checkout: local `my-branch` now carries ITS unpushed commits
+  (tip 5d22f3c: tutorial scripts, subtitles, migration note 20261116001300_tutorial_media_bucket.sql for the public
+  `tutorial-media` bucket created in the dashboard, NEXT_STEPS handover). origin/main is still dcc1083. Before any push of
+  the roadmap work: `git log origin/main..my-branch`, run the full suite, and only push if the video session says its part is
+  ready (it reported chapters 1-6 finished, 7-11 recorded, extra-language subtitles in progress).
 - 2026-11-15 SHIPPED D11 sent-email log (DB 20261116001200 applied: `email_log` = who/what/when only, no body/attachments/
   tokens; owner SELECT + DELETE only, rows written by the `gmail` edge function with the service role, newest 5000 per user kept;
   `gmail` function REDEPLOYED: logging is best-effort in its own try/catch, response unchanged; the job timeline now shows
