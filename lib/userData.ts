@@ -16,6 +16,9 @@
  *   default document design    → public.user_settings 'documents.design' (lib/designAccess.ts; picker + Settings)
  *   crew overtime rule         → public.user_settings 'crew.settings' (components/crew/crewUi.tsx useOvertimeRule)
  *   job task templates         → public.user_settings 'tasks.templates' (lib/tasks/taskLogic.ts TaskTemplatesSetting)
+ *   automation rule choices    → public.user_settings 'automations.prefs' (lib/automations/rules.ts; Settings → Automations)
+ *   jobs seen completed        → public.user_settings 'automations.seen' (lib/automations/state.ts, bounded)
+ *   drafts a rule made         → public.user_settings 'automations.done' (lib/automations/state.ts, bounded)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language

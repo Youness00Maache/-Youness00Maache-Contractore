@@ -146,6 +146,12 @@ export const pendingReminderSettings = (): ReminderSettings | null => {
     return item ? settingsFromRow(item.data as unknown as ReminderSettingsRow) : null;
 };
 
+/** Fired after the reminder settings were saved: Settings shows them in two places (Reminders and Automations) and both re-read. */
+export const REMINDER_SETTINGS_CHANGED = 'cd:reminder-settings-changed';
+const announceReminderSettings = () => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(REMINDER_SETTINGS_CHANGED));
+};
+
 export async function saveReminderSettings(settings: ReminderSettings): Promise<ReminderSettings> {
     const userId = await currentUserId();
     // offline (or settings saved offline still waiting): kept on this device, saved to the account when back online
@@ -153,6 +159,7 @@ export async function saveReminderSettings(settings: ReminderSettings): Promise<
     if (outbox) {
         await outbox.queue('reminder_settings', 'edit', reminderSettingsOutboxId(userId), { user_id: userId, ...settingsToRow(settings) });
         if (basicsCache && basicsCache.value.userId === userId) basicsCache = { ...basicsCache, value: { ...basicsCache.value, settings, saved: true } };
+        announceReminderSettings();
         return settings;
     }
     const { data, error } = await supabase
@@ -162,6 +169,7 @@ export async function saveReminderSettings(settings: ReminderSettings): Promise<
         .single();
     if (error) fail(error, 'Could not save reminder settings');
     invalidateReminderBasics();
+    announceReminderSettings();
     return settingsFromRow(data as ReminderSettingsRow);
 }
 

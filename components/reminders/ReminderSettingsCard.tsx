@@ -11,7 +11,7 @@ import { GoogleIcon } from '../Icons.tsx';
 import { startGmailConnect } from '../../services/gmailService.ts';
 import { supabase } from '../../lib/supabase.ts';
 import {
-    browserTimezone, buildValues, loadReminderBasics, normalizeOffsets, offsetChip, PLACEHOLDER_HELP, REMINDER_RULES,
+    browserTimezone, buildValues, loadReminderBasics, normalizeOffsets, offsetChip, PLACEHOLDER_HELP, REMINDER_RULES, REMINDER_SETTINGS_CHANGED,
     RemindersUnavailableError, renderReminder, resolveTemplate, safeTimezone, saveReminderSettings, pendingReminderSettings, TEMPLATE_KEYS, TEMPLATE_PLACEHOLDERS,
     TEMPLATE_TITLES, zonedNow, addDays,
     type ReminderBasics, type ReminderKind, type ReminderSettings, type TemplateKey,
@@ -126,6 +126,16 @@ const ReminderSettingsCard: React.FC<Props> = ({ onUpgradeClick }) => {
 
     const baseline = useMemo(() => (basics ? (basics.saved ? basics.settings : { ...basics.settings, timezone: browserTimezone() }) : null), [basics]);
     const dirty = !!draft && !!baseline && (!sameSettings(draft, baseline) || !basics?.saved);
+
+    // Settings > Automations has switches for the same reminders: when one is saved there, show it here too
+    // (never over unsaved edits in this card)
+    const dirtyRef = useRef(false);
+    dirtyRef.current = dirty;
+    useEffect(() => {
+        const onChanged = () => { if (!dirtyRef.current) void load(true); };
+        window.addEventListener(REMINDER_SETTINGS_CHANGED, onChanged);
+        return () => window.removeEventListener(REMINDER_SETTINGS_CHANGED, onChanged);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const zones = useMemo(() => {
         let all: string[] = [];

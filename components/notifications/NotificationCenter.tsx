@@ -11,7 +11,7 @@
  * (off by default) show only items that arrive while the app is open, never the backlog found at sign-in.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { FormData as FormDataType } from '../../types.ts';
+import type { FormData as FormDataType, UserProfile } from '../../types.ts';
 import type { OutboxItem } from '../../lib/offline/outboxModel.ts';
 import { notificationStore } from '../../lib/notifications/store.ts';
 import {
@@ -31,13 +31,19 @@ import { popupSupport, showPopup } from '../../lib/notifications/popups.ts';
 import { requestOpenInventoryItem, requestOpenQuoteRequest } from '../../lib/notifications/intents.ts';
 import { openAppPath } from '../help/helpNav.ts';
 import { centerStore } from './centerStore.ts';
+import { useAutomationNotifications, type AutomationJob } from '../automations/useAutomations.ts';
 
 export interface NotificationCenterProps {
     userId: string;
     online: boolean;
     /** the app's documents (recent + unseen client decisions, offline versions on top) */
     forms: readonly FormDataType[];
-    jobs: ReadonlyArray<{ id: string; name: string }>;
+    /** the app's jobs; status / client fields let the automation rules (Settings > Automations) see a job just completed */
+    jobs: ReadonlyArray<{ id: string; name: string } & Partial<Omit<AutomationJob, 'id' | 'name'>>>;
+    /** the signed-in user's profile (plan for the "do it for me" rules, company and pay link for the drafts they make) */
+    profile?: (Partial<UserProfile> & { plan?: string | null }) | null;
+    /** the jobs list is the whole list from the account (not a device copy): the rules may follow job status changes */
+    jobsReady?: boolean;
     inventory: readonly StockInput[];
     /** the server's usage numbers (null = unknown: no plan-limit notifications) */
     usage: UsageInput | null;
@@ -99,7 +105,7 @@ const mergeDocs = (remote: Array<DocInput[] | null>, appDocs: readonly FormDataT
 };
 
 const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
-    const { userId, online, forms, jobs, inventory, usage, docUsage, outboxItems } = props;
+    const { userId, online, forms, jobs, inventory, usage, docUsage, outboxItems, profile, jobsReady = true } = props;
     const handlers = useRef(props);
     handlers.current = props;
 
@@ -228,6 +234,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
     // stock has no time of its own (first seen is used), so it only changes with the inventory
     const stock = useMemo(() => deriveStockNotifications(inventory, { uid: userId, now: 0 }), [inventory, userId]);
 
+    // Automation rules (Settings > Automations): their own reads, state and drafts; the items join the list below
+    const automationJobs = useMemo<AutomationJob[]>(() => jobs.map(j => ({
+        id: j.id, name: j.name, status: j.status ?? '', clientName: j.clientName, clientAddress: j.clientAddress, clientId: j.clientId, createdAt: j.createdAt,
+    })), [jobs]);
+    const autoItems = useAutomationNotifications({ userId, online, now, profile, jobs: automationJobs, jobsReady, jobNames });
+
     const derived = useMemo(() => {
         const items = [
             ...deriveDocNotifications(docs, ctx, jobNames),
@@ -243,9 +255,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = (props) => {
             ...derivePunchNotifications(remote.punch || [], jobNames),
             ...derivePaperNotifications(remote.papers || [], ctx),
             ...deriveServiceVisitNotifications(remote.visits || [], ctx),
+            ...autoItems,
         ];
         return buildNotifications({ now: ctx.now, items, state: stored.state, prefs: stored.prefs, seen: notificationStore.getSeen() });
-    }, [docs, stock, remote.requests, remote.forum, remote.reminders, remote.gmail, remote.crew, remote.punch, remote.papers, remote.visits, outboxItems, usage, docUsage, ctx, jobNames, stored.state, stored.prefs]);
+    }, [docs, stock, remote.requests, remote.forum, remote.reminders, remote.gmail, remote.crew, remote.punch, remote.papers, remote.visits, autoItems, outboxItems, usage, docUsage, ctx, jobNames, stored.state, stored.prefs]);
 
     // Low stock that is back to normal: forget it, so the next time it runs low is new again.
     useEffect(() => {
