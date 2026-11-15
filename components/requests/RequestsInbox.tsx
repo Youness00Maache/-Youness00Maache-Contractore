@@ -17,6 +17,10 @@ export interface RequestsInboxProps extends RequestActionsProps {
     companyName?: string;
     logoUrl?: string;
     phone?: string;
+    /** the lead columns are in the database: a "Leads" button opens the Leads screen (components/leads) and the due count shows */
+    onOpenLeads?: () => void;
+    /** open leads whose follow-up is today or earlier (only with onOpenLeads) */
+    followUpsDue?: number;
 }
 
 const REFRESH_MS = 3 * 60 * 1000;
@@ -57,7 +61,7 @@ const RequestRow: React.FC<{ req: QuoteRequest; onOpen: () => void; showStatus?:
     );
 };
 
-const RequestsInbox: React.FC<RequestsInboxProps> = ({ companyName, logoUrl, phone, ...actions }) => {
+const RequestsInbox: React.FC<RequestsInboxProps> = ({ companyName, logoUrl, phone, onOpenLeads, followUpsDue = 0, ...actions }) => {
     /** undefined = loading, null = feature not in the database yet */
     const [items, setItems] = useState<QuoteRequest[] | null | undefined>(undefined);
     const [openId, setOpenId] = useState<string | null>(null);
@@ -175,9 +179,11 @@ const RequestsInbox: React.FC<RequestsInboxProps> = ({ companyName, logoUrl, pho
                                 : list.length > 0
                                     ? 'No new requests.'
                                     : 'Get new work from your Google profile, website, truck and yard signs with your own request link.'}
+                            {onOpenLeads && followUpsDue > 0 && <span className="font-semibold text-warning"> {followUpsDue} {followUpsDue === 1 ? 'follow-up is' : 'follow-ups are'} due.</span>}
                         </p>
                     </div>
                     <div className="flex shrink-0 gap-2">
+                        {onOpenLeads && <button type="button" className="btn btn-sm btn-outline flex-1 sm:flex-none" onClick={onOpenLeads}>Leads</button>}
                         {list.length > 0 && <button type="button" className="btn btn-sm btn-outline flex-1 sm:flex-none" onClick={() => { setView('open'); setShowAll(true); }}>Inbox</button>}
                         <button type="button" className="btn btn-sm btn-outline flex-1 sm:flex-none" onClick={() => setShowLink(true)}>Link &amp; QR code</button>
                     </div>
@@ -195,6 +201,7 @@ const RequestsInbox: React.FC<RequestsInboxProps> = ({ companyName, logoUrl, pho
                         New quote requests <span className="badge badge-primary tabular-nums">{fresh.length}</span>
                     </h2>
                     <div className="flex shrink-0 gap-1">
+                        {onOpenLeads && <button type="button" className="btn btn-ghost btn-sm" onClick={onOpenLeads}>Leads{followUpsDue > 0 ? ` (${followUpsDue} due)` : ''}</button>}
                         <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setView('open'); setShowAll(true); }}>Inbox</button>
                         <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLink(true)}>Link &amp; QR</button>
                     </div>

@@ -29,6 +29,14 @@ import {
     mapLeadRow, parseAttachments,
 } from '../lib/leads/leadRows.ts';
 import { LEAD_STAGES, MANUAL_LEAD_ORIGINS, type Appointment, type Lead } from '../lib/leads/leadTypes.ts';
+import {
+    APPOINTMENT_DURATIONS, NO_LEAD_FILTERS, addDaysYmd, appointmentFormToDraft, appointmentTitleFor, appointmentWhenLabel, attachmentKind,
+    defaultAppointmentForm, filterLeads, followUpChips, followUpText, formatFileSize, icsFileName, isFiltering, leadAgenda, leadBoardColumns,
+    leadInsights, leadSourceOptions, leadsDueCount, localDateTimeToDate, shortAge, sortBoardColumn,
+} from '../lib/leads/leadViewLogic.ts';
+import { parseView } from '../lib/routes.ts';
+import { HELP_GUIDES, getGuide } from '../components/help/helpContent.ts';
+import { readdirSync } from 'node:fs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 let checks = 0;
@@ -345,5 +353,181 @@ const oldSql = readFileSync(join(root, 'supabase/migrations/20261113000400_reque
 const submitInsert = (oldSql.match(/insert into public\.quote_requests \(([^)]*)\)/) || [])[1] || '';
 eq(cols(submitInsert), ['id', 'user_id', 'name', 'phone', 'email', 'address', 'details', 'photo_paths', 'source'], 'public submit inserts the old columns only');
 ok(/revoke all on public\.request_pages, public\.quote_requests,/.test(oldSql), 'anon still has no table privilege on quote_requests');
+
+// ================================================================================================ phase B: screens (pure helpers)
+const norm = (t: string) => t.replace(/\s/g, ' ');
+const OFF = 'en-US';
+
+// dates + follow-up wording
+eq(addDaysYmd('2026-11-15', 1), '2026-11-16', 'addDaysYmd +1');
+eq(addDaysYmd('2026-11-15', 30), '2026-12-15', 'addDaysYmd +30');
+eq(addDaysYmd('2026-12-31', 1), '2027-01-01', 'addDaysYmd over the year');
+eq(addDaysYmd('2026-11-01', 1), '2026-11-02', 'addDaysYmd over the clock change');
+eq(addDaysYmd('2026-11-15', -15), '2026-10-31', 'addDaysYmd back');
+eq(followUpChips(TODAY).map(c => [c.id, c.label, c.ymd]), [['tomorrow', 'Tomorrow', '2026-11-16'], ['in_3_days', 'In 3 days', '2026-11-18'], ['next_week', 'Next week', '2026-11-22']], 'follow-up chips');
+{
+    const f = (followUpOn: string | null, stage: Lead['stage'] = 'new') => followUpText(lead({ followUpOn, stage }), TODAY, OFF);
+    eq([f('2026-11-12').tone, f('2026-11-12').short, f('2026-11-12').long], ['overdue', '3 d late', 'Follow-up was due 3 days ago'], 'overdue text');
+    eq([f('2026-11-14').short, f('2026-11-14').long], ['Yesterday', 'Follow-up was due yesterday'], 'yesterday');
+    eq([f('2026-11-15').tone, f('2026-11-15').short, f('2026-11-15').long], ['today', 'Today', 'Follow up today'], 'today text');
+    eq([f('2026-11-16').tone, f('2026-11-16').short, f('2026-11-16').long], ['upcoming', 'Tomorrow', 'Follow up tomorrow'], 'tomorrow text');
+    eq([f('2026-11-19').short, f('2026-11-19').long], ['Thu', 'Follow up in 4 days (Thu, Nov 19)'], 'this week text');
+    eq([f('2026-12-05').short, f('2026-12-05').long], ['Dec 5', 'Follow up on Sat, Dec 5'], 'far text');
+    eq([f(null).tone, f(null).short], ['none', ''], 'no follow-up');
+    eq([f('2026-11-20', 'won').tone, f('2026-11-20', 'won').short], ['none', 'Fri, Nov 20'], 'won lead: quiet date');
+    eq(f('2027-01-04').long, 'Follow up on Mon, Jan 4, 2027', 'next year text carries the year');
+}
+{
+    const now = NOW.getTime();
+    eq([shortAge(new Date(now - 3600_000).toISOString(), now), shortAge(daysAgo(3), now), shortAge(daysAgo(70), now), shortAge(daysAgo(400), now), shortAge('', now)], ['today', '3 d', '2 mo', '1 y', ''], 'short age');
+}
+
+// filters
+{
+    const leads = [
+        lead({ id: 'a', name: 'Ann Lee', origin: 'phone', followUpOn: '2026-11-10', stage: 'new' }),
+        lead({ id: 'b', name: 'Bob', origin: 'referral', followUpOn: '2026-11-20', stage: 'contacted' }),
+        lead({ id: 'c', name: 'Cy', origin: 'phone', followUpOn: null, stage: 'quote_sent', address: '12 Oak Street' }),
+        lead({ id: 'd', name: 'Dee', origin: 'phone', followUpOn: '2026-11-01', stage: 'lost', archived: true }),
+    ];
+    eq(filterLeads(leads, NO_LEAD_FILTERS, TODAY).map(l => l.id), ['a', 'b', 'c', 'd'], 'no filters = everything');
+    eq(filterLeads(leads, { ...NO_LEAD_FILTERS, query: 'oak' }, TODAY).map(l => l.id), ['c'], 'search address');
+    eq(filterLeads(leads, { ...NO_LEAD_FILTERS, origin: 'phone' }, TODAY).map(l => l.id), ['a', 'c', 'd'], 'source filter');
+    eq(filterLeads(leads, { ...NO_LEAD_FILTERS, needsFollowUp: true }, TODAY).map(l => l.id), ['a'], 'needs follow-up: open + due only (lost ignored)');
+    eq(filterLeads(leads, { query: 'ann', origin: 'phone', needsFollowUp: true }, TODAY).map(l => l.id), ['a'], 'filters combine');
+    ok(!isFiltering(NO_LEAD_FILTERS) && isFiltering({ ...NO_LEAD_FILTERS, query: ' x ' }) && isFiltering({ ...NO_LEAD_FILTERS, origin: 'email' }) && isFiltering({ ...NO_LEAD_FILTERS, needsFollowUp: true }), 'isFiltering');
+    eq(leadSourceOptions(leads).map(o => [o.origin, o.count]), [['phone', 3], ['referral', 1]], 'source options, most first');
+    eq(leadsDueCount(leads, TODAY), 1, 'due count');
+    eq(leadsDueCount([...leads, lead({ id: 'e', followUpOn: TODAY, stage: 'quote_sent' }), lead({ id: 'f', followUpOn: '2026-11-01', stage: 'won' })], TODAY), 2, 'due count: today counts, won does not');
+    eq(leadsDueCount([lead({ id: 'g', followUpOn: '2026-11-01', archived: true })], TODAY), 0, 'due count: archived does not');
+}
+
+// board columns + sort
+{
+    const leads = [
+        lead({ id: 'n1', stage: 'new', createdAt: daysAgo(3) }),
+        lead({ id: 'n2', stage: 'new', createdAt: daysAgo(1) }),
+        lead({ id: 'n3', stage: 'new', createdAt: daysAgo(9), followUpOn: '2026-11-13' }),
+        lead({ id: 'n4', stage: 'new', createdAt: daysAgo(8), followUpOn: '2026-11-10' }),
+        lead({ id: 'w1', stage: 'won', status: 'converted', stageChangedAt: daysAgo(5), createdAt: daysAgo(20) }),
+        lead({ id: 'w2', stage: 'won', status: 'converted', stageChangedAt: daysAgo(2), createdAt: daysAgo(30) }),
+        lead({ id: 'l1', stage: 'lost', archived: true, status: 'archived' }),
+        lead({ id: 'x1', stage: 'contacted', archived: true, status: 'archived' }),
+    ];
+    const hidden = leadBoardColumns(leads);
+    eq(hidden.columns.lost.map(l => l.id), ['l1'], 'a lost lead (archived by the app) still shows in Lost');
+    eq(hidden.columns.contacted.map(l => l.id), [], 'an archived lead still in an open stage is held back');
+    eq(hidden.archived.map(l => l.id), ['x1'], '... and listed as archived');
+    eq(leadBoardColumns(leads, { showArchived: true }).columns.contacted.map(l => l.id), ['x1'], 'show archived brings it back');
+    eq(sortBoardColumn('new', hidden.columns.new, TODAY).map(l => l.id), ['n4', 'n3', 'n2', 'n1'], 'open column: late follow-ups first (oldest date first), then newest');
+    eq(sortBoardColumn('won', hidden.columns.won, TODAY).map(l => l.id), ['w2', 'w1'], 'won column: latest change first');
+    eq(Object.keys(hidden.columns), [...LEAD_STAGES], 'columns in stage order');
+}
+
+// insights
+{
+    const leads = [
+        lead({ id: 'a', stage: 'won', status: 'converted', origin: 'referral', budgetMin: 1000, budgetMax: 3000 }),
+        lead({ id: 'b', stage: 'won', status: 'converted', origin: 'phone' }),
+        lead({ id: 'c', stage: 'lost', archived: true, status: 'archived', origin: 'phone' }),
+        lead({ id: 'd', stage: 'contacted', origin: 'phone', budgetMin: 4000, budgetMax: 6000, createdAt: daysAgo(12) }),
+        lead({ id: 'e', stage: 'new', origin: 'referral', createdAt: daysAgo(1) }),
+    ];
+    const i = leadInsights(leads, NOW);
+    eq([i.won, i.lost, i.openCount, i.openBudget], [2, 1, 2, 5000], 'insights numbers');
+    ok(Math.abs((i.winRate ?? 0) - 2 / 3) < 1e-9, 'insights win rate');
+    eq(i.stale.map(l => l.id), ['d'], 'quiet leads: open and a week without activity');
+    eq(i.sources.map(s => [s.origin, s.count]), [['phone', 3], ['referral', 2]], 'insights sources');
+    eq(leadInsights([], NOW).winRate, null, 'no leads: no win rate');
+}
+
+// appointment form
+{
+    const l1 = lead({ id: 'l1', name: 'Ann', address: '12 Oak St\nSpringfield', clientId: 'c1' });
+    const form = defaultAppointmentForm(l1, TODAY);
+    eq([form.kind, form.title, form.date, form.time, form.durationMinutes, form.location], ['site_visit', 'Site visit: Ann', '2026-11-16', '09:00', 60, '12 Oak St, Springfield'], 'default appointment form (tomorrow 9:00 at the address)');
+    eq(appointmentTitleFor('call', 'Bob'), 'Call: Bob', 'appointment title');
+    eq(appointmentTitleFor('other', 'Bob'), 'Appointment: Bob', 'appointment title for other');
+    ok(localDateTimeToDate('2026-11-16', '09:00')?.getTime() === new Date(2026, 10, 16, 9, 0).getTime(), 'local date + time');
+    eq([localDateTimeToDate('2026-13-01', '09:00'), localDateTimeToDate('2026-11-16', '25:00')], [null, null], 'bad date / hour');
+    eq(localDateTimeToDate('2026-11-16', '9:00'), null, 'time must be HH:MM');
+    const ok1 = appointmentFormToDraft(form, l1);
+    eq(ok1.errors, {}, 'valid form has no errors');
+    eq([ok1.draft?.startsAt, ok1.draft?.endsAt, ok1.draft?.leadId, ok1.draft?.clientId, ok1.draft?.kind, ok1.draft?.location], [at(9), at(10), 'l1', 'c1', 'site_visit', '12 Oak St, Springfield'], 'draft times, lead and client');
+    eq(appointmentFormToDraft({ ...form, durationMinutes: 480 }, l1).draft?.endsAt, at(17), 'all day = 8 h');
+    eq(appointmentFormToDraft({ ...form, durationMinutes: 99999 }, l1).errors, {}, 'duration is capped at 7 days');
+    ok(!!appointmentFormToDraft({ ...form, title: '  ' }, l1).errors.title, 'title is required');
+    eq(appointmentFormToDraft({ ...form, date: '' }, l1), { draft: null, errors: { startsAt: 'Please pick a date and time.' } }, 'no date');
+    ok(APPOINTMENT_DURATIONS.some(d => d.minutes === 60) && APPOINTMENT_DURATIONS.every(d => d.minutes > 0), 'duration options');
+    // the overlap warning uses the draft
+    const existing = [appt({ id: 'x', startsAt: at(9, 30), title: 'Other visit' })];
+    eq(conflictsFor({ startsAt: ok1.draft!.startsAt, endsAt: ok1.draft!.endsAt }, existing).map(a => a.id), ['x'], 'overlap with the drafted time');
+    eq(norm(appointmentWhenLabel(appt({ startsAt: at(9), endsAt: at(10) }), TODAY, OFF)), 'Tomorrow · 9:00 AM – 10:00 AM', 'when label: tomorrow');
+    eq(norm(appointmentWhenLabel(appt({ startsAt: at(9, 0, 15), endsAt: null }), TODAY, OFF)), 'Today · 9:00 AM', 'when label: today, no end');
+    eq(norm(appointmentWhenLabel(appt({ startsAt: at(9, 0, 20), endsAt: null }), TODAY, OFF)), 'Fri, Nov 20 · 9:00 AM', 'when label: later');
+    eq(icsFileName(appt({ title: 'Site visit: Ann', startsAt: at(9, 0, 17) })), 'site-visit-ann-2026-11-17.ics', 'ics file name');
+    ok(appointmentToIcs(appt({ title: 'Site visit: Ann' }), { contactLine: 'Ann · 555 123 4567' }).includes('DESCRIPTION:Ann · 555 123 4567'), 'ics carries the contact line');
+}
+
+// schedule agenda
+{
+    const leads = [lead({ id: 'l1', name: 'Ann', followUpOn: '2026-11-10' }), lead({ id: 'l2', name: 'Bob', followUpOn: '2026-11-20' })];
+    const items = leadCalendarItems({ leads, appointments: [appt({ id: 'a1', leadId: 'l1', startsAt: at(9, 0, 17), title: 'Visit Ann' })], today: TODAY, now: NOW });
+    const agenda = leadAgenda(items, '2026-11-01', '2026-11-30');
+    eq(agenda.late.map(i => i.leadId), ['l1'], 'agenda: late follow-ups first');
+    eq(agenda.days.map(d => [d.day, d.items.map(i => i.kind)]), [['2026-11-17', ['appointment']], ['2026-11-20', ['follow_up']]], 'agenda: days of the month');
+    eq(leadAgenda(items, '2026-12-01', '2026-12-31').days, [], 'agenda: other month has no days');
+    eq(leadAgenda(items, '2026-12-01', '2026-12-31').late.length, 1, 'agenda: late ones show in any month');
+    eq([...countCalendarItemsByDay(items)], [['2026-11-10', 1], ['2026-11-17', 1], ['2026-11-20', 1]], 'calendar counts per day');
+}
+
+// files
+eq([formatFileSize(0), formatFileSize(900), formatFileSize(2048), formatFileSize(5 * 1024 * 1024)], ['0 B', '900 B', '2 KB', '5.0 MB'], 'file sizes');
+eq([attachmentKind({ type: 'image/png', name: 'a' }), attachmentKind({ type: '', name: 'photo.JPG' }), attachmentKind({ type: 'application/pdf', name: 'a' }), attachmentKind({ type: '', name: 'quote.pdf' }), attachmentKind({ type: 'text/plain', name: 'a.txt' })], ['image', 'image', 'pdf', 'pdf', 'file'], 'attachment kinds');
+
+// route
+eq(parseView('/leads', '', null), { screen: 'leads', leadId: undefined }, '/leads is a screen');
+eq(parseView('/leads/', '', null).screen, 'leads', '/leads/ (trailing slash)');
+eq(parseView('/leads', '?lead=abc-123', null), { screen: 'leads', leadId: 'abc-123' }, '/leads?lead=<id>');
+
+// ================================================================================================ phase B: wiring (static)
+const read = (rel: string) => readFileSync(join(root, rel), 'utf8').replace(/\r\n/g, '\n');
+{
+    const app = read('App.tsx');
+    const nav = read('components/AppNav.tsx');
+    const view = read('components/leads/LeadsView.tsx');
+    const inbox = read('components/requests/RequestsInbox.tsx');
+    const cal = read('components/CalendarView.tsx');
+    ok(/const leadsReady = leadsFeature === 'ready';/.test(app), 'App: Leads only when the feature is ready');
+    ok(app.includes('leadsEnabled={leadsReady}') && app.includes('leadsDue={leadsReady ? leadsDue : 0}'), 'App: nav link and count only when ready');
+    ok(app.includes("onOpenLeads={leadsReady ? () => navigate('/leads') : undefined}") && app.includes('followUpsDue={leadsReady ? leadsDue : 0}'), 'App: dashboard bar button and count only when ready');
+    ok(app.includes('leadsUi={leadsReady && session ?'), 'App: Schedule markers only when ready');
+    ok(app.includes("case 'leads': navigate('/leads'); break;"), 'App: nav destination');
+    ok(nav.includes("(t.dest !== 'leads' || leadsEnabled)") && /\{leadsEnabled && \(/.test(nav), 'nav: both Leads entries wait for leadsEnabled');
+    ok(view.includes("if (props.feature === 'ready') return <LeadsScreen {...props} />;") && view.includes('return <InboxOnly {...props} />;'), 'Leads screen: not ready = the old inbox');
+    ok(view.includes("import('../requests/RequestsInbox.tsx')"), 'Leads screen: the fallback is the existing inbox');
+    ok(inbox.includes('onOpenLeads && <button') && inbox.includes('onOpenLeads && followUpsDue > 0'), 'inbox: Leads button and due count behind onOpenLeads');
+    ok(/leadsUi\?: LeadsUi/.test(cal) && cal.includes('useScheduleLeads(leadsUi)'), 'calendar: lead items behind leadsUi');
+    // the old inbox pieces are all still there
+    for (const text of ['New quote requests', 'See all', 'Link &amp; QR', 'Quote requests']) ok(inbox.includes(text), `inbox still has: ${text}`);
+}
+
+// help: the guides exist and every [[label]] is on screen
+{
+    for (const id of ['leads', 'appointments'] as const) {
+        const g = getGuide(id);
+        ok(!!g && g.appPath === '/leads' && g.steps.length >= 3, `help guide ${id}`);
+    }
+    ok(HELP_GUIDES.filter(g => g.id === 'leads' || g.id === 'appointments').length === 2, 'both guides listed once');
+    const files = [...readdirSync(join(root, 'components/leads')).filter(f => f.endsWith('.tsx')).map(f => `components/leads/${f}`),
+        'lib/leads/leadViewLogic.ts', 'lib/leads/leadLogic.ts', 'components/AppNav.tsx', 'components/CalendarView.tsx'];
+    const src = files.map(read).join('\n');
+    const labels = (JSON.stringify([getGuide('leads'), getGuide('appointments')]).match(/\[\[([^\]]+)\]\]/g) || []).map(l => l.slice(2, -2));
+    const missing = labels.filter(l => !['More'].includes(l) && !src.includes(`'${l}'`) && !src.includes(`"${l}"`) && !src.includes(`>${l}<`) && !src.includes(` ${l} `) && !src.includes(` ${l}\n`) && !src.includes(`>${l}`));
+    eq(missing, [], 'every [[label]] of the lead guides is on screen');
+    ok(labels.length > 20, 'the guides use chips');
+    ok(getGuide('calendar').steps.some(s => s.title === 'See your leads'), 'calendar guide mentions leads');
+    ok(JSON.stringify(getGuide('quote-link')).includes('Requests also appear in Leads'), 'quote-link guide mentions Leads');
+}
 
 console.log(`leads-check: ${checks} checks passed`);

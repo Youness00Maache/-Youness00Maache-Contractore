@@ -69,6 +69,8 @@ import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/off
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
 import { useCrewFeature } from './lib/crew/crewFeature.ts';
 import { useTasksFeature } from './lib/tasks/taskFeature.ts';
+import { useLeadsFeature } from './lib/leads/leadsFeature.ts';
+import { useLeadsDue } from './lib/leads/leadsStore.ts';
 import { taskProgress, type TaskProgress } from './lib/tasks/taskLogic.ts';
 import { tabCount } from './lib/tasks/taskView.ts';
 import { listJobTasks } from './lib/tasks/tasksApi.ts';
@@ -132,6 +134,8 @@ const LienWaiverModal = lazy(() => import('./components/papers/LienWaiverModal.t
 const ServicePlansView = lazy(() => import('./components/service/ServicePlansView.tsx'));
 // Pipeline board (/pipeline) and its dashboard strip: NEXT_STEPS 0c #8
 const PipelineView = lazy(() => import('./components/pipeline/PipelineView.tsx'));
+// Leads board + list (/leads, roadmap D1); today's inbox until the database has the lead columns
+const LeadsView = lazy(() => import('./components/leads/LeadsView.tsx'));
 const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx'));
 // Crew clock-in links (/crew + the job page's Crew tab): NEXT_STEPS 0c #13. Hidden until the database has it.
 const CrewView = lazy(() => import('./components/crew/CrewView.tsx'));
@@ -272,11 +276,12 @@ const DOC_NUMBER_FIELD: Partial<Record<FormType, string>> = {
 
 const PUBLIC_SCREENS: AppView['screen'][] = ['root', 'welcome', 'auth', 'updatePassword', 'notFound', 'qaAiDocuments'];
 const NO_NAV_SCREENS: AppView['screen'][] = ['form', 'gmailCallback', 'billingSuccess', 'updatePassword', 'qaAiDocuments'];
-const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline', 'crew', 'papers', 'servicePlans'];
+const TAB_BAR_SCREENS: AppView['screen'][] = ['dashboard', 'jobDetails', 'clients', 'communication', 'inventory', 'pricebook', 'calendar', 'analytics', 'profitCalculator', 'forum', 'settings', 'profile', 'selectDocType', 'help', 'pipeline', 'leads', 'crew', 'papers', 'servicePlans'];
 
 const navSectionFor = (screen: AppView['screen']): NavSection => {
     switch (screen) {
         case 'dashboard': case 'jobDetails': case 'createJob': case 'selectDocType': return 'dashboard';
+        case 'leads': return 'leads';
         case 'clients': return 'clients';
         case 'communication': return 'communication';
         case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': case 'crew': case 'papers': case 'servicePlans': return 'tools';
@@ -317,6 +322,7 @@ const App: React.FC = () => {
             case 'pricebook': navigate('/pricebook'); break;
             case 'profitCalculator': navigate('/calculator'); break;
             case 'pipeline': navigate('/pipeline'); break;
+            case 'leads': navigate(newView.leadId ? `/leads?lead=${encodeURIComponent(newView.leadId)}` : '/leads'); break;
             case 'crew': navigate('/crew'); break;
             case 'papers': navigate('/papers'); break;
             case 'servicePlans': navigate('/service-plans'); break;
@@ -1088,6 +1094,12 @@ const App: React.FC = () => {
     // work order's "Create tasks" stay hidden until they are. The tab's "3/8" is read when a job page opens and kept
     // up to date by the Tasks panel itself.
     const tasksFeature = useTasksFeature(session?.user?.id ?? null, isOnline);
+    // Leads (roadmap D1): are the lead columns + appointments in the database? The Leads link, the follow-up count and
+    // the Schedule markers wait for it; until then the dashboard inbox is unchanged.
+    const leadsFeature = useLeadsFeature(session?.user?.id ?? null, isOnline);
+    const leadsReady = leadsFeature === 'ready';
+    const leadsDue = useLeadsDue(session?.user?.id ?? null, leadsReady, isOnline);
+    const handleLeadParamHandled = useCallback(() => navigate('/leads', { replace: true }), [navigate]);
     const [taskCounts, setTaskCounts] = useState<Record<string, TaskProgress>>({});
     const handleTaskProgress = useCallback((jobId: string, p: TaskProgress) => {
         setTaskCounts(prev => {
@@ -1419,6 +1431,7 @@ const App: React.FC = () => {
             case 'billing': navigate('/settings#billing'); break;
             case 'export': navigate('/settings#data'); break;
             case 'pipeline': navigate('/pipeline'); break;
+            case 'leads': navigate('/leads'); break;
             case 'crew': navigate('/crew'); break;
             case 'papers': navigate('/papers'); break;
             case 'servicePlans': navigate('/service-plans'); break;
@@ -2504,6 +2517,8 @@ const App: React.FC = () => {
                         onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
                         onUpgrade={openUpgrade}
                         onDraftEstimate={handleDraftEstimate}
+                        onOpenLeads={leadsReady ? () => navigate('/leads') : undefined}
+                        followUpsDue={leadsReady ? leadsDue : 0}
                     />
                 </Suspense>
             )}
@@ -2930,6 +2945,25 @@ const App: React.FC = () => {
                     onDraftEstimate={handleDraftEstimate}
                     punchProgress={punchState.available ? punchState.map : undefined}
                 />;
+            case 'leads':
+                return <LeadsView
+                    userId={session.user.id}
+                    isOnline={isOnline}
+                    feature={leadsFeature}
+                    initialLeadId={view.leadId}
+                    onInitialLeadHandled={handleLeadParamHandled}
+                    onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())}
+                    onOpenRequestLink={() => navigate('/settings#requests')}
+                    companyName={profile?.companyName || profile?.name}
+                    logoUrl={profile?.logoUrl}
+                    phone={profile?.phone}
+                    plan={plan}
+                    checkJobLimit={() => checkLimit('jobs')}
+                    onConverted={handleRequestConverted}
+                    onOpenJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
+                    onUpgrade={openUpgrade}
+                    onDraftEstimate={handleDraftEstimate}
+                />;
             case 'papers':
                 return <PapersView
                     userId={session.user.id}
@@ -2977,6 +3011,7 @@ const App: React.FC = () => {
                     onNewJobOnDate={(ymd: string) => navigateToCreateJob('calendar', { startDate: ymd })}
                     showTasks={tasksFeature === 'ready'}
                     onOpenJobTasks={(jobId: string) => navigate(`/jobs/${jobId}#tasks`)}
+                    leadsUi={leadsReady && session ? { userId: session.user.id, isOnline, onOpenLead: (leadId: string) => setView({ screen: 'leads', leadId }) } : undefined}
                 />;
             case 'communication':
                 return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} session={session} onBack={navigateToDashboard} onEmailSent={handleEmailSent} onUpgrade={() => openUpgrade(`Free plan: ${effectiveUsage.limits.emails} emails per month.`)} prefillData={view.prefillData} />;
@@ -3026,6 +3061,8 @@ const App: React.FC = () => {
                     isOnline={isOnline}
                     showTabBar={showTabBar}
                     crewEnabled={crewFeature === 'ready'}
+                    leadsEnabled={leadsReady}
+                    leadsDue={leadsReady ? leadsDue : 0}
                 />
             )}
             {showNav && (
