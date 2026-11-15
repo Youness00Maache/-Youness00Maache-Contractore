@@ -147,7 +147,14 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   review SQL, merge, apply; then Sonnet helper = UI (phase B); no-DB batches = Sonnet. Max 2 helpers. Pacing: pause at 70% of
   the 5-hour limit (one-shot timer after reset), stop at 50% weekly (resume Thu 2026-11-19 17:00 UTC). Old session timers
   (hourly usage check c214774c, resume 0c677266) die with the old session: the new one re-creates them.
-  NEXT AT RESUME: review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
+  UPDATE 2026-11-15 ~00:10 UTC (owner said: "continue without stopping until you finish" -> no more 70% pauses; only
+  stop for a real limit): 5-hour limit reset (1% at 23:50). D2 phase A merged (f4e5932, handler.ts conflict resolved:
+  estimate_review + extract_tasks), migration 20261116000100_job_tasks.sql APPLIED + verified. Help knowledge synced
+  (0b59250). Helpers running: D2 phase B Sonnet UI (tasks/timeline/templates/AI/work orders/crew page) and D9 phase A Opus
+  (portal project dashboard function 20261116000300_portal_project_dashboard.sql + lib/portal). Full test suite running
+  in background (scratchpad fullsuite.sh) -> if green: push my-branch + main, redeploy ai-assistant (bundle: esbuild, see
+  NEXT_STEPS), Done log for D4 + D2 data layer (D2 UI ships with the next pair).
+  OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
 - Known small gap: saved_items.supplier_id has no same-owner trigger (id is an unguessable uuid; harmless).
