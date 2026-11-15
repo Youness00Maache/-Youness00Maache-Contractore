@@ -22,6 +22,17 @@ import {
 } from '../lib/boards/boardLogic.ts';
 import { BOARD_LIMITS } from '../lib/boards/boardTypes.ts';
 import { canChoose, parsePortalBoard, parsePortalSelection } from '../lib/portal/selectionsApi.ts';
+import {
+    ACTION_LABEL, PRIMARY_ACTIONS, budgetView, canAddOption, chipLabel, clientLinkNote, countsParts, decidedLine, differenceText, dueInfo,
+    draftFromRows, emptyOption, groupSelections, headerChip, historyRows, lockedNote, moneyText, optionRowFromOption, optionRowToInput,
+    optionTotalsLine, poNumberOf, poPreview, rowPricing, selectionMeta, sentNote, statusTone, tabBadge,
+} from '../lib/selections/selectionView.ts';
+import { boardSummary, galleryColumns, itemHeading, readableOn, toGalleryItems } from '../lib/boards/boardView.ts';
+import {
+    allowanceLine, boardsForJob, chosenPortalOption, optionQtyLine, portalDecisionNote, portalDifference, portalSelectionDue,
+    portalSelectionHistory, portalSelectionStatus, splitPortalSelections, validatePortalChoice, waitingSelections,
+} from '../lib/portal/selectionView.ts';
+import { HELP_GUIDES } from '../components/help/helpContent.ts';
 import { READ_ONLY_RPCS } from '../lib/offline/writePathScan.ts';
 import { WRITE_PATHS } from '../lib/offline/writePathAudit.ts';
 import type { SupplierRecord } from '../lib/suppliers/types.ts';
@@ -233,8 +244,164 @@ eq('the choice is a public write', WRITE_PATHS.filter(w => w.match.includes('cho
 ok('every other D5 write needs a connection', WRITE_PATHS.filter(w => /lib\/(selections|boards)\//.test(w.file)).every(w => w.offline === 'needs_connection'));
 eq('limits mirror SQL', [SELECTION_LIMITS.perJob, SELECTION_LIMITS.options, SELECTION_LIMITS.history, SELECTION_LIMITS.maxPrice], [300, 6, 200, 99_999_999]);
 
+// ============================================================================================ phase B: the screens' words and rules
+// chips and counts
+eq('chip words', SELECTION_STATUSES.map(chipLabel), ['Draft', 'Waiting for client', 'Chosen', 'Approved', 'Changes requested', 'Ordered', 'Closed']);
+eq('chip tones', SELECTION_STATUSES.map(statusTone), ['muted', 'warning', 'primary', 'success', 'danger', 'primary', 'muted']);
+eq('tab badge: short, what needs you first', [tabBadge({ waitingOnClient: 2, toApprove: 1 }), tabBadge({ waitingOnClient: 0, toApprove: 3 }), tabBadge({ waitingOnClient: 2, toApprove: 0 }), tabBadge({ waitingOnClient: 0, toApprove: 0 })], ['1 to approve', '3 to approve', '2 waiting', '']);
+eq('header chip', [headerChip({ waitingOnClient: 2, toApprove: 1 }), headerChip({ waitingOnClient: 1, toApprove: 0 }), headerChip({ waitingOnClient: 0, toApprove: 0 })], ['2 waiting for client · 1 to approve', '1 waiting for client', '']);
+const sum = summarizeSelections([
+    { status: 'sent', dueDate: '2026-11-01' }, { status: 'chosen', dueDate: null }, { status: 'approved', dueDate: null }, { status: 'draft', dueDate: null },
+    { status: 'draft', dueDate: null }, { status: 'closed', dueDate: null }, { status: 'ordered', dueDate: null }, { status: 'changes_requested', dueDate: null },
+], '2026-11-15');
+eq('counts line', countsParts(sum).map(p => p.text), ['1 to approve', '1 waiting for client', '1 overdue', '1 need changes', '1 to order', '1 ordered', '2 drafts', '1 closed']);
+eq('counts empty', countsParts(summarizeSelections([])), []);
+// due dates
+eq('due: overdue', [dueInfo({ status: 'sent', dueDate: '2026-11-12' }, '2026-11-15'), dueInfo({ status: 'sent', dueDate: '2026-11-14' }, '2026-11-15')], [{ text: '3 days overdue', tone: 'late' }, { text: '1 day overdue', tone: 'late' }]);
+eq('due: today / later / none', [dueInfo({ status: 'sent', dueDate: '2026-11-15' }, '2026-11-15'), dueInfo({ status: 'sent', dueDate: '2026-11-20' }, '2026-11-15'), dueInfo({ status: 'sent', dueDate: null }, '2026-11-15')],
+    [{ text: 'Due today', tone: 'today' }, { text: 'Due Fri Nov 20', tone: 'normal' }, { text: '', tone: 'none' }]);
+eq('due: only waiting ones are overdue', dueInfo({ status: 'chosen', dueDate: '2026-11-01' }, '2026-11-15').tone, 'none');
+// money
+eq('money text', [moneyText(1200), moneyText(1200.5), moneyText(0), moneyText(null)], ['$1,200', '$1,200.50', '$0', '$0']);
+eq('difference text', [differenceText(120), differenceText(-40), differenceText(0), differenceText(null), differenceText(12.5)], ['+$120 upgrade', '-$40 credit', 'Included', '', '+$12.50 upgrade']);
+eq('totals line', optionTotalsLine(10, 12.5, optionPricing({ unitPrice: 12.5, qty: 10, unitCost: null }, null), 'sq ft'), '10 sq ft × $12.50 = $125');
+// rows
+const rowSel = sel({ id: 'r1', status: 'chosen' });
+eq('decided line', decidedLine(rowSel), 'Oak · $125 (+$25 upgrade)');
+eq('decided line: none chosen', decidedLine(sel({ chosenOptionId: null })), '');
+eq('row meta', selectionMeta(sel({ status: 'sent', dueDate: '2026-11-20', chosenOptionId: null }), '2026-11-15'), ['Kitchen', '2 options', 'Allowance $100', 'Due Fri Nov 20']);
+eq('row meta: decided has no due date', selectionMeta(sel({ status: 'approved', dueDate: '2026-11-20' }), '2026-11-15'), ['Kitchen', '2 options', 'Allowance $100']);
+const grp = groupSelections([
+    sel({ id: 'z', status: 'closed' }), sel({ id: 'o', status: 'ordered' }), sel({ id: 'd', status: 'draft' }), sel({ id: 'a', status: 'approved' }),
+    sel({ id: 'c', status: 'changes_requested' }), sel({ id: 'w2', status: 'sent', dueDate: '2026-12-01' }), sel({ id: 'w1', status: 'sent', dueDate: '2026-11-20' }), sel({ id: 'x', status: 'chosen' }),
+]);
+eq('groups', [grp.toApprove, grp.waiting, grp.changes, grp.toOrder, grp.drafts, grp.ordered, grp.closed].map(g => g.map(s => s.id)), [['x'], ['w1', 'w2'], ['c'], ['a'], ['d'], ['o'], ['z']]);
+// history + actions
+const histEntries = [
+    { at: '2026-11-15T12:00:00Z', by: 'client' as const, action: 'chosen', note: 'Oak: love it' }, { at: '2026-11-14T10:00:00Z', by: 'owner' as const, action: 'sent', note: null }, { at: '2026-11-14T09:00:00Z', by: 'owner' as const, action: 'created', note: null },
+];
+eq('history: the standing choice is not repeated (shown above)', [historyRows({ history: histEntries, status: 'chosen' })[2].note, historyRows({ history: histEntries, status: 'approved' })[2].note], [null, null]);
+eq('history: two saves a moment apart read as one change', historyRows({ status: 'sent', history: [
+    { at: '2026-11-15T10:00:00Z', by: 'owner', action: 'sent', note: null }, { at: '2026-11-15T10:05:00Z', by: 'owner', action: 'edited', note: null },
+    { at: '2026-11-15T10:05:01Z', by: 'owner', action: 'edited', note: null }, { at: '2026-11-15T11:30:00Z', by: 'owner', action: 'edited', note: null },
+] }).map(h => h.action), ['sent', 'edited', 'edited']);
+const hist = historyRows({ status: 'sent', history: [
+    { at: '2026-11-15T12:00:00Z', by: 'client', action: 'chosen', note: 'Oak: love it' }, { at: '2026-11-14T10:00:00Z', by: 'owner', action: 'sent', note: null }, { at: '2026-11-14T09:00:00Z', by: 'owner', action: 'created', note: null },
+] });
+eq('history: oldest first', hist.map(h => h.action), ['created', 'sent', 'chosen']);
+eq('history: words', hist.map(h => h.label), ['You created the selection', 'You sent it to the client', 'Client made a choice']);
+eq('history: the client\'s words kept', [hist[2].note, hist[2].client, hist[0].client], ['Oak: love it', true, false]);
+const everyAction = SELECTION_STATUSES.flatMap(s => ownerActions({ status: s, poDocumentId: 'x' }));
+ok('every action has a label', everyAction.every(a => ACTION_LABEL(a, { status: 'draft', sentAt: null }) !== a && ACTION_LABEL(a, { status: 'draft', sentAt: null }).length > 3));
+eq('action words', [ACTION_LABEL('approve', { status: 'chosen', sentAt: null }), ACTION_LABEL('request_changes', { status: 'chosen', sentAt: null }), ACTION_LABEL('create_po', { status: 'approved', sentAt: null }), ACTION_LABEL('send', { status: 'changes_requested', sentAt: 'x' }), ACTION_LABEL('reopen', { status: 'closed', sentAt: null })],
+    ['Approve', 'Ask for changes', 'Create purchase order', 'Send again', 'Send to client']);
+ok('primary actions are real actions', PRIMARY_ACTIONS.every(a => everyAction.includes(a)));
+ok('locked note only while a choice stands', (['chosen', 'approved', 'ordered'] as const).every(s => /locked/.test(lockedNote({ status: s }))) && (['draft', 'sent', 'changes_requested', 'closed'] as const).every(s => lockedNote({ status: s }) === ''));
+ok('client link notes', clientLinkNote(true).includes('project link') && clientLinkNote(false).includes('Add a client') && sentNote(false).includes('Add a client'));
+// purchase order preview
+const prev = poPreview(sel(), { suppliers: [supplier] });
+eq('po preview', prev && [prev.description, prev.quantity, prev.unit, prev.rate, prev.total, prev.hasCost, prev.supplier?.supplier.name, prev.supplier?.reason, prev.notes],
+    ['Kitchen tile: Oak (SKU OAK-1)', 10, null, 8, 80, true, 'Tile Depot', 'option', ['Room: Kitchen', 'Product: https://example.com/oak']]);
+const prevNoCost = poPreview(sel({ chosenOptionId: opts[1].id }), { suppliers: [] });
+eq('po preview: no cost = client price, no supplier', prevNoCost && [prevNoCost.hasCost, prevNoCost.rate, prevNoCost.supplier], [false, 20, null]);
+eq('po preview: nothing chosen', poPreview(sel({ chosenOptionId: null }), { suppliers: [] }), null);
+eq('po number', [poNumberOf({ data: { poNumber: 'PO-7' } }), poNumberOf({ data: {} }), poNumberOf(null)], ['PO-7', '', '']);
+// budget line
+const bv = budgetView(budget);
+eq('budget view', bv && [bv.pendingCount, bv.pendingCost, bv.upgrades, bv.credits, bv.net, bv.viaPoText, bv.awaitingText, bv.netText],
+    [1, 80, 25, 10, 15, '1 ordered selection already counted through its purchase order', '1 client choice waiting for your approval', 'Your client pays $15 more than the allowances: add a change order']);
+eq('budget view: a job without selections shows NOTHING', budgetView(selectionBudget([])), null);
+eq('budget view: only drafts / waiting / closed = nothing', budgetView(selectionBudget([sel({ status: 'draft' }), sel({ status: 'sent' }), sel({ status: 'closed' })])), null);
+ok('budget view: only a choice to approve shows the line', budgetView(selectionBudget([sel({ status: 'chosen' })]))?.awaitingText === '1 client choice waiting for your approval');
+eq('budget view: credit only', budgetView(selectionBudget([sel({ status: 'approved', allowance: 200 })]))?.netText, '$75 back to the client against the allowances');
+// editor rows
+const row0 = optionRowFromOption(opts[0]);
+eq('row from option', [row0.name, row0.qty, row0.unitPrice, row0.unitCost, row0.sku, row0.supplierId, row0.url], ['Oak', '10', '12.5', '8', 'OAK-1', SUP, 'https://example.com/oak']);
+eq('row round trip', normalizeOptions([optionRowToInput(row0)]), [opts[0]]);
+eq('row: a replaced picture loses its old copy', optionRowToInput({ ...row0, imagePath: null, portalPath: `${U}/abcdefgh.jpg` }).portalPath, null);
+const blank = emptyOption();
+ok('blank option', /^o_/.test(blank.id) && blank.qty === '1' && blank.unitPrice === '' && blank.unitCost === '');
+eq('live pricing', rowPricing({ qty: '10', unitPrice: '12.5', unitCost: '8' }, '100'), { qty: 10, unitPrice: 12.5, pricing: { total: 125, cost: 80, difference: 25, kind: 'upgrade' } });
+eq('live pricing: typing in progress never throws', rowPricing({ qty: '', unitPrice: '1.', unitCost: 'x' }, 'abc').pricing.total, 1);
+ok('draft from rows is a valid draft', validateDraft(draftFromRows({ title: 'T', category: '', room: '', body: '', dueDate: '', allowance: '', rows: [row0] }), { sending: true }) === null);
+eq('draft from rows: empty fields are null', (() => { const d = draftFromRows({ title: 'T', category: '', room: '', body: '', dueDate: '', allowance: ' ', rows: [] }); return [d.category, d.room, d.body, d.dueDate, d.allowance]; })(), [null, null, null, null, null]);
+ok('option cap', canAddOption(new Array(5)) && !canAddOption(new Array(6)));
+// boards
+const bItems = normalizeItems([
+    { id: 'item_1', kind: 'image', imagePath: bImg }, { id: 'item_2', kind: 'image', url: 'https://a.com/p.jpg', title: 'Pinned' }, { id: 'item_3', kind: 'color', color: '#112233', title: 'Wall' },
+    { id: 'item_4', kind: 'link', url: 'https://shop.example.com/x' }, { id: 'item_5', kind: 'note', caption: 'Warm and natural' },
+]);
+eq('board summary', [boardSummary({ items: [] }), boardSummary({ items: bItems }), boardSummary({ items: [bItems[0], bItems[1]] })], ['Empty', '5 items: 2 images, 1 link, 1 note, 1 colour', '2 images']);
+eq('item headings', bItems.map(itemHeading), ['Image', 'Pinned', 'Wall', 'shop.example.com', 'Warm and natural']);
+const gal = toGalleryItems(bItems, { item_1: 'https://signed.example/1.jpg' });
+eq('gallery items: picture from the upload or the pasted link', gal.filter(i => i.kind === 'image').map(i => i.imageUrl), ['https://signed.example/1.jpg', 'https://a.com/p.jpg']);
+eq('gallery items: an upload without a picture yet is left out', toGalleryItems([bItems[0]], {}).length, 0);
+eq('gallery order: pictures, colours, links, notes', galleryColumns(gal).images.length + galleryColumns(gal).swatches.length * 10 + galleryColumns(gal).links.length * 100 + galleryColumns(gal).notes.length * 1000, 1112);
+eq('gallery never carries private fields', Object.keys(gal[0]).sort(), ['caption', 'color', 'id', 'imageUrl', 'kind', 'title', 'url']);
+eq('readable swatch text', [readableOn('#ffffff'), readableOn('#000000'), readableOn('#112233'), readableOn('#c0ffee')], ['#000000', '#ffffff', '#ffffff', '#000000']);
+// the client's side
+const pSel = (over: Record<string, unknown> = {}) => parsePortalSelection({
+    id: 's1', job_id: J, job_name: 'Smith', title: 'Tile', status: 'sent', allowance: 100, sent_at: '2026-11-14T10:00:00Z',
+    options: [
+        { id: 'opt_a1', name: 'Oak', qty: 10, unit: 'sq ft', unit_price: 12.5, total: 125, difference: 25 },
+        { id: 'opt_b2', name: 'Maple', qty: 1, unit_price: 90, total: 90, difference: -10 },
+        { id: 'opt_c3', name: 'Pine', qty: 1, unit_price: 100, total: 100, difference: 0 },
+    ],
+    history: [{ at: '2026-11-14T10:00:00Z', by: 'owner', action: 'sent' }], ...over,
+})!;
+const portalList = [
+    pSel({ id: 'late', due_date: '2026-11-20' }), pSel({ id: 'soon', due_date: '2026-11-16' }), pSel({ id: 'none' }),
+    pSel({ id: 'done', status: 'approved', chosen_option_id: 'opt_a1', chosen_at: '2026-11-15T10:00:00Z' }), pSel({ id: 'wait', status: 'chosen', chosen_option_id: 'opt_b2', chosen_at: '2026-11-16T10:00:00Z' }),
+];
+const split = splitPortalSelections(portalList);
+eq('portal split', [split.waiting.map(s => s.id), split.decided.map(s => s.id), waitingSelections(portalList)], [['soon', 'late', 'none'], ['wait', 'done'], 3]);
+eq('portal status words', (['sent', 'chosen', 'approved', 'ordered', 'changes_requested'] as const).map(s => portalSelectionStatus({ status: s }).label),
+    ['Waiting for your choice', 'Waiting for your contractor', 'Approved', 'Ordered', 'Your contractor is updating the options']);
+ok('portal decision notes', portalDecisionNote({ status: 'chosen' }, 'Acme').includes('Acme') && portalDecisionNote({ status: 'sent' }, 'Acme') === '');
+eq('portal due', [portalSelectionDue({ status: 'sent', dueDate: '2026-11-10' }, '2026-11-15'), portalSelectionDue({ status: 'sent', dueDate: '2026-11-15' }, '2026-11-15'), portalSelectionDue({ status: 'sent', dueDate: '2026-11-20' }, '2026-11-15'), portalSelectionDue({ status: 'chosen', dueDate: '2026-11-20' }, '2026-11-15')],
+    [{ text: 'Was due Tue Nov 10', tone: 'late' }, { text: 'Please choose by today', tone: 'today' }, { text: 'Please choose by Fri Nov 20', tone: 'normal' }, { text: '', tone: 'none' }]);
+eq('portal difference', [25, -10, 0, null].map(d => portalDifference(d)), [{ text: '+$25 upgrade', tone: 'up' }, { text: '-$10 credit', tone: 'down' }, { text: 'Included', tone: 'same' }, { text: '', tone: 'none' }]);
+eq('portal allowance / quantity lines', [allowanceLine(1000), allowanceLine(null), optionQtyLine(pSel().options[0]), optionQtyLine(pSel().options[1])], ['Your allowance: $1,000', '', '10 sq ft × $12.50', '']);
+eq('portal choice validation', [
+    validatePortalChoice(pSel(), { optionId: null, name: 'Ann' }), validatePortalChoice(pSel(), { optionId: 'nope_zz', name: 'Ann' }), validatePortalChoice(pSel(), { optionId: 'opt_a1', name: '  ' }),
+    validatePortalChoice(pSel(), { optionId: 'opt_a1', name: 'Ann', comment: 'x'.repeat(2001) }), validatePortalChoice(pSel(), { optionId: 'opt_a1', name: 'Ann', comment: 'Love it' }),
+], ['Please choose one of the options.', 'Please choose one of the options.', 'Please type your name.', 'Please keep your comment under 2000 characters.', null]);
+eq('portal chosen option', chosenPortalOption(portalList[3])?.name, 'Oak');
+const pHist = portalSelectionHistory(pSel({ status: 'chosen', history: [
+    { at: '2026-11-15T09:00:00Z', by: 'client', action: 'chosen', note: 'Oak: love it' }, { at: '2026-11-14T10:00:00Z', by: 'owner', action: 'sent' },
+] }), 'Acme');
+eq('portal history: Acme\'s side, newest choice not repeated', pHist.map(h => [h.label, h.note]), [['Sent by Acme', null], ['You made a choice', null]]);
+eq('portal history: an earlier round keeps its note', portalSelectionHistory(pSel({ status: 'sent', history: [{ at: '2026-11-13T09:00:00Z', by: 'client', action: 'chosen', note: 'Oak' }, { at: '2026-11-14T10:00:00Z', by: 'owner', action: 'reopened' }] }), 'Acme').map(h => h.note), ['Oak', null]);
+eq('portal boards for the job on screen', boardsForJob([
+    parsePortalBoard({ id: 'b1', job_id: J, title: 'A', items: [{ id: '1', kind: 'note', caption: 'x' }] })!, parsePortalBoard({ id: 'b2', job_id: SUP, title: 'B', items: [{ id: '1', kind: 'note', caption: 'x' }] })!,
+    parsePortalBoard({ id: 'b3', job_id: J, title: 'Empty', items: [] })!,
+], J).map(b => b.id), ['b1']);
+// privacy + gating, read from the source
+const read = (f: string) => readFileSync(join(ROOT, f), 'utf8');
+const portalSrc = ['components/portal/PortalSelections.tsx', 'components/portal/PortalBoards.tsx', 'components/portal/usePortalSelections.ts', 'components/boards/BoardGallery.tsx', 'lib/portal/selectionView.ts'].map(read).join('\n');
+ok('client screens never touch the owner-only fields', !/unitCost|\.sku|supplierId|supplier_id|imagePath|\b(board|b)\.notes\b|unit_cost/.test(portalSrc));
+ok('client screens use only the portal functions', !/from\(['"]job_(selections|boards)['"]\)/.test(portalSrc) && !/boardsApi|selectionsApi\.ts/.test(read('components/portal/PortalSelections.tsx').replace(/lib\/portal\/selectionsApi\.ts/g, '')));
+const editorSrc = read('components/selections/SelectionEditorModal.tsx');
+ok('the editor labels the cost as private', editorSrc.includes('Your cost (each)') && editorSrc.includes('COST_PRIVATE') && /only you see this/.test(read('lib/selections/selectionView.ts')));
+ok('the editor takes the client price and the cost apart', editorSrc.includes('Price to client (each)') && editorSrc.includes('unitCost'));
+ok('boards say what the client sees', /visible to your client/.test(read('lib/boards/boardView.ts')) && /board notes stay private/.test(read('lib/boards/boardView.ts')) && read('components/boards/BoardEditor.tsx').includes('BOARD_SHARE_NOTE'));
+const appSrc = read('App.tsx');
+ok('the tabs show only when the feature is ready', /selectionsSlot=\{selectionsFeature === 'ready' && session/.test(appSrc) && /boardsSlot=\{boardsFeature === 'ready' && session/.test(appSrc));
+ok('the badges show only when the feature is ready', /selectionsLabel=\{selectionsFeature === 'ready'/.test(appSrc) && /selectionsChip=\{selectionsFeature === 'ready'/.test(appSrc));
+const portalViewSrc = read('components/PortalView.tsx');
+ok('the portal renders the new sections only when ready / non-empty', /ps\.phase === 'ready' && \(\s*<PortalSelections/.test(portalViewSrc) && /ps\.phase === 'ready' && ps\.boards\.length > 0/.test(portalViewSrc));
+ok('the Project badge is unchanged without selections', portalViewSrc.includes("id === 'project' && pq.waiting > 0") && portalViewSrc.includes("'question waits' : 'questions wait'") && /ps\.waiting === 0/.test(portalViewSrc)
+    && /id === 'project' && pq\.waiting === 0 && ps\.waiting > 0/.test(portalViewSrc));
+ok('job financials adds the line and the costing panel is untouched', read('components/JobFinancialsModal.tsx').includes('<SelectionsBudgetLine') && !/selection/i.test(read('components/costing/JobCostingPanel.tsx')));
+ok('the budget line stays hidden without the feature', /feature !== 'ready'\) return/.test(read('components/selections/SelectionsBudgetLine.tsx')));
+// help
+const guides = ['job-selections', 'job-boards', 'client-selections-view'].map(id => HELP_GUIDES.find(g => g.id === id));
+ok('help guides exist', guides.every(g => !!g && g.steps.length >= 4 && g.tips && g.tips.length >= 2));
+ok('help says cost and board notes are private', /Only you see/.test(guides[0]?.steps.map(s => s.text).join(' ') || '') && /private/.test(guides[1]?.steps.map(s => s.text).join(' ') || '') && /never sent/.test((guides[2]?.tips || []).join(' ')));
+ok('help never names the payment processor', guides.every(g => !/kelviq|merchant of record/i.test(JSON.stringify(g))));
+
 // ============================================================================================ SQL lint
-const SQL = readFileSync(join(ROOT, 'supabase/migrations/20261116000600_selections_boards.sql'), 'utf8').replace(/\r\n/g, '\n');
+const SQL =readFileSync(join(ROOT, 'supabase/migrations/20261116000600_selections_boards.sql'), 'utf8').replace(/\r\n/g, '\n');
 const code = SQL.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
 const lower = code.toLowerCase();
 

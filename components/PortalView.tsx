@@ -12,6 +12,10 @@
  * Questions + files (roadmap D3, components/portal/): on the Project view, "Questions for you" (questions and submittals
  * the contractor sent: answer, or approve / reject) sits on top with a badge on the Project tab, and "Files" (links and
  * images the contractor chose to show) sits below. Both render nothing until the database has them and while empty.
+ *
+ * Selections + ideas boards (roadmap D5, components/portal/): "Your selections" (pick one option, with the upgrade / credit
+ * against the allowance) sits under the questions and adds to the badge on the Project tab; "Ideas board" (the mood boards
+ * the contractor shared, read-only) sits under Files. Both render nothing until the database has them and while empty.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
@@ -28,6 +32,9 @@ import { usePortalDashboard } from './portal/usePortalDashboard.ts';
 import PortalQuestions from './portal/PortalQuestions.tsx';
 import PortalFiles from './portal/PortalFiles.tsx';
 import { usePortalQuestions } from './portal/usePortalQuestions.ts';
+import PortalSelections from './portal/PortalSelections.tsx';
+import PortalBoards from './portal/PortalBoards.tsx';
+import { usePortalSelections } from './portal/usePortalSelections.ts';
 import type { DashboardDocumentRow, NextStep } from '../lib/portal/dashboardTypes.ts';
 import type { StepAction } from '../lib/portal/dashboardLogic.ts';
 import PortalServicePlans from './service/PortalServicePlans.tsx';
@@ -205,6 +212,8 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
     const dash = usePortalDashboard(key);
     /** questions / submittals waiting for the client + the files the contractor shared (roadmap D3); nothing is shown while the database has none */
     const pq = usePortalQuestions(key, dash.phase === 'ready');
+    /** selections to choose from + shared mood boards (roadmap D5); nothing is shown while the database has none */
+    const ps = usePortalSelections(key, dash.phase === 'ready');
     const [openDoc, setOpenDoc] = useState<{ id: string; signing: boolean; session: number } | null>(null);
     const [outcomes, setOutcomes] = useState<Record<string, SigningOutcome>>({});
     const [problems, setProblems] = useState<Record<string, LinkProblem>>({});
@@ -377,7 +386,13 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                     <span className="truncate">{label}</span>
                                     {count !== null && <span className={cx('rounded-full px-1.5 text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-background/60')}>{count}</span>}
                                     {id === 'project' && pq.waiting > 0 && (
-                                        <span className="rounded-full bg-warning/20 px-1.5 text-[11px] font-bold tabular-nums text-warning" aria-label={`${pq.waiting} ${pq.waiting === 1 ? 'question waits' : 'questions wait'} for you`}>{pq.waiting}</span>
+                                        <span className="rounded-full bg-warning/20 px-1.5 text-[11px] font-bold tabular-nums text-warning" aria-label={ps.waiting === 0
+                                            ? `${pq.waiting} ${pq.waiting === 1 ? 'question waits' : 'questions wait'} for you`
+                                            : `${pq.waiting + ps.waiting} ${pq.waiting + ps.waiting === 1 ? 'thing waits' : 'things wait'} for you`}>{pq.waiting + ps.waiting}</span>
+                                    )}
+                                    {/* selections to choose from add to the same badge; on their own they show it too */}
+                                    {id === 'project' && pq.waiting === 0 && ps.waiting > 0 && (
+                                        <span className="rounded-full bg-warning/20 px-1.5 text-[11px] font-bold tabular-nums text-warning" aria-label={`${ps.waiting} ${ps.waiting === 1 ? 'selection waits' : 'selections wait'} for you`}>{ps.waiting}</span>
                                     )}
                                 </button>
                             );
@@ -432,6 +447,15 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                         {pq.phase === 'ready' && (
                             <PortalQuestions portalKey={key} questions={pq.questions} company={company} onAnswered={pq.replace} onStale={pq.reload} className="mb-7" />
                         )}
+                        {ps.phase === 'error' && (
+                            <p className="mb-4 text-sm text-muted-foreground" role="status">
+                                We couldn&apos;t load your selections.{' '}
+                                <button type="button" className="font-semibold text-primary underline underline-offset-2" onClick={ps.reload}>Try again</button>
+                            </p>
+                        )}
+                        {ps.phase === 'ready' && (
+                            <PortalSelections portalKey={key} selections={ps.selections} company={company} onChosen={ps.replace} onStale={ps.reload} className="mb-7" />
+                        )}
                         {dash.jobPhase === 'ready' && dash.view ? (
                             <PortalProjectDashboard
                                 view={dash.view}
@@ -452,6 +476,7 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                             </div>
                         )}
                         {pq.files.length > 0 && dash.jobPhase === 'ready' && <PortalFiles files={pq.files} jobId={dash.jobId} className="mt-7" />}
+                        {ps.phase === 'ready' && ps.boards.length > 0 && dash.jobPhase === 'ready' && <PortalBoards boards={ps.boards} jobId={dash.jobId} className="mt-7" />}
                     </div>
                 ) : (
                     <>

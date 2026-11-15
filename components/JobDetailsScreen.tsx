@@ -67,6 +67,13 @@ interface JobDetailsScreenProps {
     /** short count next to the Questions tab ("2 waiting"), and a "2 waiting for client" chip in the header */
     questionsLabel?: string;
     questionsChip?: string;
+    /** Client selections (Premium, rendered by App when they are in the database); adds a Selections tab. URL hash #selections opens it. */
+    selectionsSlot?: React.ReactNode;
+    /** short count next to the Selections tab ("2 waiting · 1 to approve"), and the same as a quiet chip in the header */
+    selectionsLabel?: string;
+    selectionsChip?: string;
+    /** Mood boards (Premium, rendered by App when they are in the database); adds a Boards tab. URL hash #boards opens it. */
+    boardsSlot?: React.ReactNode;
     /** extra job tools (e.g. Lien waiver), shown in the tools row */
     toolsSlot?: React.ReactNode;
     /** permits / papers of this job, under the details */
@@ -148,16 +155,17 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onCopyDocumentToJob, onDeleteDocument, onStatusChange,
     onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, punchSlot, punchLabel, toolsSlot, papersSlot, crewSlot, tasksSlot, tasksLabel,
-    filesSlot, questionsSlot, questionsLabel, questionsChip,
+    filesSlot, questionsSlot, questionsLabel, questionsChip, selectionsSlot, selectionsLabel, selectionsChip, boardsSlot,
 }) => {
-    // Documents / Photos / Tasks / Files / Questions / Punch list / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on the tab).
-    type JobTab = 'docs' | 'photos' | 'punch' | 'crew' | 'tasks' | 'files' | 'questions';
+    // Documents / Photos / Tasks / Files / Questions / Selections / Boards / Punch list / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on the tab).
+    type JobTab = 'docs' | 'photos' | 'punch' | 'crew' | 'tasks' | 'files' | 'questions' | 'selections' | 'boards';
     const [tabState, setTabState] = useState<JobTab>(() => {
         const h = typeof window !== 'undefined' ? window.location.hash : '';
-        return h === '#photos' ? 'photos' : h === '#punch' ? 'punch' : h === '#crew' ? 'crew' : h === '#tasks' ? 'tasks' : h === '#files' ? 'files' : h === '#questions' ? 'questions' : 'docs';
+        return h === '#photos' ? 'photos' : h === '#punch' ? 'punch' : h === '#crew' ? 'crew' : h === '#tasks' ? 'tasks' : h === '#files' ? 'files' : h === '#questions' ? 'questions' : h === '#selections' ? 'selections' : h === '#boards' ? 'boards' : 'docs';
     });
     const tab: JobTab = (tabState === 'photos' && !photosSlot) || (tabState === 'punch' && !punchSlot) || (tabState === 'crew' && !crewSlot) || (tabState === 'tasks' && !tasksSlot)
-        || (tabState === 'files' && !filesSlot) || (tabState === 'questions' && !questionsSlot) ? 'docs' : tabState;
+        || (tabState === 'files' && !filesSlot) || (tabState === 'questions' && !questionsSlot) || (tabState === 'selections' && !selectionsSlot)
+        || (tabState === 'boards' && !boardsSlot) ? 'docs' : tabState;
     const setTab = (next: JobTab) => {
         setTabState(next);
         try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next === 'docs' ? '' : `#${next}`}`); } catch { /* ignore */ }
@@ -167,6 +175,8 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     if (tasksSlot) tabs.push(['tasks', 'Tasks', tasksLabel]);
     if (filesSlot) tabs.push(['files', 'Files']);
     if (questionsSlot) tabs.push(['questions', 'Questions', questionsLabel]);
+    if (selectionsSlot) tabs.push(['selections', 'Selections', selectionsLabel]);
+    if (boardsSlot) tabs.push(['boards', 'Boards']);
     if (punchSlot) tabs.push(['punch', 'Punch list', punchLabel]);
     if (crewSlot) tabs.push(['crew', 'Crew']);
     // Filters live here, so they reset when another job opens (CORE-025).
@@ -209,6 +219,11 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                                 <h1 className="page-title break-words">{job.name || 'Untitled job'}</h1>
                                 <JobStatusBadge status={job.status} />
                                 <DocSyncChip docId={job.id} />
+                                {selectionsChip && selectionsSlot && (
+                                    <button type="button" onClick={() => setTab('selections')} className="inline-flex min-h-[28px] items-center rounded-full bg-muted px-2.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground" title="Open the selections for your client">
+                                        {selectionsChip}
+                                    </button>
+                                )}
                                 {questionsChip && questionsSlot && (
                                     <button type="button" onClick={() => setTab('questions')} className="inline-flex min-h-[28px] items-center rounded-full bg-muted px-2.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground" title="Open the questions waiting for your client">
                                         {questionsChip}
@@ -291,7 +306,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 </div>
             )}
 
-            {photosSlot && tab === 'photos' ? photosSlot : tasksSlot && tab === 'tasks' ? tasksSlot : filesSlot && tab === 'files' ? filesSlot : questionsSlot && tab === 'questions' ? questionsSlot : punchSlot && tab === 'punch' ? punchSlot : crewSlot && tab === 'crew' ? crewSlot : (
+            {photosSlot && tab === 'photos' ? photosSlot : tasksSlot && tab === 'tasks' ? tasksSlot : filesSlot && tab === 'files' ? filesSlot : questionsSlot && tab === 'questions' ? questionsSlot : selectionsSlot && tab === 'selections' ? selectionsSlot : boardsSlot && tab === 'boards' ? boardsSlot : punchSlot && tab === 'punch' ? punchSlot : crewSlot && tab === 'crew' ? crewSlot : (
             /* Documents */
             <section aria-labelledby="docs-heading">
                 <div className="mb-3 flex items-center justify-between gap-2">

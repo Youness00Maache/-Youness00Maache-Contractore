@@ -36,6 +36,9 @@ const RELATED: Partial<Record<HelpTopicId, HelpTopicId[]>> = {
   'job-files': ['job-questions', 'photos', 'clients'],
   'job-questions': ['job-files', 'clients', 'job-tasks'],
   'client-questions-view': ['job-questions', 'job-files', 'clients'],
+  'job-selections': ['client-selections-view', 'job-boards', 'suppliers'],
+  'job-boards': ['job-selections', 'client-selections-view', 'photos'],
+  'client-selections-view': ['job-selections', 'job-boards', 'clients'],
 };
 
 export const HelpPanel: React.FC<{ topic: HelpTopicId; open: boolean; onClose: () => void }> = ({ topic, open, onClose }) => {
