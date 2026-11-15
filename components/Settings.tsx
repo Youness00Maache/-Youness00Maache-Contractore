@@ -651,7 +651,7 @@ const Settings: React.FC<SettingsProps> = ({
                     </Section>
 
                     {/* Automations: the rules list (components/automations; id settings-automations). Its reminder and bell switches are bound to the settings of the cards below. */}
-                    <AutomationsSettings plan={plan} onUpgradeClick={onUpgradeClick} />
+                    <AutomationsSettings plan={plan} onUpgradeClick={onUpgradeClick} reviewLink={initialProfile.googleReviewLink || ''} company={profile.companyName || ''} myName={profile.name || ''} />
 
                     {/* Reminders & follow-ups (components/reminders; the card's id is settings-reminders) */}
                     <ReminderSettingsCard onUpgradeClick={onUpgradeClick} />

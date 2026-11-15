@@ -10,6 +10,10 @@ import { DateField, FieldGrid, FormSection, TextAreaField, TextField } from './f
 import { AIInsightsSection, ClientSection, LogoField, SignatureSection, TemplateSection } from './forms/Sections.tsx';
 import { DEFAULT_TEMPLATE_ID, DEFAULT_THEME, useDocumentForm, type SaveHandler } from './forms/useDocumentForm.ts';
 import { isISODate, todayISO } from './forms/formUtils.ts';
+import WarrantyCoverageSection from './warranty/WarrantyCoverageSection.tsx';
+import WarrantyClaimsSection from './warranty/WarrantyClaimsSection.tsx';
+import WarrantyEmailsSection from './warranty/WarrantyEmailsSection.tsx';
+import { applyDurationText } from '../lib/warranty/warrantyView.ts';
 
 interface Props {
     job: Job;
@@ -88,11 +92,14 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
                 <FieldGrid>
                     <TextField label="Warranty #" value={d.warrantyNumber} onChange={v => update({ warrantyNumber: v })} />
                     <DateField label="Work completed on" value={d.completedDate} onChange={v => update({ completedDate: v })} />
-                    <TextField label="Duration" value={d.duration} onChange={v => update({ duration: v })} list="warranty-durations" placeholder="e.g. 1 Year" />
+                    <TextField label="Duration" value={d.duration} onChange={v => update(prev => applyDurationText(prev as unknown as Record<string, unknown>, v) as unknown as WarrantyState)} list="warranty-durations" placeholder="e.g. 1 Year" />
                     <TextField label="Title (optional)" value={d.title} onChange={v => update({ title: v })} placeholder="e.g. Roof replacement warranty" />
                 </FieldGrid>
                 <datalist id="warranty-durations">{DURATIONS.map(x => <option key={x} value={x} />)}</datalist>
             </FormSection>
+
+            {/* Coverage period (start, length / end date / lifetime, void): stored in documents.data.warrantyTracking by the normal Save */}
+            <WarrantyCoverageSection data={d as unknown as Record<string, unknown>} update={form.update} />
 
             <ClientSection
                 clients={clients}
@@ -112,6 +119,10 @@ const WarrantyForm: React.FC<Props> = ({ job, profile, data, clients = [], onSav
                 <TextAreaField label="Coverage" value={d.coverage} onChange={v => update({ coverage: v })} rows={5} />
                 <TextAreaField label="Conditions & exclusions" value={d.conditions} onChange={v => update({ conditions: v })} rows={5} />
             </FormSection>
+
+            <WarrantyClaimsSection data={d as unknown as Record<string, unknown>} documentId={documentId ?? form.lastSaveResult?.id} update={form.update} />
+
+            <WarrantyEmailsSection documentId={documentId ?? form.lastSaveResult?.id} clientId={d.clientId} data={d as unknown as Record<string, unknown>} />
 
             <FormSection title="Branding" description="Logo printed on this certificate." icon={BriefcaseIcon}>
                 <LogoField value={d.logoUrl} onChange={url => update({ logoUrl: url })} onUploadImage={onUploadImage} hint="Uses your profile logo unless you upload a different one here." />

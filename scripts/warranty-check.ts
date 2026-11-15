@@ -24,6 +24,12 @@ import { DEFAULT_TEMPLATES, fillTemplate } from '../supabase/functions/reminders
 import { dispatchReminders, type Claim, type DispatchDeps, type OutgoingReminder } from '../supabase/functions/reminders/shared/dispatch.ts';
 import { readWarrantyTracking, warrantyOverview, withWarrantyTracking, hasWarrantyTracking } from '../lib/warranty/warrantyLogic.ts';
 import { BOUND_ROWS, POST_JOB_ROWS } from '../lib/automations/rules.ts';
+import {
+  AUDIENCE_LABELS, applyCoverage, applyDurationText, claimChipText, claimMoves, claimNeedsReason, coverageMode, durationLabel, formatDay, lengthOf,
+  offsetsText, openClaimsText, overviewOfDocument, parseOffsetsText, refreshOverview, timeLeftText, warrantyBuckets, warrantyScheduleText, warrantySummary,
+} from '../lib/warranty/warrantyView.ts';
+import { planUpcoming, type UpcomingTarget } from '../lib/warranty/postJobPlan.ts';
+import { CLAIM_TRANSITIONS } from '../supabase/functions/reminders/shared/warranty.ts';
 
 let failures = 0;
 let passes = 0;
@@ -365,6 +371,183 @@ function staticChecks() {
   ok('automations: ids unique', new Set([...BOUND_ROWS.map((r) => r.id), ...POST_JOB_ROWS.map((r) => r.id)]).size === BOUND_ROWS.length + POST_JOB_ROWS.length);
   ok('warranty api: no new write path (normal document upsert)', !/from\('documents'\)\.(insert|update|upsert|delete)/.test(read('lib/warranty/warrantyApi.ts')));
 }
+
+/* ================================================================ 6. phase B: the screens' pure logic (lib/warranty/warrantyView.ts, postJobPlan.ts) */
+type D = Record<string, unknown>;
+const dataOf = (r: unknown): D => (r as { data: D }).data;
+
+function viewChecks() {
+  eq('formatDay', [formatDay('2028-03-12'), formatDay('2026-01-05'), formatDay(''), formatDay('x'), formatDay(null)], ['12 Mar 2028', '5 Jan 2026', '', '', '']);
+  eq('timeLeftText', [timeLeftText(120), timeLeftText(25), timeLeftText(365), timeLeftText(1), timeLeftText(-45), timeLeftText(59), timeLeftText(60), timeLeftText(631), timeLeftText(731), timeLeftText(0)],
+    ['4 months', '25 days', '1 year', '1 day', '45 days', '59 days', '2 months', '1 year and 9 months', '2 years', '1 day']);
+  eq('durationLabel', [durationLabel(2, 'years'), durationLabel(1, 'years'), durationLabel(90, 'days'), durationLabel(6, 'months'), durationLabel(1, 'months')],
+    ['2 Years', '1 Year', '90 Days', '6 Months', '1 Month']);
+  ok('durationLabel is read back by the logic', (['days', 'months', 'years'] as const).every((u) => {
+    const p = parseDurationText(durationLabel(3, u));
+    return !!p && 'value' in p && p.value === 3 && p.unit === u;
+  }));
+
+  // the status line
+  const base: D = { warrantyNumber: 'WAR-1', completedDate: '2026-11-15', duration: '2 Years' };
+  const sumOf = (data: D, today: string) => warrantySummary(overviewOfDocument(data, null, today));
+  eq('summary active', sumOf(base, '2026-11-15'), { tone: 'good', text: 'Active, ends 15 Nov 2028 (2 years left)', short: 'Ends 15 Nov 2028' });
+  eq('summary expiring', sumOf({ ...base, duration: '90 Days' }, '2027-01-20').text, 'Ending soon, ends 13 Feb 2027 (24 days left)');
+  eq('summary ends today', sumOf({ ...base, duration: '1 Year' }, '2027-11-15').text, 'Ending soon, ends today (15 Nov 2027)');
+  eq('summary expired', sumOf({ ...base, duration: '1 Year' }, '2028-04-15').text, 'Ended 15 Nov 2027 (5 months ago)');
+  eq('summary lifetime', sumOf({ ...base, duration: 'Lifetime' }, '2026-11-20'), { tone: 'good', text: 'Lifetime, no end date', short: 'Lifetime' });
+  eq('summary unknown', sumOf({ ...base, duration: 'see contract' }, '2026-11-20').tone, 'muted');
+  eq('summary void', sumOf({ ...base, warrantyTracking: { v: 1, voidedAt: '2027-02-03T10:00:00Z', claims: [] } }, '2027-03-01').text, 'Void since 3 Feb 2027');
+
+  // coverage edits
+  const old: D = { ...base };
+  const o0 = overviewOfDocument(old, null, '2026-11-20');
+  eq('old warranty: mode and length come from the duration text', [coverageMode(o0), lengthOf(o0)], ['length', { value: 2, unit: 'years' }]);
+  ok('old warranty: nothing is stored until an edit', !('warrantyTracking' in old));
+  const r1 = applyCoverage(old, { mode: 'length', value: 3, unit: 'months' });
+  ok('length edit ok', !isFailure(r1));
+  const d1 = dataOf(r1);
+  eq('length edit: tracking and printed duration', [(d1.warrantyTracking as WarrantyTracking).termValue, (d1.warrantyTracking as WarrantyTracking).termUnit, d1.duration], [3, 'months', '3 Months']);
+  eq('length edit: other fields kept', [d1.warrantyNumber, d1.completedDate], ['WAR-1', '2026-11-15']);
+  eq('length edit: end date', warrantyOverview(d1, '2026-11-20').expiresOn, '2027-02-15');
+  const d2 = dataOf(applyCoverage(d1, { mode: 'date', expiresOn: '2029-01-31' }));
+  eq('date edit: exact end, printed duration untouched', [warrantyOverview(d2, '2026-11-20').expiresOn, d2.duration, (d2.warrantyTracking as WarrantyTracking).termValue ?? null], ['2029-01-31', '3 Months', null]);
+  eq('mode of an exact end date', coverageMode(overviewOfDocument(d2, null, '2026-11-20')), 'date');
+  const d3 = dataOf(applyCoverage(d2, { mode: 'lifetime' }));
+  eq('lifetime edit', [warrantyOverview(d3, '2026-11-20').status, d3.duration, (d3.warrantyTracking as WarrantyTracking).expiresOn ?? null], ['lifetime', 'Lifetime', null]);
+  const bad = applyCoverage(old, { mode: 'date', expiresOn: '2026-01-01' });
+  ok('end before start refused', isFailure(bad) && bad.field === 'expiresOn');
+  ok('length 0 refused', isFailure(applyCoverage(old, { mode: 'length', value: 0, unit: 'years' })));
+  ok('length too big refused', isFailure(applyCoverage(old, { mode: 'length', value: 99, unit: 'years' })));
+  const d4 = dataOf(applyCoverage(old, { mode: 'length', value: 2, unit: 'years', startDate: '2026-12-01' }));
+  eq('own start date', warrantyOverview(d4, '2026-12-02').expiresOn, '2028-12-01');
+  const d5 = dataOf(applyCoverage(d4, { mode: 'length', value: 2, unit: 'years', startDate: null }));
+  eq('start date cleared = the completed day again', warrantyOverview(d5, '2026-12-02').expiresOn, '2028-11-15');
+  const claimed = voidWarranty(tracked(addClaim(emptyTracking(), { id: 'k1', date: '2026-11-16', description: 'Leak' }, NOW, '2026-11-16')), new Date('2027-01-01T00:00:00Z'));
+  const keep = dataOf(applyCoverage(withWarrantyTracking(old, claimed), { mode: 'length', value: 5, unit: 'years' }));
+  eq('claims and void survive a coverage edit', [readWarrantyTracking(keep).claims.length, !!readWarrantyTracking(keep).voidedAt], [1, true]);
+
+  // typing in the old Duration box
+  eq('duration text, nothing structured: only the text changes', applyDurationText(old, '5 Years'), { ...old, duration: '5 Years' });
+  const t1 = applyDurationText(d1, '2 Years');
+  eq('duration text with a structured length: the structure follows', [t1.duration, (t1.warrantyTracking as WarrantyTracking).termValue, (t1.warrantyTracking as WarrantyTracking).termUnit], ['2 Years', 2, 'years']);
+  const t2 = applyDurationText(d1, '1 year labor / 10 years roof');
+  eq('duration text it cannot read: printed as written, the structure governs', [t2.duration, (t2.warrantyTracking as WarrantyTracking).termValue, warrantyOverview(t2, '2026-11-20').expiresOn], ['1 year labor / 10 years roof', 3, '2027-02-15']);
+  const t3 = applyDurationText(d2, '10 Years');
+  eq('duration text with an exact end date: only the text changes', [t3.duration, warrantyOverview(t3, '2026-11-20').expiresOn], ['10 Years', '2029-01-31']);
+  const t4 = applyDurationText(d1, 'Lifetime');
+  eq('duration text Lifetime with a structured length', [warrantyOverview(t4, '2026-11-20').status, t4.duration], ['lifetime', 'Lifetime']);
+
+  // claim buttons = the state machine, nothing else
+  for (const from of Object.keys(CLAIM_TRANSITIONS) as Array<keyof typeof CLAIM_TRANSITIONS>) {
+    eq(`claim moves from ${from}`, claimMoves(from).map((m) => m.to), CLAIM_TRANSITIONS[from]);
+  }
+  eq('claim move labels', [...claimMoves('open'), ...claimMoves('resolved'), ...claimMoves('in_review')].map((m) => m.label),
+    ['Start review', 'Mark resolved', 'Deny claim', 'Reopen', 'Back to open', 'Mark resolved', 'Deny claim']);
+  eq('closing moves', claimMoves('open').filter((m) => m.closes).map((m) => m.to), ['resolved', 'denied']);
+  eq('only a denial needs a reason', [claimNeedsReason('denied'), claimNeedsReason('resolved'), claimNeedsReason('open')], [true, false, false]);
+  const closed = tracked(moveClaim(tracked(addClaim(emptyTracking(), { id: 'z1', date: '2026-11-10', description: 'x' }, NOW, TODAY)), 'z1', 'resolved', { resolution: 'Re-grouted', resolvedOn: '2026-11-14', now: NOW, today: TODAY })).claims[0];
+  eq('claim chip text', [claimChipText(closed), claimChipText({ status: 'open', resolvedOn: null }), claimChipText({ status: 'in_review', resolvedOn: null })], ['Resolved 14 Nov 2026', 'Open', 'In review']);
+  const cs = (claims: unknown[]) => ({ claims: claimsSummary(parseTracking({ claims }).claims) });
+  eq('open claims text', [
+    openClaimsText(cs([])),
+    openClaimsText(cs([{ id: 'a', date: '2026-11-01' }])),
+    openClaimsText(cs([{ id: 'a', date: '2026-11-01' }, { id: 'b', date: '2026-11-02', status: 'in_review' }, { id: 'c', date: '2026-11-03', status: 'resolved' }])),
+  ], ['', '1 open claim', '2 open claims']);
+
+  // the warranties list
+  const item = (id: string, data: D) => ({ id, overview: overviewOfDocument(data, null, '2026-11-20') });
+  const open1 = { v: 1, claims: [{ id: 'a', date: '2026-11-01', description: 'x', status: 'open' }] };
+  const list = [
+    item('far', { completedDate: '2026-11-15', duration: '5 Years' }),
+    item('soon', { completedDate: '2026-01-15', duration: '1 Year' }),
+    item('soon-claim', { completedDate: '2026-01-17', duration: '1 Year', warrantyTracking: open1 }),
+    item('old', { completedDate: '2024-01-15', duration: '1 Year' }),
+    item('void', { completedDate: '2026-01-15', duration: '1 Year', warrantyTracking: { v: 1, voidedAt: '2026-05-01T00:00:00Z', claims: [] } }),
+    item('life', { completedDate: '2026-01-15', duration: 'Lifetime' }),
+    item('nodate', { completedDate: '2026-01-15', duration: 'see contract' }),
+  ];
+  eq('buckets: order and members (open claim first, then soonest end)', warrantyBuckets(list).map((b) => [b.id, b.items.map((i) => i.id)]), [
+    ['expiring', ['soon-claim', 'soon']], ['active', ['far', 'life', 'nodate']], ['ended', ['old']], ['void', ['void']],
+  ]);
+  eq('buckets: empty groups left out', warrantyBuckets([list[0]]).map((b) => b.id), ['active']);
+  const stale = overviewOfDocument({ completedDate: '2026-11-15', duration: '1 Year' }, null, '2026-11-20');
+  eq('a list copied on an earlier day is brought up to date', [refreshOverview(stale, '2027-10-01').status, refreshOverview(stale, '2027-10-01').daysLeft, refreshOverview(stale, '2028-01-01').status], ['expiring', 45, 'expired']);
+
+  // the days boxes of the settings
+  eq('offsetsText', offsetsText([60, 30, 7, 0]), '60, 30, 7, 0');
+  eq('warranty days, farthest first', parseOffsetsText('warranty', '7, 30 60 0'), { offsets: [60, 30, 7, 0], problem: null });
+  eq('completion days', parseOffsetsText('completion', '3'), { offsets: [3], problem: null });
+  eq('maintenance days', parseOffsetsText('maintenance', '365; 180'), { offsets: [180, 365], problem: null });
+  ok('empty refused', parseOffsetsText('completion', '').problem !== null);
+  ok('letters refused', parseOffsetsText('completion', 'three').problem !== null);
+  ok('out of range refused', parseOffsetsText('completion', '90').problem !== null && parseOffsetsText('maintenance', '5').problem !== null);
+  ok('too many refused', parseOffsetsText('completion', '1, 2, 3').problem !== null);
+  const def = defaultPostJobSettings();
+  eq('warranty schedule sentence', warrantyScheduleText(def), 'The client is emailed 60, 30 and 7 days before it ends and on the day it ends. You get a note 30 days before it ends and on the day it ends.');
+  eq('warranty schedule without the owner note', warrantyScheduleText(setWarrantyOwner(def, { notifyOwner: false }, 1)), 'The client is emailed 60, 30 and 7 days before it ends and on the day it ends.');
+  eq('audience labels', AUDIENCE_LABELS, { client: 'Client', owner: 'You' });
+
+  // "Next scheduled": planned by the server's own planner
+  const NOWD = new Date('2026-11-15T15:00:00Z');
+  const baseR = { enabled: true, sendHour: 9, timezone: 'UTC', paid: true };
+  const on = setPostJobEnabled(def, 'warranty', true, '2026-11-01', 1);
+  const noOv = { document: null, job: null, client: null };
+  const wTargets: UpcomingTarget[] = [
+    { facts: { kind: 'warranty', id: 'w1', anchor: '2027-01-15' }, client: 'Kim', job: 'Warranty WAR-1', overrides: noOv },
+    { facts: { kind: 'warranty', id: 'w2', anchor: '2027-01-15', inactive: true }, client: 'Lee', job: 'Warranty WAR-2', overrides: noOv },
+    { facts: { kind: 'warranty', id: 'w3', anchor: '2027-02-01' }, client: 'Sam', job: 'Warranty WAR-3', overrides: { ...noOv, document: { enabled: false, updatedAt: null } } },
+  ];
+  const up = planUpcoming('warranty', on, baseR, '2026-11-15', NOWD, wTargets, 10);
+  ok('upcoming: not a preview when on', !up.preview);
+  eq('upcoming warranty: only w1 (void/lifetime and switched-off ones skipped), next client step then next owner step', up.items.map((i) => [i.date, i.audience, i.targetId, i.label]), [
+    ['2026-11-16', 'client', 'w1', '60 days before it ends'],
+    ['2026-12-16', 'owner', 'w1', '30 days before it ends'],
+  ]);
+  eq('upcoming: limit', planUpcoming('warranty', on, baseR, '2026-11-15', NOWD, wTargets, 1).items.length, 1);
+  const off = planUpcoming('warranty', def, baseR, '2026-11-15', NOWD, wTargets.slice(0, 1), 10);
+  ok('upcoming while off: a preview of switching on today', off.preview && off.items.length > 0 && off.items.every((i) => i.date >= '2026-11-15'));
+  eq('upcoming: Free plan plans nothing', planUpcoming('warranty', on, { ...baseR, paid: false }, '2026-11-15', NOWD, wTargets, 10).items, []);
+  eq('upcoming: paused reminders plan nothing', planUpcoming('warranty', on, { ...baseR, enabled: false }, '2026-11-15', NOWD, wTargets, 10).items, []);
+  const cOn = setPostJobEnabled(def, 'completion', true, '2026-11-10', 1);
+  const jTargets: UpcomingTarget[] = [
+    { facts: { kind: 'completion', id: 'j1', anchor: '2026-11-14' }, client: 'Kim', job: 'Bathroom', overrides: noOv },
+    { facts: { kind: 'completion', id: 'j2', anchor: '2026-11-01' }, client: 'Old', job: 'Before the switch', overrides: noOv },
+  ];
+  eq('upcoming completion: only the job completed after switching on', planUpcoming('completion', cOn, baseR, '2026-11-15', NOWD, jTargets, 5).items.map((i) => [i.targetId, i.date]), [['j1', '2026-11-17']]);
+}
+viewChecks();
+
+/* ================================================================ 7. phase B wiring (text scan) */
+function viewStaticChecks() {
+  const help = read('components/help/helpContent.ts');
+  ok('help: both guides exist and are typed', help.includes("id: 'warranty-tracking'") && help.includes("id: 'after-job-emails'") && help.includes("'warranty-tracking' | 'after-job-emails'"));
+  ok('help: no Kelviq / merchant of record', !/kelviq|merchant of record/i.test(help.slice(help.indexOf("id: 'warranty-tracking'"), help.indexOf("id: 'inventory'"))));
+  const form = read('components/WarrantyForm.tsx');
+  ok('form: coverage, claims and emails sections mounted', ['WarrantyCoverageSection', 'WarrantyClaimsSection', 'WarrantyEmailsSection'].every((n) => form.includes(`<${n}`)));
+  ok('form: old fields still there', ['Warranty #', 'Work completed on', 'label="Duration"', 'Conditions & exclusions', 'generateWarrantyPDF'].every((x) => form.includes(x)));
+  ok('form: validation unchanged', form.includes("'Add a warranty number.'") && form.includes("'Add the completion date.'"));
+  ok('form: no write path of its own', !/supabase|upsertDocumentRecord/.test(form));
+  const sections = ['WarrantyCoverageSection', 'WarrantyClaimsSection', 'WarrantyEmailsSection', 'WarrantiesStrip'].map((n) => read(`components/warranty/${n}.tsx`)).join('\n');
+  ok('components: no direct documents write', !/from\('documents'\)|upsertDocumentRecord|updateWarrantyTracking/.test(sections));
+  ok('components: never mention Kelviq', !/kelviq|merchant of record/i.test(sections + read('components/automations/PostJobRows.tsx')));
+  const rows = read('components/automations/AutomationsSettings.tsx');
+  ok('automations: post-job rows mounted in Jobs once reminders are ready', rows.includes('<PostJobRows') && rows.includes("g.id === 'jobs' && rem.state.status === 'ready'"));
+  ok('automations: existing rows untouched', rows.includes('{rules.map(ruleRow)}') && rows.includes('{bound.map(boundRow)}') && rows.includes('{always.map(a => ('));
+  const pj = read('components/automations/PostJobRows.tsx');
+  ok('post-job rows: POST_JOB_ROWS + the settings helpers', ['POST_JOB_ROWS', 'setPostJobEnabled', 'setPostJobOffsets', 'setWarrantyOwner', 'setCompletionReview', 'setMaintenanceTip', 'setPostJobTemplate', 'previewPostJobEmail', 'loadUpcomingPostJob'].every((n) => pj.includes(n)));
+  ok('post-job rows: Free gets the upgrade prompt', pj.includes('if (!paid) { onUpgradeClick?.(); return; }'));
+  ok('job page: warranties strip in the Documents tab', read('components/JobDetailsScreen.tsx').includes('<WarrantiesStrip'));
+  const audit = read('lib/offline/writePathAudit.ts');
+  ok('offline audit lists the claim photo writes', audit.includes('storage.from(CLAIM_PHOTO_BUCKET).upload(path, upload') && audit.includes('storage.from(CLAIM_PHOTO_BUCKET).remove([path])'));
+  const photos = read('lib/warranty/claimPhotos.ts');
+  ok('claim photos: private bucket, owner folder, signed links only', photos.includes("'document-assets'") && photos.includes('createSignedUrl') && photos.includes('`${userId}/warranty/'));
+  ok('claim photos: no public URL', !photos.includes('getPublicUrl'));
+  const path = '0d3c1f6e-1111-4222-8333-444455556666/warranty/9a8b7c6d-1111-4222-8333-444455556666/ab12cd34ef56-Leak-photo.jpg';
+  eq('claim photo path passes the claim parser', parseTracking({ claims: [{ id: 'a', date: '2026-11-01', photos: [path] }] }).claims[0].photos, [path]);
+  const view = read('lib/warranty/warrantyView.ts').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('view logic stays pure (no Supabase client / React)', !/from '\.\.\/supabase\.ts'|from 'react'/.test(view));
+}
+viewStaticChecks();
 
 await dispatchCheck();
 staticChecks();
