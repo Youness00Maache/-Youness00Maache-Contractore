@@ -204,6 +204,13 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   D8 profile + reviews, N6 AI documents (Opus; Gemini vision), N8 setup wizard (Sonnet), N9 plan measurement (Opus),
   N10 integrations (Sonnet), N11 timeline + D11 email log, D6 bills, D12 push (needs the owner's VAPID secrets: never
   type them).
+  2026-11-15 ~04:20 UTC USAGE LIMIT REACHED (5-hour 100%, resets 04:50 UTC; weekly 40%). On my-branch, NOT pushed (my-branch
+  fb497b6, origin/main 1c4cd10): N3 business overview, D7 phase A (migration 20261116000800 APPLIED + verified, data layer),
+  N8 setup assistant (adds `documents.money` setting: tax %, due days, terms for NEW docs only). RUNNING when stopped: D7
+  phase B Sonnet UI (agent-a139d0f8e22c8411e, worktree .claude/worktrees/agent-a139d0f8e22c8411e; if it was cut off, check
+  its worktree for commits, resume with SendMessage or restart from the brief in this file's history). NEXT: merge D7-B,
+  `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, full suite (scratchpad fullsuite.sh), push my-branch + main,
+  redeploy ai-assistant, Done log (N3 + D7 + N8). Then D10, N7, D8, N6, N9, N10, N11 + D11, D6, D12.
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
