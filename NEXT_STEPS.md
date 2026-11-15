@@ -52,6 +52,22 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 
 # >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
 Read docs/work/tutorial-video/PLAN.md + README.md first. STATE 2026-11-15 ~15:10 (branch my-branch, last commit d647e27, NOTHING PUSHED):
+**UPDATE 2026-11-15 ~22:45 (NEWEST): THE WHOLE COURSE IS RECORDED AND LIVE IN THE BUCKET; ONLY THE PRODUCTION PUSH WAITS FOR THE OWNER'S OK.**
+  30 chapters, 99:41 (incl. the new complete phone chapter 28 "The app on your phone, and working offline", 6:47), English voice for all,
+  Spanish voice for 01-11, captions: 10 languages for 01-11, English + Spanish for 12-30 (the player shows English captions with a note
+  where a language has none). Bucket `tutorial-media`: 82 files, all verified equal to <work>/publish/v1 (re-checked by size at 22:40);
+  live manifest = 30 chapters. Tested in the real app against the live bucket (list of 30, deep link /tutorials?video=offline-phone&t=60,
+  play, voice+video in sync, captions switch + English fallback). All suites were green at 19:41 (tsc, build, seo:check, qa:document-ai, 40+
+  check scripts, forms/payments/templates); the app code has not changed since (only tutorial-video tooling). my-branch pushed; MAIN NOT
+  PUSHED: pushing `my-branch:main` makes the Video course visible to everybody (owner wants to watch the new timing first; the watch page
+  has all 30 chapters: http://127.0.0.1:3999/watch.html via `node scripts/serve-media.mjs <notes folder> 3999`, files in the notes folder
+  `watch/`). AFTER THE OWNER'S OK: `git push origin my-branch:main`, wait 1-3 min, curl https://www.contractordocs.app/tutorials (200) and
+  check the live app shows the Video course. NOTE the daily SEO session pushes only `seo-daily:main` (fast-forward on origin/main): rebase
+  my-branch on origin/main (git fetch; git rebase origin/main) BEFORE pushing main so that SEO commits are not lost.
+  To update the course later: `node build/assemble.mjs` (TUTORIAL_WORK_DIR=C:/Users/JAAF/contractordocs-tutorial-work), compare with the
+  bucket by size, delete changed names in the Storage UI (filter box, tick rows, Delete), upload the changed files with the chrome tool
+  file_upload (hidden input, <10 MB per call, files must be in the notes folder), manifest.json LAST. Still optional: subtitles in the
+  other 8 languages for chapters 12-30, Spanish voice for 12-30 (owner said no: keep it small).
 **UPDATE 2026-11-15 ~19:45 (newest; older bullets below may be outdated):** OWNER RESUMED ("continue, tell me the % done") and CUT THE SCOPE:
   ENGLISH voice for every chapter + subtitles only; no new voice languages (Spanish voice stays for 01-11 only; subtitles: 10 languages for
   01-11, Spanish+English for 12-30). SYNC FIXED and measured (clicks land 0.02-0.3 s from the spoken word on average, elastic timing):
