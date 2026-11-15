@@ -20,7 +20,16 @@ import {
     mapQuoteRow, quoteFileStoragePath, quoteInsertRow, quotePatchRow, scopeKeyOf, validateHttpsUrl, validateQuoteDraft, validateQuoteFile,
 } from '../lib/subs/quoteCompare.ts';
 import { subcontractBudget, withSubcontracts } from '../lib/subs/subBudget.ts';
-import { COMMITMENT_STATUSES, QUOTE_STATUSES, SUB_LIMITS, type CommitmentStatus, type JobQuote, type SubCommitment } from '../lib/subs/subTypes.ts';
+import {
+    ACTION_CONFIRM, CORRECTION_HELP, EDIT_RESET_WARNING, KIND_LABEL, MEMBER_FILTERS, acceptanceLine, actionLabel, commitmentTone, dayLabel, diffText, dueInfo, flagChips,
+    flagWarnings, groupLine, headlineParts, memberFilterMatches, memberSubLine, moneyText, payPreview, paymentLine, quoteActionList, quoteHighlights, quoteTone,
+    sentNote, subInviteText,
+} from '../lib/subs/subView.ts';
+import {
+    SUB_WORDS, showAcceptForm, splitSubCommitments, subAcceptedLine, subDates, subDay, subMoney, subPaidParts, subProgressLine, subRetainageLine, subStatusWord,
+    visibleSubView,
+} from '../lib/subs/subLinkView.ts';
+import { COMMITMENT_STATUSES, QUOTE_STATUSES, SUB_LIMITS, type CommitmentStatus, type JobQuote, type QuoteStatus, type SubCommitment, type SubLinkCommitment, type SubLinkView } from '../lib/subs/subTypes.ts';
 import { READ_ONLY_RPCS } from '../lib/offline/writePathScan.ts';
 import { WRITE_PATHS } from '../lib/offline/writePathAudit.ts';
 
@@ -401,6 +410,196 @@ ok('guards: paid_total derived by the database', gc.includes('new.paid_total := 
 ok('guards: OLD read only in the UPDATE branch', [gq, gc, gm].every(t => !/tg_op = 'insert' or [^\n]*old\./i.test(t) && !/tg_op = 'update' and old\./i.test(t)));
 ok('crew guard: no switch back while commitments are open', gm.includes("old.kind = 'subcontractor' and new.kind = 'employee'"));
 ok('one chosen quote per scope', lower.includes("create unique index if not exists ux_job_quotes_chosen_scope on public.job_quotes (job_id, scope_key) where status = 'chosen'"));
+
+// ============================================================================================ UI logic (phase B)
+{
+    const TODAY = '2026-11-15';
+    // ---- words + money + dates
+    eq('moneyText', [moneyText(1200), moneyText(1200.5), moneyText(-250), moneyText(0), moneyText(Number.NaN), moneyText(null)], ['$1,200', '$1,200.50', '-$250', '$0', '$0', '$0']);
+    eq('dayLabel', [dayLabel('2026-11-14', TODAY), dayLabel('2025-03-02', TODAY), dayLabel('nope', TODAY), dayLabel(null, TODAY), dayLabel('2026-13-01', TODAY)], ['Nov 14', 'Mar 2, 2025', '', '', '']);
+    eq('commitment tones', COMMITMENT_STATUSES.map(commitmentTone), ['muted', 'warning', 'primary', 'primary', 'success', 'muted']);
+    eq('action labels', [actionLabel({ id: 'start', label: 'x' }), actionLabel({ id: 'complete', label: 'x' }), actionLabel({ id: 'issue', label: 'Send to sub' }), actionLabel({ id: 'cancel', label: 'Cancel' })],
+        ['Mark in progress', 'Mark completed', 'Send to sub', 'Cancel']);
+    ok('every owner button has a plain label', COMMITMENT_STATUSES.every(s => ownerActions({ status: s }).every(a => actionLabel(a).trim().length > 2)));
+    ok('the main buttons exist', ownerActions({ status: 'draft' })[0].label === 'Send to sub' && ownerActions({ status: 'accepted' }).some(a => actionLabel(a) === 'Mark in progress') && ownerActions({ status: 'in_progress' }).some(a => actionLabel(a) === 'Mark completed'));
+    ok('confirm texts are complete', Object.values(ACTION_CONFIRM).every(c => !!c && c.title.length > 5 && c.label.length > 2 && c.message({ title: 'Rough-in' }).includes('Rough-in')));
+    ok('cancel and delete ask first, issue does not', !!ACTION_CONFIRM.cancel && !!ACTION_CONFIRM.delete && !ACTION_CONFIRM.issue && !ACTION_CONFIRM.start);
+    ok('edit warning says accept again', /accept again/.test(EDIT_RESET_WARNING) && /negative/.test(CORRECTION_HELP));
+
+    // ---- due dates, acceptance
+    eq('due: overdue', dueInfo(commitment({ status: 'in_progress', dueDate: '2026-11-10' }), TODAY), { text: '5 days overdue', tone: 'late' });
+    eq('due: 1 day overdue', dueInfo(commitment({ status: 'issued', dueDate: '2026-11-14' }), TODAY).text, '1 day overdue');
+    eq('due: today / tomorrow / later', [dueInfo(commitment({ dueDate: '2026-11-15' }), TODAY), dueInfo(commitment({ dueDate: '2026-11-16' }), TODAY), dueInfo(commitment({ dueDate: '2026-11-30' }), TODAY)],
+        [{ text: 'Due today', tone: 'soon' }, { text: 'Due tomorrow', tone: 'soon' }, { text: 'Due Nov 30', tone: 'normal' }]);
+    eq('due: upcoming', dueInfo(commitment({ status: 'accepted', startDate: '2026-11-20', dueDate: '2026-12-05' }), TODAY), { text: 'Starts Nov 20 · Due Dec 5', tone: 'normal' });
+    eq('due: done / cancelled / none', [dueInfo(commitment({ status: 'completed', completedAt: '2026-11-03T10:00:00Z', dueDate: '2026-11-01' }), TODAY).text, dueInfo(commitment({ status: 'cancelled', dueDate: '2026-11-01' }), TODAY).text, dueInfo(commitment({ status: 'draft' }), TODAY).text],
+        ['Completed Nov 3', '', '']);
+    eq('acceptance line', [
+        acceptanceLine(commitment({ status: 'issued' }), TODAY),
+        acceptanceLine(commitment({ status: 'accepted', acceptedBy: 'Sam Rivera', acceptedAt: '2026-11-14T15:00:00Z' }), TODAY),
+        acceptanceLine(commitment({ status: 'in_progress', acceptedBy: 'Sam', acceptedAt: '2025-01-05T15:00:00Z' }), TODAY),
+        acceptanceLine(commitment({ status: 'draft' }), TODAY),
+        acceptanceLine(commitment({ status: 'in_progress' }), TODAY),
+    ], ['Waiting for the sub to accept', 'Accepted by Sam Rivera on Nov 14', 'Accepted by Sam on Jan 5, 2025', '', '']);
+    ok('sent note: with a link / by name', sentNote({ crewMemberId: M }).includes('Copy sub link') && sentNote({ crewMemberId: null }).includes('typed in by name'));
+    eq('headline: nothing', headlineParts(summarizeCommitments([], TODAY)), []);
+    {
+        const list = [
+            commitment({ id: 'a', status: 'issued', amount: 10000 }),
+            commitment({ id: 'b', status: 'in_progress', amount: 5000, retainagePct: 10, payments: [{ id: 'p', at: '2026-11-01', amount: 2000, note: null }], dueDate: '2026-11-01' }),
+            commitment({ id: 'c', status: 'draft', amount: 3000 }),
+        ];
+        const parts = headlineParts(summarizeCommitments(list, TODAY)).map(p => p.text);
+        eq('headline parts', parts, ['1 to accept', '1 overdue', '$15,000 committed', '$2,000 paid', '$13,000 still to pay', '$1,500 retainage held', '$3,000 in drafts']);
+    }
+
+    // ---- payment preview
+    {
+        const c = commitment({ status: 'in_progress', amount: 10000, retainagePct: 10, payments: [] });
+        eq('pay preview: empty / typing', [payPreview(c, { amount: '' }).ready, payPreview(c, { amount: '-' }).error, payPreview(c, { amount: 'abc' }).error], [false, null, 'Enter the payment amount.']);
+        const ok1 = payPreview(c, { amount: '$2,500', at: '2026-11-15' });
+        eq('pay preview: ok', [ok1.ready, ok1.error, ok1.after?.paid, ok1.after?.remaining, ok1.notes], [true, null, 2500, 7500, []]);
+        const into = payPreview(c, { amount: '9500' });
+        ok('pay preview: into the retainage is a warning, not an error', into.ready && into.notes.some(n => n.includes('retainage')));
+        eq('pay preview: more than agreed', payPreview(c, { amount: '20000' }).error, "Payments can't add up to more than the agreed amount.");
+        eq('pay preview: negative on nothing paid', payPreview(c, { amount: '-100' }).error, "Payments can't add up to less than zero.");
+        const paid = commitment({ status: 'in_progress', amount: 10000, payments: [{ id: 'p1', at: '2026-11-01', amount: 500, note: null }] });
+        const fix = payPreview(paid, { amount: '-200' });
+        ok('pay preview: a correction', fix.ready && fix.correction && fix.after?.paid === 300 && fix.notes[0].startsWith('A correction'));
+        eq('pay preview: a draft cannot be paid', payPreview(commitment({ status: 'draft' }), { amount: '100' }).error, 'Send the commitment before recording payments.');
+        eq('pay preview: zero', payPreview(c, { amount: '0' }).error, "A payment can't be zero.");
+        const l = paymentLine({ at: '2026-11-03', amount: -250, note: 'oops' }, TODAY);
+        eq('payment line', [l.when, l.amount, l.correction, l.note], ['Nov 3', '-$250', true, 'oops']);
+    }
+
+    // ---- quotes: buttons, flags, sentences
+    ok('quote buttons are allowed moves', QUOTE_STATUSES.every(s => quoteActionList(s).every(a => canSetQuoteStatus(s, a.to))));
+    ok('choose is the main button of an open quote', (['received', 'shortlisted'] as QuoteStatus[]).every(s => quoteActionList(s)[0].to === 'chosen' && quoteActionList(s)[0].primary === true));
+    ok('a rejected quote has no main button', quoteActionList('rejected').every(a => !a.primary) && quoteActionList('rejected').every(a => a.to !== 'chosen'));
+    eq('quote tones', QUOTE_STATUSES.map(quoteTone), ['muted', 'primary', 'muted', 'success']);
+    {
+        const quotes = [
+            quote({ id: 'a', vendorName: 'Alpha', amount: 1000, inclusions: null, exclusions: null, filePath: null, fileName: null, leadTimeDays: 14 }),
+            quote({ id: 'b', vendorName: 'Beta', amount: 1050, leadTimeDays: 14 }),
+            quote({ id: 'c', vendorName: 'Gamma', amount: 2000, validUntil: '2026-11-01' }),
+            quote({ id: 'd', vendorName: 'Delta', amount: 900, status: 'rejected' }),
+        ];
+        const rows = compareQuotes(quotes, { today: TODAY });
+        const by = (id: string) => rows.find(r => r.quote.id === id)!;
+        eq('chips: lowest', flagChips(by('a')).map(c => c.text), ['Lowest price']);
+        eq('chips: near lowest + best value', flagChips(by('b')).map(c => c.text), ['Within 10% of the lowest ($50 more)', 'Best value (suggested)']);
+        eq('chips: expired / rejected', [flagChips(by('c')).map(c => c.text), flagChips(by('d')).map(c => c.text)], [['Quote expired'], ['Rejected']]);
+        eq('warnings: missing details', flagWarnings(by('a')), ['No inclusions listed: ask what is covered.', 'No exclusions listed: ask what is not covered.', 'No file or link attached.']);
+        eq('warnings: none', flagWarnings(by('b')), []);
+        const sentences = quoteHighlights(rows);
+        ok('sentence: lowest', sentences[0] === 'Alpha is the lowest at $1,000.');
+        ok('sentence: best value is only a suggestion', sentences.some(s => s.startsWith('Beta may be the better buy: $50 more than the lowest, but it lists what is included') && s.endsWith('Only a suggestion.')));
+        ok('sentence: expired', sentences.some(s => s === '1 quote expired: ask for a new price.'));
+        eq('sentences: nothing active', quoteHighlights(compareQuotes([quote({ id: 'x', status: 'rejected' })], { today: TODAY })), ['Every quote here is rejected or expired. Ask for a new price or bring one back.']);
+        eq('sentences: no quotes', quoteHighlights([]), []);
+        const g = groupQuotesByScope(quotes)[0];
+        eq('group line', groupLine(g), '4 quotes · $1,000 to $2,000 · 1 rejected');
+        eq('diff text', [diffText({ diffFromLowest: 0, pctAboveLowest: 0 }), diffText({ diffFromLowest: 50, pctAboveLowest: 5 }), diffText({ diffFromLowest: null, pctAboveLowest: null })], ['Lowest', '+$50 (+5%)', '']);
+        const keys = comparisonMatrix(rows).map(m => m.key as string);
+        ok('the table rows the screen shows all exist', ['amount', 'difference', 'lead_time', 'valid_until', 'inclusions', 'exclusions', 'document', 'received'].every(k => keys.includes(k)));
+    }
+
+    // ---- crew screen
+    ok('filters', MEMBER_FILTERS.map(f => f.id).join() === 'all,workers,subs' && memberFilterMatches('all', 'employee') && memberFilterMatches('all', 'subcontractor')
+        && memberFilterMatches('workers', 'employee') && !memberFilterMatches('workers', 'subcontractor') && memberFilterMatches('subs', 'subcontractor') && !memberFilterMatches('subs', 'employee'));
+    eq('sub line', [memberSubLine({ company: 'Volt Co', trade: ' Electrical ' }), memberSubLine({ company: '', trade: 'Plumbing' }), memberSubLine({}), memberSubLine({ company: null, trade: null })], ['Volt Co · Electrical', 'Plumbing', '', '']);
+    eq('kind labels', [KIND_LABEL.employee, KIND_LABEL.subcontractor], ['Worker', 'Subcontractor']);
+    {
+        const t = subInviteText('Sam Rivera', 'Acme Builders', 'https://x.test/clock/abc');
+        ok('invite text', t.startsWith('Hi Sam, here is your Acme Builders subcontract link: https://x.test/clock/abc') && /accept the work/.test(t) && !/clock-in/.test(t));
+        ok('invite text without names', subInviteText('', '', 'https://x.test/c').startsWith('here is your subcontract link:'));
+    }
+
+    // ---- the sub's page (English + Spanish)
+    {
+        const same = (a: unknown, b: unknown, path: string): boolean => {
+            if (typeof a !== typeof b) { console.error(`words differ at ${path}`); return false; }
+            if (a && typeof a === 'object') {
+                const ka = Object.keys(a as object).sort();
+                const kb = Object.keys(b as object).sort();
+                if (ka.join() !== kb.join()) { console.error(`words keys differ at ${path}: ${ka} vs ${kb}`); return false; }
+                return ka.every(k => same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], `${path}.${k}`));
+            }
+            return true;
+        };
+        ok('English and Spanish have the same words', same(SUB_WORDS.en, SUB_WORDS.es, 'words'));
+        const strings = (o: unknown): string[] => (typeof o === 'string' ? [o] : o && typeof o === 'object' ? Object.values(o as object).flatMap(strings) : []);
+        ok('no empty words', strings(SUB_WORDS.en).every(s => s.trim()) && strings(SUB_WORDS.es).every(s => s.trim()));
+        ok('Spanish is really Spanish', (SUB_WORDS.es.accept as string) !== SUB_WORDS.en.accept && (SUB_WORDS.es.title as string) !== SUB_WORDS.en.title && (SUB_WORDS.es.offline as string) !== SUB_WORDS.en.offline);
+        ok('every status has a word', COMMITMENT_STATUSES.every(s => subStatusWord(s, 'en').trim() && subStatusWord(s, 'es').trim() && subStatusWord(s, 'es') !== subStatusWord(s, 'en')));
+        ok('function words work in both languages', SUB_WORDS.es.finished(2).includes('2') && SUB_WORDS.en.finished(2).includes('2') && SUB_WORDS.en.paidPct(25) === '25% paid' && SUB_WORDS.es.paidPct(25) === '25% pagado');
+
+        const lc = (over: Partial<SubLinkCommitment> = {}): SubLinkCommitment => ({
+            id: 'l1', jobId: J, jobName: 'Kitchen', jobAddress: '1 Main', jobStatus: 'active', title: 'Rough-in', description: 'Run the wire', amount: 10000, retainagePct: 10,
+            startDate: '2026-11-20', dueDate: '2026-12-05', status: 'issued', paidTotal: 2500, issuedAt: null, acceptedAt: null, acceptedBy: null, completedAt: null,
+            tasksDone: 3, tasksTotal: 4, ...over,
+        });
+        const view = (over: Partial<SubLinkView> = {}): SubLinkView => ({ available: true, serverNow: null, member: { name: 'Sam', company: 'Volt', trade: 'Electrical', isSubcontractor: true }, commitments: [lc()], ...over });
+        ok('the section shows for a sub with work', visibleSubView(view()) !== null);
+        ok('nothing for the missing functions', visibleSubView(SUB_LINK_MISSING) === null && visibleSubView(null) === null && visibleSubView(undefined) === null);
+        ok('nothing for a worker', visibleSubView(view({ member: { name: 'Max', company: '', trade: '', isSubcontractor: false } })) === null);
+        ok('nothing without a member / commitments', visibleSubView(view({ member: null })) === null && visibleSubView(view({ commitments: [] })) === null);
+        ok('drafts never show', visibleSubView(view({ commitments: [lc({ status: 'draft' })] })) === null);
+        {
+            const s = splitSubCommitments([lc({ id: 'done', status: 'completed', completedAt: '2026-11-01T00:00:00Z' }), lc({ id: 'late', status: 'in_progress', dueDate: '2026-12-20' }), lc({ id: 'ask', status: 'issued', dueDate: '2026-12-30' }), lc({ id: 'soon', status: 'accepted', dueDate: '2026-11-25' })]);
+            eq('split: open first, waiting on you first', [s.open.map(c => c.id), s.finished.map(c => c.id)], [['ask', 'soon', 'late'], ['done']]);
+        }
+        eq('money', [subMoney(1200.5, 'en'), subMoney(1200, 'en'), subMoney(null, 'en')], ['$1,200.50', '$1,200', '$0']);
+        ok('Spanish money keeps the amount', /1[.,\s]?200/.test(subMoney(1200, 'es')));
+        eq('day (English)', [subDay('2026-11-14', 'en', TODAY), subDay('2025-03-02', 'en', TODAY), subDay('', 'en', TODAY)], ['Nov 14', 'Mar 2, 2025', '']);
+        ok('day (Spanish)', /14/.test(subDay('2026-11-14', 'es', TODAY)) && /nov/i.test(subDay('2026-11-14', 'es', TODAY)));
+        eq('dates', subDates(lc(), 'en', TODAY), { start: 'Nov 20', due: 'Dec 5' });
+        eq('retainage line', [subRetainageLine(lc(), 'en'), subRetainageLine(lc({ retainagePct: 0 }), 'en'), /10%/.test(subRetainageLine(lc(), 'es')) && /1[.,]?000/.test(subRetainageLine(lc(), 'es'))],
+            ['Retainage 10% ($1,000) is held until the work is complete.', '', true]);
+        eq('paid parts', [subPaidParts(lc()), subPaidParts(lc({ amount: 0, paidTotal: 0 })), subPaidParts(lc({ paidTotal: 99999 }))],
+            [{ paid: 2500, left: 7500, pct: 25 }, { paid: 0, left: 0, pct: 0 }, { paid: 99999, left: 0, pct: 100 }]);
+        eq('progress line', [subProgressLine(lc(), 'en'), /3 de 4/.test(subProgressLine(lc(), 'es')), subProgressLine(lc({ tasksTotal: 0, tasksDone: 0 }), 'en'), subProgressLine(lc({ tasksTotal: 1, tasksDone: 1 }), 'en')],
+            ['3 of 4 job tasks done', true, '', '1 of 1 job task done']);
+        eq('accepted line', [subAcceptedLine(lc({ acceptedBy: 'Sam Rivera', acceptedAt: '2026-11-14T10:00:00Z' }), 'en', TODAY), subAcceptedLine(lc(), 'en', TODAY), /Aceptado por Sam/.test(subAcceptedLine(lc({ acceptedBy: 'Sam', acceptedAt: '2026-11-14T10:00:00Z' }), 'es', TODAY))],
+            ['Accepted by Sam Rivera on Nov 14', '', true]);
+        ok('accept form only while it waits for them', showAcceptForm({ status: 'issued' }) && COMMITMENT_STATUSES.filter(s => s !== 'issued').every(s => !showAcceptForm({ status: s })));
+    }
+}
+
+// ============================================================================================ UI wiring (phase B)
+{
+    const files = ['components/subs/JobSubsPanel.tsx', 'components/subs/SubcontractsSection.tsx', 'components/subs/CommitmentDetailModal.tsx', 'components/subs/CommitmentEditorModal.tsx',
+        'components/subs/QuotesSection.tsx', 'components/subs/QuoteEditorModal.tsx', 'components/subs/QuoteCompareTable.tsx', 'components/subs/ChooseQuoteDialog.tsx',
+        'components/subs/SubsBudgetLine.tsx', 'components/subs/subsShared.ts', 'components/subs/useJobSubs.ts', 'components/subs/openQuote.ts', 'components/crew/CrewMySubcontract.tsx'];
+    const src = Object.fromEntries(files.map(f => [f, read(f)]));
+    const all = Object.values(src).join('\n') + read('lib/subs/subView.ts') + read('lib/subs/subLinkView.ts');
+    ok('no Kelviq / merchant of record in the sub screens', !/kelviq|merchant of record/i.test(all));
+    ok('the screens never touch the database directly', files.every(f => !/lib\/supabase|supabase\.(from|rpc|storage)/.test(src[f])));
+    ok('the screens never name a table or a storage bucket', files.every(f => !/\.from\(\s*['"]/.test(src[f])));
+    ok('new pure files are pure', ['lib/subs/subView.ts', 'lib/subs/subLinkView.ts'].every(f => !/supabase|from 'react'/.test(read(f).split('\n').filter(l => l.startsWith('import')).join('\n'))));
+
+    const details = read('components/JobDetailsScreen.tsx');
+    ok('Subs tab: slot, hash, tab list', details.includes('subsSlot?: React.ReactNode') && details.includes("'#subs'") && details.includes("tabs.push(['subs', 'Subs'])") && details.includes("tabState === 'subs' && !subsSlot"));
+    const app = read('App.tsx');
+    ok('App: Subs tab only when the feature is ready', /subsSlot=\{subsFeature === 'ready' && session \?/.test(app) && app.includes('useSubsFeature(session?.user?.id ?? null, isOnline)'));
+    ok('App: panel is lazy', app.includes("lazy(() => import('./components/subs/JobSubsPanel.tsx'))"));
+    const fin = read('components/JobFinancialsModal.tsx');
+    ok('financials: Subcontracts line added next to selections', fin.includes("import SubsBudgetLine from './subs/SubsBudgetLine.tsx'") && fin.includes('<SubsBudgetLine jobId={job.id} />'));
+    const bl = src['components/subs/SubsBudgetLine.tsx'];
+    ok('budget line: only with commitments, labelled, double-count note', /list\.length > 0/.test(bl) && bl.includes('Subcontracts (committed)')
+        && bl.includes('If you also log sub payments as expenses they are counted twice: log them here instead.') && bl.includes("feature !== 'ready'"));
+    const clock = read('components/crew/CrewClockPage.tsx');
+    ok('crew page: My subcontract sits above My tasks, inside the not-paused guard', clock.indexOf('<CrewMySubcontract') > 0 && clock.indexOf('<CrewMySubcontract') < clock.indexOf('<CrewMyTasks') && /\{!paused && \(\s*<TasksBoundary>\s*<Suspense fallback=\{null\}>\s*<CrewMySubcontract/.test(clock));
+    ok('crew page: the new section is a lazy chunk', clock.includes("lazy(() => import('./CrewMySubcontract.tsx'))"));
+    const mine = src['components/crew/CrewMySubcontract.tsx'];
+    ok('My subcontract: nothing unless visibleSubView says so, fetch + accept calls', mine.includes('if (!shown) return null;') && mine.includes('visibleSubView(view)') && mine.includes('fetchSubCommitments(token)') && mine.includes('acceptSubCommitment(token, c.id, name)') && mine.includes('isAlreadyAccepted(e)'));
+    const members = read('components/crew/CrewMembers.tsx');
+    ok('crew screen: kind chips + sub line + editor fields, all behind the feature', members.includes("useSubsFeature(userId, isOnline) === 'ready'") && members.includes('MEMBER_FILTERS.map') && members.includes('updateSubMember(saved.id') && members.includes('{showKind && ('));
+    ok('crew screen: worker behaviour untouched (clock link, rate, archive calls)', members.includes('updateMember(member.id, { name: n, phone, email, costRate: r })') && members.includes('createMember({ name: n, phone, email, costRate: r })') && members.includes('setMemberLink(member.id, action)'));
+    const help = read('components/help/helpContent.ts');
+    ok('help: the three guides exist', ["id: 'subcontractors'", "id: 'compare-quotes'", "id: 'sub-link'"].every(s => help.includes(s)) && help.includes("| 'subcontractors' | 'compare-quotes' | 'sub-link'"));
+    ok('help: no Kelviq in the new guides', !/kelviq/i.test(help.slice(help.indexOf("id: 'subcontractors'"), help.indexOf("id: 'papers'"))));
+}
 
 // ============================================================================================ wiring
 const api = read('lib/subs/subsApi.ts');

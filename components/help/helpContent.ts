@@ -15,7 +15,8 @@ export type HelpTopicId =
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
-  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview';
+  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview'
+  | 'subcontractors' | 'compare-quotes' | 'sub-link';
 
 export interface HelpStep {
   title: string;
@@ -549,6 +550,68 @@ export const HELP_GUIDES: HelpGuide[] = [
       'The client sees the photo, name, description, link, quantity and price of each option. Your cost, SKU and supplier are never sent to them.',
       'On a shared board the client sees the titles and captions you wrote on its items. Your private board notes are never sent.',
       'Drafts, closed selections and private boards are never shown to the client.',
+    ],
+  },
+  {
+    id: 'subcontractors',
+    title: 'Subcontractors and subcontracts',
+    summary: 'Mark a crew member as a subcontractor, write down what you agreed for a job (scope, amount, retainage, dates), send it to them to accept on their link, and record every payment against it. It counts as committed cost on the job.',
+    where: ['Job', 'Subs'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Mark someone as a subcontractor', text: 'Open [[Tools]] › [[Crew]], tap [[Edit]] on a person (or [[Add crew member]]) and set Type to Subcontractor. Add their company and trade if you like. The Crew list shows All, Workers and Subs so you can tell them apart. Their link is the same link as before: it still clocks them in if you want it to.' },
+      { title: 'Open the Subs tab', text: 'On a job page, switch to [[Subs]] and stay on [[Subcontracts]]. The line under the heading adds up what is committed, paid and still to pay for this job, and shows how many subcontracts wait for the sub to accept and how many are overdue.' },
+      { title: 'Write it down', text: 'Tap [[New subcontract]]. Pick the subcontractor from your crew, or choose Someone else and type a name. Add the scope of work, what the sub reads on their link, the agreed amount, retainage (a percentage held back until the work is complete), a start and due date, and private notes only you see. [[Save draft]] keeps it to yourself; [[Save and send to sub]] sends it.' },
+      { title: 'Send it and share the link', text: '[[Send to sub]] changes a draft to Sent. Use [[Copy sub link]] on the subcontract to copy the link with a short message, and send it by text or email. The sub sees the work under My subcontract, types their name and accepts. The row then says Accepted by their name on the date; until then it says Waiting for the sub to accept. A sub you only typed by name has no link, so they cannot accept on a phone.' },
+      { title: 'Change it, start it, finish it', text: '[[Edit]] changes the details. If the sub already accepted, changing the scope, the amount, the retainage or the dates sends it back to Sent and they have to accept again; the window warns you first. Use [[Mark in progress]], then [[Mark completed]] when the work is done. [[Cancel]] stops it: payments already recorded stay. A draft or cancelled subcontract with no payments can be deleted.' },
+      { title: 'Record payments', text: 'Open a subcontract and tap [[Record a payment]]: the date, the amount and a note such as the check number. It shows what is paid, what is still to pay and the percentage paid. The retainage stays held until the work is completed; paying into it shows a warning, not an error. Payments are never edited or deleted: to fix a mistake, record a correction as a negative amount (for example -250). The old payment stays in the list.' },
+      { title: 'See it in the job numbers', text: 'In Job financials, a Subcontracts (committed) line appears under Budget vs actual when the job has subcontracts: committed, paid, still to pay and retainage held. It sits next to the existing numbers and never changes them; a job without subcontracts shows nothing.' },
+    ],
+    tips: [
+      `Subcontractors and quote comparison are part of ${premium.name}.`,
+      'If you also log sub payments as expenses they are counted twice. Log them in the subcontract instead.',
+      'Subcontracts need a connection: when you are offline the app says so and the list comes back when you are online again.',
+      'Your private notes and the quotes you compared are never shown to the sub.',
+    ],
+  },
+  {
+    id: 'compare-quotes',
+    title: 'Compare quotes',
+    summary: 'Put the prices you were given for the same work side by side, see what is lowest, what is missing and what has expired, and turn the one you choose into a draft subcontract.',
+    where: ['Job', 'Subs', 'Quotes'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Add the quotes', text: 'On a job page, switch to [[Subs]] then [[Quotes]] and tap [[Add a quote]]. Type the scope (for example Electrical rough-in), who the quote is from (one of your subcontractors, a saved supplier or a name you type), the amount, what is included and not included, the lead time in days, how long the price holds, a link and, if you have it, the PDF or a photo of the quote (up to 15 MB). Quotes with the same scope are compared together.' },
+      { title: 'Read the flags', text: 'Each scope lists its quotes cheapest first. Plain words show what stands out: Lowest price, Within 10% of the lowest, Best value (suggested), Fastest, Quote expired, Expires in a few days. Best value is only a suggestion: it allows a little for missing details and a slower start.' },
+      { title: 'Compare side by side', text: 'Tap [[Compare]] on a scope. Each quote is a column and each question a row: the amount, how far above the lowest, lead time, how long the price holds, what is included and excluded, the file and when you received it. The best answer in a row is green and gaps are amber. A few sentences above the table sum it up, and a Check row lists what is missing, such as No inclusions listed.' },
+      { title: 'Shortlist or reject', text: '[[Shortlist]] the ones still in the running and [[Reject]] the rest. Rejected and expired quotes are left out of the ranking and the flags. You can bring one back.' },
+      { title: 'Choose one', text: '[[Choose this quote]] first shows the draft subcontract it would make: who, the scope, the amount, what the sub will read, and the retainage and dates you can set. [[Choose and draft the subcontract]] saves it as a draft on the Subcontracts list; nothing goes to the sub until you press [[Send to sub]]. [[Only mark it chosen]] is for a quote you will not turn into a subcontract, such as a supplier\'s material price. Only one quote is chosen for each scope: one you chose before goes back to the shortlist.' },
+    ],
+    tips: [
+      `Quote comparison is part of ${premium.name}.`,
+      'Use exactly the same words for the scope on every quote (spaces and capital letters do not matter), so they line up in one group.',
+      'The quotes, your notes and the files stay private to you. A subcontractor never sees the other quotes.',
+    ],
+  },
+  {
+    id: 'sub-link',
+    title: 'What your subcontractor sees on their link',
+    summary: 'A subcontractor opens their private link on a phone and sees the subcontracts you sent them: the scope, the price, what is paid, the dates and the job progress. They accept the work by typing their name. No app, no login.',
+    where: ['Crew', 'Share link'],
+    group: 'Tools',
+    appPath: '/crew',
+    steps: [
+      { title: 'The same link as the crew', text: 'A subcontractor\'s link is the crew link. Copy it from [[Crew]] › [[Share link]], or from a subcontract with [[Copy sub link]]. The link only shows that one sub\'s own work.' },
+      { title: 'My subcontract', text: 'Above My tasks the page shows My subcontract for each piece of work sent to them: the scope you wrote for them, the job and its address with Directions, the agreed price, what has been paid and what is left, the retainage held until the work is complete, the start and due dates, and a simple progress bar of the job\'s tasks.' },
+      { title: 'Accepting', text: 'While a subcontract is Waiting for your OK, they type their full name and tap [[Accept this work]]. You see Accepted by their name and the date on the job at once. It can only be accepted once. If you change the scope, amount, retainage or dates after that, it comes back to them to accept again.' },
+      { title: 'English and Spanish', text: 'The page follows the phone\'s language, with a switch at the bottom, like the rest of the crew page. Reading works offline from the last copy the phone saw; accepting needs a connection.' },
+      { title: 'What they never see', text: 'Your private notes, the other quotes, other subcontractors and what you pay your crew. A worker who is not a subcontractor sees nothing new on their page.' },
+    ],
+    tips: [
+      `The link works while the account is on ${premium.name}; on the Free plan the page is paused.`,
+      'Turn the link off or make a new one under Crew › Share link: the old one stops working at once.',
     ],
   },
   {
