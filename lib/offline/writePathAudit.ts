@@ -268,6 +268,10 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').update({ shared_in_portal: true, portal_path: portalPath })", what: 'share an image file in the portal', offline: 'needs_connection' },
     { file: 'lib/jobFiles/jobFilesApi.ts', match: 'storage.from(JOB_FILES_PORTAL_BUCKET).remove([portalPath])', what: 'failed share: remove the public copy again', offline: 'needs_connection' },
     { file: 'lib/jobFiles/jobFilesApi.ts', match: "from('job_files').delete().in('id', ids)", what: 'delete a job file / every version of a document', offline: 'needs_connection' },
+    // plans (roadmap N9): storage only, no table (lib/plans/plansApi.ts)
+    { file: 'lib/plans/plansApi.ts', match: 'storage.from(PLANS_BUCKET).upload(path, file', what: 'upload a plan (document-assets <user>/plans/<job>/)', offline: 'needs_connection' },
+    { file: 'lib/plans/plansApi.ts', match: 'storage.from(PLANS_BUCKET).upload(measurePath, body', what: 'save a plan\'s measurements (file next to the plan, last write wins)', offline: 'needs_connection' },
+    { file: 'lib/plans/plansApi.ts', match: 'storage.from(PLANS_BUCKET).remove([...new Set(paths)])', what: 'delete a plan and its measurements', offline: 'needs_connection' },
     { file: 'lib/jobFiles/jobFilesApi.ts', match: 'storage.from(JOB_FILES_BUCKET).remove(paths)', what: 'delete a job file: its private file', offline: 'needs_connection' },
     { file: 'lib/questions/questionsApi.ts', match: "from('job_questions').insert(row)", what: 'add a client question / submittal (draft or sent)', offline: 'needs_connection' },
     { file: 'lib/questions/questionsApi.ts', match: "from('job_questions').update(row)", what: 'edit a client question / submittal', offline: 'needs_connection' },

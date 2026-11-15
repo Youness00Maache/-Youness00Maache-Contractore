@@ -28,6 +28,7 @@ const RELATED: Partial<Record<HelpTopicId, HelpTopicId[]>> = {
   suppliers: ['inventory', 'documents'],
   pricebook: ['inventory', 'documents'],
   calculator: ['pricebook', 'estimates'],
+  plans: ['quick-measure', 'estimates', 'job-files'],
   calendar: ['jobs', 'business-overview'],
   'business-overview': ['job-costing', 'pipeline', 'calendar'],
   settings: ['payments', 'reminders', 'quote-link', 'notifications', 'automations'],

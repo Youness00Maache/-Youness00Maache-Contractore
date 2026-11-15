@@ -77,6 +77,8 @@ interface JobDetailsScreenProps {
     boardsSlot?: React.ReactNode;
     /** Subcontractors + quote comparison (Premium, rendered by App when they are in the database); adds a Subs tab. URL hash #subs opens it. */
     subsSlot?: React.ReactNode;
+    /** Plans: measure on an uploaded plan (Premium, roadmap N9; storage only, no table); adds a Plans tab. URL hash #plans opens it. */
+    plansSlot?: React.ReactNode;
     /** Job timeline (rendered by App; everything that happened on the job, derived from data already loaded); adds a Timeline tab. URL hash #timeline opens it.
      *  A function gets `openTab` so an entry can jump to another tab of this page. */
     timelineSlot?: React.ReactNode | ((openTab: (tab: string) => void) => React.ReactNode);
@@ -163,17 +165,17 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onCopyDocumentToJob, onDeleteDocument, onStatusChange,
     onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, punchSlot, punchLabel, toolsSlot, papersSlot, crewSlot, tasksSlot, tasksLabel, feedbackSlot,
-    filesSlot, questionsSlot, questionsLabel, questionsChip, selectionsSlot, selectionsLabel, selectionsChip, boardsSlot, subsSlot, timelineSlot,
+    filesSlot, questionsSlot, questionsLabel, questionsChip, selectionsSlot, selectionsLabel, selectionsChip, boardsSlot, subsSlot, timelineSlot, plansSlot,
 }) => {
     // Documents / Photos / Timeline / Tasks / Files / Questions / Selections / Boards / Punch list / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on the tab).
-    type JobTab = 'docs' | 'photos' | 'punch' | 'crew' | 'tasks' | 'files' | 'questions' | 'selections' | 'boards' | 'subs' | 'timeline';
+    type JobTab = 'docs' | 'photos' | 'punch' | 'crew' | 'tasks' | 'files' | 'questions' | 'selections' | 'boards' | 'subs' | 'timeline' | 'plans';
     const [tabState, setTabState] = useState<JobTab>(() => {
         const h = typeof window !== 'undefined' ? window.location.hash : '';
-        return h === '#photos' ? 'photos' : h === '#punch' ? 'punch' : h === '#crew' ? 'crew' : h === '#tasks' ? 'tasks' : h === '#files' ? 'files' : h === '#questions' ? 'questions' : h === '#selections' ? 'selections' : h === '#boards' ? 'boards' : h === '#subs' ? 'subs' : h === '#timeline' ? 'timeline' : 'docs';
+        return h === '#photos' ? 'photos' : h === '#punch' ? 'punch' : h === '#crew' ? 'crew' : h === '#tasks' ? 'tasks' : h === '#files' ? 'files' : h === '#questions' ? 'questions' : h === '#selections' ? 'selections' : h === '#boards' ? 'boards' : h === '#subs' ? 'subs' : h === '#timeline' ? 'timeline' : h === '#plans' ? 'plans' : 'docs';
     });
     const tab: JobTab = (tabState === 'photos' && !photosSlot) || (tabState === 'punch' && !punchSlot) || (tabState === 'crew' && !crewSlot) || (tabState === 'tasks' && !tasksSlot)
         || (tabState === 'files' && !filesSlot) || (tabState === 'questions' && !questionsSlot) || (tabState === 'selections' && !selectionsSlot)
-        || (tabState === 'boards' && !boardsSlot) || (tabState === 'subs' && !subsSlot) || (tabState === 'timeline' && !timelineSlot) ? 'docs' : tabState;
+        || (tabState === 'boards' && !boardsSlot) || (tabState === 'subs' && !subsSlot) || (tabState === 'timeline' && !timelineSlot) || (tabState === 'plans' && !plansSlot) ? 'docs' : tabState;
     const setTab = (next: JobTab) => {
         setTabState(next);
         try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next === 'docs' ? '' : `#${next}`}`); } catch { /* ignore */ }
@@ -183,6 +185,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     if (timelineSlot) tabs.push(['timeline', 'Timeline']);
     if (tasksSlot) tabs.push(['tasks', 'Tasks', tasksLabel]);
     if (filesSlot) tabs.push(['files', 'Files']);
+    if (plansSlot) tabs.push(['plans', 'Plans']);
     if (questionsSlot) tabs.push(['questions', 'Questions', questionsLabel]);
     if (selectionsSlot) tabs.push(['selections', 'Selections', selectionsLabel]);
     if (boardsSlot) tabs.push(['boards', 'Boards']);
@@ -317,7 +320,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                 </div>
             )}
 
-            {photosSlot && tab === 'photos' ? photosSlot : timelineSlot && tab === 'timeline' ? (typeof timelineSlot === 'function' ? timelineSlot((next) => setTab(next as JobTab)) : timelineSlot) : tasksSlot && tab === 'tasks' ? tasksSlot : filesSlot && tab === 'files' ? filesSlot : questionsSlot && tab === 'questions' ? questionsSlot : selectionsSlot && tab === 'selections' ? selectionsSlot : boardsSlot && tab === 'boards' ? boardsSlot : subsSlot && tab === 'subs' ? subsSlot : punchSlot && tab === 'punch' ? punchSlot : crewSlot && tab === 'crew' ? crewSlot : (
+            {photosSlot && tab === 'photos' ? photosSlot : timelineSlot && tab === 'timeline' ? (typeof timelineSlot === 'function' ? timelineSlot((next) => setTab(next as JobTab)) : timelineSlot) : tasksSlot && tab === 'tasks' ? tasksSlot : filesSlot && tab === 'files' ? filesSlot : plansSlot && tab === 'plans' ? plansSlot : questionsSlot && tab === 'questions' ? questionsSlot : selectionsSlot && tab === 'selections' ? selectionsSlot : boardsSlot && tab === 'boards' ? boardsSlot : subsSlot && tab === 'subs' ? subsSlot : punchSlot && tab === 'punch' ? punchSlot : crewSlot && tab === 'crew' ? crewSlot : (
             /* Documents */
             <section aria-labelledby="docs-heading">
                 <div className="mb-3 flex items-center justify-between gap-2">
