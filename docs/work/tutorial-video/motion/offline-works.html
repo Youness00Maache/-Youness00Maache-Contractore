@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: what works offline</title>
+<link rel="stylesheet" href="phone.css">
+<style>
+  .wrap { position:absolute; left:16px; right:16px; top:64px; }
+  .row { padding:10px 14px; margin:0 0 8px; font-size:17.5px; } .row .tick { width:30px; height:30px; font-size:17px; }
+  .th { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; } .th span { font-size:15px; font-weight:600; padding:8px 12px; border-radius:11px; border:1px solid var(--line); background:linear-gradient(160deg,#1b2a4d,#16223c); }
+  .lbl { margin-top:14px; font-size:15px; color:var(--mute); font-weight:600; }
+</style></head>
+<body><div class="col"><div class="grid"></div>
+  <div class="title fade" id="ttl">Works with no signal</div>
+  <div class="wrap" id="wrap"></div>
+</div>
+<script src="kit.js"></script>
+<script>
+  const k = kit, wrap = k.$('#wrap');
+  const rows = [[0.0, 'Jobs and their status'], [0.07, 'Clients and notes'], [0.17, 'Job photos, up to 200'], [0.37, 'Estimate and invoice drafts'], [0.43, 'Daily reports, time sheets, logs, notes, receipts'], [0.58, 'Stock changes and check-out'], [0.65, 'Price book and settings']];
+  rows.forEach(([f, txt]) => { const r = document.createElement('div'); r.className = 'row show'; r.innerHTML = '<span class="tick">&#10003;</span><div>' + txt + '</div>'; wrap.appendChild(r); k.onf(r, f); });
+  const box = document.createElement('div'); box.innerHTML = '<div class="lbl fade" id="lb">Opens with the last copy</div><div class="th" id="th"></div>'; wrap.appendChild(box);
+  ['Dashboard', 'Jobs', 'Clients', 'Calendar', 'Price book'].forEach((n, i) => { const s = document.createElement('span'); s.className = 'show'; s.textContent = n; k.$('#th').appendChild(s); k.onf(s, 0.77 + i * 0.04); });
+  k.onf(k.$('#ttl'), 0.0); k.onf(k.$('#lb'), 0.76);
+</script></body></html>

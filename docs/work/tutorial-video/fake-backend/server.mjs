@@ -32,6 +32,10 @@ const chain = (base, key) => {
 };
 // A module may export `insertHooks = { table_name: (row, tables) => row }`: it completes a NEW row the way a database trigger would (token, snapshot columns...).
 const insertHooks = Object.assign({}, ...demo.map((m) => m.insertHooks || {}));
+// A module may export `patchHooks = { table_name: (row, patch, tables) => void }`: it completes an UPDATED row the way a database trigger would
+// (paid totals, status times...). Several modules may hook the same table: all of them run, in file order.
+const patchHooks = {};
+for (const m of demo) for (const [k, h] of Object.entries(m.patchHooks || {})) (patchHooks[k] ||= []).push(h);
 const rpcAll = chain(rpcHandlers, 'rpc');
 const fnAll = chain(functionHandlers, 'functions');
 // `chapter` ("01", "30" ...) is only known when the caller says so: GET /__reset?chapter=NN. A demo module that needs a special
@@ -142,14 +146,21 @@ function applyFilters(rows, url) {
   }
   return out;
 }
-function project(rows, select) {
+// A module may export `embedCounts = { 'table.relation': (row, tables) => number }`: answers an embedded count such as `forum_comments(count)` (-> [{ count }]).
+const embedCounts = Object.assign({}, ...demo.map((m) => m.embedCounts || {}));
+function project(rows, select, table) {
   if (!select || select === '*') return rows;
   const cols = splitTop(select).map((s) => s.trim()).filter(Boolean);
   if (cols.some((c) => c === '*')) return rows;
   return rows.map((r) => {
     const o = {};
     for (const c of cols) {
-      if (c.includes('(')) continue; // embedded resource: not supported, left out
+      if (c.includes('(')) { // embedded resource: only a count that a demo module answers; everything else is left out
+        const m = c.match(/^([A-Za-z0-9_]+)\(count\)$/);
+        const fn = m && embedCounts[`${table}.${m[1]}`];
+        if (fn) o[m[1]] = [{ count: fn(r, tables) }];
+        continue;
+      }
       const alias = c.match(/^([A-Za-z0-9_]+):(.+)$/);
       const target = alias ? alias[2] : c;
       o[alias ? alias[1] : target.replace(/.*->>?/, '')] = getPath(r, target.replace(/::.*/, ''));
@@ -180,7 +191,7 @@ async function rest(req, res, url, name) {
     const rm = range.match(/^(\d+)-(\d+)$/);
     if (rm) { from = Number(rm[1]); lim = Number(rm[2]) - Number(rm[1]) + 1; }
     const page = filtered.slice(from, lim != null ? from + lim : undefined);
-    const out = project(page, url.searchParams.get('select'));
+    const out = project(page, url.searchParams.get('select'), name);
     const headers = { 'content-range': `${total ? from : '*'}-${from + page.length - (page.length ? 1 : 0)}/${total}` };
     if (singleObject) {
       if (out.length !== 1) return send(res, 406, { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned', details: `The result contains ${out.length} rows`, hint: null }, headers);
@@ -203,15 +214,15 @@ async function rest(req, res, url, name) {
     }
     log('POST', name, saved.length);
     if (!wantsRows) return send(res, 201, '');
-    const out = project(saved, url.searchParams.get('select'));
+    const out = project(saved, url.searchParams.get('select'), name);
     return singleObject ? send(res, 201, out[0] ?? null) : send(res, 201, out);
   }
   if (method === 'PATCH' || method === 'PUT') {
     const targets = applyFilters(rows, url);
-    for (const r of targets) Object.assign(r, body || {}, { updated_at: new Date().toISOString() });
+    for (const r of targets) { Object.assign(r, body || {}, { updated_at: new Date().toISOString() }); for (const h of patchHooks[name] || []) h(r, body || {}, tables); }
     log('PATCH', name, targets.length);
     if (!wantsRows) return send(res, 204, '');
-    const out = project(targets, url.searchParams.get('select'));
+    const out = project(targets, url.searchParams.get('select'), name);
     return singleObject ? send(res, 200, out[0] ?? null) : send(res, 200, out);
   }
   if (method === 'DELETE') {
@@ -297,7 +308,13 @@ const server = http.createServer(async (req, res) => {
         if (Array.isArray(paths)) return send(res, 200, paths.map((rel) => ({ error: null, path: rel, signedURL: sign(rel) })));
         return send(res, 200, { signedURL: sign(rest.split('/').slice(1).join('/')) });
       }
-      if (req.method === 'POST' && p.includes('/object/list/')) return send(res, 200, []);
+      if (req.method === 'POST' && p.includes('/object/list/')) {
+        // a demo module may export `storageList = (bucket, prefix, tables) => [{ name, created_at, metadata: { size, mimetype } }]` (undefined = not mine)
+        let prefix = ''; try { prefix = JSON.parse(buf.toString('utf8')).prefix || ''; } catch { /* ignore */ }
+        const bucket = p.split('/object/list/')[1];
+        for (const m of demo) if (typeof m.storageList === 'function') { const r = m.storageList(bucket, prefix, tables); if (Array.isArray(r)) return send(res, 200, r); }
+        return send(res, 200, []);
+      }
       if (req.method === 'POST' || req.method === 'PUT') return send(res, 200, { Key: p.replace('/storage/v1/object/', ''), Id: randomUUID() });
       return send(res, 200, []);
     }

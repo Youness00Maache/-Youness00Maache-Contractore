@@ -22,8 +22,8 @@ export default {
         'Vote for the features you want most. Project Showcase is for photos of your latest work.',
       ],
       do: [
-        { with: 1, act: 'click', target: 'Community' },
-        { with: 2, act: 'click', target: 'General' },
+        { with: 1, act: 'click', target: 'Community 2', patience: 25000 },
+        { with: 2, act: 'click', target: 'General', patience: 20000 },
         { with: 2, act: 'click', target: 'Suggestion' },
         { with: 3, act: 'click', target: 'Project Showcase' },
       ],
@@ -38,9 +38,9 @@ export default {
       ],
       do: [
         { with: 0, act: 'click', target: 'New post' },
-        { with: 0, act: 'key', key: 'Escape' },
+        { with: 0, act: 'key', key: 'Escape', delay: 2.6 },
         { with: 2, act: 'click', target: 'My Posts' },
-        { with: 3, act: 'highlight', target: 'Community', unsure: true },
+        { with: 3, act: 'highlight', target: 'Community 2' },
       ],
     },
     {
@@ -52,7 +52,7 @@ export default {
         'Click Take the 1-minute tour to replay the app tour whenever you like.',
       ],
       do: [
-        { with: 1, act: 'type', target: 'Search the guides', text: 'reminders', unsure: true },
+        { with: 1, act: 'type', target: 'Search the guides', text: 'reminders', patience: 25000 },
         { with: 2, act: 'highlight', target: 'Open', nth: 0 },
         { with: 3, act: 'highlight', target: 'Take the 1-minute tour' },
       ],
@@ -65,8 +65,8 @@ export default {
         'Not sure where something is? Ask AI Command on the dashboard in plain words. It knows these guides.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'How it works', unsure: true },
-        { with: 1, act: 'key', key: 'Escape' },
+        { with: 0, act: 'click', target: 'How it works', patience: 25000 },
+        { with: 1, act: 'key', key: 'Escape', delay: 2 },
         { with: 2, act: 'highlight', target: 'AI Command' },
       ],
     },
@@ -81,7 +81,7 @@ export default {
       do: [
         { with: 0, act: 'click', target: 'Account menu' },
         { with: 0, act: 'highlight', target: 'Contact support' },
-        { with: 0, act: 'key', key: 'Escape' },
+        { with: 1, act: 'key', key: 'Escape', delay: 3.4 },
       ],
     },
   ],

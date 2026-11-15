@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: the three plans</title>
+<link rel="stylesheet" href="kit.css">
+<style>
+  .wrap { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:1120px; }
+  .cols { display:grid; grid-template-columns:repeat(3, 1fr); gap:22px; }
+  .plan { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:26px 26px 22px; min-height:430px; }
+  .plan.glow { border-color:#2f4a85; box-shadow:0 0 0 1px #2f4a85, 0 0 60px rgba(79,124,255,.22); background:linear-gradient(170deg,#16223c,#121a2b); }
+  .plan h2 { margin:0; font-size:32px; letter-spacing:-.01em; } .pop { position:absolute; right:20px; top:20px; font-size:13px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#9db8ff; border:1px solid #2f4a85; border-radius:999px; padding:5px 11px; }
+  .price { margin:12px 0 18px; min-height:70px; } .price b { font-size:40px; font-variant-numeric:tabular-nums; } .price span { display:block; color:var(--mute); font-size:19px; margin-top:2px; }
+  .feat { display:flex; gap:12px; align-items:flex-start; padding:11px 0; border-top:1px solid var(--line); font-size:21px; font-weight:600; line-height:1.25; } .feat i { flex:none; font-style:normal; width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-size:15px; background:rgba(52,211,153,.14); color:var(--ok); border:1px solid #1e6f55; margin-top:1px; }
+  .ribbon { z-index:5; position:absolute; left:50%; top:-52px; transform:translate(-50%, 10px); font-size:21px; font-weight:800; color:#052e22; background:var(--ok); border-radius:999px; padding:8px 22px; opacity:0; transition:opacity .5s ease, transform .5s ease; } .ribbon.on { opacity:1; transform:translate(-50%,0); }
+  .note { margin-top:20px; text-align:center; font-size:21px; color:var(--mute); opacity:0; transition:opacity .5s ease; } .note.on { opacity:1; } .note b { color:#9db8ff; }
+</style></head>
+<body><div class="stage"><div class="grid"></div>
+  <div class="wrap">
+    <div class="ribbon" id="rib">Yearly billing saves two months</div>
+    <div class="cols">
+      <div class="plan show" id="p0"><h2>Free</h2><div class="price fade" id="pr0"><b>$0</b><span>core features, monthly limits</span></div><div id="f0"></div></div>
+      <div class="plan glow show" id="p1"><span class="pop">Most popular</span><h2>Premium</h2><div class="price fade" id="pr1"><b>$5 <small style="font-size:20px;color:var(--mute);font-weight:600">/ month</small></b><span>or $50 / year</span></div><div id="f1"></div></div>
+      <div class="plan show" id="p2"><h2>Premium + AI</h2><div class="price fade" id="pr2"><b>$10 <small style="font-size:20px;color:var(--mute);font-weight:600">/ month</small></b><span>or $100 / year</span></div><div id="f2"></div></div>
+    </div>
+    <div class="note" id="note">Tools like <b>service plans</b>, <b>client selections</b> and <b>subcontractors</b> are marked <b>Premium</b></div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+  const k = kit;
+  k.on(k.$('#p0'), 0.9); k.on(k.$('#p1'), 1.5); k.on(k.$('#p2'), 2.1); k.on(k.$('#pr0'), 2.8);
+  const add = (col, t, txt) => { const r = document.createElement('div'); r.className = 'feat show'; r.innerHTML = '<i>&#10003;</i><div>' + txt + '</div>'; k.$('#f' + col).appendChild(r); k.on(r, t); };
+  add(0, 7.3, '6 new jobs and 15 new clients a month'); add(0, 11.0, '10 Gmail emails a month'); add(0, 14.8, '12 new documents per job a month'); add(0, 17.4, '15 AI requests a month');
+  k.on(k.$('#pr1'), 20.4); add(1, 24.0, 'No monthly limits'); add(1, 26.6, 'All the Premium PDF designs'); add(1, 30.4, 'Photos on price book items'); add(1, 33.0, '60 AI requests a month');
+  k.on(k.$('#pr2'), 35.4); add(2, 36.6, 'Everything in Premium'); add(2, 38.8, '600 AI requests a month'); add(2, 41.0, 'Priority support');
+  k.on(k.$('#rib'), 43.8); k.on(k.$('#note'), 48.4);
+</script></body></html>

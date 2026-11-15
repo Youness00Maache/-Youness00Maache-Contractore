@@ -22,7 +22,9 @@ export default {
         'Under the profit, you will find Budget vs actual.',
       ],
       do: [
-        { with: 1, act: 'click', target: 'View Project', nth: 2, unsure: true },
+        { with: 1, act: 'scroll', by: 700 },
+        { with: 1, act: 'click', target: 'Whitfield Kitchen Remodel', patience: 25000 },
+        { with: 1, act: 'scroll', by: -1200 },
         { with: 1, act: 'click', target: 'Financials' },
         { with: 2, act: 'highlight', target: 'Budget vs actual' },
       ],
@@ -47,7 +49,7 @@ export default {
         'Sent purchase orders count too. What was delivered or invoiced is Spent, and the rest is Ordered.',
       ],
       do: [
-        { with: 1, act: 'highlight', target: 'Actual', unsure: true },
+        { with: 1, act: 'highlight', target: 'Spent', nth: 0 },
         { with: 2, act: 'highlight', target: 'Ordered', unsure: true },
       ],
     },
@@ -60,7 +62,7 @@ export default {
         'It also shows the profit you would end with at this pace.',
       ],
       do: [
-        { with: 1, act: 'type', target: 'Job complete', text: '40', unsure: true },
+        { with: 1, act: 'type', target: 'Job complete (%)', text: '40' },
         { with: 2, act: 'highlight', target: 'Costs are ahead of the work', unsure: true },
         { with: 3, act: 'zoom', target: 'Costs are ahead of the work', scale: 1.2, unsure: true },
         { with: 3, act: 'zoom', out: true },
@@ -75,8 +77,9 @@ export default {
         'Choose Per worker or Per day, check the Invoice preview, and click Create draft invoice.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Bill time & materials' },
-        { with: 1, act: 'highlight', target: 'Bill expense logs too', unsure: true },
+        { with: 0, act: 'key', key: 'Escape' },
+        { with: 0, act: 'click', target: 'Bill time & materials', delay: 4 },
+        { with: 1, act: 'click', target: 'Bill expense logs too' },
         { with: 2, act: 'highlight', target: 'Materials markup', unsure: true },
         { with: 3, act: 'click', target: 'Per worker', unsure: true },
         { with: 3, act: 'highlight', target: 'Invoice preview', unsure: true },

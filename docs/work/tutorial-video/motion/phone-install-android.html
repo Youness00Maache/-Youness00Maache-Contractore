@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: Android, install the app</title>
+<link rel="stylesheet" href="phone.css">
+<style>
+  .chrome { position:absolute; inset:0; background:#fff; color:var(--ink); }
+  .ctop { margin:8px 10px 0; height:42px; border-radius:21px; background:#eef0f4; display:flex; align-items:center; justify-content:space-between; padding:0 10px 0 16px; font-size:14px; color:#374151; }
+  .dots { font-size:22px; line-height:1; width:34px; height:34px; border-radius:50%; display:grid; place-items:center; border:3px solid transparent; transition:border-color .3s ease; } .dots.on { border-color:var(--accent); }
+  .menu { position:absolute; right:10px; top:56px; width:250px; background:#fff; border-radius:12px; box-shadow:0 14px 44px rgba(0,0,0,.4); padding:6px 0; z-index:20; transform:scale(.9); transform-origin:top right; opacity:0; transition:opacity .3s ease, transform .3s ease; } .menu.on { opacity:1; transform:none; }
+  .mi { padding:12px 18px; font-size:16px; color:#111827; } .mi.hl { background:#eef3ff; color:#1d4ed8; font-weight:700; box-shadow:inset 3px 0 0 var(--accent); }
+  .banner { position:absolute; left:10px; right:10px; bottom:80px; background:#fff; border:1px solid #d5dcea; border-radius:16px; padding:11px 12px; box-shadow:0 10px 30px rgba(15,23,42,.25); transform:translateY(190px); transition:transform .55s cubic-bezier(.2,.8,.2,1); color:var(--ink); } .banner.on { transform:none; }
+  .banner .r { display:flex; align-items:center; gap:10px; } .banner p { margin:0; font-size:13.5px; line-height:1.3; flex:1; } .banner .x { color:#6b7280; font-size:20px; padding:0 4px; }
+  .dlg { position:absolute; left:26px; right:26px; top:230px; background:#fff; border-radius:22px; padding:22px 20px 14px; box-shadow:0 20px 60px rgba(0,0,0,.5); z-index:30; opacity:0; transform:scale(.92); transition:opacity .3s ease, transform .3s ease; color:var(--ink); } .dlg.on { opacity:1; transform:none; }
+  .dlg h3 { margin:0 0 6px; font-size:21px; } .dlg p { margin:0 0 18px; font-size:15px; color:var(--ink2); } .dlg .b { display:flex; justify-content:flex-end; gap:22px; font-size:16px; font-weight:700; color:#1d4ed8; }
+  .home { background:linear-gradient(160deg,#064e3b,#0f172a); } .icons { display:grid; grid-template-columns:repeat(4,1fr); gap:26px 8px; padding:60px 20px; } .icons i { display:block; width:66px; height:66px; border-radius:50%; background:rgba(255,255,255,.16); margin:0 auto; }
+  .icons i.appic { border-radius:17px; background:linear-gradient(135deg,#3b5bff,#4f7cff); transform:scale(0); transition:transform .5s cubic-bezier(.3,1.6,.5,1); } .icons i.appic.on { transform:scale(1); } .icons span { display:block; text-align:center; color:#cbd5e1; font-size:11px; margin-top:6px; }
+  .note { position:absolute; left:18px; right:18px; bottom:96px; text-align:center; font-size:16px; font-weight:600; color:#6b7280; }
+</style></head>
+<body><div class="col"><div class="grid"></div>
+  <div class="title fade" id="ttl">Install it on Android<div class="sub">Chrome</div></div>
+  <div class="view" id="v-chrome"><div class="chrome">
+    <div class="status"><span>9:41</span><span class="bars"><i></i><i></i><i></i><i></i></span></div>
+    <div class="ctop"><span>contractordocs.app</span><span class="dots" id="dots">&#8942;</span></div>
+    <div class="appbar" style="margin-top:10px"><b><span class="logo"></span>ContractorDocs</b><span style="color:#475569">&#9776;</span></div>
+    <div class="cards"><div class="card"><div><b>Whitfield Kitchen Remodel</b><small>Active</small></div><span class="chip ok">Active</span></div><div class="card"><div><b>Nair Master Bath</b><small>Active</small></div><span class="chip ok">Active</span></div></div>
+    <div class="banner" id="banner"><div class="r"><span class="logo"></span><p><b>Add ContractorDocs to your home screen</b> &mdash; it works offline.</p><span class="btn" id="install">Install</span><span class="x">&#10005;</span></div></div>
+    <div class="dock"><span>Home</span><span>Clients</span><span class="plus">+</span><span>Messages</span><span>More</span></div>
+    <div class="menu" id="menu"><div class="mi">New tab</div><div class="mi">History</div><div class="mi hl" id="mi">Install app</div><div class="mi">Add to Home screen</div><div class="mi">Settings</div></div>
+    <div class="dlg" id="dlg"><h3>Install app?</h3><p>ContractorDocs<br>contractordocs.app</p><div class="b"><span>Cancel</span><span>Install</span></div></div>
+    <div class="note fade" id="note">Only where your phone can add the app</div>
+  </div></div>
+  <div class="view" id="v-home"><div class="app home"><div class="icons"><div><i></i><span>Gmail</span></div><div><i></i><span>Maps</span></div><div><i></i><span>Photos</span></div><div><i></i><span>Camera</span></div><div><i></i><span>Clock</span></div><div><i></i><span>Phone</span></div><div><i></i><span>Chrome</span></div><div><i class="appic" id="appicon"></i><span id="appname" style="opacity:0">ContractorDocs</span></div></div></div></div>
+  <div class="view" id="v-full"><div class="app"><div class="status"><span>9:41</span><span class="bars"><i></i><i></i><i></i><i></i></span></div>
+    <div class="appbar"><b><span class="logo"></span>ContractorDocs</b><span class="chip ok">Full screen</span></div>
+    <div class="cards"><div class="card"><div><b>Whitfield Kitchen Remodel</b><small>Ready to work</small></div></div><div class="card"><div><b>Nair Master Bath</b><small>With or without a signal</small></div></div></div>
+    <div class="dock"><span>Home</span><span>Clients</span><span class="plus">+</span><span>Messages</span><span>More</span></div></div></div>
+</div>
+<script src="kit.js"></script>
+<script>
+  const k = kit;
+  k.onf(k.$('#ttl'), 0.0);
+  k.viewf('v-chrome', 0.04);
+  k.onf(k.$('#banner'), 0.075); k.tapf(305, 666, 0.15); k.onf(k.$('#dlg'), 0.165); k.offf(k.$('#dlg'), 0.205);
+  k.tapf(363, 78, 0.235); k.onf(k.$('#dots'), 0.23); k.onf(k.$('#menu'), 0.25); k.tapf(180, 168, 0.40); k.offf(k.$('#menu'), 0.44);
+  k.atf(0.47, () => { k.$('#note').classList.add('on'); }); k.offf(k.$('#banner'), 0.5);
+  k.viewf('v-home', 0.72); k.onf(k.$('#appicon'), 0.75); k.atf(0.78, () => { k.$('#appname').style.opacity = 1; });
+  k.viewf('v-full', 0.86);
+</script></body></html>

@@ -21,7 +21,7 @@ export default {
         'Click the Pipeline bar on the dashboard, or open Tools and choose Pipeline.',
       ],
       do: [
-        { with: 1, act: 'click', target: 'Pipeline' },
+        { with: 1, act: 'click', target: 'Pipeline', patience: 25000 },
       ],
     },
     {
@@ -32,9 +32,9 @@ export default {
         'There is nothing to drag. Cards move by themselves as your documents change.',
       ],
       do: [
-        { with: 0, act: 'highlight', target: 'Estimate sent' },
+        { with: 0, act: 'highlight', target: 'Estimate sent', patience: 20000 },
         { with: 1, act: 'hover', target: 'Nair Master Bath' },
-        { with: 2, act: 'zoom', target: 'Approved', scale: 1.1, unsure: true },
+        { with: 2, act: 'zoom', target: 'Approved', scale: 1.1 },
         { with: 2, act: 'zoom', out: true },
       ],
     },
@@ -49,7 +49,7 @@ export default {
         { with: 0, act: 'highlight', target: 'Approved' },
         { with: 1, act: 'highlight', target: 'In progress' },
         { with: 2, act: 'highlight', target: 'Invoiced' },
-        { with: 2, act: 'highlight', target: 'Paid' },
+        { with: 2, act: 'highlight', target: 'Paid', nth: 0 },
       ],
     },
     {
@@ -63,7 +63,7 @@ export default {
       do: [
         { with: 1, act: 'click', target: 'Needs attention' },
         { with: 2, act: 'highlight', target: 'Follow up', nth: 0 },
-        { with: 2, act: 'highlight', target: 'Mark as paid', nth: 0, unsure: true },
+        { with: 2, act: 'highlight', target: 'Mark as paid', nth: 0 },
         { with: 3, act: 'click', target: 'Needs attention' },
       ],
     },
@@ -77,9 +77,9 @@ export default {
       do: [
         { with: 0, act: 'click', target: 'Tools' },
         { with: 0, act: 'click', target: 'Insights', role: 'menuitem' },
-        { with: 1, act: 'zoom', target: 'Billed', scale: 1.1, unsure: true },
+        { with: 1, act: 'zoom', target: 'Billed', scale: 1.1 },
         { with: 2, act: 'zoom', out: true },
-        { with: 2, act: 'highlight', target: 'Days to get paid', unsure: true },
+        { with: 2, act: 'highlight', target: 'Days to get paid', patience: 20000 },
       ],
     },
     {
@@ -89,10 +89,10 @@ export default {
         'Choose a Customer or a Project, and every section follows. Show everything clears them.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Last month' },
-        { with: 0, act: 'click', target: 'This month' },
-        { with: 1, act: 'click', target: 'Sarah Whitfield', unsure: true },
-        { with: 1, act: 'click', target: 'Show everything' },
+        { with: 0, act: 'select', target: 'Period', option: 'Last month' },
+        { with: 0, act: 'select', target: 'Period', option: 'This month', delay: 2.5 },
+        { with: 1, act: 'select', target: 'Customer', option: 'Sarah Whitfield' },
+        { with: 1, act: 'click', target: 'Show everything', delay: 3 },
       ],
     },
     {
@@ -108,7 +108,7 @@ export default {
         { with: 1, act: 'highlight', target: 'This period' },
         { with: 2, act: 'click', target: 'Whole job' },
         { with: 2, act: 'click', target: 'By margin' },
-        { with: 3, act: 'highlight', target: 'without enough data', unsure: true },
+        { with: 3, act: 'highlight', target: 'without enough data' },
       ],
     },
     {
@@ -122,9 +122,9 @@ export default {
       do: [
         { with: 0, act: 'scroll', to: 'Waiting on a yes' },
         { with: 1, act: 'click', target: 'Nudge', nth: 0 },
-        { with: 1, act: 'key', key: 'Escape' },
+        { with: 1, act: 'key', key: 'Escape', delay: 2.4 },
         { with: 2, act: 'scroll', to: 'Active jobs' },
-        { with: 3, act: 'highlight', target: 'over budget', unsure: true },
+        { with: 3, act: 'highlight', target: 'over budget', nth: 0 },
       ],
     },
     {

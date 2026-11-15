@@ -7,10 +7,9 @@ export default {
   minutes: 2,
   covers: ['punch-list'],
   demoData: [
-    'job "Nair Master Bath" with a Punch list of about 8 items in two rooms (Bathroom, Hallway): 3 already done, one done but not yet verified, one with a before and after photo',
-    'crew member "Eli" so that "@Eli" is understood as an assignee',
-    '"Show in client portal" switched OFF at the start of the chapter',
-    'for the client-phone animation only: nothing in the data, it is a motion scene',
+    'Nair Master Bath punch list of 8 items in two rooms (Bathroom, Hallway): 3 verified, 1 done but not verified, 4 open; Show in client portal OFF at the start',
+    'crew member Eli Brooks so "@Eli" is understood',
+    'the REAL client portal /?portal=demo-portal-nair shows the list through get_portal_punch_list; Looks good / Needs work through punch_item_feedback_via_portal',
   ],
   scenes: [
     {
@@ -21,8 +20,11 @@ export default {
         'Then switch to the Punch list tab. The number next to it shows how many items are done.',
       ],
       do: [
-        { with: 1, act: 'click', target: 'View Project', nth: 1 },
+        { with: 0, act: 'caption', text: 'Chapter 16: Punch lists' },
+        { with: 1, act: 'click', target: 'View Project: Nair Master Bath', patience: 25000 },
+        { with: 1, act: 'wait', s: 2.5 },
         { with: 2, act: 'click', target: 'Punch list', role: 'tab' },
+        { with: 2, act: 'wait', s: 1.5, delay: 1 },
       ],
     },
     {
@@ -35,7 +37,7 @@ export default {
       ],
       do: [
         { with: 1, act: 'type', target: 'New punch list item', text: 'Bathroom: touch up paint at window trim' },
-        { with: 1, act: 'click', target: 'Add item' },
+        { with: 1, act: 'key', key: 'Enter', delay: 0.3 },
         { with: 2, act: 'type', target: 'New punch list item', text: 'Caulk tub @Eli' },
         { with: 3, act: 'click', target: 'Add item' },
       ],
@@ -49,10 +51,12 @@ export default {
         'Those photos are added to the job photos too, so they count toward your photo storage.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Mark “touch up paint at window trim” done', unsure: true },
-        { with: 1, act: 'click', target: 'More actions', nth: 0, unsure: true },
+        { with: 0, act: 'click', target: 'Mark “Fix the squeaky door hinge” done' },
+        { with: 0, act: 'click', target: 'Done', role: 'tab' },
+        { with: 0, act: 'click', target: 'Mark “Fix the squeaky door hinge” not done', delay: 0.7 },
+        { with: 1, act: 'click', target: 'More for Touch up paint at the door frame' },
         { with: 1, act: 'highlight', target: 'Mark verified' },
-        { with: 2, act: 'highlight', target: 'Edit' },
+        { with: 2, act: 'highlight', target: 'Edit', role: 'menuitem' },
         { with: 3, act: 'key', key: 'Escape' },
       ],
     },
@@ -68,16 +72,24 @@ export default {
       ],
     },
     {
-      id: 's05', kind: 'motion',
+      id: 's05', route: '/?portal=demo-portal-nair', kind: 'app', device: 'phone',
       say: [
         'On their phone, the client sees the list. On each finished item they tap Looks good or Needs work.',
         'If they tap Needs work, they add a note, the item opens again, and the bell tells you right away.',
       ],
       visual: 'A phone frame slides in showing the client portal page "Punch list" for the Nair Master Bath, a progress bar "5 of 8 done" filling up. One finished item, "Caulk tub", has two buttons: a green "Looks good" and an amber "Needs work". A finger taps "Needs work", a small note box types "Gap left at the wall". Then the screen cuts to a desktop corner where the app bell gets a red dot and the same item flips from Done back to Open with the client note under it.',
-      do: [{ with: 0, act: 'caption', text: 'What your client sees' }],
+      do: [
+        { with: 0, act: 'caption', text: 'What your client sees' },
+        { with: 0, act: 'scroll', to: 'Punch list', patience: 25000, delay: 0.9 },
+        { with: 0, act: 'highlight', target: 'Looks good' },
+        { with: 0, act: 'highlight', target: 'Needs work' },
+        { with: 1, act: 'click', target: 'Needs work' },
+        { with: 1, act: 'type', target: 'What still needs work?', text: 'Gap left at the wall', delay: 1.4 },
+        { with: 1, act: 'click', target: 'Send note' },
+      ],
     },
     {
-      id: 's06', kind: 'app', device: 'desktop',
+      id: 's06', route: '/dashboard', kind: 'app', device: 'desktop',
       say: [
         'At the top, the three-dot menu has Download PDF, with the photos, which is perfect for the final walkthrough.',
         'Or choose Save as Note on the job, to email or share it later.',
@@ -85,8 +97,12 @@ export default {
         'Punch lists are on every plan. Next, let us look at your papers, insurance and warranties.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'More actions', nth: 0, unsure: true },
-        { with: 0, act: 'highlight', target: 'Download PDF' },
+        { with: 0, act: 'click', target: 'View Project: Nair Master Bath', patience: 25000 },
+        { with: 0, act: 'wait', s: 2.5 },
+        { with: 0, act: 'click', target: 'Punch list', role: 'tab', delay: 0.9 },
+        { with: 0, act: 'wait', s: 1.5, delay: 3.2 },
+        { with: 0, act: 'click', target: 'Punch list actions', delay: 0.8 },
+        { with: 0, act: 'highlight', target: 'Download PDF', delay: 4.2 },
         { with: 1, act: 'highlight', target: 'Save as Note on the job' },
         { with: 2, act: 'key', key: 'Escape' },
       ],

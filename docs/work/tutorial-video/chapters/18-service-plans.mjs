@@ -7,10 +7,9 @@ export default {
   minutes: 2,
   covers: ['service-plans'],
   demoData: [
-    'one existing service plan "Spring and fall home check" for client Linda Okafor, Twice a year, billed "Invoice each visit", with 2 upcoming visits under Next visits (one with a Draft invoice and a Work Order)',
-    'the plan job shows on the calendar on the next visit date',
-    'client Sarah Whitfield exists without a plan (used for the new plan typed in the scene)',
-    'portal view of the plan for the motion scene: plan name, next visit date, last visit date',
+    'two service plans: "Spring and fall home check" (Linda Okafor, Twice a year, Invoice each visit, one visit coming with a Work Order and a Draft invoice, one old visit done) and "Quarterly gutter cleaning" (Tom Alvarez, Quarterly invoice)',
+    'client Sarah Whitfield exists without a plan (the new plan typed in the chapter); saving it creates its job and the visits that are due',
+    'the REAL client portal /?portal=demo-portal-linda shows the plan through get_portal_service_plans',
   ],
   scenes: [
     {
@@ -21,8 +20,9 @@ export default {
         'Service plans are part of Premium, so you need that plan to follow along.',
       ],
       do: [
-        { with: 1, act: 'click', target: 'Tools' },
+        { with: 1, act: 'click', target: 'Tools', patience: 25000 },
         { with: 1, act: 'click', target: 'Service plans', role: 'menuitem' },
+        { with: 1, act: 'wait', s: 2, delay: 1.1 },
       ],
     },
     {
@@ -34,14 +34,16 @@ export default {
         'Set the price and how it is billed, then click Save plan.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'New plan' },
-        { with: 0, act: 'type', target: 'Client name', text: 'Sarah Whitfield', unsure: true },
-        { with: 0, act: 'type', target: 'Plan name', text: 'Gutter and deck check' },
+        { with: 0, act: 'click', target: 'New plan', patience: 20000 },
+        { with: 0, act: 'select', target: 'Client', option: 'Sarah Whitfield' },
+        { with: 0, act: 'type', target: 'Plan name', text: 'Gutter and deck check', delay: 2.3 },
         { with: 1, act: 'type', target: 'What is done at each visit', text: 'Clean gutters, check deck boards and railings, reseal if needed.' },
         { with: 2, act: 'click', target: 'Twice a year' },
-        { with: 3, act: 'select', target: 'Billing', option: 'Invoice each visit', unsure: true },
-        { with: 3, act: 'type', target: 'Price', text: '180', unsure: true },
-        { with: 3, act: 'click', target: 'Save plan' },
+        { with: 2, act: 'highlight', target: 'First visit' },
+        { with: 3, act: 'scroll', to: 'Billing' },
+        { with: 3, act: 'select', target: 'Billing', option: 'Invoice each visit' },
+        { with: 3, act: 'type', target: '129.00', text: '180' },
+        { with: 3, act: 'click', target: 'Save plan', delay: 0.1 },
       ],
     },
     {
@@ -54,7 +56,10 @@ export default {
       ],
       do: [
         { with: 0, act: 'highlight', target: 'Next visits' },
-        { with: 1, act: 'highlight', target: 'Done', label: 'Work order and draft invoice', unsure: true },
+        { with: 1, act: 'click', target: 'Visit actions', nth: 0 },
+        { with: 1, act: 'highlight', target: 'Open work order' },
+        { with: 1, act: 'highlight', target: 'Open invoice' },
+        { with: 1, act: 'key', key: 'Escape', delay: 4 },
       ],
     },
     {
@@ -64,7 +69,10 @@ export default {
         'One recurring invoice is added to the plan’s job, and it repeats by itself.',
       ],
       do: [
-        { with: 0, act: 'highlight', target: 'Billing', unsure: true },
+        { with: 0, act: 'click', target: 'More for Quarterly gutter cleaning' },
+        { with: 0, act: 'click', target: 'Edit', role: 'menuitem' },
+        { with: 0, act: 'highlight', target: 'Billing' },
+        { with: 1, act: 'key', key: 'Escape' },
       ],
     },
     {
@@ -76,22 +84,27 @@ export default {
       ],
       do: [
         { with: 0, act: 'click', target: 'Done', nth: 0 },
-        { with: 1, act: 'click', target: 'Visit actions', nth: 0, unsure: true },
+        { with: 1, act: 'click', target: 'Visit actions', nth: 0 },
         { with: 1, act: 'highlight', target: 'Skip this visit' },
-        { with: 1, act: 'key', key: 'Escape' },
-        { with: 2, act: 'click', target: 'More for Spring and fall home check', unsure: true },
+        { with: 1, act: 'key', key: 'Escape', delay: 2.2 },
+        { with: 2, act: 'click', target: 'More for Spring and fall home check' },
         { with: 2, act: 'highlight', target: 'End plan' },
-        { with: 2, act: 'key', key: 'Escape' },
+        { with: 2, act: 'key', key: 'Escape', delay: 3.5 },
       ],
     },
     {
-      id: 's06', kind: 'motion',
+      id: 's06', route: '/?portal=demo-portal-linda', kind: 'app', device: 'phone',
       say: [
         'Your client sees the plan too, with the next visit and the last one, in their portal.',
         'Next, let us build your price book, so quoting is faster.',
       ],
       visual: 'A phone frame slides in with the client portal. A card titled "Spring and fall home check" appears with two rows: "Next visit" with a date and a small calendar icon, and "Last visit" with a green check mark and a date. A soft reminder bubble "Visit reminder: tomorrow" pops in beside the phone. Calm dark background matching the app theme.',
-      do: [{ with: 0, act: 'caption', text: 'What your client sees' }],
+      do: [
+        { with: 0, act: 'caption', text: 'What your client sees' },
+        { with: 0, act: 'scroll', to: 'Your service plan', patience: 25000, delay: 0.9 },
+        { with: 0, act: 'highlight', target: 'Next visit' },
+        { with: 0, act: 'highlight', target: 'Last visit' },
+      ],
     },
   ],
 };

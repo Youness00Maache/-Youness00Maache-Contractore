@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: what the phone adds</title>
+<link rel="stylesheet" href="phone.css">
+<style>
+  .stack { position:absolute; left:16px; right:16px; top:70px; }
+  .box { position:relative; height:176px; margin:0 0 14px; border-radius:18px; border:1px solid var(--line); background:var(--panel); padding:16px 18px; overflow:hidden; }
+  .box h3 { margin:0; font-size:21px; letter-spacing:-.01em; } .box p { margin:4px 0 0; color:var(--mute); font-size:15px; line-height:1.35; }
+  .art { position:absolute; right:14px; bottom:12px; }
+  .vf { width:92px; height:70px; border:3px solid #9db8ff; border-radius:12px; position:relative; } .vf:before, .vf:after { content:''; position:absolute; width:16px; height:16px; border:3px solid #9db8ff; } .vf:before { left:-3px; top:-3px; border-right:0; border-bottom:0; border-radius:10px 0 0 0; } .vf:after { right:-3px; bottom:-3px; border-left:0; border-top:0; border-radius:0 0 10px 0; }
+  .vf i { position:absolute; left:50%; top:50%; width:26px; height:26px; margin:-13px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 6px rgba(79,124,255,.3); }
+  .chips { display:flex; gap:8px; margin-top:12px; opacity:0; transition:opacity .45s ease; } .chips.on { opacity:1; } .chips span { font-size:14px; font-weight:700; padding:6px 11px; border-radius:999px; border:1px solid #2f4a85; background:rgba(79,124,255,.12); color:#9db8ff; }
+  .pin { width:60px; height:60px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); background:var(--ok); position:relative; margin:0 18px 6px 0; } .pin:after { content:''; position:absolute; inset:19px; border-radius:50%; background:#064e3b; }
+  .shr { display:flex; gap:8px; } .shr i { width:34px; height:34px; border-radius:10px; background:#1b2a4d; border:1px solid #2f4a85; display:block; } .shr i:nth-child(2){ background:#14532d } .shr i:nth-child(3){ background:#4c1d95 } .shr i:nth-child(4){ background:#7c2d12 }
+  .pu { display:flex; align-items:center; gap:8px; } .pu .w { font-size:13px; font-weight:700; padding:5px 10px; border-radius:999px; background:#e5e7eb; color:#374151; transition:background .4s ease, color .4s ease; } .pu .w.done { background:#dcfce7; color:#166534; }
+</style></head>
+<body><div class="col"><div class="grid"></div>
+  <div class="title fade" id="ttl">What the phone adds</div>
+  <div class="stack">
+    <div class="box show" id="b1"><h3>Camera</h3><p>On a job, Photos, then Take photo. The picture goes straight to the job.</p><div class="chips" id="chips"><span>Before</span><span>During</span><span>After</span><span>Caption</span></div><div class="art" style="top:12px;bottom:auto"><div class="vf"><i></i></div></div></div>
+    <div class="box show" id="b2"><h3>Location on each punch</h3><p>Your crew's clock-in link asks the worker's phone, if they allow it.</p><div class="art"><div class="pin"></div></div></div>
+    <div class="box show" id="b3"><h3>Share with any app</h3><p>The phone's own share sheet opens, to send the PDF.</p><div class="art"><div class="shr"><i></i><i></i><i></i><i></i></div></div></div>
+    <div class="box show" id="b4"><h3>Crew links work offline</h3><p>Punches are saved on the worker's phone and sent in order.</p><div class="art pu"><span class="w" id="w1">Waiting</span></div></div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+  const k = kit;
+  k.onf(k.$('#ttl'), 0.0); k.onf(k.$('#b1'), 0.0); k.onf(k.$('#chips'), 0.235);
+  k.onf(k.$('#b2'), 0.37); k.onf(k.$('#b3'), 0.59); k.onf(k.$('#b4'), 0.80); k.atf(0.93, () => { const w = k.$('#w1'); w.textContent = 'Sent'; w.classList.add('done'); });
+</script></body></html>

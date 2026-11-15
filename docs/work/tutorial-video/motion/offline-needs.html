@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: what needs a connection</title>
+<link rel="stylesheet" href="phone.css">
+<style>
+  .wrap { position:absolute; left:16px; right:16px; top:30px; }
+  .wrap h1 { margin:0 0 4px; font-size:26px; } .wrap .sub { color:var(--warn); font-size:16px; font-weight:600; margin-bottom:16px; }
+  .row { font-size:17.5px; padding:9px 14px; margin:0 0 7px; } .row .tick { width:30px; height:30px; font-size:16px; }
+</style></head>
+<body><div class="col"><div class="grid"></div>
+  <div class="wrap"><h1>Needs a connection</h1><div class="sub">The app tells you, and the work waits</div><div id="list"></div></div>
+  <div class="toast" id="toast">You are offline. This needs a connection; try again when you are back online.</div>
+</div>
+<script src="kit.js"></script>
+<script>
+  const k = kit, list = k.$('#list');
+  const items = [[0.17, '&#9993;', 'Sending email'], [0.23, '&#128279;', 'Client links and portal'], [0.30, '$', 'Recording payments'], [0.36, '&#128465;', 'Deleting things'], [0.43, '&#10697;', 'Duplicating jobs or documents'],
+    [0.53, '&#9202;', 'Billing time and materials'], [0.60, '&#128230;', 'Purchase orders'], [0.67, '&#8645;', 'Importing and exporting files'], [0.74, '&#10024;', 'The AI tools'], [0.80, '&#128172;', 'Community and billing']];
+  items.forEach(([f, ic, txt]) => { const r = document.createElement('div'); r.className = 'row show'; r.innerHTML = '<span class="tick warn">' + ic + '</span><div>' + txt + '</div>'; list.appendChild(r); k.onf(r, f); });
+  k.onf(k.$('#toast'), 0.04); k.offf(k.$('#toast'), 0.15); k.onf(k.$('#toast'), 0.89);
+</script></body></html>

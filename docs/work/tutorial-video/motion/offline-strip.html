@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>motion: working offline</title>
+<link rel="stylesheet" href="phone.css">
+<style>
+  .newcard, .doc { display:none; } .newcard.on, .doc.on { display:flex; animation:pop .5s cubic-bezier(.2,.8,.2,1); } @keyframes pop { from { transform:translateY(-12px) scale(.96); opacity:0; } to { transform:none; opacity:1; } }
+  .cap { position:absolute; left:16px; right:16px; bottom:84px; text-align:center; font-size:17px; font-weight:600; color:var(--ink2); }
+</style></head>
+<body><div class="col"><div class="grid"></div>
+  <div class="app">
+    <div class="status"><span>9:41</span><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span></div>
+    <div class="appbar"><b><span class="logo"></span>ContractorDocs</b><span style="color:#475569">&#9776;</span></div>
+    <div class="strip" id="strip"><span id="striptext">Offline: your work saves on this device and syncs later.</span><a id="viewlink" style="display:none">View</a></div>
+    <div class="cards">
+      <div class="card newcard" id="newjob"><div><b>Maple Street Porch</b><small>New job, created offline</small></div><span class="chip wait">Waiting to sync</span></div>
+      <div class="card doc" id="newdoc"><div><b>Daily Job Report</b><small>Maple Street Porch</small></div><span class="chip wait">Waiting to sync</span></div>
+      <div class="card"><div><b>Whitfield Kitchen Remodel</b><small>Active</small></div><span class="chip ok">Active</span></div>
+      <div class="card"><div><b>Nair Master Bath</b><small>Active</small></div><span class="chip ok">Active</span></div>
+    </div>
+    <div class="cap fade" id="cap1">No signal? Keep working.</div>
+    <div class="dock"><span>Home</span><span>Clients</span><span class="plus" id="plus">+</span><span>Messages</span><span>More</span></div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+  const k = kit;
+  k.onf(k.$('#cap1'), 0.0);
+  k.atf(0.10, () => k.$('#bars').classList.add('off'));
+  k.onf(k.$('#strip'), 0.21);
+  k.tapf(195, 790, 0.36); k.onf(k.$('#newjob'), 0.385);
+  k.tapf(195, 790, 0.52); k.onf(k.$('#newdoc'), 0.56);
+  k.atf(0.80, () => { k.$('#striptext').textContent = '2 changes saved on this device'; k.$('#viewlink').style.display = 'inline'; });
+</script></body></html>

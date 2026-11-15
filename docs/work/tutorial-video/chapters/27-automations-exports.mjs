@@ -23,8 +23,9 @@ export default {
         'Each row says what happens when something happens, and has an on and off switch.',
       ],
       do: [
-        { with: 1, act: 'scroll', to: 'Automations' },
-        { with: 2, act: 'highlight', target: 'Estimate with no answer', unsure: true },
+        { with: 1, act: 'scroll', to: 'Automations', patience: 25000 },
+        { with: 1, act: 'highlight', target: 'Money', delay: 2.6 },
+        { with: 2, act: 'highlight', target: 'Estimate with no answer' },
       ],
     },
     {
@@ -36,8 +37,8 @@ export default {
         'It tells you once per estimate, so you can call the client.',
       ],
       do: [
-        { with: 2, act: 'click', target: 'Estimate with no answer', unsure: true },
-        { with: 2, act: 'select', target: 'Days', option: '7 days', unsure: true },
+        { with: 2, act: 'click', target: 'Estimate with no answer', role: 'switch' },
+        { with: 2, act: 'click', target: '7 days', role: 'radio', delay: 1.6 },
       ],
     },
     {
@@ -51,9 +52,9 @@ export default {
       ],
       do: [
         { with: 0, act: 'highlight', target: 'Estimate approved, invoice next' },
-        { with: 1, act: 'highlight', target: 'Just tell me' },
-        { with: 1, act: 'highlight', target: 'Do it for me' },
-        { with: 3, act: 'zoom', target: 'Do it for me', scale: 1.1, unsure: true },
+        { with: 1, act: 'highlight', target: 'Just tell me', nth: 0 },
+        { with: 1, act: 'highlight', target: 'Do it for me', nth: 0, delay: 1.4 },
+        { with: 3, act: 'zoom', target: 'Do it for me', scale: 1.1 },
         { with: 4, act: 'zoom', out: true },
       ],
     },
@@ -66,8 +67,8 @@ export default {
       ],
       do: [
         { with: 1, act: 'scroll', to: 'Notifications' },
-        { with: 1, act: 'highlight', target: 'Quiet mode' },
-        { with: 2, act: 'highlight', target: 'Automation rules', unsure: true },
+        { with: 1, act: 'highlight', target: 'Quiet mode', delay: 2.6 },
+        { with: 2, act: 'highlight', target: 'Automation rules', nth: 0 },
       ],
     },
     {
@@ -79,10 +80,10 @@ export default {
         'Reconnect renews a connection that stopped working, and Disconnect removes it.',
       ],
       do: [
-        { with: 0, act: 'scroll', to: 'Integrations & data' },
-        { with: 1, act: 'highlight', target: 'Connect Gmail', unsure: true },
-        { with: 3, act: 'highlight', target: 'Reconnect', unsure: true },
-        { with: 3, act: 'highlight', target: 'Disconnect', unsure: true },
+        { with: 0, act: 'scroll', to: 'Integrations & data', patience: 25000 },
+        { with: 1, act: 'highlight', target: 'Connected', nth: 0 },
+        { with: 3, act: 'highlight', target: 'Reconnect', nth: 0 },
+        { with: 3, act: 'highlight', target: 'Disconnect', nth: 0, delay: 1.8 },
       ],
     },
     {
@@ -96,7 +97,7 @@ export default {
       ],
       do: [
         { with: 0, act: 'click', target: 'Set up the file' },
-        { with: 0, act: 'click', target: '90 days' },
+        { with: 0, act: 'click', target: '90 days', delay: 2.2 },
         { with: 1, act: 'highlight', target: 'Lead follow-ups' },
         { with: 2, act: 'highlight', target: 'Download calendar file' },
         { with: 4, act: 'key', key: 'Escape' },
@@ -113,14 +114,13 @@ export default {
       ],
       do: [
         { with: 0, act: 'click', target: 'Make a file' },
-        { with: 0, act: 'click', target: 'QuickBooks Online' },
-        { with: 0, act: 'click', target: 'Invoices' },
-        { with: 1, act: 'highlight', target: 'Unpaid only', unsure: true },
-        { with: 2, act: 'zoom', target: 'Download file', scale: 1.05, unsure: true },
+        { with: 0, act: 'click', target: 'QuickBooks Online', delay: 3 },
+        { with: 1, act: 'highlight', target: 'Which invoices' },
+        { with: 2, act: 'zoom', target: 'Download file', scale: 1.05 },
         { with: 2, act: 'zoom', out: true },
         { with: 3, act: 'highlight', target: 'Download file' },
-        { with: 4, act: 'click', target: 'Columns and settings for this file', unsure: true },
-        { with: 4, act: 'key', key: 'Escape' },
+        { with: 4, act: 'click', target: 'Columns and settings for this file' },
+        { with: 4, act: 'key', key: 'Escape', delay: 4 },
       ],
     },
     {

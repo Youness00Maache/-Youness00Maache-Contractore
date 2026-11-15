@@ -1,4 +1,6 @@
-// Chapter 17: Papers, lien waivers and warranty. Sources: help guides `papers`, `warranty-tracking`, `after-job-emails`.
+// Chapter 17: Papers, lien waivers and warranty. Sources: help guides papers, warranty-tracking, after-job-emails.
+// A date typed into a <input type=date> (the click lands on its month): mmddyyyy, n days from today.
+const mmddyyyy = (n) => { const d = new Date(Date.now() + n * 86400000); const p = (x) => String(x).padStart(2, '0'); return p(d.getMonth() + 1) + p(d.getDate()) + d.getFullYear(); };
 export default {
   id: 'papers-warranty',
   number: 17,
@@ -7,10 +9,9 @@ export default {
   minutes: 3.5,
   covers: ['papers', 'warranty-tracking', 'after-job-emails'],
   demoData: [
-    'Papers vault with 4 papers: a COI expiring in about 25 days (shown in portal), a contractor License valid for a year, a Permit linked to "Nair Master Bath" with a next inspection date, a W-9 with no expiry; one paper already expired (red)',
-    'job "Okafor Basement Finish" (completed) with a paid invoice INV-2064 (used by the lien waiver) and NO warranty yet (the scene creates one)',
-    'a second, already saved Warranty on another completed job with one open claim, so the Warranties list shows an "open claims" badge',
-    'Gmail shown as Connected in Settings; the three after-job emails (Thank-you after the job, Warranty ending, Maintenance reminders) currently off',
+    'Papers vault with 5 papers: a COI expiring in 25 days (portal), a License, a Permit linked to Nair Master Bath with a next inspection, a W-9 with no expiry, one expired paper',
+    'Okafor Basement Finish (completed) with its paid invoice INV-2064 and NO warranty; a saved Warranty with one open claim on Whitfield Porch Rail Repair',
+    'Gmail NOT connected (the demo start state); the after-job e-mails are off',
   ],
   scenes: [
     {
@@ -21,9 +22,10 @@ export default {
         'This Premium vault keeps your certificate of insurance, licenses, permits, bonds and W-9.',
       ],
       do: [
-        { with: 1, act: 'click', target: 'Tools' },
+        { with: 1, act: 'click', target: 'Tools', patience: 25000 },
         { with: 1, act: 'click', target: 'Papers', role: 'menuitem' },
-        { with: 2, act: 'hover', target: 'COI', unsure: true },
+        { with: 1, act: 'wait', s: 2, delay: 1.1 },
+        { with: 2, act: 'hover', target: 'General liability insurance', patience: 20000 },
       ],
     },
     {
@@ -36,10 +38,15 @@ export default {
       ],
       do: [
         { with: 0, act: 'click', target: 'Add paper' },
-        { with: 0, act: 'select', target: 'Kind', option: 'Permit', unsure: true },
-        { with: 1, act: 'type', target: 'Number', text: 'BP-2026-0418', unsure: true },
+        { with: 0, act: 'wait', s: 1, delay: 0.3 },
+        { with: 0, act: 'click', target: 'Permit', role: 'radio' },
+        { with: 1, act: 'type', target: 'Permit number', text: 'BP-2026-0418' },
+        { with: 1, act: 'type', target: 'Issued by (city / county)', text: 'City of Maple Grove' },
+        { with: 1, act: 'type', target: 'Issued', text: mmddyyyy(-3), delay: 0.5 },
+        { with: 1, act: 'type', target: 'Expires', text: mmddyyyy(90), delay: 0.6 },
         { with: 2, act: 'highlight', target: 'Upload PDF or photo' },
         { with: 2, act: 'click', target: 'Save', role: 'button' },
+        { with: 3, act: 'highlight', target: 'Job: Nair Master Bath', nth: 0 },
       ],
     },
     {
@@ -51,12 +58,11 @@ export default {
         'When you renew, open the three-dot menu and choose Renew, new date and file. The reminders start again from the new date.',
       ],
       do: [
-        { with: 0, act: 'highlight', target: '30', label: 'Reminder days', unsure: true },
-        { with: 2, act: 'zoom', target: 'COI', scale: 1.15, unsure: true },
-        { with: 3, act: 'zoom', out: true },
-        { with: 3, act: 'click', target: 'More actions', nth: 0, unsure: true },
+        { with: 0, act: 'highlight', target: 'reminder', nth: 0 },
+        { with: 2, act: 'highlight', target: 'Expired', nth: 0 },
+        { with: 3, act: 'click', target: 'More for Workers’ comp certificate' },
         { with: 3, act: 'highlight', target: 'Renew (new date and file)' },
-        { with: 3, act: 'key', key: 'Escape' },
+        { with: 3, act: 'key', key: 'Escape', delay: 5.4 },
       ],
     },
     {
@@ -67,10 +73,15 @@ export default {
         'On a COI, license or bond, switch on Show in client portal. Your client then sees Licensed and insured, with the name, number and expiry date, never the file.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Send', nth: 0 },
+        { with: 0, act: 'click', target: 'Send', nth: 1 },
+        { with: 1, act: 'wait', s: 0.8 },
+        { with: 1, act: 'type', target: 'To', text: 'gc@example.com', delay: 1.5 },
         { with: 1, act: 'highlight', target: 'Send with Gmail' },
-        { with: 1, act: 'key', key: 'Escape' },
-        { with: 2, act: 'highlight', target: 'Show in client portal', unsure: true },
+        { with: 1, act: 'key', key: 'Escape', delay: 3.7 },
+        { with: 2, act: 'click', target: 'General liability insurance', nth: 0 },
+        { with: 2, act: 'wait', s: 0.8 },
+        { with: 2, act: 'highlight', target: 'Show in client portal' },
+        { with: 2, act: 'key', key: 'Escape', delay: 2.6 },
       ],
     },
     {
@@ -84,9 +95,14 @@ export default {
         'Lien waivers work on every plan. Some states, like California, Texas, Florida and Georgia, require their own official form, so use that one there.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Lien waiver' },
-        { with: 1, act: 'highlight', target: 'Conditional', unsure: true },
-        { with: 2, act: 'highlight', target: 'INV-2064', unsure: true },
+        { with: 0, act: 'click', target: 'Lien waiver', role: 'button' },
+        { with: 0, act: 'wait', s: 1 },
+        { with: 0, act: 'select', target: 'Job', option: 'Okafor Basement Finish · Linda Okafor' },
+        { with: 0, act: 'wait', s: 0.8, delay: 6.2 },
+        { with: 1, act: 'click', target: 'Conditional', role: 'radio', delay: 0.2 },
+        { with: 1, act: 'click', target: 'Final', role: 'radio' },
+        { with: 2, act: 'highlight', target: 'Invoice', delay: 0.2 },
+        { with: 2, act: 'highlight', target: 'Payment received', delay: 1 },
         { with: 3, act: 'click', target: 'Create waiver' },
       ],
     },
@@ -100,18 +116,19 @@ export default {
         'Click Save, like any other document. It works offline too.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'View Project', nth: 4, unsure: true },
+        { with: 0, act: 'click', target: 'View Project: Okafor Basement Finish', patience: 25000 },
+        { with: 0, act: 'wait', s: 2.5 },
         { with: 0, act: 'click', target: 'New Document' },
         { with: 0, act: 'click', target: 'Warranty' },
-        { with: 1, act: 'highlight', target: 'Coverage period' },
-        { with: 2, act: 'click', target: 'A length' },
-        { with: 3, act: 'zoom', target: 'Coverage period', scale: 1.2 },
-        { with: 4, act: 'zoom', out: true },
+        { with: 0, act: 'wait', s: 2.5, delay: 7.5 },
+        { with: 1, act: 'highlight', target: 'Coverage period', delay: 1.9 },
+        { with: 2, act: 'click', target: 'A length', role: 'radio' },
+        { with: 3, act: 'highlight', target: 'Active', nth: 0 },
         { with: 4, act: 'click', target: 'Save', role: 'button' },
       ],
     },
     {
-      id: 's07', kind: 'app', device: 'desktop',
+      id: 's07', route: '/dashboard', kind: 'app', device: 'desktop',
       say: [
         'When your client reports a problem, click Add claim in Claims. Add the date, what is wrong, and up to six photos.',
         'Move it along with Start review, Mark resolved, or Deny claim. A denial needs a reason.',
@@ -120,10 +137,16 @@ export default {
         'If a warranty no longer applies, click Void this warranty. The claims history stays, and Restore warranty brings it back.',
       ],
       do: [
-        { with: 0, act: 'click', target: 'Add claim' },
-        { with: 1, act: 'highlight', target: 'Start review', unsure: true },
-        { with: 3, act: 'highlight', target: 'Warranties', unsure: true },
-        { with: 4, act: 'highlight', target: 'Void this warranty', unsure: true },
+        { with: 0, act: 'click', target: 'View Project: Whitfield Porch Rail Repair', patience: 25000 },
+        { with: 0, act: 'wait', s: 2.5 },
+        { with: 0, act: 'click', target: 'Open Warranty', nth: 0 },
+        { with: 0, act: 'wait', s: 2.5, delay: 5.5 },
+        { with: 0, act: 'highlight', target: 'Add claim', nth: 0, delay: 5.9 },
+        { with: 1, act: 'click', target: 'One bracket on the left rail feels loose.', delay: 1 },
+        { with: 1, act: 'highlight', target: 'Start review', delay: 0.7 },
+        { with: 1, act: 'highlight', target: 'Deny claim' },
+        { with: 2, act: 'highlight', target: 'the client does not see them' },
+        { with: 4, act: 'highlight', target: 'Void this warranty' },
       ],
     },
     {
@@ -152,7 +175,7 @@ export default {
       do: [
         { with: 0, act: 'click', target: 'Thank-you after the job', role: 'switch', unsure: true },
         { with: 2, act: 'click', target: 'Days, wording and what is next', nth: 0 },
-        { with: 2, act: 'highlight', target: 'Next scheduled', unsure: true },
+        { with: 2, act: 'highlight', target: 'Next scheduled', unsure: true, delay: 1.5 },
       ],
     },
   ],
