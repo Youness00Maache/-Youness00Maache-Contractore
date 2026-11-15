@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK). Roadmap D5 phase A; do not run until the owner approves it.
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D5) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: RLS on both tables, 8 owner policies, 4 triggers, no anon table grants, anon can run only get_portal_selections / choose_portal_selection / get_portal_boards, a bad portal key is refused by all three.. Roadmap D5 phase A; do not run until the owner approves it.
 -- =====================================================================================
 -- ContractorDocs: client selections + mood boards (competitor roadmap batch D5: #14, #15)
 --
