@@ -32,11 +32,12 @@ import type { DashboardDocumentRow, NextStep } from '../lib/portal/dashboardType
 import type { StepAction } from '../lib/portal/dashboardLogic.ts';
 import PortalServicePlans from './service/PortalServicePlans.tsx';
 import { choiceOf, optionRange, withEffectiveLines } from '../lib/estimateOptions.ts';
+import { toggleAddonPick } from '../lib/addonChoice.ts';
 import {
     BrandHeader, CompletionCard, ContractorContact, DocumentDetail, DownloadPdfButton, LinkErrorPage, PublicFooter,
     PublicPageSkeleton, SIGNABLE_TYPES, SigningPanel, callDeclineRpcWithName, callSigningRpc, contractorName, currencyOf,
     documentTotals, fmtDate, getDocState, isNetworkMessage, makeReportPayment, normalizeContractor, normalizeDocument, openOptionSet, parseRpcPayload,
-    signWithOption, str, throwIfPayloadError,
+    addonView, signWithAddons, signWithOption, str, throwIfPayloadError,
     type LinkProblem, type PublicContractor, type PublicDocument, type SigningOutcome,
 } from './DocumentApprovalView.tsx';
 import {
@@ -210,6 +211,8 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
     const [modalBusy, setModalBusy] = useState(false);
     /** good/better/best: the option picked per estimate */
     const [picks, setPicks] = useState<Record<string, string>>({});
+    /** optional add-ons ticked per estimate (none = the contractor's own selection) */
+    const [addonPicks, setAddonPicks] = useState<Record<string, string[]>>({});
     const optionsRef = useRef<HTMLDivElement>(null);
     const [pageError, setPageError] = useState('');
     const sessionRef = useRef(0);
@@ -555,6 +558,10 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                 onPaymentReported={reload}
                                 chosenOptionId={picks[current.id] ?? null}
                                 onChooseOption={currentSignable ? (id) => setPicks((prev) => ({ ...prev, [current.id]: id })) : undefined}
+                                addonPicks={addonPicks[current.id] ?? null}
+                                onToggleAddon={currentSignable && addonView(current, null).lines.length > 0
+                                    ? (id, on) => setAddonPicks((prev) => ({ ...prev, [current.id]: toggleAddonPick(prev[current.id] ?? addonView(current, null).picks, id, on) }))
+                                    : undefined}
                             />
                         </div>
                         <div className="flex flex-wrap gap-2 border-t border-border pt-4">
@@ -569,10 +576,12 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                     defaultName={clientName}
                                     chosenOptionId={picks[current.id] ?? null}
                                     onShowOptions={openOptionSet(current) ? () => optionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : undefined}
+                                    addonPicks={addonPicks[current.id] ?? null}
                                     onSign={async (name, signature) => {
                                         const set = openOptionSet(current);
                                         const pick = picks[current.id];
                                         if (set && pick) await signWithOption({ portalKey: key, documentId: current.id }, set, pick, name, signature);
+                                        else if (addonView(current, null).lines.length > 0) return signWithAddons({ portalKey: key, documentId: current.id }, current, addonPicks[current.id] ?? null, name, signature);
                                         else await callSigningRpc('sign_document_via_portal', { p_key: key, p_doc_id: current.id, p_signature: signature }, name);
                                     }}
                                     onDecline={(reason, name) => callDeclineRpcWithName(

@@ -8,8 +8,11 @@ import { supabase } from '../lib/supabase.ts';
 import SignaturePad from './SignaturePad.tsx';
 import { Avatar, Notice, SkeletonRows, Spinner, StatusBadge, cx, getErrorMessage } from './commsKit.tsx';
 import { documentLabel, isMissingFunctionError } from '../utils/clientLinks.ts';
-import { formatMoney, isExcludedOptionalLine, lineItemAmount, toNumber } from '../utils/money.ts';
-import ProposalPortalView from './proposal/ProposalPortalView.tsx';
+import { formatMoney, isExcludedOptionalLine, isOptionalLine, lineItemAmount, toNumber } from '../utils/money.ts';
+import ProposalPortalView, { type AddonsMode } from './proposal/ProposalPortalView.tsx';
+import {
+    applyAddonChoice, choosableAddons, cleanAddonPicks, clientAddonChoiceOf, defaultAddonPicks, isChoosableAddon, planAddonSigning,
+} from '../lib/addonChoice.ts';
 import {
     SIGNABLE_TYPES, documentTotals, isDeclinedData, isPastExpiryDate, isSignedData, parseDocState, stateOfDoc, type DocState,
 } from '../utils/clientPortalRules.ts';
@@ -56,6 +59,10 @@ export interface SigningOutcome {
     at: string;
     /** good/better/best: the option the client signed for ("B · Better") */
     option?: string;
+    /** optional add-ons (D13): the ones the client added when signing (descriptions), recorded by the database */
+    addons?: string[];
+    /** the database can't record add-ons yet: signed without the client's ticks, at this total */
+    addonsNotRecorded?: { total: number };
 }
 
 /** A state the link/document is in that replaces the normal review UI. */
@@ -233,6 +240,45 @@ export async function signWithOption(
     if (!isMissingFunctionError(res.error)) throw new Error(res.error.message || 'Request failed');
     await callSigningRpc(plan.fallback.name, plan.fallback.args, plan.fallback.signerName);
     return 'in-signer-name';
+}
+
+/**
+ * Optional add-ons the client can tick on this page (D13): the add-on lines, the clean picks (null = what the
+ * contractor already switched on) and the document data with those picks applied (THE data every total on the page
+ * is computed from). No add-on to choose: lines [] and the data untouched.
+ */
+export const addonView = (doc: PublicDocument, picks: string[] | null | undefined) => {
+    const lines = openOptionSet(doc) ? [] : choosableAddons(doc.type, doc.data);
+    if (!lines.length) return { lines, picks: [] as string[], data: doc.data };
+    const clean = cleanAddonPicks(doc.type, doc.data, picks ?? defaultAddonPicks(doc.type, doc.data));
+    return { lines, picks: clean, data: applyAddonChoice(doc.data, clean) };
+};
+
+/**
+ * Signs an estimate with the add-ons the client ticked. Uses the database function that records the choice
+ * (supabase/migrations/20261116000700_optional_addons_choice.sql) when it exists; until then the existing signing
+ * function is used, the choice is NOT recorded and the outcome says so with the total actually signed.
+ */
+export async function signWithAddons(
+    target: { portalKey: string; documentId: string } | { token: string },
+    doc: PublicDocument,
+    picks: string[] | null | undefined,
+    signerName: string,
+    signature: string,
+): Promise<Partial<SigningOutcome>> {
+    const view = addonView(doc, picks);
+    const plan = planAddonSigning(target, view.picks, signerName, signature);
+    const res = await supabase.rpc(plan.rpc.name, plan.rpc.args);
+    if (!res.error) {
+        throwIfPayloadError(res.data);
+        return { addons: view.lines.filter((li) => view.picks.includes(li.id)).map((li) => str(li.description) || 'Add-on') };
+    }
+    if (!isMissingFunctionError(res.error)) throw new Error(res.error.message || 'Request failed');
+    await callSigningRpc(plan.fallback.name, plan.fallback.args, signerName);
+    // nothing lost when the ticks were the contractor's own (the stored lines already say the same)
+    const before = defaultAddonPicks(doc.type, doc.data);
+    const same = before.length === view.picks.length && before.every((id) => view.picks.includes(id));
+    return same ? {} : { addonsNotRecorded: { total: documentTotals(doc.data).total } };
 }
 
 /** Calls a decline RPC. Returns 'unsupported' when the function is not deployed. */
@@ -712,6 +758,11 @@ export const SignatureBlock: React.FC<{ doc: PublicDocument }> = ({ doc }) => {
     );
 };
 
+/** An optional add-on counted in the total (switched on by the contractor, or chosen by the client when signing). */
+const AddonTag: React.FC = () => (
+    <span className="mr-2 inline-block rounded border border-primary/40 px-1.5 align-middle text-[10px] font-bold uppercase tracking-wide text-primary">Add-on</span>
+);
+
 export const DocumentDetail: React.FC<{
     doc: PublicDocument;
     contractor: PublicContractor;
@@ -722,8 +773,15 @@ export const DocumentDetail: React.FC<{
     /** good/better/best estimate: the option picked on this page, and how to pick one (only while it can be signed) */
     chosenOptionId?: string | null;
     onChooseOption?: (optionId: string) => void;
-}> = ({ doc, contractor, clientName = '', onReportPayment, onPaymentReported, chosenOptionId, onChooseOption }) => {
-    const d = doc.data;
+    /** optional add-ons (D13): the ones ticked on this page (null = the contractor's), and how to tick (only while it can be signed) */
+    addonPicks?: string[] | null;
+    onToggleAddon?: (id: string, on: boolean) => void;
+}> = ({ doc, contractor, clientName = '', onReportPayment, onPaymentReported, chosenOptionId, onChooseOption, addonPicks, onToggleAddon }) => {
+    const state = getDocState(doc);
+    // add-ons the client ticks: every total below comes from the data with the ticks applied (lib/addonChoice.ts)
+    const addons = state === 'open' && onToggleAddon ? addonView(doc, addonPicks) : null;
+    const choosing = !!addons && addons.lines.length > 0;
+    const d = choosing ? addons!.data : doc.data;
     const currency = currencyOf(d);
     const money = (v: number) => formatMoney(v, currency);
     const totals = documentTotals(d);
@@ -731,10 +789,15 @@ export const DocumentDetail: React.FC<{
     const range = optionSet ? optionRange(d) : null;
     const signedChoice = optionSet ? choiceOf(d, optionSet) : null;
     const choiceTotal = optionSet && signedChoice ? summarizeOptions(d, optionSet).find((x) => x.chosen)?.totals.total ?? 0 : 0;
-    // optional add-ons not taken are listed apart (ProposalPortalView), never among the counted items
-    const items: any[] = optionSet ? [] : Array.isArray(d.lineItems) ? d.lineItems.filter((it: unknown) => it && typeof it === 'object' && !isExcludedOptionalLine(it as never)) : [];
+    // optional add-ons not taken are listed apart (ProposalPortalView), never among the counted items; while the
+    // client ticks them, every add-on is listed there (with its tick box) and none among the items
+    const items: any[] = optionSet ? [] : Array.isArray(d.lineItems)
+        ? d.lineItems.filter((it: unknown) => it && typeof it === 'object' && !isExcludedOptionalLine(it as never) && !(choosing && isChoosableAddon(it)))
+        : [];
+    const addonsMode: AddonsMode | undefined = choosing
+        ? { mode: 'choose', lines: addons!.lines, picks: addons!.picks, onToggle: onToggleAddon! }
+        : doc.type === 'Estimate' && clientAddonChoiceOf(d) ? { mode: 'chosen' } : undefined;
     const isProgress = !!d.isProgressBilling;
-    const state = getDocState(doc);
     const label = documentLabel(doc.type, d);
     const title = str(d.title);
     const po = isPurchaseOrder(doc.type);
@@ -863,7 +926,7 @@ export const DocumentDetail: React.FC<{
                             <tbody>
                                 {items.map((it, i) => (
                                     <tr key={str(it.id) || i}>
-                                        <td className="whitespace-pre-wrap break-words">{str(it.description) || '—'}</td>
+                                        <td className="whitespace-pre-wrap break-words">{isOptionalLine(it) && <AddonTag />}{str(it.description) || '—'}</td>
                                         <td className="text-right tabular-nums">{toNumber(it.quantity)}</td>
                                         <td className="text-right tabular-nums">{money(toNumber(it.rate))}</td>
                                         {isProgress && <td className="text-right tabular-nums">{toNumber(it.percentComplete)}%</td>}
@@ -877,7 +940,7 @@ export const DocumentDetail: React.FC<{
                         {items.map((it, i) => (
                             <li key={str(it.id) || i} className="p-3">
                                 <div className="flex items-start justify-between gap-3">
-                                    <p className="min-w-0 whitespace-pre-wrap break-words text-sm font-medium text-foreground">{str(it.description) || '—'}</p>
+                                    <p className="min-w-0 whitespace-pre-wrap break-words text-sm font-medium text-foreground">{isOptionalLine(it) && <AddonTag />}{str(it.description) || '—'}</p>
                                     <p className="shrink-0 text-sm font-semibold tabular-nums">{money(lineItemAmount(it, isProgress))}</p>
                                 </div>
                                 <p className="mt-1 text-xs text-muted-foreground tabular-nums">
@@ -932,7 +995,7 @@ export const DocumentDetail: React.FC<{
             <FinancingNotice doc={doc} contractor={contractor} />
 
             {/* proposal builder: scope, optional add-ons (not in the total), payment schedule, photos */}
-            {doc.type === 'Estimate' && <ProposalPortalView data={d} total={totals.total} money={money} />}
+            {doc.type === 'Estimate' && <ProposalPortalView data={d} total={totals.total} money={money} addons={addonsMode} />}
 
             {sections.map(([k, v]) => <TextSection key={k} title={k} text={v} />)}
 
@@ -966,7 +1029,8 @@ export const SigningPanel: React.FC<{
     doc: PublicDocument;
     contractor: PublicContractor;
     defaultName?: string;
-    onSign: (name: string, signature: string) => Promise<void>;
+    /** may return details for the completion card (add-ons recorded / not recorded) */
+    onSign: (name: string, signature: string) => Promise<void | Partial<SigningOutcome>>;
     onDecline: (reason: string, name: string) => Promise<'ok' | 'unsupported'>;
     onComplete: (outcome: SigningOutcome) => void;
     /** Called when the server says the document is already signed/declined/expired/gone. */
@@ -976,7 +1040,9 @@ export const SigningPanel: React.FC<{
     /** good/better/best estimate: the option picked above (signing needs one) and how to go back to the cards */
     chosenOptionId?: string | null;
     onShowOptions?: () => void;
-}> = ({ doc, contractor, defaultName = '', onSign, onDecline, onComplete, onProblem, onBusyChange, id, chosenOptionId, onShowOptions }) => {
+    /** optional add-ons ticked above (null = the contractor's); the total shown includes them */
+    addonPicks?: string[] | null;
+}> = ({ doc, contractor, defaultName = '', onSign, onDecline, onComplete, onProblem, onBusyChange, id, chosenOptionId, onShowOptions, addonPicks }) => {
     const [mode, setMode] = useState<'sign' | 'decline'>('sign');
     const [name, setName] = useState(defaultName);
     const [signature, setSignature] = useState('');
@@ -987,8 +1053,10 @@ export const SigningPanel: React.FC<{
     const [error, setError] = useState('');
     const [declineUnsupported, setDeclineUnsupported] = useState(false);
 
-    const d = doc.data;
+    const addons = addonView(doc, addonPicks);
+    const d = addons.data;
     const totals = documentTotals(d);
+    const pickedAddons = addons.lines.filter((li) => addons.picks.includes(li.id));
     const label = documentLabel(doc.type, d);
     const noun = typeNoun(doc.type);
     const company = contractorName(contractor);
@@ -1023,8 +1091,8 @@ export const SigningPanel: React.FC<{
         setBusy(true);
         setError('');
         try {
-            await onSign(trimmedName, signature);
-            onComplete({ kind: 'signed', name: trimmedName, at: new Date().toISOString(), ...(optionSet && chosen ? { option: optionLabelOf(optionSet, chosen.id) } : {}) });
+            const extra = await onSign(trimmedName, signature);
+            onComplete({ kind: 'signed', name: trimmedName, at: new Date().toISOString(), ...(optionSet && chosen ? { option: optionLabelOf(optionSet, chosen.id) } : {}), ...(extra || {}) });
         } catch (e) {
             handleFailure(e);
         } finally {
@@ -1057,6 +1125,13 @@ export const SigningPanel: React.FC<{
                         : totals.hasMoney && <p className="text-lg font-bold tabular-nums text-foreground">{formatMoney(totals.total, currencyOf(d))}</p>}
                 </div>
                 <p className="text-sm text-muted-foreground">From {company}</p>
+                {addons.lines.length > 0 && mode === 'sign' && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                        {pickedAddons.length
+                            ? <>Includes {pickedAddons.length === 1 ? 'the add-on' : `${pickedAddons.length} add-ons`}: <span className="font-medium text-foreground">{pickedAddons.map((li) => str(li.description) || 'Add-on').join(', ')}</span></>
+                            : 'No optional add-ons added.'}
+                    </p>
+                )}
                 {optionSet && mode === 'sign' && (
                     <div className={cx('mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm', chosen ? 'border-primary/30 bg-card' : 'border-warning/40 bg-warning/10')}>
                         <span className="min-w-0">
@@ -1213,6 +1288,18 @@ export const CompletionCard: React.FC<{
             {signed && outcome.option && (
                 <p className="mx-auto mt-1 max-w-md text-sm font-medium text-foreground">You chose option {outcome.option}.</p>
             )}
+            {signed && outcome.addons && (
+                <p className="mx-auto mt-1 max-w-md text-sm font-medium text-foreground">
+                    {outcome.addons.length ? `Add-ons included: ${outcome.addons.join(', ')}.` : 'No optional add-ons added.'}
+                </p>
+            )}
+            {signed && outcome.addonsNotRecorded && (
+                <div className="mx-auto mt-3 max-w-md text-left">
+                    <Notice tone="warning">
+                        Your add-on choices couldn’t be saved online, so this {typeNoun(doc.type)} was signed at {formatMoney(outcome.addonsNotRecorded.total, currencyOf(doc.data))}, without them. Tell {company} which add-ons you want.
+                    </Notice>
+                </div>
+            )}
             <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
                 <ClockIcon className="h-4 w-4" /> {fmtDateTime(outcome.at)}
             </p>
@@ -1297,6 +1384,8 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
     const [linkCanSign, setLinkCanSign] = useState<boolean | null>(null);
     /** good/better/best: the option the client picked on this page */
     const [pick, setPick] = useState<string | null>(null);
+    /** optional add-ons ticked on this page (null = the contractor's own selection) */
+    const [addonPicks, setAddonPicks] = useState<string[] | null>(null);
     const signRef = useRef<HTMLDivElement>(null);
     const optionsRef = useRef<HTMLDivElement>(null);
 
@@ -1388,7 +1477,13 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
         );
     }
 
-    const totals = documentTotals(doc.data);
+    const addons = canSign ? addonView(doc, addonPicks) : null;
+    const hasAddons = !!addons && addons.lines.length > 0;
+    const totals = documentTotals(hasAddons ? addons!.data : doc.data);
+    const toggleAddon = (id: string, on: boolean) => setAddonPicks((prev) => {
+        const cur = prev ?? addonView(doc, null).picks;
+        return on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id);
+    });
     const optionSet = openOptionSet(doc);
     const pickedTotal = optionSet && pick ? summarizeOptions(doc.data, optionSet).find((x) => x.option.id === pick)?.totals.total ?? null : null;
     const range = optionSet ? optionRange(doc.data) : null;
@@ -1418,6 +1513,8 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                         onPaymentReported={() => load(true)}
                         chosenOptionId={pick}
                         onChooseOption={canSign ? setPick : undefined}
+                        addonPicks={addonPicks}
+                        onToggleAddon={hasAddons ? toggleAddon : undefined}
                     />
                     <div className="mt-6 flex flex-wrap gap-2 border-t border-border pt-4">
                         <DownloadPdfButton doc={doc} contractor={contractor} clientName={clientName} onError={setPageError} />
@@ -1433,8 +1530,10 @@ const DocumentApprovalView: React.FC<DocumentApprovalViewProps> = ({ approvalTok
                             defaultName={clientName}
                             chosenOptionId={pick}
                             onShowOptions={optionSet ? showOptions : undefined}
+                            addonPicks={addonPicks}
                             onSign={async (name, signature) => {
                                 if (optionSet && pick) await signWithOption({ token }, optionSet, pick, name, signature);
+                                else if (hasAddons) return signWithAddons({ token }, doc, addonPicks, name, signature);
                                 else await callSigningRpc('approve_document_by_token', { doc_token: token, p_signature: signature }, name);
                             }}
                             onDecline={(reason, name) => callDeclineRpcWithName(
