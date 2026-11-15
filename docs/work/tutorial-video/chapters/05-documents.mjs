@@ -1,0 +1,137 @@
+// Chapter 5: Documents: invoices, estimates and 10 more (help guide "documents"; InvoiceForm / forms/Sections for Design and Repeat).
+export default {
+  id: 'documents',
+  number: 5,
+  title: 'Documents: invoices, estimates and 10 more',
+  summary: 'The 12 document types, adding items from your price book, choosing a design, saving, downloading and reusing documents.',
+  minutes: 4,
+  covers: ['documents'],
+  demoData: [
+    'job "Whitfield Kitchen Remodel" with the estimate EST-1042 (Accepted) and the invoice INV-2081 (Sent) in its document list',
+    'a second job (for example "Nair Master Bath") that the Copy to another job scene can pick as the target',
+    'the 6 saved price-book items (Faucet install, Recessed light install, ...) so the tag button has items to pick',
+    'at least 2 inventory items so the tag button shows Inventory next to Price book',
+    'the profile on a paid plan so Premium designs are not locked (the narration mentions the lock on Free)',
+  ],
+  scenes: [
+    {
+      id: 's01', kind: 'app', device: 'desktop', route: '/dashboard',
+      say: [
+        'Documents are what you send and keep for every job, and there are twelve types.',
+        'Open a job and click New Document to see them all.',
+        'For billing and purchasing, you get Invoice, Estimate, Change Order, Purchase Order and Receipt.',
+        'For the job itself, there is Work Order, Daily Job Report, Time Sheet and Material Log.',
+        'And for your records, there is Expense Log, Warranty and Note.',
+      ],
+      do: [
+        { with: 0, act: 'caption', text: 'Chapter 5: Documents' },
+        { with: 1, act: 'click', target: 'Whitfield Kitchen Remodel' },
+        { with: 1, act: 'click', target: 'New Document' },
+        { with: 2, act: 'highlight', target: 'Invoice' },
+        { with: 3, act: 'highlight', target: 'Work Order' },
+        { with: 4, act: 'highlight', target: 'Expense Log' },
+      ],
+    },
+    {
+      id: 's02', kind: 'app', device: 'desktop',
+      say: [
+        'Let us make an invoice. The client and your company details come from the job and your Settings, so they are already filled in.',
+        'Under Items, click Add line, then type what you did and the price.',
+        'The tag button on a line opens your price book and your inventory, so you can pick a saved item instead of typing.',
+        'The save button keeps a line you typed in your price book for next time.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'Invoice' },
+        { with: 1, act: 'click', target: 'Add line' },
+        { with: 1, act: 'type', target: 'description', text: 'Under-cabinet outlet install', unsure: true },
+        { with: 2, act: 'click', target: 'Pick from price book' },
+        { with: 2, act: 'highlight', target: 'Recessed light install', unsure: true },
+        { with: 2, act: 'key', key: 'Escape' },
+        { with: 3, act: 'highlight', target: 'Save this line to your price book' },
+      ],
+    },
+    {
+      id: 's03', kind: 'app', device: 'desktop',
+      say: [
+        'In the Design section, pick a template for the PDF.',
+        'Choose an Accent color that matches your brand, and the Paper size, US Letter or A4.',
+        'On the Free plan, Premium designs show a lock. The Basic designs are free to use.',
+        'Click Preview to see the PDF exactly as your client will, before anything is sent.',
+        'To change the design every new document starts with, go to Settings, Document design.',
+      ],
+      do: [
+        { with: 0, act: 'scroll', to: 'Design' },
+        { with: 1, act: 'highlight', target: 'Accent color' },
+        { with: 1, act: 'select', target: 'Paper size', option: 'US Letter' },
+        { with: 3, act: 'click', target: 'Preview' },
+        { with: 3, act: 'wait', s: 2 },
+        { with: 3, act: 'key', key: 'Escape' },
+      ],
+    },
+    {
+      id: 's04', kind: 'app', device: 'desktop',
+      say: [
+        'Click Save, or press Control and S, so you can come back to it later.',
+        'PDF downloads it, and Save and PDF does both at once.',
+        'If you leave with unsaved changes, the app asks first, so you never lose your work.',
+        'Share saves the document and then offers ways to send it. That gets its own chapter.',
+        'And AI fill can draft the form from a few words you type or say. Nothing is saved until you click Save.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'Save', role: 'button' },
+        { with: 1, act: 'highlight', target: 'PDF' },
+        { with: 1, act: 'highlight', target: 'Save & PDF' },
+        { with: 3, act: 'highlight', target: 'Share' },
+        { with: 4, act: 'highlight', target: 'AI fill' },
+      ],
+    },
+    {
+      id: 's05', kind: 'app', device: 'desktop', route: '/dashboard',
+      say: [
+        'Need the same document on another job? Open the three-dot menu on it, in the job document list.',
+        'Choose Copy to another job and pick the job. You can search by job name or client.',
+        'The copy is a Draft with the new job client and address. Your lines, notes and design come along.',
+        'It has no signature, no payments and no stock change, so it starts clean. Click Open to edit it.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'Whitfield Kitchen Remodel' },
+        { with: 0, act: 'click', target: 'Actions for', unsure: true },
+        { with: 1, act: 'click', target: 'Copy to another job' },
+        { with: 1, act: 'type', target: 'Search jobs', text: 'Nair' },
+        { with: 3, act: 'highlight', target: 'Open', unsure: true },
+        { with: 3, act: 'key', key: 'Escape' },
+      ],
+    },
+    {
+      id: 's06', kind: 'app', device: 'desktop',
+      say: [
+        'Some work is billed the same way every month. On an invoice, Repeat this invoice bills the same items on a schedule.',
+        'For bigger jobs, switch Items from Standard to Progress billing.',
+        'Then you bill the percent completed on each line, minus what you billed before.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'INV-2081', unsure: true },
+        { with: 0, act: 'scroll', to: 'Repeat this invoice' },
+        { with: 1, act: 'scroll', to: 'Items' },
+        { with: 1, act: 'click', target: 'Progress billing' },
+        { with: 2, act: 'highlight', target: 'Progress billing' },
+      ],
+    },
+    {
+      id: 's07', kind: 'app', device: 'desktop',
+      say: [
+        'A Change Order covers extra work after the estimate. Like an estimate, your client can approve it with an approval link.',
+        'A Receipt is made for you when you mark an invoice as paid. You will see that in the chapter on getting paid.',
+        'On the Free plan, you can create twelve new documents per job each month, and deleted ones still count. Premium removes that limit.',
+        'No signal on site? Daily reports, time sheets, logs, notes and receipts save on your device with a Waiting to sync badge.',
+        'Next, we will turn an estimate into a signed approval.',
+      ],
+      do: [
+        { with: 0, act: 'caption', text: 'Change Order: extra work, approved online' },
+        { with: 1, act: 'caption', text: 'Receipt: created when an invoice is marked paid' },
+        { with: 2, act: 'caption', text: 'Free plan: 12 new documents per job each month' },
+        { with: 3, act: 'caption', text: 'Offline: saved on your device, synced later' },
+      ],
+    },
+  ],
+};

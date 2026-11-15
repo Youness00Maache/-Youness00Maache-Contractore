@@ -1,0 +1,95 @@
+// Chapter 30: Plans, pricing and your account. Sources: help guide `settings`, lib/plans.ts (FREE_LIMITS, PAID_AI_LIMITS, PLANS), components/Settings.tsx,
+// components/UpgradeModal.tsx. The only chapter that names prices. Never name the payment company.
+export default {
+  id: 'plans-account',
+  number: 30,
+  title: 'Plans, pricing and your account',
+  summary: 'Free, Premium and Premium + AI, how to upgrade and manage billing, your data, deleting your account, and what to do first.',
+  minutes: 2.5,
+  covers: ['settings'],
+  demoData: [
+    'Settings page with Profile, Company, Signature, Appearance & language, Plan & billing (with the usage meters: new jobs, new clients, emails sent, AI requests this month) and the Account section at the bottom (Log out, Delete account)',
+    'for the Upgrade scene a second demo state on the Free plan (subscription_tier free) so the Upgrade button and the Monthly / Yearly choice show; do NOT click through to the payment page',
+    'do NOT click Delete account or type DELETE; the scene only highlights the button',
+  ],
+  scenes: [
+    {
+      id: 's01', kind: 'app', device: 'desktop', route: '/dashboard',
+      say: [
+        'This last chapter is about your plan and your account.',
+        'Click your avatar at the top right and choose Settings. On a phone, it is under More.',
+        'Profile and Company hold your name, company, phone, address and logo. They print on every document.',
+        'After any edit, a bar with Save changes appears at the bottom.',
+        'Add signature once, and it is ready to drop into your documents.',
+      ],
+      do: [
+        { with: 1, act: 'click', target: 'Account menu' },
+        { with: 1, act: 'click', target: 'Settings', role: 'menuitem' },
+        { with: 2, act: 'highlight', target: 'Company', unsure: true },
+        { with: 3, act: 'highlight', target: 'Save changes', unsure: true },
+        { with: 4, act: 'highlight', target: 'Add signature', unsure: true },
+      ],
+    },
+    {
+      id: 's02', kind: 'motion',
+      say: [
+        'ContractorDocs has three plans: Free, Premium, and Premium plus AI.',
+        'Free gives you the core features with monthly limits: 6 new jobs, 15 new clients, and 10 Gmail emails.',
+        'It also allows 12 new documents per job, and 15 AI requests, each month.',
+        'Premium is 5 dollars a month, or 50 dollars a year. It removes those limits and adds all the Premium PDF designs.',
+        'It also adds photos on price book items, and 60 AI requests a month.',
+        'Premium plus AI is 10 dollars a month, or 100 dollars a year. It adds 600 AI requests, and priority support.',
+        'Yearly billing saves two months. Some tools from this video, like service plans and client selections, are marked Premium.',
+      ],
+      visual: 'A clean three-column comparison slides in on a dark background: "Free", "Premium" (highlighted with a subtle glow and a "most popular" tag) and "Premium + AI". Under each name a price appears: "$0", "$5 / month or $50 / year", "$10 / month or $100 / year". Rows fill in one by one as the narration reaches them: "6 new jobs and 15 new clients a month", "12 new documents per job a month", "10 Gmail emails a month", "15 AI requests" for Free; "No monthly limits", "Premium PDF designs", "Photos on price book items", "60 AI requests" for Premium; "Everything in Premium", "600 AI requests", "Priority support" for Premium + AI. A small ribbon "Yearly saves two months" appears over the price row at the end.',
+      do: [{ with: 0, act: 'caption', text: 'Free, Premium, Premium + AI' }],
+    },
+    {
+      id: 's03', kind: 'app', device: 'desktop', route: '/settings',
+      say: [
+        'To see where you stand, open Settings and find Plan and billing.',
+        'It shows this month’s usage: new jobs, new clients, emails sent, and AI requests.',
+        'On Free, click Upgrade, pick Monthly or Yearly, and follow the steps to the checkout.',
+        'You can cancel any time from Plan and billing.',
+        'On a paid plan, click Manage billing to update your payment method or change your subscription.',
+      ],
+      do: [
+        { with: 0, act: 'scroll', to: 'Plan & billing' },
+        { with: 1, act: 'zoom', target: 'AI requests this month', scale: 1.1, unsure: true },
+        { with: 2, act: 'zoom', out: true },
+        { with: 2, act: 'highlight', target: 'Upgrade' },
+        { with: 4, act: 'highlight', target: 'Manage billing', unsure: true },
+      ],
+    },
+    {
+      id: 's04', kind: 'app', device: 'desktop',
+      say: [
+        'Your data stays yours on every plan. Choose Export my data in the account menu to download everything you made.',
+        'At the bottom of Settings, Log out signs you out and clears your data from this device.',
+        'Delete account permanently removes your account, jobs, documents and clients. You must type DELETE to confirm, and it cannot be undone.',
+        'If you pay for a plan, the subscription is cancelled as part of the deletion.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'Account menu' },
+        { with: 0, act: 'highlight', target: 'Export my data' },
+        { with: 0, act: 'key', key: 'Escape' },
+        { with: 1, act: 'scroll', to: 'Log out' },
+        { with: 1, act: 'highlight', target: 'Log out', nth: 0 },
+        { with: 2, act: 'highlight', target: 'Delete account', nth: 0 },
+      ],
+    },
+    {
+      id: 's05', kind: 'motion',
+      say: [
+        'That is the whole tour. Here is what to do first.',
+        'Add your company details and logo in Settings, so every document looks like yours.',
+        'Add a client, create a job, and make an estimate.',
+        'Send it with Share. When your client accepts, convert it to an invoice, and get paid.',
+        'If you get stuck, open Help and tutorials, or ask AI Command.',
+        'Thank you for watching, and welcome to ContractorDocs.',
+      ],
+      visual: 'A friendly closing card on the dark app theme. A numbered checklist builds line by line, each with a small tick that lights up as it is spoken: "1 Company details and logo", "2 Add a client", "3 Create a job", "4 Make an estimate", "5 Share it with your client", "6 Convert to invoice and get paid". After the last line, the ContractorDocs logo fades in with the words "Welcome to ContractorDocs" and a quiet "Help and tutorials is always one click away" under it.',
+      do: [{ with: 5, act: 'caption', text: 'Welcome to ContractorDocs' }],
+    },
+  ],
+};

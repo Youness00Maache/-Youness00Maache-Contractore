@@ -1,0 +1,134 @@
+// Chapter 2: The dashboard and finding your way (help guides "dashboard" and "notifications", components/AppNav.tsx).
+export default {
+  id: 'dashboard-navigation',
+  number: 2,
+  title: 'The dashboard and finding your way',
+  summary: 'Read the dashboard, use the top bar and the Tools menu, open the bell, and find your way on a phone.',
+  minutes: 2.5,
+  covers: ['dashboard', 'notifications'],
+  demoData: [
+    'dashboard with the 6 demo jobs, a "Payments reported by clients" card (Sarah Whitfield tapped "I\'ve paid" on INV-2081)',
+    'a "Quote requests" card with 2 open quote requests from the request-a-quote link',
+    'a "Pipeline" bar with jobs counted by stage',
+    'a "Signed by clients" count (Sarah Whitfield signed EST-1042)',
+    'bell notifications, 4 unread: Sarah signed EST-1042; Sarah reported a payment on INV-2081; INV-2072 (Tom Alvarez) is overdue; Interior paint is low on stock; plus 2 read ones under Earlier',
+    'at least 1 lead with a follow-up due, so a count shows on the Tools button',
+    'the profile is fully set up, so the Setup line does not show',
+  ],
+  scenes: [
+    {
+      id: 's01', kind: 'app', device: 'desktop', route: '/dashboard',
+      say: [
+        'This chapter shows you the dashboard, the screen you will open most, and how to find your way around.',
+        'At the top you see your numbers: Active jobs, Jobs this month and Clients.',
+        'The fourth card changes: Low stock, Signed by clients, or an upgrade card on the Free plan.',
+      ],
+      do: [
+        { with: 0, act: 'caption', text: 'Chapter 2: The dashboard' },
+        { with: 1, act: 'highlight', target: 'Active jobs', label: 'Your numbers' },
+        { with: 2, act: 'highlight', target: 'Signed by clients' },
+      ],
+    },
+    {
+      id: 's02', kind: 'app', device: 'desktop',
+      say: [
+        'Under Your Jobs, type in the search box to find a job by name, client or address.',
+        'You can sort the list, or tap a status chip: All, Active, Paused, Completed or Inactive.',
+        'Your filters stay put while this browser tab is open.',
+        'Click View Project on a card to open that job.',
+        'To start a new one, click New Job at the top.',
+      ],
+      do: [
+        { with: 0, act: 'type', target: 'Search jobs, clients, addresses...', text: 'Nair' },
+        { with: 1, act: 'click', target: 'Active', role: 'button', unsure: true },
+        { with: 2, act: 'state', note: 'Clear the search box and set the status chip back to All before the next scene' },
+        { with: 3, act: 'highlight', target: 'View Project' },
+        { with: 4, act: 'highlight', target: 'New Job' },
+      ],
+    },
+    {
+      id: 's03', kind: 'app', device: 'desktop',
+      say: [
+        'Cards appear when a client acts. When one taps I have paid, you see it under Payments reported by clients.',
+        'A request from your quote link shows under Quote requests, with buttons for the Inbox and the Link and QR code.',
+        'The side column shows your last five documents and when the next job starts.',
+        'The Pipeline bar counts your jobs by stage. Click it to open the pipeline board.',
+      ],
+      do: [
+        { with: 0, act: 'scroll', by: 300 },
+        { with: 0, act: 'highlight', target: 'Payments reported by clients' },
+        { with: 1, act: 'highlight', target: 'Quote requests' },
+        { with: 1, act: 'highlight', target: 'Link & QR code' },
+        { with: 2, act: 'highlight', target: 'Recent documents' },
+        { with: 3, act: 'highlight', target: 'Pipeline', unsure: true },
+      ],
+    },
+    {
+      id: 's04', kind: 'app', device: 'desktop',
+      say: [
+        'The top bar holds the places you use every day: Dashboard, Clients, Messages and Community.',
+        'Click Tools for everything else: Leads, Pipeline, Service plans, Papers, Inventory, Price book, Calendar, Crew, Insights and the Profit calculator.',
+        'When a lead needs a follow-up, its count shows right on the Tools button.',
+        'Your avatar opens the account menu, with Settings, Plan and billing, Export my data, and Help and tutorials.',
+      ],
+      do: [
+        { with: 0, act: 'scroll', by: -600 },
+        { with: 0, act: 'hover', target: 'Messages' },
+        { with: 1, act: 'click', target: 'Tools' },
+        { with: 1, act: 'highlight', target: 'Leads' },
+        { with: 1, act: 'key', key: 'Escape' },
+        { with: 3, act: 'click', target: 'Account menu' },
+        { with: 3, act: 'highlight', target: 'Help & tutorials' },
+        { with: 3, act: 'key', key: 'Escape' },
+      ],
+    },
+    {
+      id: 's05', kind: 'app', device: 'desktop',
+      say: [
+        'Next to New Job is AI Command. Describe the work in plain words, and it drafts documents, clients, jobs and emails.',
+        'Nothing is created or sent until you click, so you stay in control.',
+        'Stuck on a screen? Click How it works in its header for a step-by-step guide.',
+        'The same guides are all collected under Help and tutorials.',
+      ],
+      do: [
+        { with: 0, act: 'highlight', target: 'AI Command' },
+        { with: 2, act: 'click', target: 'How it works' },
+        { with: 2, act: 'wait', s: 2 },
+        { with: 3, act: 'key', key: 'Escape' },
+      ],
+    },
+    {
+      id: 's06', kind: 'app', device: 'desktop',
+      say: [
+        'The bell next to your avatar collects what happened while you were busy.',
+        'The red number shows how many are unread, and the list is split into Today and Earlier.',
+        'You will see signatures, payments, overdue invoices, low stock, new quote requests and Community replies.',
+        'Click one to open it. The small cross removes it, and Mark all read clears the count.',
+        'At the bottom, Notification settings lets you switch each type on or off, or turn on Quiet mode.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'Notifications', unsure: true },
+        { with: 1, act: 'highlight', target: 'Today' },
+        { with: 3, act: 'highlight', target: 'Mark all read' },
+        { with: 4, act: 'highlight', target: 'Notification settings' },
+        { with: 4, act: 'key', key: 'Escape' },
+      ],
+    },
+    {
+      id: 's07', kind: 'app', device: 'phone', route: '/dashboard',
+      say: [
+        'On a phone, the top bar turns into a bottom bar: Home, Clients, Messages and Community.',
+        'In the middle sits the big button for your main action. On the dashboard it says New job.',
+        'Tap More for Tools, Leads, Settings and the rest.',
+        'Now, let us look at jobs in detail.',
+      ],
+      do: [
+        { with: 0, act: 'highlight', target: 'Home' },
+        { with: 1, act: 'highlight', target: 'New job' },
+        { with: 2, act: 'click', target: 'More' },
+        { with: 2, act: 'highlight', target: 'Leads' },
+        { with: 2, act: 'key', key: 'Escape' },
+      ],
+    },
+  ],
+};

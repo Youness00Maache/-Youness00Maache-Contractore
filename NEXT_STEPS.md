@@ -50,6 +50,13 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 - Never mention Kelviq or "merchant of record" on the website.
 - Keep the owner updated in short, plain messages.
 
+# >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
+Read docs/work/tutorial-video/PLAN.md + README.md first. Done so far: 30-chapter plan (CHAPTERS.md, ~92 min, 3 waves), script
+format + validator, English scripts written by helpers (chapters/*.mjs), fake demo backend + real-app recording spike (works:
+Chrome screencast -> MP4), AI33 client (tts/ai33.mjs, copied from the Framitor project). NOT done: owner answers (spoken
+languages, hosting = public Supabase bucket needs OK, wave scope), AI33 key (owner puts AI33_API_KEY in the environment or in
+docs/work/tutorial-video/.env.local; never in chat), translations, voice, recordings, player, publish. No app code changed yet.
+
 # >>> STATUS 2026-11-14 afternoon: owner requests 1-5 below are DONE and LIVE (main) <<<
 - Community in the phone bottom bar (457427c); phone app bar: offline = one-line strip under the bar (0f0d9ba).
 - Offline jobs + clients (96e7088): create job (+ new client), job status, client add/edit/notes; ids kept, sync order

@@ -1,0 +1,120 @@
+// Chapter 15: Crew clock-in and time sheets (help guide "crew"; the worker's phone page is shown as a motion scene).
+export default {
+  id: 'crew-clock',
+  number: 15,
+  title: 'Crew clock-in and time sheets',
+  summary: 'Give each worker a private clock-in link, see their week as a time card, approve it, and turn it into time sheets.',
+  minutes: 2.5,
+  covers: ['crew'],
+  demoData: [
+    'crew members Jamal (Whitfield Kitchen Remodel) and Eli (Nair Master Bath), each with a clock-in link; the profile on Premium so Tools > Crew shows',
+    'one week of clock punches for both with overtime for Jamal, one shift missing a clock-out (flagged), and one punch marked "Far from job"',
+    'the job "Whitfield Kitchen Remodel" with a Crew tab and a pin set on the site',
+    'a task given to Jamal, so the worker phone scene can show My tasks with Start and Done',
+    'no time sheet created yet for the current week, so Create time sheet shows',
+  ],
+  scenes: [
+    {
+      id: 's01', kind: 'app', device: 'desktop', route: '/crew',
+      say: [
+        'This chapter is about your crew. Workers clock in from their own phones, with no app and no login.',
+        'Open Tools and choose Crew. On a phone, tap More, then Crew.',
+        'Click Add crew member, and type the name. Phone, email and hourly cost are optional.',
+        'Tick the jobs they work on, then click Add and get link.',
+      ],
+      do: [
+        { with: 0, act: 'caption', text: 'Chapter 15: Crew clock-in' },
+        { with: 1, act: 'highlight', target: 'Crew', unsure: true },
+        { with: 2, act: 'click', target: 'Add crew member' },
+        { with: 2, act: 'type', target: 'Name', text: 'Jamal', unsure: true },
+        { with: 3, act: 'click', target: 'Whitfield Kitchen Remodel', unsure: true },
+        { with: 3, act: 'click', target: 'Add and get link' },
+      ],
+    },
+    {
+      id: 's02', kind: 'app', device: 'desktop',
+      say: [
+        'Now send them the link. Click Copy link, Text it or Email it, or let them scan the QR code.',
+        'The link only works for the jobs you gave them.',
+        'On a job page, the Crew tab adds people to that job. Use Add to job, or New crew member.',
+      ],
+      do: [
+        { with: 0, act: 'highlight', target: 'Copy link' },
+        { with: 0, act: 'highlight', target: 'Text it' },
+        { with: 0, act: 'highlight', target: 'Email it' },
+        { with: 0, act: 'key', key: 'Escape' },
+        { with: 2, act: 'goto', route: '/dashboard' },
+        { with: 2, act: 'click', target: 'Whitfield Kitchen Remodel' },
+        { with: 2, act: 'click', target: 'Crew', role: 'tab' },
+        { with: 2, act: 'highlight', target: 'Add to job', unsure: true },
+      ],
+    },
+    {
+      id: 's03', kind: 'motion',
+      say: [
+        'This is what your worker sees on their phone.',
+        'Today jobs, with a big Clock in button. Then Clock out, and Start break and End break.',
+        'Switch here moves them to another job, and they can add a note or a photo.',
+        'No prices, no rates, no other workers. If you gave them tasks, My tasks lists them, with Start and Done.',
+      ],
+      visual: 'A phone frame, no login screen: the worker page opens directly with the greeting, today\'s job card for Whitfield Kitchen Remodel and one huge green "Clock in" button. It is tapped and turns into a running timer with "Clock out" and "Start break" buttons; a break is started and ended. A small "Switch here" link and a note-and-photo row appear. A prompt slides up asking "Save your location when you tap?" with "Allow location" and "Not now". Then a "My tasks" list shows one task with "Start" and "Done" buttons, an optional photo icon and a one-line comment field.',
+      do: [
+        { with: 0, act: 'caption', text: 'What your worker sees' },
+      ],
+    },
+    {
+      id: 's04', kind: 'app', device: 'desktop', route: '/dashboard',
+      say: [
+        'The first time, the page asks to save their location when they tap. Allow location saves one reading with each punch, never in between.',
+        'Want to know if someone clocked in far from the site? On the job Crew tab, click Set pin.',
+        'Choose Use my location while you are at the site, or paste a map link.',
+        'Punches farther than the distance you pick show Far from job.',
+      ],
+      do: [
+        { with: 1, act: 'click', target: 'Whitfield Kitchen Remodel' },
+        { with: 1, act: 'click', target: 'Crew', role: 'tab' },
+        { with: 1, act: 'click', target: 'Set pin' },
+        { with: 2, act: 'highlight', target: 'Use my location (I’m at the site)' },
+        { with: 3, act: 'highlight', target: 'Far from job', unsure: true },
+        { with: 3, act: 'key', key: 'Escape' },
+      ],
+    },
+    {
+      id: 's05', kind: 'app', device: 'desktop', route: '/crew',
+      say: [
+        'At the end of the week, open Crew, then Hours.',
+        'Each worker has a time card, with their jobs and days, their overtime, and their cost.',
+        'Shifts that need a look are flagged. Click Add clock-out or Edit to fix one, or Add a shift for a forgotten day.',
+        'Then click Approve week, once the hours look right.',
+        'Click Create time sheet, and one Time Sheet per job is saved on the job.',
+        'Financials, job costing and Bill time and materials then count those hours.',
+      ],
+      do: [
+        { with: 0, act: 'click', target: 'Hours' },
+        { with: 1, act: 'highlight', target: 'Overtime', unsure: true },
+        { with: 2, act: 'highlight', target: 'Add clock-out' },
+        { with: 2, act: 'highlight', target: 'Add a shift' },
+        { with: 3, act: 'click', target: 'Approve week' },
+        { with: 4, act: 'click', target: 'Create time sheet' },
+        { with: 5, act: 'highlight', target: 'Update time sheet', unsure: true },
+      ],
+    },
+    {
+      id: 's06', kind: 'app', device: 'desktop',
+      say: [
+        'If a link gets lost, click Share link on the crew member, then New link. The old one stops at once.',
+        'Turn off link stops it for good. Archive is for someone who left, and their hours stay.',
+        'If someone forgets to clock out, the bell tells you at the end of the day.',
+        'Crew links are part of Premium, with as many workers as you need. Next, let us look at punch lists.',
+      ],
+      do: [
+        { with: 0, act: 'goto', route: '/crew' },
+        { with: 0, act: 'click', target: 'Members', unsure: true },
+        { with: 0, act: 'click', target: 'Share link', unsure: true },
+        { with: 0, act: 'highlight', target: 'New link' },
+        { with: 1, act: 'highlight', target: 'Turn off link' },
+        { with: 1, act: 'highlight', target: 'Archive' },
+      ],
+    },
+  ],
+};

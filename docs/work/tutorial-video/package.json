@@ -1,0 +1,7 @@
+{
+  "name": "contractordocs-tutorial-video",
+  "private": true,
+  "type": "module",
+  "description": "Tooling that records the tutorial video (fake demo backend + Chrome screencast + ffmpeg). Not part of the app build.",
+  "devDependencies": { "playwright-core": "1.49.1" }
+}

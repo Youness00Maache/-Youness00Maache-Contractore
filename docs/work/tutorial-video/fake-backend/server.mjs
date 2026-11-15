@@ -1,0 +1,230 @@
+// A tiny in-memory stand-in for Supabase (auth + PostgREST + functions + storage), used ONLY to record the tutorial
+// video against the REAL app with DEMO data. No real account, no network, no secrets.
+//
+//   node fake-backend/server.mjs [port]        (default 54329)
+//
+// The app is started with VITE_SUPABASE_URL=http://127.0.0.1:54329 and a made-up anon key (see record/run-spike.mjs).
+// Unknown tables read as empty and accept writes, unknown RPCs return null, unknown functions return {} so a screen
+// that asks for something we did not seed simply shows its empty state instead of breaking.
+import http from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { seed, DEMO_USER, rpcHandlers, functionHandlers } from './seed.mjs';
+
+const PORT = Number(process.argv[2] || process.env.FAKE_BACKEND_PORT || 54329);
+const tables = new Map(Object.entries(seed()).map(([name, rows]) => [name, rows]));
+const log = (...a) => { if (process.env.FAKE_BACKEND_LOG) console.log(...a); };
+
+const cors = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': '*',
+  'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+  'access-control-expose-headers': 'content-range, content-type',
+};
+const send = (res, status, body, extra = {}) => {
+  const text = body === undefined ? '' : typeof body === 'string' ? body : JSON.stringify(body);
+  res.writeHead(status, { ...cors, 'content-type': 'application/json', ...extra });
+  res.end(text);
+};
+const readBody = (req) => new Promise((resolve) => {
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => resolve(Buffer.concat(chunks)));
+});
+
+// ---------- PostgREST filters ----------
+const getPath = (row, col) => {
+  // data->>field, data->field, data->a->>b
+  const parts = col.split('->');
+  let v = row[parts[0]];
+  for (let i = 1; i < parts.length; i++) {
+    const key = parts[i].replace(/^>/, '');
+    v = v == null ? undefined : v[key];
+  }
+  return v;
+};
+const cmp = (a, b) => {
+  if (a == null && b == null) return 0;
+  if (a == null) return -1;
+  if (b == null) return 1;
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+};
+const coerce = (cell, raw) => (typeof cell === 'number' ? Number(raw) : typeof cell === 'boolean' ? raw === 'true' : raw);
+const likeToRe = (p, ci) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', ci ? 'i' : '');
+const splitTop = (s) => { const out = []; let d = 0, cur = ''; for (const ch of s) { if (ch === '(') d++; if (ch === ')') d--; if (ch === ',' && d === 0) { out.push(cur); cur = ''; } else cur += ch; } if (cur) out.push(cur); return out; };
+const parseList = (s) => splitTop(s.replace(/^\(|\)$/g, '')).map((x) => x.replace(/^"|"$/g, ''));
+
+function test(row, col, expr) {
+  let negate = false;
+  let [op, ...rest] = [expr.slice(0, expr.indexOf('.')), expr.slice(expr.indexOf('.') + 1)];
+  if (op === 'not') { negate = true; [op, ...rest] = [rest[0].slice(0, rest[0].indexOf('.')), rest[0].slice(rest[0].indexOf('.') + 1)]; }
+  const val = rest.join('.');
+  const cell = getPath(row, col);
+  let ok;
+  switch (op) {
+    case 'eq': ok = cell != null && String(cell) === val; break;
+    case 'neq': ok = cell == null || String(cell) !== val; break;
+    case 'gt': ok = cmp(cell, coerce(cell, val)) > 0; break;
+    case 'gte': ok = cmp(cell, coerce(cell, val)) >= 0; break;
+    case 'lt': ok = cell != null && cmp(cell, coerce(cell, val)) < 0; break;
+    case 'lte': ok = cell != null && cmp(cell, coerce(cell, val)) <= 0; break;
+    case 'like': ok = cell != null && likeToRe(val, false).test(String(cell)); break;
+    case 'ilike': ok = cell != null && likeToRe(val, true).test(String(cell)); break;
+    case 'is': ok = val === 'null' ? cell == null : val === 'true' ? cell === true : val === 'false' ? cell === false : false; break;
+    case 'in': ok = parseList(val).includes(String(cell)); break;
+    case 'cs': { try { const need = JSON.parse(val.replace(/^\{/, '[').replace(/\}$/, ']')); const arr = Array.isArray(cell) ? cell : []; ok = need.every((n) => arr.some((x) => JSON.stringify(x) === JSON.stringify(n))); } catch { ok = false; } break; }
+    default: ok = true;
+  }
+  return negate ? !ok : ok;
+}
+function orTest(row, group) {
+  return splitTop(group.replace(/^\(|\)$/g, '')).some((part) => {
+    const m = part.match(/^([^.]+)\.(.+)$/);
+    return m ? test(row, m[1], m[2]) : false;
+  });
+}
+const RESERVED = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
+function applyFilters(rows, url) {
+  let out = rows;
+  for (const [k, v] of url.searchParams) {
+    if (RESERVED.has(k)) continue;
+    if (k === 'or') out = out.filter((r) => orTest(r, v));
+    else if (k === 'and') out = out.filter((r) => splitTop(v.replace(/^\(|\)$/g, '')).every((p) => { const m = p.match(/^([^.]+)\.(.+)$/); return m ? test(r, m[1], m[2]) : true; }));
+    else out = out.filter((r) => test(r, k, v));
+  }
+  const order = url.searchParams.get('order');
+  if (order) {
+    const keys = order.split(',').map((o) => { const [c, ...f] = o.split('.'); return { c, desc: f.includes('desc') }; });
+    out = [...out].sort((a, b) => { for (const { c, desc } of keys) { const r = cmp(getPath(a, c), getPath(b, c)); if (r) return desc ? -r : r; } return 0; });
+  }
+  return out;
+}
+function project(rows, select) {
+  if (!select || select === '*') return rows;
+  const cols = splitTop(select).map((s) => s.trim()).filter(Boolean);
+  if (cols.some((c) => c === '*')) return rows;
+  return rows.map((r) => {
+    const o = {};
+    for (const c of cols) {
+      if (c.includes('(')) continue; // embedded resource: not supported, left out
+      const alias = c.match(/^([A-Za-z0-9_]+):(.+)$/);
+      const target = alias ? alias[2] : c;
+      o[alias ? alias[1] : target.replace(/.*->>?/, '')] = getPath(r, target.replace(/::.*/, ''));
+    }
+    return o;
+  });
+}
+
+// ---------- REST ----------
+async function rest(req, res, url, name) {
+  const method = req.method;
+  const buf = await readBody(req);
+  let body; try { body = buf.length ? JSON.parse(buf.toString('utf8')) : undefined; } catch { body = undefined; }
+  const prefer = String(req.headers.prefer || '');
+  const wantsRows = /return=representation/.test(prefer);
+  const accept = String(req.headers.accept || '');
+  const singleObject = /vnd\.pgrst\.object/.test(accept);
+  if (!tables.has(name)) tables.set(name, []);
+  const rows = tables.get(name);
+
+  if (method === 'GET' || method === 'HEAD') {
+    const filtered = applyFilters(rows, url);
+    const total = filtered.length;
+    const off = Number(url.searchParams.get('offset') || 0);
+    let lim = url.searchParams.get('limit') != null ? Number(url.searchParams.get('limit')) : undefined;
+    const range = String(req.headers.range || '');
+    let from = off;
+    const rm = range.match(/^(\d+)-(\d+)$/);
+    if (rm) { from = Number(rm[1]); lim = Number(rm[2]) - Number(rm[1]) + 1; }
+    const page = filtered.slice(from, lim != null ? from + lim : undefined);
+    const out = project(page, url.searchParams.get('select'));
+    const headers = { 'content-range': `${total ? from : '*'}-${from + page.length - (page.length ? 1 : 0)}/${total}` };
+    if (singleObject) {
+      if (out.length !== 1) return send(res, 406, { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned', details: `The result contains ${out.length} rows`, hint: null }, headers);
+      return send(res, 200, out[0], headers);
+    }
+    return send(res, 200, method === 'HEAD' ? '' : out, headers);
+  }
+  if (method === 'POST') {
+    const list = Array.isArray(body) ? body : body ? [body] : [];
+    const merge = /resolution=merge-duplicates/.test(prefer);
+    const ignore = /resolution=ignore-duplicates/.test(prefer);
+    const conflict = (url.searchParams.get('on_conflict') || 'id').split(',');
+    const saved = [];
+    for (const item of list) {
+      const row = { id: randomUUID(), created_at: new Date().toISOString(), user_id: DEMO_USER.id, ...item };
+      const existing = (merge || ignore) ? rows.find((r) => conflict.every((c) => r[c] != null && r[c] === row[c])) : undefined;
+      if (existing) { if (merge) Object.assign(existing, item, { updated_at: new Date().toISOString() }); saved.push(existing); }
+      else { rows.push(row); saved.push(row); }
+    }
+    log('POST', name, saved.length);
+    if (!wantsRows) return send(res, 201, '');
+    const out = project(saved, url.searchParams.get('select'));
+    return singleObject ? send(res, 201, out[0] ?? null) : send(res, 201, out);
+  }
+  if (method === 'PATCH' || method === 'PUT') {
+    const targets = applyFilters(rows, url);
+    for (const r of targets) Object.assign(r, body || {}, { updated_at: new Date().toISOString() });
+    log('PATCH', name, targets.length);
+    if (!wantsRows) return send(res, 204, '');
+    const out = project(targets, url.searchParams.get('select'));
+    return singleObject ? send(res, 200, out[0] ?? null) : send(res, 200, out);
+  }
+  if (method === 'DELETE') {
+    const targets = new Set(applyFilters(rows, url));
+    tables.set(name, rows.filter((r) => !targets.has(r)));
+    log('DELETE', name, targets.size);
+    return wantsRows ? send(res, 200, [...targets]) : send(res, 204, '');
+  }
+  return send(res, 405, { message: 'method not allowed' });
+}
+
+// ---------- server ----------
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const p = url.pathname;
+  if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+  try {
+    if (p === '/__health') return send(res, 200, { ok: true, tables: [...tables.keys()] });
+    if (p === '/__tables') return send(res, 200, Object.fromEntries([...tables].map(([k, v]) => [k, v.length])));
+    if (p === '/__reset') { tables.clear(); for (const [k, v] of Object.entries(seed())) tables.set(k, v); return send(res, 200, { ok: true }); }
+    // auth
+    if (p.startsWith('/auth/v1/')) {
+      if (p.endsWith('/user')) return send(res, 200, DEMO_USER);
+      if (p.endsWith('/token')) return send(res, 200, { access_token: 'demo', token_type: 'bearer', expires_in: 3600, refresh_token: 'demo', user: DEMO_USER });
+      if (p.endsWith('/logout')) return send(res, 204, '');
+      return send(res, 200, {});
+    }
+    // rest + rpc
+    if (p.startsWith('/rest/v1/rpc/')) {
+      const fn = p.slice('/rest/v1/rpc/'.length);
+      const buf = await readBody(req);
+      let args = {}; try { args = buf.length ? JSON.parse(buf.toString('utf8')) : {}; } catch { /* ignore */ }
+      const h = rpcHandlers[fn];
+      log('RPC', fn);
+      return send(res, 200, h ? h(args, tables) : null);
+    }
+    if (p.startsWith('/rest/v1/')) return await rest(req, res, url, p.slice('/rest/v1/'.length));
+    // edge functions
+    if (p.startsWith('/functions/v1/')) {
+      const fn = p.slice('/functions/v1/'.length);
+      const buf = await readBody(req);
+      let args = {}; try { args = buf.length ? JSON.parse(buf.toString('utf8')) : {}; } catch { /* ignore */ }
+      const h = functionHandlers[fn];
+      log('FUNCTION', fn, args && args.task);
+      return send(res, 200, h ? await h(args, tables) : {});
+    }
+    // storage: accept uploads, serve nothing real (demo images are served by the page itself, see seed.mjs)
+    if (p.startsWith('/storage/v1/')) {
+      if (req.method === 'GET' && p.includes('/object/')) return send(res, 404, { message: 'not found' });
+      await readBody(req);
+      if (req.method === 'POST' || req.method === 'PUT') return send(res, 200, { Key: p.replace('/storage/v1/object/', ''), Id: randomUUID() });
+      return send(res, 200, []);
+    }
+    return send(res, 404, { message: 'not found', path: p });
+  } catch (e) {
+    console.error('fake backend error', req.method, p, e);
+    return send(res, 500, { message: String(e && e.message || e) });
+  }
+});
+server.listen(PORT, '127.0.0.1', () => console.log(`fake backend on http://127.0.0.1:${PORT}`));
