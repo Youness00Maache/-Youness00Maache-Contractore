@@ -234,11 +234,10 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   EVERYTHING BELOW IS SHIPPED AND LIVE (main = my-branch = abb05e1 + docs): N1, N2, D2, D4, D9, D1, D3, N4, N12, D13, D5, N5, N3,
   N8, D7, D10, N7, D8, N10, N6. All migrations 20261116000100..001100 are APPLIED (headers say so). No helper is running.
   REMAINING (each = Opus phase A, review SQL, apply, Sonnet phase B UI, then ship):
-    1. N11 job timeline + D11 email log (#19/#4/#46): D11 = new table email_log written by the `gmail` edge function when it
-       sends (redeploy gmail; check `supabase/functions/gmail`) + owner RLS; N11 = one per-job "Timeline" tab (documents
-       created/sent/approved/signed/paid, daily reports + time sheets + material logs of that day, photos, notes, reminders
-       sent, emails from email_log, tasks done, questions answered, selections chosen; dictated "conversation note" -> Note
-       document). Mostly derived client-side: Sonnet can build the timeline from existing data first (no DB), D11 after.
+    1. D11 email log (#4/#46): N11 (timeline) is DONE and shipped (57fce1c); D11 = new table email_log written by the `gmail`
+       edge function when it sends (redeploy gmail; check `supabase/functions/gmail`) + owner RLS, then fill the empty
+       "email" source slot of the timeline (lib/timeline/sources). Opus phase A (SQL + gmail function + data layer), small
+       Sonnet phase B (timeline source + a "Sent emails" list).
     2. N9 plan measurement (#7): job "Plans" tool (PDF/image upload to document-assets <user>/plans/<job>/, pdf.js render,
        calibrate by a known length, line/area/count tools with labels, totals per label, send to an estimate as lines with
        price-book match; measurements JSON stored next to the plan). No DB. Opus.
@@ -268,6 +267,12 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED N11 job Timeline tab (per-job tab after Photos: 16 sources derived client-side: documents sent/signed/paid/
+  converted, daily reports with hours + materials, photos by day/stage, notes, punch, tasks, questions, selections, subs,
+  quotes, warranty, feedback, reminders, crew time, expenses, POs; filters, search, paging; "Log a conversation" note ->
+  Note document (+ optional follow-up task); email source = empty slot for D11). No DB. main/my-branch 57fce1c; suite green
+  (49 steps); live bundle has "Log a conversation". ai-assistant NOT redeployed (help knowledge only): redeploy it with the
+  next release. Untested: the real documents query, offline note sync after reconnect, microphone.
 - 2026-11-15 SHIPPED N6 AI document understanding (ai-assistant task `read_document`: 1-4 photos or one PDF <= 4 MB / 10 pages ->
   vendor, date, number, lines, subtotal/tax/total, category from the Expense Log list, per-field confidence, warnings; Expense
   Log "Read with AI" review screen with editable fields + "adds up" indicator; Save uses the existing expense save; Premium + AI;
