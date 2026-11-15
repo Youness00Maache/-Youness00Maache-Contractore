@@ -155,9 +155,9 @@ export const jobDatesText = (job: Pick<DashboardJobSummary, 'startDate' | 'endDa
 };
 
 // =============================================================================================== progress / milestones
-/** "7 of 12 tasks done (58%)"; "" when the job has no tasks. */
+/** "7 of 12 steps done" (the percentage is shown next to the bar); "" when the job has no tasks. */
 export const progressLabel = (p: DashboardProgress | null): string =>
-    p && p.total > 0 ? `${p.done} of ${plural(p.total, 'task')} done (${p.percent}%)` : '';
+    p && p.total > 0 ? `${p.done} of ${plural(p.total, 'step')} done` : '';
 
 /** done / overdue (due day passed) / due_soon (within 7 days, today included) / upcoming / no_date. */
 export const milestoneState = (m: Pick<DashboardMilestone, 'status' | 'dueDate'>, today: string, soonDays = 7): MilestoneState => {
@@ -347,6 +347,63 @@ export function buildDashboardView(d: PortalDashboard, now: Date = new Date()): 
         selections: d.selections,
     };
 }
+
+// =============================================================================================== portal screen helpers
+/** The job shown first: the first one in progress, else the first not completed, else the first (the list is newest first). */
+export const pickDefaultJob = <T extends Pick<DashboardJobSummary, 'status'>>(jobs: readonly T[]): T | null =>
+    jobs.find(j => low(j.status) === 'active') || jobs.find(j => low(j.status) !== 'completed') || jobs[0] || null;
+
+export type TimelineRole = 'done' | 'next' | 'upcoming';
+export interface TimelineItem { milestone: MilestoneView; role: TimelineRole }
+
+/** Each milestone with its place on the timeline: finished, the one highlighted as next, or coming up. */
+export const timelineItems = (milestones: readonly MilestoneView[], next: MilestoneView | null): TimelineItem[] =>
+    milestones.map(m => ({ milestone: m, role: m.status === 'done' ? 'done' : next && m.id === next.id ? 'next' : 'upcoming' }));
+
+/**
+ * Long timelines: keep the last `keepDone` finished steps and fold the earlier finished ones behind a button
+ * (only when that hides at least `minHidden`, so the button never replaces a single row).
+ */
+export const collapseTimeline = (items: readonly TimelineItem[], expanded: boolean, keepDone = 2, minHidden = 2): { items: TimelineItem[]; hiddenCount: number } => {
+    const doneIdx = items.map((it, i) => (it.role === 'done' ? i : -1)).filter(i => i >= 0);
+    const hide = doneIdx.length - keepDone;
+    if (expanded || hide < minHidden) return { items: [...items], hiddenCount: 0 };
+    const hidden = new Set(doneIdx.slice(0, hide));
+    return { items: items.filter((_, i) => !hidden.has(i)), hiddenCount: hidden.size };
+};
+
+export type StepAction = 'sign' | 'open' | 'punch';
+
+/** What a "What happens next" row can open (null = nothing to tap). */
+export const nextStepAction = (step: Pick<NextStep, 'kind' | 'refId'>): StepAction | null => {
+    if (step.kind === 'sign') return step.refId ? 'sign' : null;
+    if (step.kind === 'pay' || step.kind === 'pay_overdue') return step.refId ? 'open' : null;
+    if (step.kind === 'punch_check') return 'punch';
+    return null;
+};
+
+export const stepActionLabel = (a: StepAction): string => (a === 'sign' ? 'Review' : a === 'open' ? 'Open' : 'See list');
+
+/** Share of the project's invoiced total that is paid, 0-100 (whole numbers). */
+export const paidPercent = (b: Pick<BalanceSummary, 'total' | 'paid'> | null): number =>
+    b && b.total > 0 ? Math.max(0, Math.min(100, Math.round((b.paid / b.total) * 100))) : 0;
+
+export type DashboardSection = 'header' | 'progress' | 'milestones' | 'next' | 'balance' | 'documents' | 'photos' | 'punch' | 'selections';
+
+/** Which sections the portal shows for this view, in display order. Empty ones are left out (friendly, never an empty box). */
+export const visibleSections = (view: DashboardView): DashboardSection[] => {
+    const out: DashboardSection[] = [];
+    if (view.job) out.push('header');
+    if (view.progress && view.progress.total > 0) out.push('progress');
+    if (view.milestones.length) out.push('milestones');
+    if (view.nextSteps.length) out.push('next');
+    if (view.balance) out.push('balance');
+    if (view.documents.length) out.push('documents');
+    if (view.photos.length) out.push('photos');
+    if (view.punchLabel) out.push('punch');
+    if (view.selections.length) out.push('selections');
+    return out;
+};
 
 // =============================================================================================== owner preview
 /** Local data for the contractor's preview (shapes loose on purpose: app types fit). */

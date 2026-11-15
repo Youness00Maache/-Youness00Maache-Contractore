@@ -8,8 +8,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    balanceSummary, buildDashboardView, docNumberOf, fmtYmd, isInvoiceOverdue, jobDatesText, jobStatusLabel,
-    milestoneState, milestoneWhenText, nextMilestoneText, ownerPreviewDashboard, parseDashboard, progressLabel, punchLabel,
+    balanceSummary, buildDashboardView, collapseTimeline, docNumberOf, fmtYmd, isInvoiceOverdue, jobDatesText, jobStatusLabel,
+    milestoneState, milestoneWhenText, nextMilestoneText, nextStepAction, ownerPreviewDashboard, paidPercent, parseDashboard,
+    pickDefaultJob, progressLabel, punchLabel, stepActionLabel, timelineItems, visibleSections,
 } from '../lib/portal/dashboardLogic.ts';
 import { DASHBOARD_KEYS, DASHBOARD_LIMITS, MILESTONE_KEYS } from '../lib/portal/dashboardTypes.ts';
 import { READ_ONLY_RPCS } from '../lib/offline/writePathScan.ts';
@@ -84,8 +85,8 @@ eq('job status label', [jobStatusLabel('active'), jobStatusLabel('completed'), j
 eq('job dates range', jobDatesText({ startDate: '2026-11-03', endDate: '2026-12-20' }, TODAY), 'Nov 3 - Dec 20, 2026');
 eq('job dates start ahead', jobDatesText({ startDate: '2026-12-01', endDate: null }, TODAY), 'Starts Dec 1, 2026');
 eq('job dates none', jobDatesText({ startDate: null, endDate: null }, TODAY), '');
-eq('progress label', progressLabel({ done: 7, total: 12, percent: 58 }), '7 of 12 tasks done (58%)');
-eq('progress label one', progressLabel({ done: 0, total: 1, percent: 0 }), '0 of 1 task done (0%)');
+eq('progress label', progressLabel({ done: 7, total: 12, percent: 58 }), '7 of 12 steps done');
+eq('progress label one', progressLabel({ done: 0, total: 1, percent: 0 }), '0 of 1 step done');
 eq('progress label none', progressLabel(null), '');
 eq('milestone states', parsed.milestones.map(m => milestoneState(m, TODAY)), ['done', 'overdue', 'due_soon', 'no_date']);
 eq('milestone when', parsed.milestones.map(m => milestoneWhenText(m, TODAY)), ['Done Nov 6', 'Planned for Nov 18', 'Due in 4 days', 'No date yet']);
@@ -111,7 +112,7 @@ eq('balance none without invoices', balanceSummary([], TODAY), null);
 
 // ============================================================================================ view
 const view = buildDashboardView(parsed, NOW);
-eq('view status', [view.statusLabel, view.datesText, view.progressLabel], ['In progress', 'Nov 3 - Dec 20, 2026', '7 of 12 tasks done (58%)']);
+eq('view status', [view.statusLabel, view.datesText, view.progressLabel], ['In progress', 'Nov 3 - Dec 20, 2026', '7 of 12 steps done']);
 eq('view next milestone (server pick, overdue)', view.nextMilestone?.id, 'm2');
 eq('view rows newest first', view.documents.map(r => r.id), ['e1', 'd4', 'd3', 'd2', 'd1']);
 const e1 = view.documents[0];
@@ -131,6 +132,51 @@ eq('view selections placeholder', view.selections, []);
 const quiet = buildDashboardView(parseDashboard({ job: { id: 'j', name: 'Deck', status: 'inactive', start_date: '2026-12-01' } }), NOW);
 eq('quiet job: start date step only', quiet.nextSteps.map(s => s.text), ['Work starts Dec 1']);
 eq('quiet job: no balance / progress', [quiet.balance, quiet.progress, quiet.progressLabel], [null, null, '']);
+
+// ============================================================================================ portal screen helpers
+const J = (id: string, status: string) => ({ id, name: id, status, startDate: null, endDate: null });
+eq('default job: in progress first', pickDefaultJob([J('a', 'completed'), J('b', 'active'), J('c', 'active')])?.id, 'b');
+eq('default job: else not completed', pickDefaultJob([J('a', 'completed'), J('b', 'inactive')])?.id, 'b');
+eq('default job: all completed -> newest', pickDefaultJob([J('a', 'completed'), J('b', 'completed')])?.id, 'a');
+eq('default job: none', pickDefaultJob([]), null);
+
+const tl = timelineItems(view.milestones, view.nextMilestone);
+eq('timeline roles', tl.map(t => t.role), ['done', 'next', 'upcoming', 'upcoming']);
+eq('timeline without a next one', timelineItems(view.milestones, null).map(t => t.role), ['done', 'upcoming', 'upcoming', 'upcoming']);
+const mk = (id: string, status: 'done' | 'todo') => ({ id, title: id, dueDate: null, status, completedAt: null, state: status === 'done' ? 'done' as const : 'no_date' as const, whenText: '' });
+const long = timelineItems([mk('d1', 'done'), mk('d2', 'done'), mk('d3', 'done'), mk('d4', 'done'), mk('d5', 'done'), mk('n1', 'todo'), mk('u1', 'todo')], mk('n1', 'todo'));
+const folded = collapseTimeline(long, false);
+eq('long timeline folds earlier finished steps', [folded.hiddenCount, folded.items.map(i => i.milestone.id)], [3, ['d4', 'd5', 'n1', 'u1']]);
+eq('long timeline expanded', collapseTimeline(long, true).items.length, 7);
+eq('short timeline never folds one row', collapseTimeline(long.slice(2), false).hiddenCount, 0);
+eq('timeline: folds nothing when few finished', collapseTimeline(tl, false).hiddenCount, 0);
+
+eq('step action sign', nextStepAction({ kind: 'sign', refId: 'e1' }), 'sign');
+eq('step action sign without document', nextStepAction({ kind: 'sign', refId: null }), null);
+eq('step action pay', [nextStepAction({ kind: 'pay', refId: 'd3' }), nextStepAction({ kind: 'pay_overdue', refId: 'd1' })], ['open', 'open']);
+eq('step action punch', nextStepAction({ kind: 'punch_check', refId: null }), 'punch');
+eq('step action none for milestones / start', [nextStepAction({ kind: 'milestone', refId: 'm' }), nextStepAction({ kind: 'job_start', refId: null }), nextStepAction({ kind: 'milestone_overdue', refId: 'm' })], [null, null, null]);
+eq('step action labels', [stepActionLabel('sign'), stepActionLabel('open'), stepActionLabel('punch')], ['Review', 'Open', 'See list']);
+eq('paid percent', [paidPercent(bal), paidPercent(null), paidPercent({ total: 0, paid: 0 }), paidPercent({ total: 100, paid: 150 })], [24, 0, 0, 100]);
+
+eq('sections: full project', visibleSections(view), ['header', 'progress', 'milestones', 'next', 'balance', 'documents', 'photos', 'punch']);
+eq('sections: quiet job', visibleSections(quiet), ['header', 'next']);
+const bare = buildDashboardView(parseDashboard({ job: { id: 'j', name: 'Deck', status: 'active' } }), NOW);
+eq('sections: nothing to show -> header only', visibleSections(bare), ['header']);
+eq('sections: no job -> nothing', visibleSections(buildDashboardView(parseDashboard(null), NOW)), []);
+const noTasks = buildDashboardView(parseDashboard({ ...RAW, progress: null, milestones: [], next_milestone: null }), NOW);
+ok('no tasks: no progress bar', !visibleSections(noTasks).includes('progress'));
+ok('no milestones: no timeline', !visibleSections(noTasks).includes('milestones'));
+const noPhotos = buildDashboardView(parseDashboard({ ...RAW, photos: [] }), NOW);
+ok('no photos: no photo strip', !visibleSections(noPhotos).includes('photos'));
+const noPunch = buildDashboardView(parseDashboard({ ...RAW, punch: null }), NOW);
+ok('punch not shared: no punch line', !visibleSections(noPunch).includes('punch'));
+ok('empty punch list: no punch line', !visibleSections(buildDashboardView(parseDashboard({ ...RAW, punch: { total: 0, open: 0, done: 0, verified: 0 } }), NOW)).includes('punch'));
+const noDocs = buildDashboardView(parseDashboard({ ...RAW, documents: [] }), NOW);
+ok('no documents: no balance, no list', !visibleSections(noDocs).some(x => x === 'balance' || x === 'documents'));
+ok('selections shown only when there are some',
+    !visibleSections(view).includes('selections') && visibleSections(buildDashboardView(parseDashboard({ ...RAW, selections: [{}] }), NOW)).includes('selections'));
+eq('step "pay" row opens the document it names', view.nextSteps.filter(s => nextStepAction(s) === 'open').map(s => s.refId), ['d1', 'd3']);
 
 // ============================================================================================ owner preview
 const preview = ownerPreviewDashboard({

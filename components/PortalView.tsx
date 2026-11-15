@@ -4,6 +4,10 @@
  * "Review & sign" on estimates and change orders the client hasn't answered, and Download on every document; plus
  * pay now, "I've paid", decline with a reason and shared job photos. Drafts are not shown (the database leaves
  * them out). Building blocks live in DocumentApprovalView.tsx, the rules in utils/clientPortalRules.ts.
+ *
+ * Project view (roadmap D9, components/portal/): a client who has jobs also gets "Project" (the job's progress,
+ * milestones, what happens next, balance + its documents, photos) next to "All documents" (the list below, unchanged).
+ * Without jobs, or while the database doesn't have get_portal_project_dashboard yet, the page is exactly the old one.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
@@ -15,6 +19,10 @@ import { groupPortalDocuments } from '../utils/clientPortalRules.ts';
 import PortalPhotos from './photos/PortalPhotos.tsx';
 import PortalPunchList from './punch/PortalPunchList.tsx';
 import PortalCredentials from './papers/PortalCredentials.tsx';
+import PortalProjectDashboard, { JobSwitcher, ProjectSkeleton } from './portal/PortalProjectDashboard.tsx';
+import { usePortalDashboard } from './portal/usePortalDashboard.ts';
+import type { DashboardDocumentRow, NextStep } from '../lib/portal/dashboardTypes.ts';
+import type { StepAction } from '../lib/portal/dashboardLogic.ts';
 import PortalServicePlans from './service/PortalServicePlans.tsx';
 import { choiceOf, optionRange, withEffectiveLines } from '../lib/estimateOptions.ts';
 import {
@@ -184,6 +192,9 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
     const [documents, setDocuments] = useState<PublicDocument[]>([]);
     const [tab, setTab] = useState<TabId>('invoices');
     const [tabTouched, setTabTouched] = useState(false);
+    /** only for clients with jobs: the project view (default) or the full document list */
+    const [section, setSection] = useState<'project' | 'documents'>('project');
+    const dash = usePortalDashboard(key);
     const [openDoc, setOpenDoc] = useState<{ id: string; signing: boolean; session: number } | null>(null);
     const [outcomes, setOutcomes] = useState<Record<string, SigningOutcome>>({});
     const [problems, setProblems] = useState<Record<string, LinkProblem>>({});
@@ -229,6 +240,10 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
 
     useEffect(() => { load(); }, [load]);
 
+    /** after a signature or a payment note: the document list and the project dashboard both refresh quietly */
+    const refreshDashboard = dash.refresh;
+    const reload = useCallback(() => { void load(true); refreshDashboard(); }, [load, refreshDashboard]);
+
     // Outstanding = every unpaid invoice (old portal: all invoices not Paid; Cancelled never counts)
     const groups = useMemo(() => groupPortalDocuments(documents), [documents]);
 
@@ -254,12 +269,15 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
         if (modalBusy) return;
         setOpenDoc(null);
     };
+    /** picking a document tab always lands on the full list (also from the project view's "Review now") */
     const selectTab = (id: TabId) => {
         setTab(id);
         setTabTouched(true);
+        setSection('documents');
     };
 
-    if (status === 'loading') return <PublicPageSkeleton />;
+    // the first answer of the project dashboard is waited for a moment (capped) so the page doesn't jump
+    if (status === 'loading' || (status === 'ready' && !dash.settled)) return <PublicPageSkeleton />;
     if (status === 'error' || !contractor) {
         return (
             <LinkErrorPage
@@ -280,6 +298,34 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
     const currentProblem = current ? problems[current.id] : undefined;
     const currentSignable = !!current && getDocState(current) === 'open' && !currentOutcome && !currentProblem;
 
+    // ---- project view (clients with jobs) ----
+    const showProject = dash.phase === 'ready' && section === 'project';
+    const projectDocIds = new Set((dash.view?.documents || []).map((r) => r.id));
+    /** documents to sign that the project view doesn't list (other jobs, or no job) */
+    const awaitingShown = showProject ? groups.awaiting.filter((d) => !projectDocIds.has(d.id)) : groups.awaiting;
+    const renderProjectDocument = (row: DashboardDocumentRow) => {
+        const doc = documents.find((d) => d.id === row.id);
+        return doc ? (
+            <DocumentRow
+                doc={doc}
+                contractor={contractor}
+                clientName={clientName}
+                onView={() => openDocument(doc.id, false)}
+                onSign={() => openDocument(doc.id, true)}
+                onDownloadError={setPageError}
+            />
+        ) : null;
+    };
+    /** the punch list section sits at the bottom of the page; leave room for the sticky header */
+    const scrollToPunch = () => {
+        const el = document.getElementById('portal-punch-heading');
+        if (el) window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 96), behavior: 'smooth' });
+    };
+    const onProjectStep = (step: NextStep, action: StepAction) => {
+        if (action === 'punch') scrollToPunch();
+        else if (step.refId) openDocument(step.refId, action === 'sign');
+    };
+
     return (
         <div className="flex min-h-screen flex-col bg-background text-foreground">
             <BrandHeader contractor={contractor} />
@@ -293,100 +339,159 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                     </p>
                 </section>
 
-                <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <StatCard
-                        className="col-span-2 sm:col-span-1"
-                        label="Outstanding balance"
-                        value={formatMoney(groups.outstanding, groups.currency)}
-                        hint={groups.unpaid.length ? `${groups.unpaid.length} unpaid invoice${groups.unpaid.length === 1 ? '' : 's'}` : 'Nothing due right now'}
-                        icon={<CreditCardIcon className="h-4 w-4" />}
-                    />
-                    <StatCard
-                        label="To sign"
-                        value={String(groups.awaiting.length)}
-                        hint={groups.awaiting.length ? 'Waiting for you' : 'All caught up'}
-                        icon={<PenIcon className="h-4 w-4" />}
-                        highlight={groups.awaiting.length > 0}
-                    />
-                    <StatCard
-                        label="Documents"
-                        value={String(documents.length)}
-                        hint={`Shared by ${company}`}
-                        icon={<FileTextIcon className="h-4 w-4" />}
-                    />
-                </div>
+                {dash.phase === 'error' && (
+                    <p className="mt-4 text-sm text-muted-foreground" role="status">
+                        We couldn&apos;t load your project overview.{' '}
+                        <button type="button" className="font-semibold text-primary underline underline-offset-2" onClick={dash.retry}>Try again</button>
+                    </p>
+                )}
 
-                {groups.awaiting.length > 0 && tab !== 'approvals' && (
+                {dash.phase === 'ready' && (
+                    <div role="tablist" aria-label="Portal sections" className="mt-6 grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1">
+                        {([['project', 'Project', null], ['documents', 'All documents', documents.length]] as const).map(([id, label, count]) => {
+                            const active = section === id;
+                            return (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={active}
+                                    onClick={() => setSection(id)}
+                                    className={cx(
+                                        'flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-semibold transition',
+                                        active ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
+                                    )}
+                                >
+                                    <span className="truncate">{label}</span>
+                                    {count !== null && <span className={cx('rounded-full px-1.5 text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-background/60')}>{count}</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {!showProject && (
+                    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <StatCard
+                            className="col-span-2 sm:col-span-1"
+                            label="Outstanding balance"
+                            value={formatMoney(groups.outstanding, groups.currency)}
+                            hint={groups.unpaid.length ? `${groups.unpaid.length} unpaid invoice${groups.unpaid.length === 1 ? '' : 's'}` : 'Nothing due right now'}
+                            icon={<CreditCardIcon className="h-4 w-4" />}
+                        />
+                        <StatCard
+                            label="To sign"
+                            value={String(groups.awaiting.length)}
+                            hint={groups.awaiting.length ? 'Waiting for you' : 'All caught up'}
+                            icon={<PenIcon className="h-4 w-4" />}
+                            highlight={groups.awaiting.length > 0}
+                        />
+                        <StatCard
+                            label="Documents"
+                            value={String(documents.length)}
+                            hint={`Shared by ${company}`}
+                            icon={<FileTextIcon className="h-4 w-4" />}
+                        />
+                    </div>
+                )}
+
+                {awaitingShown.length > 0 && (showProject || tab !== 'approvals') && (
                     <Notice
                         tone="warning"
                         className="mt-4"
-                        title={`${groups.awaiting.length} document${groups.awaiting.length === 1 ? ' is' : 's are'} waiting for your signature`}
+                        title={`${awaitingShown.length} ${showProject ? 'more ' : ''}document${awaitingShown.length === 1 ? ' is' : 's are'} waiting for your signature`}
                         action={<button type="button" className="btn btn-primary btn-sm min-h-[40px]" onClick={() => selectTab('approvals')}>Review now</button>}
                     />
                 )}
 
                 {pageError && <Notice tone="danger" className="mt-4" onClose={() => setPageError('')}>{pageError}</Notice>}
 
-                {documents.length === 0 ? (
-                    <EmptyState
-                        className="mt-8"
-                        icon={<FileTextIcon className="h-6 w-6" />}
-                        title="No documents yet"
-                        description={`When ${company} shares invoices, estimates or reports with you, they'll show up here.`}
-                    />
+                {showProject ? (
+                    <div className="mt-6">
+                        {dash.jobPhase === 'ready' && dash.view ? (
+                            <PortalProjectDashboard
+                                view={dash.view}
+                                onSelectJob={dash.selectJob}
+                                renderDocument={renderProjectDocument}
+                                onStepAction={onProjectStep}
+                                onOpenPunch={scrollToPunch}
+                            />
+                        ) : (
+                            <div className="space-y-4">
+                                {dash.jobs.length > 1 && <JobSwitcher jobs={dash.jobs} activeId={dash.jobId} onSelect={dash.selectJob} />}
+                                {dash.jobPhase === 'error' ? (
+                                    <p className="text-sm text-muted-foreground" role="status">
+                                        We couldn&apos;t load this project.{' '}
+                                        <button type="button" className="font-semibold text-primary underline underline-offset-2" onClick={dash.retryJob}>Try again</button>
+                                    </p>
+                                ) : <ProjectSkeleton />}
+                            </div>
+                        )}
+                    </div>
                 ) : (
                     <>
-                        <div role="tablist" aria-label="Document types" className="mt-8 grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1">
-                            {TABS.map((t) => {
-                                const active = tab === t.id;
-                                return (
-                                    <button
-                                        key={t.id}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={active}
-                                        onClick={() => selectTab(t.id)}
-                                        className={cx(
-                                            'flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-semibold transition sm:text-sm',
-                                            active ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
-                                        )}
-                                    >
-                                        <span className="truncate sm:hidden">{t.short}</span>
-                                        <span className="hidden truncate sm:inline">{t.label}</span>
-                                        <span className={cx('rounded-full px-1.5 text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-background/60')}>
-                                            {counts[t.id]}
-                                        </span>
-                                    </button>
-                                );
-                            })}
-                        </div>
+                    {documents.length === 0 ? (
+                        <EmptyState
+                            className="mt-8"
+                            icon={<FileTextIcon className="h-6 w-6" />}
+                            title="No documents yet"
+                            description={`When ${company} shares invoices, estimates or reports with you, they'll show up here.`}
+                        />
+                    ) : (
+                        <>
+                            <div role="tablist" aria-label="Document types" className="mt-8 grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1">
+                                {TABS.map((t) => {
+                                    const active = tab === t.id;
+                                    return (
+                                        <button
+                                            key={t.id}
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={active}
+                                            onClick={() => selectTab(t.id)}
+                                            className={cx(
+                                                'flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-semibold transition sm:text-sm',
+                                                active ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground',
+                                            )}
+                                        >
+                                            <span className="truncate sm:hidden">{t.short}</span>
+                                            <span className="hidden truncate sm:inline">{t.label}</span>
+                                            <span className={cx('rounded-full px-1.5 text-[11px] tabular-nums', active ? 'bg-primary/10 text-primary' : 'bg-background/60')}>
+                                                {counts[t.id]}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
 
-                        <div className="mt-4 space-y-3" role="tabpanel">
-                            {activeDocs.length === 0 ? (
-                                <EmptyState
-                                    icon={tab === 'invoices' ? <InvoiceIcon className="h-6 w-6" /> : tab === 'approvals' ? <EstimateIcon className="h-6 w-6" /> : <DailyReportIcon className="h-6 w-6" />}
-                                    title={TABS.find((t) => t.id === tab)?.empty || 'Nothing here yet'}
-                                    description={`Documents ${company} shares with you will appear here.`}
-                                />
-                            ) : (
-                                activeDocs.map((doc) => (
-                                    <DocumentRow
-                                        key={doc.id}
-                                        doc={doc}
-                                        contractor={contractor}
-                                        clientName={clientName}
-                                        onView={() => openDocument(doc.id, false)}
-                                        onSign={() => openDocument(doc.id, true)}
-                                        onDownloadError={setPageError}
+                            <div className="mt-4 space-y-3" role="tabpanel">
+                                {activeDocs.length === 0 ? (
+                                    <EmptyState
+                                        icon={tab === 'invoices' ? <InvoiceIcon className="h-6 w-6" /> : tab === 'approvals' ? <EstimateIcon className="h-6 w-6" /> : <DailyReportIcon className="h-6 w-6" />}
+                                        title={TABS.find((t) => t.id === tab)?.empty || 'Nothing here yet'}
+                                        description={`Documents ${company} shares with you will appear here.`}
                                     />
-                                ))
-                            )}
-                        </div>
+                                ) : (
+                                    activeDocs.map((doc) => (
+                                        <DocumentRow
+                                            key={doc.id}
+                                            doc={doc}
+                                            contractor={contractor}
+                                            clientName={clientName}
+                                            onView={() => openDocument(doc.id, false)}
+                                            onSign={() => openDocument(doc.id, true)}
+                                            onDownloadError={setPageError}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        </>
+                    )}
+
+                    {/* job photos the contractor chose to share (components/photos; nothing when there are none) */}
+                    <PortalPhotos portalKey={key} className="mt-8" />
                     </>
                 )}
-
-                {/* job photos the contractor chose to share (components/photos; nothing when there are none) */}
-                <PortalPhotos portalKey={key} className="mt-8" />
 
                 {/* field features (nothing when none is shared or the database doesn't have them yet) */}
                 <PortalServicePlans portalKey={key} className="mt-8" />
@@ -425,7 +530,7 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                 contractor={contractor}
                                 clientName={clientName}
                                 onReportPayment={makeReportPayment({ portalKey: key, documentId: current.id })}
-                                onPaymentReported={() => load(true)}
+                                onPaymentReported={reload}
                                 chosenOptionId={picks[current.id] ?? null}
                                 onChooseOption={currentSignable ? (id) => setPicks((prev) => ({ ...prev, [current.id]: id })) : undefined}
                             />
@@ -455,11 +560,11 @@ const PortalView: React.FC<PortalViewProps> = ({ portalKey }) => {
                                     )}
                                     onComplete={(o) => {
                                         setOutcomes((prev) => ({ ...prev, [current.id]: o }));
-                                        load(true);
+                                        reload();
                                     }}
                                     onProblem={(p) => {
                                         setProblems((prev) => ({ ...prev, [current.id]: p }));
-                                        load(true);
+                                        reload();
                                     }}
                                     onBusyChange={setModalBusy}
                                 />
