@@ -57,6 +57,20 @@ import {
     renderEntry, retrieveKnowledge, scoreKnowledge,
 } from '../supabase/functions/ai-assistant/shared/knowledge.ts';
 
+import { FACTS_LIMITS, businessFactsRule, sanitizeBusinessFacts, sanitizeJobFacts, wantsBusinessFacts } from '../supabase/functions/ai-assistant/shared/businessFacts.ts';
+import {
+    BUSINESS_SUMMARY_LIMITS, buildBusinessSummarySchema, isGrounded, mockBusinessSummaryOutput, parseBusinessSummary, sanitizeBusinessSummaryRequest,
+} from '../supabase/functions/ai-assistant/shared/businessSummary.ts';
+import { buildBusinessFacts, buildJobFacts } from '../src/ai/jobFacts.ts';
+import { buildBusinessSummaryBody, hasSummaryData, parseBusinessSummaryResponse } from '../src/ai/businessSummary.ts';
+import { summarizeJobMoney as summarizeJobMoneyN7 } from '../lib/finance.ts';
+import { summarizeJobCosting } from '../lib/costing.ts';
+import { buildFacts as buildOverviewFacts } from '../lib/overview/facts.ts';
+import { jobProfitRows, overviewKpis, rankJobs, revenueByCustomer } from '../lib/overview/overview.ts';
+import { awaitingEstimates } from '../lib/overview/awaiting.ts';
+import { jobCustomerMap } from '../lib/overview/facts.ts';
+import { periodRange } from '../lib/overview/period.ts';
+
 // The edge function can't import components/: it bundles a copy of the help guides. Regenerate it with
 //   npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge
 const guideSnapshot = () => HELP_GUIDES.map(g => ({ id: g.id, title: g.title, summary: g.summary, where: g.where, appPath: g.appPath, steps: g.steps.map(st => ({ title: st.title, text: st.text })), tips: g.tips || [] }));
@@ -2519,6 +2533,233 @@ async function estimateReviewTests() {
     }
 }
 
+// ── 23. Business numbers in the assistant + AI business summary (roadmap N7 / N3 AI slot) ──
+async function businessNumbersTests() {
+    const JOB = { id: 'qa-job', name: 'QA Kitchen Remodel', clientName: 'Morgan Client', status: 'active' };
+    const OTHER = { id: 'job-2', name: 'Oak St Deck', clientName: "O'Brien Homes", status: 'active' };
+    const line = (quantity: number, rate: number, description = 'Work') => ({ id: `l${quantity}${rate}`, description, quantity, rate });
+    const docs: any[] = [
+        { id: 'est-1', type: 'Estimate', jobId: JOB.id, status: 'Accepted', issueDate: '2026-10-01', estimateNumber: 'EST-1', clientName: JOB.clientName, lineItems: [line(1, 6000, 'Cabinets and materials'), line(40, 75, 'Install labor')] },
+        { id: 'inv-1', type: 'Invoice', jobId: JOB.id, status: 'Sent', issueDate: '2026-10-05', dueDate: '2026-10-20', invoiceNumber: 'INV-2026-10-001', clientName: JOB.clientName, lineItems: [line(1, 4000)] },
+        { id: 'inv-2', type: 'Invoice', jobId: JOB.id, status: 'Paid', issueDate: '2026-11-02', paidAt: '2026-11-10', invoiceNumber: 'INV-2026-11-002', clientName: JOB.clientName, lineItems: [line(1, 2500)] },
+        { id: 'ml-1', type: 'Material Log', jobId: JOB.id, date: '2026-11-03', items: [{ quantity: 10, unitCost: 120 }] },
+        { id: 'ts-1', type: 'Time Sheet', jobId: JOB.id, date: '2026-11-04', hoursWorked: 20, overtimeHours: 2 },
+        { id: 'ex-1', type: 'Expense Log', jobId: JOB.id, date: '2026-11-05', amount: 180, category: 'Fuel' },
+        { id: 'inv-3', type: 'Invoice', jobId: OTHER.id, status: 'Overdue', issueDate: '2026-09-01', dueDate: '2026-09-15', invoiceNumber: 'INV-2026-09-007', clientName: OTHER.clientName, lineItems: [line(1, 9000)] },
+        { id: 'est-2', type: 'Estimate', jobId: OTHER.id, status: 'Sent', issueDate: '2026-10-10', estimateNumber: 'EST-2', clientName: OTHER.clientName, lineItems: [line(1, 12000)] },
+    ];
+    const RATE = 50;
+    const jobDocs = docs.filter(d => d.jobId === JOB.id);
+    const tasks = [
+        { id: 't1', title: 'Order countertop', status: 'todo', startDate: null, dueDate: '2026-11-08', dependsOn: [], isMilestone: false, sortOrder: 1 },
+        { id: 't2', title: 'Call (555) 555-0142 about the sink', status: 'doing', startDate: null, dueDate: '2026-11-10', dependsOn: [], isMilestone: false, sortOrder: 2 },
+        { id: 't3', title: 'Final walkthrough', status: 'todo', startDate: null, dueDate: '2026-11-20', dependsOn: [], isMilestone: true, sortOrder: 3 },
+        { id: 't4', title: 'Demo', status: 'done', startDate: null, dueDate: '2026-11-01', dependsOn: [], isMilestone: false, sortOrder: 0 },
+    ] as any[];
+    const forms = [
+        { id: 'inv-2', jobId: JOB.id, type: 'Invoice', createdAt: '2026-11-09T10:00:00Z', data: { status: 'Paid', notes: 'secret note text', clientEmail: 'morgan@example.com' } },
+        { id: 'n-1', jobId: JOB.id, type: 'Note', createdAt: '2026-11-11T10:00:00Z', data: { content: 'Gate code 4411' } },
+        { id: 'old', jobId: JOB.id, type: 'Estimate', createdAt: '2026-10-01T10:00:00Z', data: { status: 'Accepted' } },
+    ];
+
+    // 23a. Job facts = the app's own helpers (Job financials + costing), capped, no secrets.
+    const jf = buildJobFacts({
+        today: TODAY, job: JOB, docs, laborRate: RATE, forms, tasks,
+        questions: [{ title: 'Which grout color? email me at evil@example.com', status: 'sent', dueDate: '2026-11-14' }, { title: 'Old', status: 'answered' }],
+        selections: [{ title: 'Faucet finish', status: 'sent', dueDate: '2026-11-15' }],
+        photosThisWeek: 7,
+    })!;
+    const money = summarizeJobMoneyN7(jobDocs, { laborRate: RATE });
+    const costing = summarizeJobCosting(jobDocs, { laborRate: RATE });
+    eq([jf.money!.billed, jf.money!.collected, jf.money!.outstanding, jf.money!.profit, jf.money!.total_costs], [money.invoiced, money.collected, money.outstanding, money.profit, money.costs], 'job facts money = summarizeJobMoney (Job financials)');
+    eq(jf.money!.costs, { materials: money.materials, labor: money.labor, expenses: money.expenses }, 'costs by kind = summarizeJobMoney');
+    eq([jf.money!.margin_pct, jf.money!.budget, jf.money!.budget_used_pct], [Math.round(money.margin! * 10) / 10, costing.budget, Math.round(costing.usedPct! * 10) / 10], 'margin + budget used = the costing panel');
+    eq(jf.money!.spent_by_kind!.materials, costing.rows.find(r => r.id === 'materials')!.actual, 'spent by kind = summarizeJobCosting rows');
+    eq(jf.overdue_invoices, [{ label: 'Invoice #INV-2026-10-001', client: 'Morgan Client', job: 'QA Kitchen Remodel', due_date: '2026-10-20', balance: 4000, days_late: 23 }], 'overdue invoice of this job only, with days late; document numbers kept');
+    eq([jf.tasks!.open, jf.tasks!.overdue, jf.tasks!.done], [3, 2, 1], 'task counts = taskProgress');
+    eq(jf.tasks!.next_milestones, [{ title: 'Final walkthrough', due_date: '2026-11-20' }], 'upcoming milestone');
+    eq([jf.waiting_on_client!.questions, jf.waiting_on_client!.selections], [1, 1], 'questions / selections waiting on the client');
+    eq([jf.this_week!.from, jf.this_week!.to, jf.this_week!.documents_created, jf.this_week!.paid, jf.this_week!.notes, jf.this_week!.photos], ['2026-11-06', TODAY, 2, 1, 1, 7], 'this week: created, paid, notes, photos');
+    const jfJson = JSON.stringify(jf);
+    ok(jfJson.length <= FACTS_LIMITS.chars, `job facts stay under the cap (${jfJson.length} chars)`);
+    ok(!/@|555-0142|secret note|Gate code|evil/.test(jfJson), 'no emails, phone numbers, notes or document text in the facts');
+
+    // 23b. The server cleans again: unknown keys dropped, lists capped, total size capped, labels scrubbed.
+    {
+        const many = Array.from({ length: 60 }, (_, i) => ({ label: `Invoice #${i} https://evil.test/x`, balance: 100 + i, token: 'sk-live-123' }));
+        const raw = { as_of: TODAY, api_key: 'secret', money: { profit: 10, password: 'x' }, overdue_invoices: many, this_week: { from: '2026-11-06', to: TODAY, items: Array.from({ length: 50 }, () => 'x'.repeat(300)) }, tasks: { open: 1, overdue_list: Array.from({ length: 40 }, (_, i) => ({ title: `T${i} ${'y'.repeat(200)}` })) } };
+        const clean = sanitizeJobFacts(raw)!;
+        const s = JSON.stringify(clean);
+        ok(s.length <= FACTS_LIMITS.chars, `oversized facts are trimmed to the cap (${s.length} chars)`);
+        ok(!/secret|password|sk-live|token|api_key|https?:/.test(s), 'unknown keys and links dropped');
+        ok(clean.overdue_invoices!.length <= FACTS_LIMITS.overdueInvoices && (clean.tasks!.overdue_list || []).length <= FACTS_LIMITS.taskItems, 'lists capped');
+        eq(sanitizeJobFacts({ foo: 1 }), undefined, 'nothing usable → no facts');
+        eq(sanitizeBusinessFacts('x'), undefined, 'not an object → no facts');
+    }
+
+    // 23c. Business facts = the Business overview's helpers.
+    const inventory = [
+        { id: 'i1', name: 'Drywall screws', quantity: 2, unit: 'box', low_stock_threshold: 5, supplier: 'ABC Supply' },
+        { id: 'i2', name: 'Copper pipe', quantity: 40, unit: 'ft', low_stock_threshold: 10 },
+        { id: 'i3', name: 'Caulk', quantity: 0, unit: 'tube' },
+    ];
+    const bf = buildBusinessFacts({ today: TODAY, jobs: [JOB, OTHER], docs, laborRate: RATE, inventory })!;
+    const ofacts = buildOverviewFacts(docs, { laborRate: RATE, todayYMD: TODAY, jobs: [JOB, OTHER] });
+    const k = overviewKpis(ofacts, periodRange('this-month', new Date(`${TODAY}T12:00:00`))!);
+    eq([bf.month!.billed, bf.month!.collected, bf.month!.outstanding, bf.month!.overdue, bf.month!.costs, bf.month!.profit], [k.billed, k.collected, k.outstanding, k.overdue, k.costs, k.profit], 'this month = overviewKpis (Business overview)');
+    eq([bf.overdue_count, bf.overdue_total, bf.overdue_invoices!.map(i => i.label)], [2, 13000, ['Invoice #INV-2026-09-007', 'Invoice #INV-2026-10-001']], 'overdue invoices, biggest first');
+    eq(bf.reorder!.map(r => [r.name, r.stock, r.alert_at]), [['Caulk', 0, 5], ['Drywall screws', 2, 5]], 'reorder list = Inventory low-stock rule');
+    eq([bf.estimates_waiting_count, bf.estimates_waiting_total, bf.estimates_waiting![0].label], [1, 12000, 'Estimate #EST-2'], 'estimates waiting = awaitingEstimates');
+    ok(JSON.stringify(bf).length <= FACTS_LIMITS.chars, 'business facts under the cap');
+
+    // 23d. Request + prompt: facts only where they belong; rule 24 with the six intents; short form without facts.
+    {
+        const jobReq = sanitizeRequest({ message: "what's the profit on this job", scope: 'job', context: { ...ctx, active_job_id: JOB.id, job_facts: jf, business_facts: bf } });
+        ok(jobReq.context!.job_facts && !jobReq.context!.business_facts, 'job scope keeps job facts only');
+        const dashReq = sanitizeRequest({ message: 'who owes me money', scope: 'dashboard', context: { ...ctx, job_facts: jf, business_facts: bf } });
+        ok(dashReq.context!.business_facts && !dashReq.context!.job_facts, 'dashboard keeps business facts only');
+        const formReq = sanitizeRequest({ message: 'fill it', scope: 'form', context: { ...ctx, form_document_type: 'INVOICE', job_facts: jf, business_facts: bf } });
+        ok(!formReq.context!.job_facts && !formReq.context!.business_facts, 'form fill never carries facts');
+        const sys = buildSystemPrompt(jobReq);
+        for (const intent of ['summarize this week for this job', 'what did we spend on materials', "what's the profit on this job", 'who owes me money', 'what should I order', "what's overdue"]) ok(sys.includes(intent), `rule 24 names "${intent}"`);
+        ok(/don't have that number/.test(sys) && /money\.profit/.test(sys), 'grounding rule + long form with facts');
+        const plain = buildSystemPrompt(req('who owes me money'));
+        ok(/24\. Questions about the business numbers/.test(plain) && !/money\.profit/.test(plain), 'short rule 24 without facts');
+        ok(!/24\. Questions about the business numbers/.test(buildSystemPrompt(formReq)), 'form fill prompt unchanged');
+        ok(businessFactsRule(true).length < 1800 && businessFactsRule(false).length < 700, `rule 24 stays small (${businessFactsRule(true).length} / ${businessFactsRule(false).length} chars)`);
+        const turn = buildUserTurn(jobReq);
+        ok(turn.includes('"job_facts"') && turn.includes('INV-2026-10-001') && !turn.includes('"business_facts"'), 'facts go in CONTEXT DATA (untrusted block)');
+        ok(!buildUserTurn(req('hello')).includes('job_facts'), 'no facts → context block unchanged');
+        ok(['what did we spend on materials', 'who owes me money', 'what should I order', "what's overdue", 'summarize this week for this job', "what's the profit on this job"].every(wantsBusinessFacts) && !wantsBusinessFacts('Create an invoice for 2 doors at $450'), 'the browser loads facts only for money / progress questions');
+        const kb = retrieveKnowledge('who owes me money? what should I order?').map(e => e.id);
+        ok(kb.includes('ai-business-numbers'), `knowledge explains the business questions (${kb.join(', ')})`);
+        ok(retrieveKnowledge('how do I get an AI summary of my business this month?').some(e => e.id === 'ai-business-numbers'), 'knowledge explains Summarize with AI');
+    }
+
+    // 23e. Mock end to end: grounded CHAT answers from the facts; without facts: "I don't have that".
+    {
+        const ask = async (message: string, scope: 'job' | 'dashboard', extra: Record<string, unknown>) => {
+            const { f, calls } = makeFetch({ tier: 'free' });
+            const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: f, log: quiet })(post({ message, scope, context: { ...ctx, ...extra } }, 'Bearer user-jwt'));
+            const b = await res.json() as any;
+            return { status: res.status, p: b.proposal, metered: calls.filter(isMeteringCall).length };
+        };
+        const profit = await ask("What's the profit on this job?", 'job', { active_job_id: JOB.id, job_facts: jf });
+        eq([profit.status, profit.p.action_type, profit.metered], [200, 'CHAT', 1], 'profit question → CHAT, one request');
+        ok(profit.p.reply_text.includes(`$${Math.round(money.profit).toLocaleString('en-US')}`), `profit answer uses the app's number (${profit.p.reply_text})`);
+        const mat = await ask('what did we spend on materials', 'job', { active_job_id: JOB.id, job_facts: jf });
+        ok(mat.p.reply_text.includes(`$${Math.round(money.materials).toLocaleString('en-US')}`), 'materials spend from the facts');
+        const owes = await ask('who owes me money?', 'dashboard', { business_facts: bf });
+        ok(/INV-2026-09-007/.test(owes.p.reply_text) && /\$9,000/.test(owes.p.reply_text), 'who owes me → overdue invoices with balances');
+        const order = await ask('what should I order?', 'dashboard', { business_facts: bf });
+        ok(/Caulk/.test(order.p.reply_text) && /Drywall screws/.test(order.p.reply_text) && !/Copper pipe/.test(order.p.reply_text), 'what to order → the low-stock items only');
+        const week = await ask('summarize this week for this job', 'job', { active_job_id: JOB.id, job_facts: jf });
+        ok(/2026-11-06/.test(week.p.reply_text) && /7 photos/.test(week.p.reply_text), 'this week summary from the facts');
+        const none = await ask("what's the profit on this job", 'job', { active_job_id: JOB.id, job_facts: { as_of: TODAY, tasks: { open: 1, overdue: 0, done: 0 } } });
+        ok(/don't have that number/i.test(none.p.reply_text), 'missing number → "I don\'t have that"');
+        const plain = await ask('Create an invoice for 2 doors at $450', 'dashboard', {});
+        eq(plain.p.action_type, 'GENERATE_DOCUMENT', 'other intents unchanged');
+    }
+
+    // 23f. business_summary: Premium + AI, strict schema, validation, metering, mock.
+    const range = periodRange('this-month', new Date(`${TODAY}T12:00:00`))!;
+    const jobsList = [JOB, OTHER];
+    const rows = jobProfitRows(ofacts, jobsList, { range: null, basis: 'job' });
+    const ranking = rankJobs(rows, 'profit', 5);
+    const awaiting = awaitingEstimates(docs, jobsList, jobCustomerMap(jobsList, docs), TODAY);
+    const slotInput = {
+        periodLabel: 'November', startYMD: range.startYMD, endYMD: range.endYMD, kpis: overviewKpis(ofacts, range), leads: null, activeJobs: 2,
+        topJobs: ranking.top, bottomJobs: ranking.bottom, awaiting, customers: revenueByCustomer(ofacts, range).rows, customerFilter: '', projectFilter: '',
+    };
+    const body = buildBusinessSummaryBody(slotInput, { today: TODAY, language: 'en' }) as any;
+    eq([body.task, body.context.period.start, body.context.awaiting.rows[0].id, body.context.kpis.billed], ['business_summary', range.startYMD, 'est-2', slotInput.kpis.billed], 'browser request body: aggregates only');
+    ok(!/lineItems|description|"notes"|@/.test(JSON.stringify(body)), 'no documents or lines in the request');
+    ok(hasSummaryData(slotInput) && !hasSummaryData({ ...slotInput, kpis: { ...slotInput.kpis, billed: 0, collected: 0, outstanding: 0, costs: 0, income: 0, invoiceCount: 0 }, topJobs: [], bottomJobs: [], awaiting: { rows: [], total: 0, count: 0 } }), 'empty period → no button');
+    const modelCalls = (calls: FakeCall[]) => calls.filter(c => c.url.includes('generativelanguage'));
+    for (const tier of ['free', 'premium']) {
+        const { f, calls } = makeFetch({ tier });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq([res.status, b.code], [402, 'PLAN_REQUIRED'], `${tier}: business_summary needs Premium + AI`);
+        ok(/^PLAN_REQUIRED: .*business summary.*Premium \+ AI/.test(b.error), `${tier}: its own upgrade message`);
+        ok(!calls.some(isMeteringCall) && !modelCalls(calls).length, `${tier}: not metered, no model call`);
+    }
+    eq((await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai' }).f, log: quiet })(post(body))).status, 401, 'business_summary needs a signed-in user');
+    {
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'ai', used: 600 }).f, log: quiet })(post(body, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).code], [402, 'PLAN_LIMIT'], 'at the monthly limit → PLAN_LIMIT');
+    }
+    {
+        const { f, calls } = makeFetch({ tier: 'ai', used: 3 });
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: f, log: quiet })(post(body, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq([res.status, b.ok, b.task], [200, true, 'business_summary'], 'mock summary answers');
+        ok(b.summary.headline && b.summary.bullets.length >= 2 && b.summary.bullets.length <= 5 && b.summary.actions.length <= 3, 'headline, 2-5 bullets, ≤3 actions');
+        ok(b.summary.bullets.some((x: any) => x.kind === 'attention') && b.summary.bullets.some((x: any) => x.kind === 'money'), 'overdue money and waiting estimates are flagged');
+        const follow = b.summary.actions.find((a: any) => a.estimate_id);
+        eq([follow?.estimate_id, follow?.job_id], ['est-2', OTHER.id], 'action tied to the waiting estimate and its job');
+        eq([b.meta.usage, calls.filter(isMeteringCall).length], [{ used: 4, limit: 600, tier: 'ai' }, 1], 'one summary = one AI request');
+        const parsed = parseBusinessSummaryResponse(b, slotInput);
+        eq(parsed.headline, b.summary.headline, 'browser reads the answer');
+    }
+    {
+        // Gemini: strict schema; ungrounded amounts and unknown ids are dropped.
+        const answer = {
+            headline: `November: $${Math.round(slotInput.kpis.billed).toLocaleString('en-US')} billed.`,
+            bullets: [
+                { kind: 'good', text: `Collected $${Math.round(slotInput.kpis.collected).toLocaleString('en-US')}.` },
+                { kind: 'money', text: 'EST-2 is waiting: $12k.' },
+                { kind: 'attention', text: 'You will make $999,999 next month.' },
+                { kind: 'weird', text: 'Overdue invoices need a reminder.' },
+            ],
+            actions: [{ text: 'Follow up on EST-2.', estimate_id: 'est-2' }, { text: 'Open the fake job.', job_id: 'job-evil' }, { text: 'Spend $77,777 on ads.' }],
+        };
+        const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiOk(answer)] });
+        const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post(body, 'Bearer user-jwt'));
+        const b = await res.json() as any;
+        eq(res.status, 200, 'Gemini summary answers');
+        eq(b.summary.bullets.map((x: any) => x.kind), ['good', 'money', 'attention'], 'invented amount dropped; unknown kind → attention');
+        eq(b.summary.actions, [{ text: 'Follow up on EST-2.', estimate_id: 'est-2', job_id: OTHER.id }, { text: 'Open the fake job.' }], 'unknown ids cleared; invented amount dropped');
+        const sent = JSON.parse(String(modelCalls(calls)[0].init?.body));
+        eq(Object.keys(sent.generationConfig.responseSchema.properties), ['headline', 'bullets', 'actions'], 'strict schema sent');
+        ok(/Use ONLY the numbers/.test(sent.systemInstruction.parts[0].text) && /OVERVIEW DATA/.test(sent.contents[0].parts[0].text), 'own prompt; data in the user turn');
+        eq(calls.filter(isMeteringCall).length, 1, 'metered once');
+        ok(JSON.stringify(buildBusinessSummarySchema()).length < 1500, 'summary schema is small');
+    }
+    {
+        // malformed outputs → 502, never metered
+        for (const bad of [{ headline: '', bullets: [{ kind: 'good', text: 'a' }, { kind: 'good', text: 'b' }] }, { headline: 'Fine month.', bullets: [{ kind: 'good', text: 'Only one' }] }, { headline: 'You made $5,555,555.', bullets: [{ text: 'a' }, { text: 'b' }] }, ['not', 'an', 'object']]) {
+            const { f, calls } = makeFetch({ tier: 'ai', modelResponses: [geminiOk(bad), geminiOk(bad), geminiOk(bad)] });
+            const res = await createHandler(envOf({ GEMINI_API_KEY: 'k' }), { fetch: f, log: quiet, sleep: noWait })(post(body, 'Bearer user-jwt'));
+            eq([res.status, ((await res.json()) as any).code], [502, 'AI_BAD_OUTPUT'], `malformed summary → 502 (${JSON.stringify(bad).slice(0, 40)})`);
+            ok(!calls.some(isMeteringCall), 'malformed summary not metered');
+        }
+        const emptyBody = buildBusinessSummaryBody({ ...slotInput, kpis: { ...slotInput.kpis, billed: 0, collected: 0, outstanding: 0, costs: 0, income: 0, invoiceCount: 0, profit: 0, overdue: 0 }, topJobs: [], bottomJobs: [], awaiting: { rows: [], total: 0, count: 0 }, customers: [] }, { today: TODAY });
+        const { f, calls } = makeFetch({ tier: 'ai' });
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: f, log: quiet })(post(emptyBody, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).code], [400, 'NO_DATA'], 'empty period refused');
+        ok(!calls.some(isMeteringCall), 'empty period not metered');
+    }
+    {
+        // pure parts: grounding, caps, mock validity, browser refusal
+        const r = sanitizeBusinessSummaryRequest(body);
+        ok(isGrounded('$24.1k billed', [24_080]) && isGrounded('$24k', [24_400]) && !isGrounded('$25k', [24_400]) && isGrounded('no amounts here', []), 'amount grounding with rounding');
+        ok(parseBusinessSummary(mockBusinessSummaryOutput(r), r) !== null, 'the mock answer passes validation');
+        const big = parseBusinessSummary({ headline: 'x'.repeat(500), bullets: Array.from({ length: 9 }, (_, i) => ({ kind: 'good', text: `Point ${i}` })), actions: Array.from({ length: 6 }, (_, i) => ({ text: `Do ${i}` })) }, r)!;
+        eq([big.headline.length, big.bullets.length, big.actions.length], [BUSINESS_SUMMARY_LIMITS.headlineChars, BUSINESS_SUMMARY_LIMITS.bulletsMax, BUSINESS_SUMMARY_LIMITS.actions], 'headline / bullets / actions capped');
+        let threw = false;
+        try { parseBusinessSummaryResponse({ ok: true, task: 'extract_tasks', tasks: [] }, slotInput); } catch { threw = true; }
+        ok(threw, 'browser refuses a non-summary answer');
+    }
+
+    // 23g. A normal assistant request is untouched by the summary route.
+    {
+        const res = await createHandler(envOf({ AI_PROVIDER: 'mock' }), { fetch: makeFetch({ tier: 'free' }).f, log: quiet })(post({ message: 'Create an invoice for 2 doors at $450', scope: 'dashboard', context: ctx }, 'Bearer user-jwt'));
+        eq([res.status, ((await res.json()) as any).proposal.action_type], [200, 'GENERATE_DOCUMENT'], 'chat requests still work on Free');
+    }
+    console.log(`  business numbers: job facts ${jfJson.length} chars, business facts ${JSON.stringify(bf).length} chars, rule 24 ${businessFactsRule(true).length} chars`);
+}
+
 await sampleAndFieldTests();
 await fillEverythingTests();
 await knowledgeTests();
@@ -2529,4 +2770,5 @@ await extractTasksTests();
 await estimateOptionsTests();
 await priceBookTests();
 await estimateReviewTests();
+await businessNumbersTests();
 console.log(`Document AI flow QA passed: ${checks} checks across ${DOC_TYPES.length} document types.`);

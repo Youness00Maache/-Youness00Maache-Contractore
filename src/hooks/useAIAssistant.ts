@@ -42,6 +42,8 @@ import { imagesToHtml, toRouterImages, type PendingImage } from '../ai/attachmen
 import { toEmailBatchItems, type AIEmailDraft } from '../ai/emailBatch.ts';
 import { AI_UPGRADE_EVENT as AI_UPGRADE_EVENT_NAME, dispatchUpgradeEvent, isAiLimitCode } from '../ai/events.ts';
 import { linkDraftToPriceBook, priceBookForRequest, type PriceBookSource } from '../ai/priceBookContext.ts';
+import { wantsBusinessFacts } from '../../supabase/functions/ai-assistant/shared/businessFacts.ts';
+import { resolveLaborRate } from '../../lib/finance.ts';
 
 export interface AIAssistantDeps {
     session: Session | null;
@@ -49,7 +51,7 @@ export interface AIAssistantDeps {
     jobs: Job[];
     clients: Client[];
     forms: FormData[];
-    inventory?: Array<{ id: string; name: string; quantity?: number; unit?: string }>;
+    inventory?: Array<{ id: string; name: string; quantity?: number; unit?: string; low_stock_threshold?: number | null; supplier?: string | null }>;
     /**
      * The user's own price book (App's saved items). Drafting requests carry a ranked, sell-side slice of it (no
      * costs); drafted lines the assistant took from it become the same line as picking the item by hand.
@@ -238,6 +240,35 @@ export function useAIAssistant(deps: AIAssistantDeps) {
         };
     }, [job, mode, pendingGather]);
 
+    /**
+     * Business numbers for a money / progress question (src/ai/jobFacts.ts): the open job's (job assistant) or the
+     * account's (dashboard). Aggregates and short labels only; {} when they could not be loaded in time.
+     */
+    const loadFactsContext = useCallback(async (target: Job | null): Promise<Pick<RouterRequestContext, 'job_facts' | 'business_facts'>> => {
+        const d = depsRef.current;
+        try {
+            const { loadBusinessFacts, loadJobFacts } = await import('../ai/jobFactsLoader.ts');
+            const today = toLocalYmd();
+            const laborRate = resolveLaborRate(d.profile?.defaultLaborRate);
+            if (target) {
+                const job_facts = await loadJobFacts({
+                    today, laborRate, priceBook: d.savedItems as never,
+                    job: { id: target.id, name: target.name, clientName: target.clientName, status: target.status, startDate: target.startDate, endDate: target.endDate },
+                    forms: d.forms.map(f => ({ id: f.id, jobId: f.jobId, type: f.type, createdAt: f.createdAt, data: f.data })),
+                });
+                return job_facts ? { job_facts } : {};
+            }
+            const business_facts = await loadBusinessFacts({
+                today, laborRate,
+                jobs: d.jobs.map(j => ({ id: j.id, name: j.name, clientName: j.clientName, status: j.status, startDate: j.startDate, endDate: j.endDate })),
+                inventory: d.inventory,
+            });
+            return business_facts ? { business_facts } : {};
+        } catch {
+            return {};
+        }
+    }, []);
+
     /** Turns a pending GATHER_INFO into a ready draft locally (Skip / setup card / "go ahead"). */
     const completeGather = useCallback((messageId: string, values: Record<string, unknown>, displayText: string) => {
         const msg = chat.messages.find(m => m.id === messageId);
@@ -285,6 +316,8 @@ export function useAIAssistant(deps: AIAssistantDeps) {
                 ? { jobId: job.id }
                 : { ids: mentions.filter(m => m.kind === 'document').map(m => m.id) });
             context = buildContext(text, mentions, Boolean(gather && userAllowsEmptyOrProceed(text)), freshDocs);
+            // Money / progress questions (N7): the job's or the account's numbers, computed here with the app's helpers.
+            if (!gather && wantsBusinessFacts(text)) context = { ...context, ...await loadFactsContext(mode === 'job' ? job : null) };
             routerImages = images.length ? await toRouterImages(images) : [];
         } finally {
             preparingRef.current = false;
@@ -298,7 +331,7 @@ export function useAIAssistant(deps: AIAssistantDeps) {
             if (replyMessageId) chat.updateMessage(replyMessageId, { status: 'done', result: 'Opened' });
             goTo(path);
         }
-    }, [buildContext, chat, completeGather, goTo, job, loadDocumentRows, mode, pendingGather, setComposerText, targetPath]);
+    }, [buildContext, chat, completeGather, goTo, job, loadDocumentRows, loadFactsContext, mode, pendingGather, setComposerText, targetPath]);
 
     /** Photos sent in the user turn right before this assistant message. */
     const photosFor = useCallback((messageId: string): File[] => {

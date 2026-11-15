@@ -3,7 +3,8 @@
  * user or account data goes into the user turn inside a clearly delimited, untrusted block.
  */
 import { DOC_LABELS, DOC_TYPES, getSchema, resolveDocKey, type DocKey, type FieldSpec } from './documentSchema.ts';
-import { APP_ROUTES, hasPriceBook, isSampleRequest, PLAN_MAX_STEPS, requestHasEstimateOptions, SCOPE_ACTIONS, type RouterRequest } from './routerContract.ts';
+import { businessFactsRule, factsForContext } from './businessFacts.ts';
+import { APP_ROUTES, hasBusinessFacts, hasPriceBook, isSampleRequest, PLAN_MAX_STEPS, requestHasEstimateOptions, SCOPE_ACTIONS, type RouterRequest } from './routerContract.ts';
 import { buildKnowledgeBlock, HOW_TO_DO_ACTIONS } from './knowledge.ts';
 import { DRAFT_OPTION_MAX, DRAFT_OPTION_MIN } from './estimateOptionsDraft.ts';
 import { buildPriceBookBlock, PRICE_BOOK_RULE } from './priceBook.ts';
@@ -118,7 +119,7 @@ HARD RULES:
 10. reply_text: one or two short, friendly sentences in the user's language. Use plain text.
 11. A pending_draft in the context is the document the user is completing: return the COMPLETE document again (pending values plus the new ones).
 12. Questions about existing documents ("is the invoice paid?", "what's on the estimate?", "what is still owed?"): answer with CHAT from the document's summary in CONTEXT DATA (status, total, paid, balance_due, due_date, signed_by, items; more_items = lines not listed). Name the document by its label. A status "Paid" or balance_due 0 with a total means paid; a balance_due above 0 means money is still owed. Only state what the summary shows: if a document has no summary or the fact is not in it, say you can't see it and suggest opening the document. Never guess amounts or statuses.${planRules}${sampleRule}
-16. Always put EVERY detail the user gave in its box (names, dates, addresses, items, quantities, prices, notes...), never only the first few. "Fill all the boxes" / "every field" / "fill everything": fill EVERY field of the field list of each document (and every entity key of a client or job), with the user's values first and rule 15 sample values for the rest; never stop at the name or the line items.${howToRules}${optionRules}${priceBook ? PRICE_BOOK_RULE : ''}
+16. Always put EVERY detail the user gave in its box (names, dates, addresses, items, quantities, prices, notes...), never only the first few. "Fill all the boxes" / "every field" / "fill everything": fill EVERY field of the field list of each document (and every entity key of a client or job), with the user's values first and rule 15 sample values for the rest; never stop at the name or the line items.${howToRules}${optionRules}${priceBook ? PRICE_BOOK_RULE : ''}${scope === 'form' ? '' : businessFactsRule(hasBusinessFacts(req))}
 
 DOCUMENT FIELDS (exact keys):
 ${buildFieldGuide(formType)}${knowledge ? `
@@ -143,6 +144,8 @@ export function buildContextBlock(req: RouterRequest): string {
         user_said_skip_missing: c.proceed === true,
         // the open estimate's lines, only on its options request (rule 22)
         ...(c.form_estimate ? { form_estimate: c.form_estimate } : {}),
+        // business numbers computed by the app (rule 24), only when the browser sent them
+        ...factsForContext(c),
     };
     // Drafting with a price book: its own block, refs instead of ids, sell prices only (absent otherwise).
     const priceBook = buildPriceBookBlock(c.price_book);

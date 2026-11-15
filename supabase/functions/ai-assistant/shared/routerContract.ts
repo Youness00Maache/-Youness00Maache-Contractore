@@ -17,6 +17,7 @@ import {
     isOversizePriceBook, linkOutputToPriceBook, PRICE_BOOK_LIMITS, sanitizePriceBook, settlePriceBookLines, wantsPriceBook,
     type ContextPriceBookItem,
 } from './priceBook.ts';
+import { sanitizeBusinessFacts, sanitizeJobFacts, type BusinessFacts, type JobFacts } from './businessFacts.ts';
 
 export const ROUTER_ACTIONS = [
     'CHAT', 'GATHER_INFO', 'GENERATE_DOCUMENT', 'PREPARE_EMAIL_BATCH', 'DRAFT_EMAIL_ONLY',
@@ -180,6 +181,12 @@ export interface RouterRequestContext {
      * of the options. Left out for every other request; requests without it behave exactly as before.
      */
     form_estimate?: ContextFormEstimate;
+    /**
+     * Roadmap N7: the open job's numbers (job assistant) / the account's numbers (dashboard assistant), aggregates and
+     * short labels only (shared/businessFacts.ts). Left out for every other request; requests without them behave as before.
+     */
+    job_facts?: JobFacts;
+    business_facts?: BusinessFacts;
 }
 
 export interface RouterHistoryMessage { role: 'user' | 'assistant'; text: string }
@@ -336,6 +343,9 @@ export function sanitizeRequest(body: unknown): RouterRequest {
         ? sanitizePriceBook(c.price_book) : [];
     // Only for the form fill of an open estimate that asks for options (the browser decides the same way).
     const formEstimate = isFormOptionsRequest(scope, c.form_document_type, message) ? cleanFormEstimate(c.form_estimate) : undefined;
+    // Business numbers (N7): the job assistant may carry the open job's facts, the dashboard the account's; never the form fill.
+    const jobFacts = scope === 'job' ? sanitizeJobFacts(c.job_facts) : undefined;
+    const businessFacts = scope === 'dashboard' ? sanitizeBusinessFacts(c.business_facts) : undefined;
     const cleanImages: RouterImage[] = [];
     for (const img of images.slice(0, REQUEST_LIMITS.images)) {
         const i = img as Record<string, unknown>;
@@ -372,9 +382,14 @@ export function sanitizeRequest(body: unknown): RouterRequest {
             proceed: c.proceed === true,
             ...(priceBook.length ? { price_book: priceBook } : {}),
             ...(formEstimate ? { form_estimate: formEstimate } : {}),
+            ...(jobFacts ? { job_facts: jobFacts } : {}),
+            ...(businessFacts ? { business_facts: businessFacts } : {}),
         },
     };
 }
+
+/** The request carries business numbers (rule 24 gets its long form). */
+export const hasBusinessFacts = (req: RouterRequest): boolean => Boolean(req.context?.job_facts || req.context?.business_facts);
 
 /** The request carries a price book (rule 23 in the prompt, `price_book_ref` in the response schema). */
 export const hasPriceBook = (req: RouterRequest): boolean => Boolean(req.context?.price_book?.length);

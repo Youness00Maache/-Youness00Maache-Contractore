@@ -815,6 +815,21 @@ const FEATURES: KnowledgeEntry[] = [
         steps: ['Open the estimate and click [[Review estimate]] under the total.', 'Fix the lines, click [[Add line]] on a suggestion or [[Ignore]] it.', 'Click [[Save]], then [[Share]].'],
         limits: ['The checks: every plan. The AI check: Premium + AI, one AI request each time it runs.'],
     },
+    {
+        id: 'ai-business-numbers',
+        title: 'Ask the assistant about your numbers, and the AI business summary',
+        where: ['Job', 'AI Assistant'],
+        route: '/analytics',
+        concepts: ['ai', 'financials'],
+        keywords: ['what did we spend', 'what did i spend', 'spent on materials', 'profit on this job', 'who owes me', 'owes me money', 'what should i order', 'what to order', "what's overdue", 'what is overdue', 'summarize this week', 'summary of the week', 'business summary', 'summarize with ai', 'ai summary', 'monthly summary'],
+        facts: [
+            'Ask in plain words: in a job’s [[AI Assistant]] “summarize this week for this job”, “what did we spend on materials”, “what’s the profit on this job”, “what’s overdue”; in [[AI Command]] (dashboard) “who owes me money”, “what should I order”, “what’s overdue”. The app works out the numbers itself (the same ones as the job’s Financials, Insights, the Business overview and Inventory) and the assistant answers only from them; when a number is not there it says so instead of guessing.',
+            'It sends only totals and short labels (invoice numbers, job and client names, task titles), never whole documents. It can then prepare a next step for you to confirm (a draft invoice, a reminder email for an overdue invoice, a note, a restock); nothing is saved or sent without your click.',
+            'Business overview (Insights): [[Summarize with AI]] writes a short summary of the period on screen: a headline, 3 to 5 points (what went well, what needs attention, money waiting) and up to 3 next steps, linked to the job when there is one. Click again to redo it after changing the period or filters.',
+        ],
+        steps: ['Open a job and click [[AI Assistant]] (or [[AI Command]] on the dashboard).', 'Ask about the money, what is overdue, what to order or this week.', 'For the whole business: open Insights, pick the period, then click [[Summarize with AI]].'],
+        limits: ['Questions to the assistant use one AI request each (every plan’s monthly allowance). The business summary is Premium + AI, one AI request each time.'],
+    },
 ];
 
 /** Concepts per help guide (the guides come from helpContent.ts). */

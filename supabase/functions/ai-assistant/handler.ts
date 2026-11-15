@@ -13,6 +13,9 @@
  * metering, Premium + AI only; returns findings (missing items / expenses / risky assumptions); see handleEstimateReview.
  * Task extraction (body.task = "extract_tasks", shared/taskExtraction.ts): text -> proposed job tasks, Premium + AI;
  * see handleExtractTasks (proposals only, nothing is written).
+ * Business summary (body.task = "business_summary", shared/businessSummary.ts): the Business overview's aggregates ->
+ * headline, bullets, next actions, Premium + AI; see handleBusinessSummary (read-only).
+ * Business numbers in the assistant (context.job_facts / business_facts, shared/businessFacts.ts): rule 24, CHAT answers.
  */
 import {
     buildProposal, buildResponseSchema, hasPriceBook, isSampleRequest, parseModelJson, requestHasEstimateOptions, RouterInputError, sanitizeRequest,
@@ -30,6 +33,10 @@ import {
     buildExtractTasksSchema, buildExtractTasksSystemPrompt, buildExtractTasksUserText, EXTRACT_TASKS_TIER, EXTRACT_TASKS_UPGRADE_MESSAGE,
     extractTasksReply, isExtractTasksBody, mockExtractTasksOutput, normalizeExtractedTasks, sanitizeExtractTasksRequest, type ExtractTasksRequest,
 } from './shared/taskExtraction.ts';
+import {
+    buildBusinessSummarySchema, buildBusinessSummarySystemPrompt, buildBusinessSummaryUserText, BUSINESS_SUMMARY_TIER, BUSINESS_SUMMARY_UPGRADE_MESSAGE,
+    isBusinessSummaryBody, mockBusinessSummaryOutput, parseBusinessSummary, sanitizeBusinessSummaryRequest, type BusinessSummaryRequest,
+} from './shared/businessSummary.ts';
 import { buildSystemPrompt, buildUserTurn } from './shared/prompt.ts';
 import { mockModelOutput } from './shared/mockModel.ts';
 import { REQUEST_LIMITS } from './shared/routerContract.ts';
@@ -755,6 +762,55 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
         return json({ ok: true, task: request.task, tasks, reply_text, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
     }
 
+    /** Business summary: the overview's aggregates in one user turn, own prompt and schema (no photos). */
+    async function callGeminiBusinessSummary(request: BusinessSummaryRequest): Promise<{ output: Record<string, unknown>; model: string }> {
+        const thinkingLevel = thinkingLevelOf();
+        const contents = [{ role: 'user', parts: [{ text: buildBusinessSummaryUserText(request) }] }];
+        const system = buildBusinessSummarySystemPrompt(request);
+        const makeBody = (model: string, opts: { thinking: boolean; compact: boolean }) => {
+            const modern = geminiGeneration(model) >= 3;
+            return JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    responseSchema: buildBusinessSummarySchema(),
+                    ...(modern ? {} : { temperature: 0.2 }),
+                    maxOutputTokens: 4096,
+                    ...(opts.thinking ? { thinkingConfig: modern ? { thinkingLevel } : { thinkingBudget: THINKING_BUDGET } } : {}),
+                },
+            });
+        };
+        return generateJson(makeBody);
+    }
+
+    /**
+     * "Summarize with AI" on the Business overview (Premium + AI): the period's aggregates → headline, bullets, next actions
+     *   → { ok, task: 'business_summary', summary, meta }. Read-only; metered as one AI request only when a summary was
+     * produced and the browser is still waiting.
+     */
+    async function handleBusinessSummary(req: Request, userId: string, body: unknown, cors: Record<string, string>): Promise<Response> {
+        const request = sanitizeBusinessSummaryRequest(body);
+        const admission = await admit(userId, cors, BUSINESS_SUMMARY_TIER, BUSINESS_SUMMARY_UPGRADE_MESSAGE);
+        if (admission instanceof Response) return admission;
+
+        const provider = (env.get('AI_PROVIDER') || 'gemini').toLowerCase() === 'mock' ? 'mock' : 'gemini';
+        const { output, model } = provider === 'mock'
+            ? { output: mockBusinessSummaryOutput(request), model: 'mock' }
+            : await callGeminiBusinessSummary(request);
+        const summary = parseBusinessSummary(output, request);
+        if (!summary) {
+            log('business summary without a usable headline / bullets', model);
+            throw new HttpError(FAILURE_ERRORS.bad_output.status, FAILURE_ERRORS.bad_output.code, FAILURE_ERRORS.bad_output.message);
+        }
+        if (req.signal?.aborted) {
+            log('client went away before the answer; not metered');
+            return json({ error: 'The request was cancelled.', code: 'CANCELLED' }, 499, cors);
+        }
+        const spent = await recordUsage(userId, admission);
+        return json({ ok: true, task: request.task, summary, meta: { provider, model, usage: usageMeta(admission, spent) } }, 200, cors);
+    }
+
     return async function handle(req: Request): Promise<Response> {
         const cors = corsHeaders(req, env);
         if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -771,6 +827,7 @@ export function createHandler(env: RouterEnv, deps: HandlerDeps) {
             if (isPhotoTaskBody(body)) return await handlePhotoTask(req, user.id, body, cors);
             if (isEstimateReviewBody(body)) return await handleEstimateReview(req, user.id, body, cors);
             if (isExtractTasksBody(body)) return await handleExtractTasks(req, user.id, body, cors);
+            if (isBusinessSummaryBody(body)) return await handleBusinessSummary(req, user.id, body, cors);
             const request = sanitizeRequest(body);
 
             const admission = await admit(user.id, cors);
