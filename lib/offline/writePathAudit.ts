@@ -300,6 +300,22 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/boards/boardsApi.ts', match: "from('job_boards').delete()", what: 'delete a mood board', offline: 'needs_connection' },
     { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).remove(paths)', what: 'delete a mood board: its images', offline: 'needs_connection' },
     { file: 'lib/portal/selectionsApi.ts', match: "rpc('choose_portal_selection'", what: 'client chooses an option of a selection (portal)', offline: 'public' },
+    // ------------------------------------------------------------------------ subcontractors + quote comparison (D7)
+    { file: 'lib/subs/subsApi.ts', match: "from('crew_members').update(row)", what: 'crew member: employee / subcontractor, company, trade', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('sub_commitments').insert(row)", what: 'add a sub commitment (draft or sent)', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('sub_commitments').update(row)", what: 'edit a sub commitment (scope, amount, retainage, dates, notes)', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('sub_commitments').update({ status })", what: 'send / withdraw / start / complete / cancel / reopen a sub commitment', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('sub_commitments').update({ payments })", what: 'record a payment to a sub (append only)', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('sub_commitments').delete()", what: 'delete a sub commitment', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "storage.from(QUOTE_FILES_BUCKET).upload(path, file", what: 'quote file upload (document-assets)', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "storage.from(QUOTE_FILES_BUCKET).remove([path])", what: 'remove a quote file (replaced, removed, quote deleted or save failed)', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').insert({ ...row", what: 'add a quote', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').update(row)", what: 'edit a quote', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').update(fileFields)", what: 'add / replace the file of a quote', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').update({ file_path: null", what: 'remove the file of a quote', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').update({ status })", what: 'shortlist / reject / choose a quote', offline: 'needs_connection' },
+    { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').delete()", what: 'delete a quote', offline: 'needs_connection' },
+    { file: 'lib/subs/subPublicApi.ts', match: "rpc('crew_sub_accept'", what: 'crew link: the sub accepts their commitment', offline: 'public' },
 ];
 
 /** Rows of the table that cover a scanned line. */
