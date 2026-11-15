@@ -1,0 +1,21 @@
+{
+"punch-lists.s01.0": "Este capítulo trata de las listas de pendientes, la lista corta de detalles que faltan por arreglar antes de que un trabajo esté de verdad terminado.",
+"punch-lists.s01.1": "Abre un trabajo, aquí el Nair Master Bath, haciendo clic en “View Project”.",
+"punch-lists.s01.2": "Luego cambia a la pestaña “Punch list”. El número que tiene al lado muestra cuántos puntos están hechos.",
+"punch-lists.s02.0": "Recorre el trabajo con tu teléfono y escribe un punto por línea.",
+"punch-lists.s02.1": "Empieza con el cuarto, por ejemplo baño: retocar la pintura. El cuarto se queda para los siguientes puntos, así escribes menos.",
+"punch-lists.s02.2": "Termina una línea con una arroba y un nombre para dársela a alguien, como arroba Eli.",
+"punch-lists.s02.3": "Presiona Enter o haz clic en “Add item”. Captas el problema justo donde estás parado.",
+"punch-lists.s03.0": "Toca el círculo que está antes de un punto para marcarlo como hecho. Tócalo otra vez para deshacer.",
+"punch-lists.s03.1": "Cuando tú mismo hayas revisado el trabajo, abre el menú de tres puntos y elige “Mark verified”.",
+"punch-lists.s03.2": "El mismo menú tiene “Edit”, donde puedes agregar una fecha de vencimiento, notas y una foto del antes y del después.",
+"punch-lists.s03.3": "Esas fotos también se agregan a las fotos del trabajo, así que cuentan para tu espacio de fotos.",
+"punch-lists.s04.0": "¿Quieres que tu cliente dé su visto bueno? Activa “Show in client portal”.",
+"punch-lists.s04.1": "Así puede seguir el avance por su cuenta, sin llamarte para preguntar qué falta.",
+"punch-lists.s05.0": "En su teléfono, el cliente ve la lista. En cada punto terminado toca “Looks good” o “Needs work”.",
+"punch-lists.s05.1": "Si toca “Needs work”, agrega una nota, el punto se vuelve a abrir, y la campana te avisa al instante.",
+"punch-lists.s06.0": "Arriba, el menú de tres puntos tiene “Download PDF”, con las fotos, perfecto para el recorrido final.",
+"punch-lists.s06.1": "O elige “Save as Note” en el trabajo, para enviarlo o compartirlo después.",
+"punch-lists.s06.2": "Agregar y marcar puntos funciona sin conexión y se sincroniza después. Las fotos, borrar y compartir necesitan conexión.",
+"punch-lists.s06.3": "Las listas de pendientes están en todos los planes. Ahora veamos tus papeles, tu seguro y tus garantías."
+}

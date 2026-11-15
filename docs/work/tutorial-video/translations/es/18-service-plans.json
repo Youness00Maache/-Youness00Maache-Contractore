@@ -1,0 +1,20 @@
+{
+"service-plans.s01.0": "Este capítulo trata de los planes de servicio, para el trabajo que vuelve una y otra vez, como una visita de mantenimiento dos veces al año.",
+"service-plans.s01.1": "Abre “Tools” y luego “Service plans”. En un teléfono, está en “More”.",
+"service-plans.s01.2": "Los planes de servicio son parte de Premium, así que necesitas ese plan para seguir el capítulo.",
+"service-plans.s02.0": "Haz clic en “New plan”. Elige al cliente, ponle nombre al plan y di qué haces en cada visita.",
+"service-plans.s02.1": "Ese texto se imprime en cada orden de trabajo, para que tu equipo sepa qué hacer.",
+"service-plans.s02.2": "Elige la frecuencia, por ejemplo “Twice a year”, y la fecha de la primera visita.",
+"service-plans.s02.3": "Pon el precio y cómo se cobra, y haz clic en “Save plan”.",
+"service-plans.s03.0": "Ahora ContractorDocs hace el resto. Crea un trabajo para el plan y genera cada visita con anticipación, 14 días por defecto.",
+"service-plans.s03.1": "Cada visita recibe una orden de trabajo, y si elegiste “Invoice each visit”, también una factura en borrador.",
+"service-plans.s03.2": "El trabajo se mueve a la fecha de la visita, así que aparece en tu calendario, y el cliente recibe tu recordatorio el día antes.",
+"service-plans.s03.3": "Esto pasa cada hora, aunque no abras la app.",
+"service-plans.s04.0": "¿Prefieres una sola factura? Elige “Monthly”, “Quarterly”, “Invoice every 6 months” o “Yearly invoice”.",
+"service-plans.s04.1": "Se agrega una factura recurrente al trabajo del plan, y se repite sola.",
+"service-plans.s05.0": "Bajo “Next visits”, toca “Done” cuando termine una visita. La orden de trabajo pasa a “Completed”.",
+"service-plans.s05.1": "El menú de tres puntos te deja usar “Skip this visit”, “Open work order” u “Open invoice”.",
+"service-plans.s05.2": "Para cambiar un plan, usa su menú: “Edit”, “Pause”, “Resume”, “End plan” o “Delete”. “Delete” conserva el trabajo y sus documentos.",
+"service-plans.s06.0": "Tu cliente también ve el plan, con la próxima visita y la última, en su portal.",
+"service-plans.s06.1": "Ahora armemos tu lista de precios, para cotizar más rápido."
+}

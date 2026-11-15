@@ -1,0 +1,21 @@
+{
+"schedule.s01.0": "Este capítulo trata del calendario, donde ves cuándo se hace cada trabajo.",
+"schedule.s01.1": "Haz clic en “Tools” y luego en “Calendar”. Cada trabajo aparece desde su fecha de inicio hasta su fecha de fin, con un color según su estado.",
+"schedule.s01.2": "Cambia entre “Month”, “Week” y “List” con los botones de arriba.",
+"schedule.s01.3": "“Month” te da el panorama general, “Week” muestra cada día con más detalle, y “List” es una lista sencilla.",
+"schedule.s02.0": "Para agendar un trabajo, haz clic en “New job”.",
+"schedule.s02.1": "En una computadora, también puedes hacer doble clic en un día de la vista “Month”.",
+"schedule.s02.2": "Llena el trabajo como aprendiste en el capítulo de trabajos, y aparece en el calendario.",
+"schedule.s03.0": "Si usas tareas del trabajo, el calendario también marca los días en que vencen tus tareas abiertas.",
+"schedule.s03.1": "Busca un rombo pequeño en el día. Se pone rojo cuando la tarea va atrasada.",
+"schedule.s03.2": "En la vista “Week”, las tareas van debajo de cada día. En la vista “List”, están agrupadas bajo “Tasks”.",
+"schedule.s03.3": "Toca una para abrir la pestaña “Tasks” de ese trabajo.",
+"schedule.s04.0": "Los seguimientos de tus prospectos y las citas agendadas también aparecen aquí.",
+"schedule.s04.1": "Un marcador azul pequeño en un día significa un seguimiento o una cita. Se pone rojo cuando un seguimiento va atrasado.",
+"schedule.s04.2": "En la vista “Week”, aparecen como etiquetas delgadas con un borde azul. En la vista “List”, van bajo “Leads”.",
+"schedule.s04.3": "Toca una para abrir el prospecto.",
+"schedule.s04.4": "En una cita, “Add to my calendar” pone la visita en tu propio calendario de Google, Apple u Outlook.",
+"schedule.s05.0": "Así, una sola pantalla muestra tus trabajos, tus tareas y tus prospectos.",
+"schedule.s05.1": "“Insights” también está en “Tools”, y tiene su propio capítulo más adelante.",
+"schedule.s05.2": "Ahora veamos cómo funcionan las tareas."
+}
