@@ -93,7 +93,8 @@ let manifestPromise: Promise<VideoManifest | null> | null = null;
 /** Fetches the manifest once per page load; null when the course is not published (yet). */
 export function loadManifest(base: string = VIDEO_MEDIA_BASE): Promise<VideoManifest | null> {
   if (!manifestPromise) {
-    manifestPromise = fetch(`${base}/manifest.json`, { cache: 'no-cache' })
+    // no fetch options: any custom cache mode can force a cross-origin pre-check; a 5-minute stamp keeps updates fresh instead
+    manifestPromise = fetch(`${base}/manifest.json?v=${Math.floor(Date.now() / 300000)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then(parseManifest)
       .catch(() => null);

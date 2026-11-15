@@ -8,6 +8,7 @@ const dir = path.resolve(process.argv[2] || '.');
 const port = Number(process.argv[3] || 3999);
 const types = { '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.mp4': 'video/mp4', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.vtt': 'text/vtt', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml' };
 http.createServer((req, res) => {
+  if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,HEAD,OPTIONS' }); return res.end(); }
   const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '');
   const file = path.resolve(dir, rel || 'index.html');
   if (!file.startsWith(dir) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404, { 'access-control-allow-origin': '*' }); return res.end('not found'); }
