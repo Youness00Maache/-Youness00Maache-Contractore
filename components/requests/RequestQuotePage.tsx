@@ -15,6 +15,11 @@ import {
 } from './requestLogic.ts';
 import { fetchRequestPage, submitQuoteRequest, uploadRequestPhotos, type PublicRequestPage } from './requestsApi.ts';
 import { blobToCanvas } from '../photos/photosApi.ts';
+// richer public profile under the form (roadmap D8): drawn only when the database has it and the owner filled something in
+import { loadPublicProfileExtras } from '../../lib/profile/profileApi.ts';
+import { hasProfileContent } from '../../lib/profile/profileLogic.ts';
+import type { PublicProfileExtras } from '../../lib/profile/profileTypes.ts';
+import PublicProfileView from '../profile/PublicProfileView.tsx';
 
 interface PickedPhoto { id: string; file: File; url: string }
 
@@ -92,6 +97,7 @@ const preparePickedPhoto = async (file: File): Promise<File> => {
 
 const RequestQuotePage: React.FC<{ slug: string }> = ({ slug }) => {
     const [load, setLoad] = useState<LoadState>({ status: 'loading' });
+    const [extras, setExtras] = useState<PublicProfileExtras | null>(null);
     const [values, setValues] = useState<RequestFormValues>(EMPTY_REQUEST_FORM);
     const [errors, setErrors] = useState<RequestFormErrors>({});
     const [touched, setTouched] = useState(false);
@@ -116,6 +122,9 @@ const RequestQuotePage: React.FC<{ slug: string }> = ({ slug }) => {
             return;
         }
         setLoad({ status: 'loading' });
+        setExtras(null);
+        // in parallel; a missing function or an error leaves the page exactly as it always was
+        void loadPublicProfileExtras(slug).then((res) => { if (res.status === 'ready' && hasProfileContent(res.data)) setExtras(res.data); }).catch(() => undefined);
         try {
             const page = await fetchRequestPage(slug);
             setLoad({ status: 'ready', page });
@@ -398,6 +407,8 @@ const RequestQuotePage: React.FC<{ slug: string }> = ({ slug }) => {
                         <ContactLinks page={page} />
                     </section>
                 )}
+
+                {extras && <PublicProfileView extras={extras} company={company} className="mt-10" />}
             </main>
             <Footer branded={page.branded} />
         </div>

@@ -18,6 +18,7 @@ import {
 import { savePaymentSettings } from '../lib/paymentsApi.ts';
 import { Toggle } from './forms/Fields.tsx';
 import RequestLinkSettings from './requests/RequestLinkSettings.tsx';
+import FeedbackSection from './feedback/FeedbackSection.tsx';
 import ReminderSettingsCard from './reminders/ReminderSettingsCard.tsx';
 import DataExportSection from './export/DataExportSection.tsx';
 import { AICreditsRow } from './billing/AICredits.tsx';
@@ -529,12 +530,15 @@ const Settings: React.FC<SettingsProps> = ({
                     <Section id="requests" title="Request-a-quote link" description="A public page and QR code where new clients can ask you for a quote.">
                         <RequestLinkSettings
                             embedded
+                            withProfile
                             plan={plan}
                             companyName={profile.companyName || profile.name}
                             logoUrl={profile.logoUrl}
                             phone={profile.phone}
                             onUpgrade={onUpgradeClick ? () => onUpgradeClick() : undefined}
                         />
+                        {/* Client feedback (roadmap D8): the answers from "Ask for feedback" on a job; hidden until the database has it */}
+                        <FeedbackSection plan={plan} onUpgrade={onUpgradeClick ? () => onUpgradeClick() : undefined} className="mt-5" />
                     </Section>
 
                     {/* Signature */}

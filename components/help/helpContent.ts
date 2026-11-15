@@ -16,7 +16,8 @@ export type HelpTopicId =
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
   | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview' | 'setup-assistant'
-  | 'subcontractors' | 'compare-quotes' | 'sub-link' | 'warranty-tracking' | 'after-job-emails';
+  | 'subcontractors' | 'compare-quotes' | 'sub-link' | 'warranty-tracking' | 'after-job-emails'
+  | 'client-feedback' | 'public-profile';
 
 export interface HelpStep {
   title: string;
@@ -351,6 +352,46 @@ export const HELP_GUIDES: HelpGuide[] = [
     ],
     tips: ['The Taking requests / Paused switch turns the page off without losing your link.', '[[Change link]] makes old links and printed QR codes stop working.',
       'Requests also appear in Leads, where you can follow them up by stage, book a visit and convert them to jobs.'],
+  },
+  {
+    id: 'client-feedback',
+    title: 'Client feedback and testimonials',
+    summary: 'Send a client a short link after a job. They give 1 to 5 stars and an optional comment on their phone. You read the answers and choose which ones go on your public page.',
+    where: ['Job', 'Ask for feedback'],
+    group: 'Clients & messages',
+    appPath: '/settings#requests',
+    steps: [
+      { title: 'Ask on the job', text: 'Open the job and tap [[Ask for feedback]] in the row of buttons under the job name (on a phone it says [[Feedback]]). Tap [[Make the link]]: it is one link for this job, and your client can answer it once.' },
+      { title: 'Send it', text: '[[Copy link]] or [[Share]] it, or send the ready message: type or check the email, then [[Send with Gmail]]. [[Copy text]], Text and WhatsApp open your own phone apps with the message already written. Nothing is sent without you tapping it.' },
+      { title: 'What your client sees', text: 'Your name and logo, the job, five big stars, an optional comment and name, then [[Send feedback]]. No login, no app. The page follows the phone’s language (English or Spanish). With 4 or 5 stars they are also asked “Would you share this on Google?” when you added your Google review link in [[Settings]] › Payments & reviews. With 1 to 3 stars they see a kind message and no Google prompt.' },
+      { title: 'Read the answers', text: 'In [[Settings]] › Request-a-quote link, open [[Client feedback]]: your average, how the stars are spread, and every answer with the client’s own words, the job and the date. The filters show All, Answered, Waiting and On page. The same answers show on the job under [[Ask for feedback]]. A link nobody answered yet has [[Copy link]] so you can send it again.' },
+      { title: 'Use one as a testimonial', text: 'On an answer, tap [[Use as testimonial]]. The name shown starts as first name and last initial (never an email or a phone number). The quote starts as the client’s comment and must stay part of what they wrote, word for word: you can cut words off the start or the end, but not rewrite it. Then [[Show on my page]]. It appears under What clients say on your request page with the average stars.' },
+      { title: 'Hide, note, delete', text: 'The ⋯ menu has [[Hide]] / [[Unhide]], [[Add private note]] (only you see it) and [[Delete]]. [[Remove from page]] takes a testimonial off your page and keeps the answer in your list.' },
+    ],
+    tips: [
+      `Asking a client for feedback is part of ${premium.name}. Reading and managing the answers works on every plan.`,
+      'Nothing is public unless you choose it with Use as testimonial. The client is told that you may show their comment with their first name and last initial.',
+      'Every change needs a connection; the app says so when you are offline.',
+    ],
+  },
+  {
+    id: 'public-profile',
+    title: 'Your public profile',
+    summary: 'Tell clients who you are under your request form: about you, what you do, where you work, your license, photos of your work and the testimonials you approved.',
+    where: ['Settings', 'Request-a-quote link', 'Public profile'],
+    group: 'Clients & messages',
+    appPath: '/settings#requests',
+    steps: [
+      { title: 'Open it', text: 'In [[Settings]] › Request-a-quote link, open [[Public profile]]. It shows how much is filled in (“4 of 6 filled · 3 photos”).' },
+      { title: 'Fill in your details', text: 'Write [[About your business]]. Under [[What you do]] type a service and press Enter (up to 20, each one a short chip). Add [[Where you work]], your [[License]] line and your [[Experience]] line, then [[Save profile]]. A field you leave empty is simply not shown.' },
+      { title: 'Add photos of your work', text: 'Under Photo gallery tap [[Pick photos from your jobs]] and tap the photos you want (up to 12; the After photos come first). Write a caption for each, and move them with the arrows. [[Remove]] takes one off your page. These photos and captions are public: anyone with your link can see them.' },
+      { title: 'Check the preview', text: 'The Preview shows the section as your clients see it, and it updates as you type. What you type is not public until you [[Save profile]].' },
+      { title: 'What clients see', text: 'On your request page, below the form: About, What we do, where you work, license and experience, Our work (tap a photo to enlarge it) and What clients say, with the average stars and the testimonials you approved in [[Client feedback]].' },
+    ],
+    tips: [
+      'The profile is free on every plan. If the request page is paused, the profile shows when you turn the page back on.',
+      'Keep faces, house numbers and anything private out of gallery photos and captions. Removing a photo deletes its public copy; the photo on your job stays.',
+    ],
   },
   {
     id: 'leads',

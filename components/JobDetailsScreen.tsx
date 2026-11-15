@@ -79,6 +79,8 @@ interface JobDetailsScreenProps {
     subsSlot?: React.ReactNode;
     /** extra job tools (e.g. Lien waiver), shown in the tools row */
     toolsSlot?: React.ReactNode;
+    /** "Ask for feedback" (roadmap D8, rendered by App when it is in the database), right after the tools */
+    feedbackSlot?: React.ReactNode;
     /** permits / papers of this job, under the details */
     papersSlot?: React.ReactNode;
 }
@@ -157,7 +159,7 @@ const DocumentTile: React.FC<{
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
     job, client, documents, loadingDocuments, hasMoreDocuments, loadingMoreDocuments, docsThisMonth, docLimit, isOnline, canCreateOffline = false, t,
     aiButton, aiModal, onBack, onNewDocument, onOpenDocument, onDuplicateDocument, onCopyDocumentToJob, onDeleteDocument, onStatusChange,
-    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, punchSlot, punchLabel, toolsSlot, papersSlot, crewSlot, tasksSlot, tasksLabel,
+    onLoadMore, onOpenFinancials, onBillTimeMaterials, onUpgrade, onMarkPaid, photosSlot, punchSlot, punchLabel, toolsSlot, papersSlot, crewSlot, tasksSlot, tasksLabel, feedbackSlot,
     filesSlot, questionsSlot, questionsLabel, questionsChip, selectionsSlot, selectionsLabel, selectionsChip, boardsSlot, subsSlot,
 }) => {
     // Documents / Photos / Tasks / Files / Questions / Selections / Boards / Punch list / Crew switch (kept in the URL hash so Back from a photo or a refresh stays on the tab).
@@ -268,6 +270,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                             </button>
                         )}
                         {toolsSlot}
+                        {feedbackSlot}
                         {aiButton}
                         <HelpButton topic="jobs" />
                     </div>

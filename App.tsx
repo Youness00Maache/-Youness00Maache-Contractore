@@ -80,6 +80,7 @@ import { summarizeQuestions } from './lib/questions/questionLogic.ts';
 import { tabWaiting, waitingChip } from './lib/questions/questionView.ts';
 import { listJobSelections, useSelectionsFeature } from './lib/selections/selectionsApi.ts';
 import { useSubsFeature } from './lib/subs/subsApi.ts';
+import { useFeedbackFeature } from './lib/feedback/feedbackApi.ts';
 import { summarizeSelections } from './lib/selections/selectionLogic.ts';
 import { headerChip as selectionsHeaderChip, tabBadge as selectionsTabBadge } from './lib/selections/selectionView.ts';
 import type { SelectionSummary } from './lib/selections/selectionTypes.ts';
@@ -160,6 +161,7 @@ const JobQuestionsPanel = lazy(() => import('./components/questions/JobQuestions
 // Client selections + mood boards (roadmap D5): job page tabs, hidden until the database has them.
 const JobSelectionsPanel = lazy(() => import('./components/selections/JobSelectionsPanel.tsx'));
 const JobSubsPanel = lazy(() => import('./components/subs/JobSubsPanel.tsx'));
+const JobFeedbackButton = lazy(() => import('./components/feedback/JobFeedbackButton.tsx'));
 const JobBoardsPanel = lazy(() => import('./components/boards/JobBoardsPanel.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
@@ -1162,6 +1164,7 @@ const App: React.FC = () => {
     // the Selections tab is read when a job page opens and kept up to date by the Selections panel itself.
     const selectionsFeature = useSelectionsFeature(session?.user?.id ?? null, isOnline);
     const subsFeature = useSubsFeature(session?.user?.id ?? null, isOnline);
+    const feedbackFeature = useFeedbackFeature(session?.user?.id ?? null, isOnline);
     const boardsFeature = useBoardsFeature(session?.user?.id ?? null, isOnline);
     const [selectionSummaries, setSelectionSummaries] = useState<Record<string, SelectionSummary>>({});
     const handleSelectionSummary = useCallback((jobId: string, s: SelectionSummary) => {
@@ -2726,6 +2729,11 @@ const App: React.FC = () => {
                         <FileTextIcon className="h-4 w-4" /> <span className="hidden sm:inline">Lien waiver</span><span className="sm:hidden">Waiver</span>
                     </button>
                 )}
+                feedbackSlot={feedbackFeature === 'ready' && session ? (
+                    <Suspense fallback={null}>
+                        <JobFeedbackButton job={job} client={client} userId={session.user.id} profile={profile} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} onEmailSent={handleEmailSent} />
+                    </Suspense>
+                ) : undefined}
                 papersSlot={isOnline ? (
                     <Suspense fallback={null}>
                         <JobPapersStrip jobId={job.id} onOpenPapers={() => navigate('/papers')} />

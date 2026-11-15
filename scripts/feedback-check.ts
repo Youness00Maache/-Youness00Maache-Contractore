@@ -26,6 +26,17 @@ import { READ_ONLY_RPCS } from '../lib/offline/writePathScan.ts';
 import { WRITE_PATHS } from '../lib/offline/writePathAudit.ts';
 import { requestSlugFromPath } from '../components/requests/requestLogic.ts';
 import { crewTokenFromPath } from '../lib/crew/crewPath.ts';
+import {
+    STAR_VALUES, afterSend, defaultTestimonialName, feedbackHeadline, feedbackLinkMessage, feedbackRequestMessage, feedbackStats, filterFeedback,
+    jobFeedbackLabel, nextStarValue, publicLookFor, ratingAria, shownStars, starShare, suggestedQuote, tabbableStar, testimonialDraftFor,
+    testimonialPatch, validateTestimonialDraft,
+} from '../lib/feedback/feedbackUi.ts';
+import {
+    EMPTY_PROFILE_FORM, addServiceChip, canAddService, lightboxStep, monthYear, previewExtras, profileFillCount, profileFormFrom, profilePatchFrom,
+    profileSections, ratingLine, removeServiceChip, sameProfileForm, type ProfileForm,
+} from '../lib/profile/profileUi.ts';
+import { isMarketingPath } from '../pages/routes.ts';
+import { parseView } from '../lib/routes.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -150,6 +161,113 @@ const extras = parsePublicProfileExtras({
 }, p => `https://cdn/${p}`);
 eq('public extras parse', [extras.gallery[0].url, extras.ratingAverage, extras.ratingCount, extras.testimonials.length], [`https://cdn/${P1}`, 4.7, 3, 1]);
 eq('no content -> page as before', [hasProfileContent(EMPTY_PROFILE_EXTRAS), hasProfileContent(parsePublicProfileExtras({}, p => p)), hasProfileContent(extras)], [false, false, true]);
+
+// ============================================================================================ PHASE B: client page + owner screens (pure rules)
+// -- star picker
+eq('stars: arrows', [nextStarValue(null, 'ArrowRight'), nextStarValue(3, 'ArrowRight'), nextStarValue(5, 'ArrowRight'), nextStarValue(3, 'ArrowLeft'), nextStarValue(1, 'ArrowLeft'), nextStarValue(null, 'ArrowLeft')], [1, 4, 5, 2, 1, 1]);
+eq('stars: up / down follow right / left', [nextStarValue(2, 'ArrowUp'), nextStarValue(2, 'ArrowDown')], [3, 1]);
+eq('stars: Home / End / digits', [nextStarValue(3, 'Home'), nextStarValue(3, 'End'), nextStarValue(null, '4'), nextStarValue(null, '1')], [1, 5, 4, 1]);
+eq('stars: other keys do nothing', [nextStarValue(3, 'Tab'), nextStarValue(3, 'Enter'), nextStarValue(3, '6'), nextStarValue(3, 'a')], [null, null, null, null]);
+eq('stars: shown = hover over selected', [shownStars(null, null), shownStars(3, null), shownStars(3, 5), shownStars(null, 2), shownStars(9 as number, 0)], [0, 3, 5, 2, 0]);
+eq('stars: roving tab stop', [tabbableStar(null), tabbableStar(4), tabbableStar(0)], [1, 4, 1]);
+eq('stars: five values', STAR_VALUES, [1, 2, 3, 4, 5]);
+
+// -- after sending: the 1-3 vs 4-5 star paths
+const G = 'https://g.page/r/abc/review';
+eq('after: 4-5 stars + https link -> Google', [afterSend(4, G), afterSend(5, G)], [{ kind: 'google', url: G }, { kind: 'google', url: G }]);
+eq('after: 4-5 stars without a link -> thanks only', [afterSend(5, null), afterSend(4, ''), afterSend(5, undefined)], [{ kind: 'thanks' }, { kind: 'thanks' }, { kind: 'thanks' }]);
+eq('after: 1-3 stars never get the Google prompt, even with a link', [afterSend(1, G), afterSend(2, G), afterSend(3, G)], [{ kind: 'sorry' }, { kind: 'sorry' }, { kind: 'sorry' }]);
+eq('after: only https links are opened', [afterSend(5, 'http://g.page/x'), afterSend(5, 'javascript:alert(1)'), afterSend(5, 'https://x y')], [{ kind: 'thanks' }, { kind: 'thanks' }, { kind: 'thanks' }]);
+
+// -- testimonial draft: name + quote rules in the owner's editor
+const long = `${'Great crew and a clean site. '.repeat(30)}Last sentence here.`;
+ok('quote: short comment kept as written', suggestedQuote('  Great job, on time.  ') === 'Great job, on time.' && suggestedQuote(null) === '');
+const cut = suggestedQuote(long);
+ok('quote: long comment cut at a sentence, within the limit, still a part of the comment, no ellipsis', cut.length <= FEEDBACK_LIMITS.testimonialText && cut.endsWith('.') && !cut.includes('…') && isExcerptOf(cut, long));
+ok('quote: no sentence break -> cut at a word', (() => { const q = suggestedQuote('word '.repeat(300)); return q.length <= FEEDBACK_LIMITS.testimonialText && isExcerptOf(q, 'word '.repeat(300)); })());
+eq('draft: name defaults to first name + initial, quote to the comment', testimonialDraftFor(rows[0]), { name: 'Jane S.', text: 'Great job, on time.' });
+eq('draft: owner choices win', testimonialDraftFor(rows[1]), { name: 'The Lees', text: 'on time' });
+eq('draft: no client name falls back to the job client first name', testimonialDraftFor(row({ client_name: null, client_first_name: 'Maria' })).name, 'Maria');
+eq('draft: nothing known -> empty (the page shows "A client")', testimonialDraftFor(row({ client_name: null, client_first_name: null })).name, '');
+eq('draft: an email typed as the name never becomes the default', defaultTestimonialName({ clientName: 'jane@x.com', clientFirstName: null }), '');
+eq('validate: good draft', validateTestimonialDraft({ name: 'Jane S.', text: 'on time' }, rows[0]).ok, true);
+eq('validate: email / phone as a name refused', [validateTestimonialDraft({ name: 'jane@x.com', text: '' }, rows[0]).nameError !== null, validateTestimonialDraft({ name: '555 123 4567', text: '' }, rows[0]).nameError !== null], [true, true]);
+eq('validate: quote must be a part of the client words', [validateTestimonialDraft({ name: '', text: 'the best contractor ever' }, rows[0]).textError !== null, validateTestimonialDraft({ name: '', text: 'GREAT  job' }, rows[0]).ok], [true, true]);
+eq('validate: no comment -> any quote refused, empty quote fine', [validateTestimonialDraft({ name: '', text: 'x' }, row({ comment: null })).ok, validateTestimonialDraft({ name: '', text: '' }, row({ comment: null })).ok], [false, true]);
+eq('validate: quote over 600 refused', validateTestimonialDraft({ name: '', text: long }, row({ comment: long })).ok, false);
+eq('patch: trimmed, empty -> null', [testimonialPatch({ name: ' Jane S. ', text: ' on time ' }), testimonialPatch({ name: '  ', text: '' })], [{ name: 'Jane S.', text: 'on time' }, { name: null, text: null }]);
+eq('public look: what the page shows', [publicLookFor(rows[0])?.name, publicLookFor(rows[2]), publicLookFor(rows[3]), publicLookFor(rows[4])], ['Jane S.', null, null, null]);
+
+// -- the owner's list
+eq('filter: all / answered / waiting / page', [filterFeedback(rows, 'all').length, filterFeedback(rows, 'answered').length, filterFeedback(rows, 'waiting').map(r => r.id), filterFeedback(rows, 'page').map(r => r.id)], [5, 4, ['e'], ['a', 'b']]);
+const st = feedbackStats(rows);
+eq('stats: counts and averages', [st.answered, st.waiting, st.onPage, st.hidden, st.average, st.pageAverage, st.byStar], [4, 1, 2, 1, 4.8, 4.5, { 1: 0, 2: 0, 3: 0, 4: 1, 5: 3 }]);
+eq('headline', [feedbackHeadline(st), feedbackHeadline(feedbackStats([]))], ['4.8 from 4 · 1 waiting · 2 on your page', 'No feedback yet']);
+eq('bars: share per star', [starShare(st, 5), starShare(st, 4), starShare(st, 1), starShare(feedbackStats([]), 5)], [75, 25, 0, 0]);
+eq('job button text', [jobFeedbackLabel([], J), jobFeedbackLabel([rows[4]], J), jobFeedbackLabel([rows[0], rows[1]], J), jobFeedbackLabel([rows[0]], 'other')],
+    [{ long: 'Ask for feedback', short: 'Feedback' }, { long: 'Feedback: waiting', short: 'Feedback…' }, { long: 'Feedback: 4.5 of 5', short: 'Feedback 4.5' }, { long: 'Ask for feedback', short: 'Feedback' }]);
+eq('aria', [ratingAria(4), ratingAria(null)], ['4 out of 5 stars', 'Not rated yet']);
+
+// -- the message to the client
+const fm = feedbackRequestMessage({ clientName: 'Jane Smith', company: 'Acme Roofing', senderName: 'Sam', jobName: 'Kitchen', link: `https://x/feedback/${TOKEN}` });
+ok('message: greeting, job, link, sign-off', fm.body.startsWith('Hi Jane,') && fm.body.includes('the Kitchen job') && fm.body.includes(`https://x/feedback/${TOKEN}`) && fm.body.endsWith('Sam\nAcme Roofing') && fm.subject === 'How did we do on Kitchen?');
+ok('message: no word about Google or reviews to the client', !/google|review/i.test(`${fm.subject}\n${fm.body}\n${fm.text}`));
+eq('message: no names -> still a sentence', feedbackRequestMessage({ link: 'L' }).body.startsWith('Hi,\n\nThank you for choosing us.'), true);
+ok('message: text version is one line with the link', !fm.text.includes('\n') && fm.text.endsWith(`https://x/feedback/${TOKEN}`));
+ok('link message', feedbackLinkMessage({ clientName: 'Jane Smith', company: 'Acme', link: 'L' }) === 'Hi Jane, how did we do at Acme? It takes under a minute: L');
+
+// -- public profile: sections, preview, editor rules
+const noneYet = { ...EMPTY_PROFILE_EXTRAS };
+eq('profile: an empty profile shows no section at all', profileSections(noneYet), { about: false, services: false, facts: false, gallery: false, reviews: false, any: false });
+eq('profile: null / undefined extras -> nothing', [profileSections(null).any, profileSections(undefined).any], [false, false]);
+eq('profile: blank text counts as empty', profileSections({ ...noneYet, about: '   ', serviceArea: ' ' }).any, false);
+eq('profile: each field alone', [profileSections({ ...noneYet, about: 'Hi' }), profileSections({ ...noneYet, services: ['Roofing'] }), profileSections({ ...noneYet, yearsLine: '15 years' }),
+    profileSections({ ...noneYet, gallery: [{ path: P1, caption: null, url: 'u' }] }), profileSections({ ...noneYet, testimonials: [{ rating: 5, name: 'A', text: null, date: '2026-11-03' }] })].map(s => Object.entries(s).filter(([, v]) => v).map(([k]) => k).join('+')),
+    ['about+any', 'services+any', 'facts+any', 'gallery+any', 'reviews+any']);
+eq('month and year', [monthYear('2026-11-05'), monthYear('2026-01-31'), monthYear(''), monthYear('x'), monthYear('2026-13-01')], ['November 2026', 'January 2026', '', '', '']);
+eq('rating line', [ratingLine(4.8, 12), ratingLine(5, 1), ratingLine(null, 3), ratingLine(4.5, 0)], ['4.8 from 12 reviews', '5.0 from 1 review', '', '']);
+eq('lightbox keys wrap', [lightboxStep(0, 5, 'ArrowLeft'), lightboxStep(4, 5, 'ArrowRight'), lightboxStep(2, 5, 'Home'), lightboxStep(2, 5, 'End'), lightboxStep(2, 5, 'x'), lightboxStep(0, 0, 'ArrowRight')], [4, 0, 0, 4, null, null]);
+eq('chips: add, dedupe, trim, split', addServiceChip(['Roofing'], ' roofing, Gutters;  Siding\n'), ['Roofing', 'Gutters', 'Siding']);
+eq('chips: at most 20', [addServiceChip(Array.from({ length: 19 }, (_, i) => `s${i}`), 'a, b, c').length, canAddService(Array.from({ length: 20 }, (_, i) => `s${i}`)), canAddService(['a'])], [20, false, true]);
+eq('chips: remove', removeServiceChip(['a', 'b', 'c'], 1), ['a', 'c']);
+const sv: ProfileForm = { about: 'Hi', services: ['Roofing'], serviceArea: 'Austin', licenseLine: '', yearsLine: '' };
+eq('form: unchanged -> no patch, changed -> only that field', [profilePatchFrom(sv, sv), profilePatchFrom({ ...sv, about: ' Hello ' }, sv), profilePatchFrom({ ...sv, serviceArea: '' }, sv), profilePatchFrom({ ...sv, services: ['Roofing', 'Gutters'] }, sv)],
+    [{}, { about: 'Hello' }, { serviceArea: '' }, { services: ['Roofing', 'Gutters'] }]);
+eq('form: same / different', [sameProfileForm(sv, { ...sv, about: ' Hi ' }), sameProfileForm(sv, { ...sv, services: [] })], [true, false]);
+eq('form from the saved profile', profileFormFrom(parseMyRequestProfile({ slug: 'a-b', about: 'Hi', services: ['x'], service_area: null, license_line: 'L', years_line: null, gallery: [] })), { about: 'Hi', services: ['x'], serviceArea: '', licenseLine: 'L', yearsLine: '' });
+eq('fill count', [profileFillCount(EMPTY_PROFILE_FORM, 0), profileFillCount(sv, 3)], [{ filled: 0, total: 6 }, { filled: 4, total: 6 }]);
+const pv = previewExtras({ ...sv, services: ['Roofing', 'roofing'] }, [{ path: P1, caption: 'Deck' }], p => `https://cdn/${p}`, approvedTestimonials(rows), 4.5);
+eq('preview: as the page will draw it', [pv.about, pv.services, pv.gallery[0].url, pv.testimonials.length, pv.ratingCount, profileSections(pv).any], ['Hi', ['Roofing'], `https://cdn/${P1}`, 2, 2, true]);
+eq('preview: empty form -> nothing to draw', profileSections(previewExtras(EMPTY_PROFILE_FORM, [], p => p, [], null)).any, false);
+
+// -- wiring (source lint): routes, pages, mounts
+const src = (f: string) => readFileSync(join(ROOT, f), 'utf8').replace(/\r\n/g, '\n');
+const indexSrc = src('index.tsx');
+ok('route: /feedback/<token> parsed in index.tsx with its own lazy chunk, after the request and crew branches, before the app', (() => {
+    const a = indexSrc.indexOf('requestSlugFromPath(location.pathname)');
+    const b = indexSrc.indexOf('crewTokenFromPath(location.pathname)');
+    const c = indexSrc.indexOf('feedbackTokenFromPath(location.pathname)');
+    const d = indexSrc.indexOf('return <AppBranch />;');
+    return a > 0 && b > a && c > b && d > c && indexSrc.includes("import('./components/feedback/FeedbackPage.tsx')") && indexSrc.includes('<FeedbackBranch token={feedbackToken} />');
+})());
+ok('route: marketing / app routes do not take /feedback/', !isMarketingPath(`/feedback/${TOKEN}`) && parseView(`/feedback/${TOKEN}`, '', null).screen === 'notFound');
+ok('route: a feedback link is not a request or crew link', requestSlugFromPath(`/feedback/${TOKEN}`) === null && crewTokenFromPath(`/feedback/${TOKEN}`) === null);
+const pageSrc = src('components/feedback/FeedbackPage.tsx');
+ok('client page: no third-party scripts, no external imports', !/<script/.test(pageSrc) && !/createElement\('script'\)/.test(pageSrc) && !/from '(https?:|\/\/)/.test(pageSrc) && !/import\('(https?:|\/\/)/.test(pageSrc));
+ok('client page: Google opens in a new tab without a referrer, only for the "google" path', pageSrc.includes('target="_blank" rel="noopener noreferrer"') && pageSrc.includes("sent.after.kind === 'google'") && pageSrc.includes('afterSend('));
+ok('client page: not indexed, logo without referrer, both languages', pageSrc.includes('noindex, nofollow') && pageSrc.includes('referrerPolicy="no-referrer"') && pageSrc.includes("lang: 'Español'") && pageSrc.includes('const ES: Words'));
+ok('client page: kind states for invalid / already / missing / offline', ['invalidTitle', 'alreadyTitle', 'missingTitle', 'offlineTitle'].every(k => pageSrc.includes(k)));
+const reqSrc = src('components/requests/RequestQuotePage.tsx');
+ok('public page: extras drawn only when loaded and non-empty; the old page code is untouched', reqSrc.includes('loadPublicProfileExtras(slug)') && reqSrc.includes('hasProfileContent(res.data)') && reqSrc.includes('{extras && <PublicProfileView') && reqSrc.includes('Send request') && reqSrc.includes('Prefer to talk first?'));
+const viewSrc = src('components/profile/PublicProfileView.tsx');
+ok('public profile view: nothing for an empty profile, no JSON-LD (the page emits no structured data)', viewSrc.includes('if (!sections.any) return null;') && !/ld\+json|aggregateRating/.test(viewSrc + reqSrc));
+ok('settings: profile editor + feedback section mounted in the request-link area', src('components/Settings.tsx').includes('<FeedbackSection') && src('components/Settings.tsx').includes('withProfile') && src('components/requests/RequestLinkSettings.tsx').includes('<PublicProfileEditor'));
+ok('job page: button only when the feature is ready, Free account -> upgrade prompt', src('App.tsx').includes("feedbackFeature === 'ready' && session") && src('components/feedback/JobFeedbackButton.tsx').includes('isPlanLimitError(e)') && src('components/feedback/JobFeedbackButton.tsx').includes('FEEDBACK_PREMIUM_REASON'));
+ok('settings feature hooks: both screens stay hidden until the database has them', src('components/feedback/FeedbackSection.tsx').includes("feature === 'ready'") && src('components/profile/PublicProfileEditor.tsx').includes("feature === 'ready'"));
+ok('gallery: says plainly that photos and captions are public', /These photos are public/.test(src('components/profile/GalleryManager.tsx')) && /captions are public|and so are the captions/.test(src('components/profile/GalleryManager.tsx')));
+ok('testimonial editor: warns the quote must be the client words', /word for word/.test(src('components/feedback/FeedbackRow.tsx')));
+ok('help: both guides listed once, open Settings, no Kelviq', ['client-feedback', 'public-profile'].every(id => src('components/help/helpContent.ts').split(`id: '${id}',`).length === 2)
+    && !/kelviq|merchant of record/i.test(['components/feedback/FeedbackPage.tsx', 'components/feedback/FeedbackRow.tsx', 'components/feedback/FeedbackSection.tsx', 'components/feedback/JobFeedbackButton.tsx', 'components/profile/PublicProfileEditor.tsx', 'components/profile/GalleryManager.tsx', 'components/profile/PublicProfileView.tsx', 'lib/feedback/feedbackUi.ts', 'lib/profile/profileUi.ts'].map(src).join('\n')));
 
 // ============================================================================================ offline audit
 ok('public reads are read-only RPCs', ['get_feedback_request', 'get_public_profile_extras', 'get_my_request_profile'].every(r => READ_ONLY_RPCS.has(r)));
