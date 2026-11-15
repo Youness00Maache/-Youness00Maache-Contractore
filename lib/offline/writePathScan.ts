@@ -26,6 +26,9 @@ export const READ_ONLY_RPCS = new Set([
     'get_portal_selections', 'get_portal_boards',
     // crew link: the sub's commitments (D7, 20261116000800): reads only (volatile just for the link's rate-limit log)
     'crew_sub_get',
+    // client feedback link + public profile extras + the owner's profile read (D8, 20261116001000); the owner read
+    // creates the request page on first use like get_my_request_page
+    'get_feedback_request', 'get_public_profile_extras', 'get_my_request_profile',
 ]);
 
 const DB_WRITE = /\.(insert|update|upsert|delete)\(/;
