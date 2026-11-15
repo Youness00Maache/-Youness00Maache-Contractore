@@ -107,6 +107,8 @@ const hideSections = (m: DocModel, hide: Set<HideKey>): DocModel => {
   const drop = new Set<string>([...(hide.has('terms') ? ['terms', 'conditions'] : []), ...(hide.has('notes') ? ['notes'] : [])]);
   if (drop.size) out.after = out.after.filter((s) => !drop.has(s.id));
   if (hide.has('photos')) {
+    // the proposal's photo gallery (utils/templates/proposalSections.ts) goes as a whole
+    out.after = out.after.filter((s) => s.id !== 'proposal-photos');
     const strip = (list: DocModel['after']) => list
       .map((s) => ({ ...s, html: withoutImages(s.html) }))
       .filter((s) => textLeft(s.html) || s.id === 'report' || s.id === 'content');

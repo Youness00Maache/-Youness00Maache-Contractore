@@ -392,6 +392,16 @@ const taskTemplatesLocalKey = (uid: string) => `cd.tasks.templates:${uid}`;
 export const loadTaskTemplatesRaw = (): Promise<unknown> => loadJsonSetting(TASK_TEMPLATES_KEY, taskTemplatesLocalKey);
 export const saveTaskTemplatesRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(TASK_TEMPLATES_KEY, taskTemplatesLocalKey, value);
 
+// ------------------------------------------------------------------------ proposal templates
+// Raw storage only: lib/proposal.ts parses / size-checks the value (parseProposalTemplates, serializeProposalTemplates).
+// Same key string as PROPOSAL_TEMPLATES_SETTING in lib/proposal.ts (scripts/proposal-check.ts checks they match).
+export const PROPOSAL_TEMPLATES_KEY = 'proposals.templates';
+const proposalTemplatesLocalKey = (uid: string) => `cd.proposals.templates:${uid}`;
+
+/** Raw 'proposals.templates' value (account, else this device's copy); parse it with parseProposalTemplates(). */
+export const loadProposalTemplatesRaw = (): Promise<unknown> => loadJsonSetting(PROPOSAL_TEMPLATES_KEY, proposalTemplatesLocalKey);
+export const saveProposalTemplatesRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(PROPOSAL_TEMPLATES_KEY, proposalTemplatesLocalKey, value);
+
 // -------------------------------------------------------------------------- notifications
 /**
  * Raw account value of a small setting the caller merges itself (the notification bell: lib/notifications/store.ts).

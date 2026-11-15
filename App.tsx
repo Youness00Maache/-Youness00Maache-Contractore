@@ -2743,7 +2743,7 @@ const App: React.FC = () => {
             );
             case FormType.TimeSheet: return <TimeSheetForm key={componentKey} {...common} profile={profile} data={form?.data as TimeSheetData | null} onBack={handleCloseForm} />;
             case FormType.MaterialLog: return <MaterialLogForm key={componentKey} {...common} profile={profile} inventory={inventory} data={form?.data as MaterialLogData | null} onBack={handleCloseForm} />;
-            case FormType.Estimate: return <EstimateForm key={componentKey} {...common} profile={profile} data={form?.data as EstimateData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
+            case FormType.Estimate: return <EstimateForm key={componentKey} {...common} profile={profile} data={form?.data as EstimateData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} plan={plan} onUpgrade={openUpgrade} />;
             case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} {...common} profile={profile} data={form?.data as ExpenseLogData | null} onBack={handleCloseForm} />;
             case FormType.Warranty: return <WarrantyForm key={componentKey} {...common} profile={profile} data={form?.data as WarrantyData | null} onBack={handleCloseForm} />;
             case FormType.Receipt: return <ReceiptForm key={componentKey} {...common} profile={profile} data={form?.data as ReceiptData | null} onBack={handleCloseForm} publicToken={publicToken} />;

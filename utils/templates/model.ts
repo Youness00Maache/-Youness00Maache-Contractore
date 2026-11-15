@@ -6,7 +6,8 @@
  */
 import { FormType } from '../../types.ts';
 import type { Job, UserProfile } from '../../types.ts';
-import { computeDocumentTotals, lineItemAmount, lineItemScheduledValue, roundMoney, toNumber } from '../money.ts';
+import { computeDocumentTotals, isExcludedOptionalLine, isOptionalLine, lineItemAmount, lineItemScheduledValue, roundMoney, toNumber } from '../money.ts';
+import { optionalAddOnsSection, paymentScheduleSection, projectPhotosSection, proposalScopeSections } from './proposalSections.ts';
 import { esc, escMultiline, safeUrl, textOrRichToHtml } from '../escapeHtml.ts';
 import {
   addDuration, fileSafe, formatDate, formatDateTime, formatNumber, formatPercent, isBlank, money, negMoney, str,
@@ -231,7 +232,9 @@ const describeLine = (li: LineLike): string => {
       .map((c) => `<li>${t(c.name)} <span class="cd-muted">× ${formatNumber(toNumber(c.quantity) * (toNumber(li.quantity) || 1))}</span></li>`)
       .join('')}</ul>`;
   }
-  return `<div class="cd-item-name">${name}</div>${sub}`;
+  // an optional add-on the owner switched on: still says it was optional (only such lines get this)
+  const opt = isOptionalLine(li as any) ? ' <span class="cd-muted">(optional add-on, included)</span>' : '';
+  return `<div class="cd-item-name">${name}${opt}</div>${sub}`;
 };
 
 /** The line's unit (`unit`, set by Quick measure: "sq ft", "lf", "box"), single line; '' when there is none. */
@@ -262,7 +265,8 @@ const qtyColumn = (withUnits: boolean): Column => (withUnits
 
 const lineItemsTable = (raw: unknown, fmt: FormatOptions, opts: { progress?: boolean; descLabel?: string; rateLabel?: string; units?: boolean } = {}): ItemsTable => {
   const progress = !!opts.progress;
-  const items = (Array.isArray(raw) ? raw : []).filter((li) => isMeaningfulLine(li, progress)) as LineLike[];
+  // optional add-ons not taken are printed in their own "Optional add-ons" section (proposalSections.ts), not here
+  const items = (Array.isArray(raw) ? raw : []).filter((li) => isMeaningfulLine(li, progress) && !isExcludedOptionalLine(li as any)) as LineLike[];
   if (progress) {
     return {
       columns: [
@@ -541,6 +545,12 @@ export const buildDocumentModel = (
       const finUrl = fin ? safeUrl(fin.url) : '';
       if (finUrl) model.financing = { url: finUrl, label: 'Financing available', note: 'Pay over time with our financing partner. Check your options online:' };
       model.after = compact([section('notes', 'Notes', d.notes), section('terms', 'Terms & conditions', d.terms)]);
+      // proposal builder (lib/proposal.ts): scope before the items; add-ons, payment schedule and photos after the
+      // totals. Nothing is added for estimates without these fields.
+      const scope = proposalScopeSections(d);
+      if (scope.length) model.before = [...model.before, ...scope];
+      const proposalAfter = compact([optionalAddOnsSection(d.lineItems, fmt), paymentScheduleSection(d, tot.total, fmt), projectPhotosSection(d)]);
+      if (proposalAfter.length) model.after = [...proposalAfter, ...model.after];
       model.signatures = compact([contractorSig() || sig('Contractor', '', companyName, ''), clientSig('Client acceptance', true)]);
       model.closing = 'We appreciate the opportunity to earn your business.';
       break;

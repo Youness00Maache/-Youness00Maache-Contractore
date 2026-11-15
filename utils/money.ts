@@ -10,7 +10,30 @@ export interface MoneyLineItem {
   percentComplete?: number | string | null; // progress billing: cumulative % complete (0-100)
   previouslyBilled?: number | string | null; // progress billing: amount already invoiced for this line
   unitCost?: number | string | null;
+  /** proposal add-on (N4): shown with its price, NOT counted unless `selected` is true */
+  optional?: boolean | string | null;
+  /** an optional line the owner (later: the client, D13) switched on: counted like a normal line */
+  selected?: boolean | string | null;
 }
+
+const flagOn = (v: unknown): boolean => v === true || (typeof v === 'string' && v.trim().toLowerCase() === 'true');
+
+/** True for a line marked Optional (add-on), selected or not. */
+export const isOptionalLine = (item: MoneyLineItem | null | undefined): boolean => !!item && flagOn(item.optional);
+
+/**
+ * THE shared rule for optional add-ons (proposal builder, N4): an optional line that is not selected is printed with
+ * its price but never counted (subtotal, tax, total, cost, budget, analytics, exports, invoices). Lines without the
+ * `optional` flag are never excluded, so documents without optional lines total exactly as before.
+ */
+export const isExcludedOptionalLine = (item: MoneyLineItem | null | undefined): boolean =>
+  isOptionalLine(item) && !flagOn(item!.selected);
+
+/** The lines that count in the money (unselected optional add-ons left out). Same array when nothing is excluded. */
+export const countedLineItems = <T extends MoneyLineItem>(items: T[] | null | undefined): T[] => {
+  const list = Array.isArray(items) ? items : [];
+  return list.some((li) => isExcludedOptionalLine(li)) ? list.filter((li) => !isExcludedOptionalLine(li)) : list;
+};
 
 export interface MoneyDocument {
   lineItems?: MoneyLineItem[] | null;
@@ -59,6 +82,7 @@ export const roundMoney = (value: number): number => {
 /** Amount a single line contributes to this document. */
 export const lineItemAmount = (item: MoneyLineItem | null | undefined, isProgressBilling = false): number => {
   if (!item) return 0;
+  if (isExcludedOptionalLine(item)) return 0;
   const scheduled = toNumber(item.quantity) * toNumber(item.rate);
   if (!isProgressBilling) return roundMoney(scheduled);
   const pct = Math.min(100, Math.max(0, toNumber(item.percentComplete)));
@@ -69,6 +93,13 @@ export const lineItemAmount = (item: MoneyLineItem | null | undefined, isProgres
 /** Full scheduled value of a line (quantity x rate), ignoring progress %. */
 export const lineItemScheduledValue = (item: MoneyLineItem | null | undefined): number =>
   roundMoney(toNumber(item?.quantity) * toNumber(item?.rate));
+
+/**
+ * Amount to SHOW on a line: what it contributes, except an unselected optional add-on, which shows its price
+ * (quantity x rate) next to an "Optional" tag while contributing 0 to the totals.
+ */
+export const lineItemDisplayAmount = (item: MoneyLineItem | null | undefined, isProgressBilling = false): number =>
+  isExcludedOptionalLine(item) ? lineItemScheduledValue(item) : lineItemAmount(item, isProgressBilling);
 
 export const computeDocumentTotals = (doc: MoneyDocument | null | undefined): DocumentTotals => {
   const items = Array.isArray(doc?.lineItems) ? doc!.lineItems! : [];
@@ -88,7 +119,7 @@ export const computeDocumentTotals = (doc: MoneyDocument | null | undefined): Do
 
 /** Internal cost of the line items (for profit/margin views). */
 export const computeDocumentCost = (doc: MoneyDocument | null | undefined): number => {
-  const items = Array.isArray(doc?.lineItems) ? doc!.lineItems! : [];
+  const items = countedLineItems(doc?.lineItems);
   return roundMoney(items.reduce((sum, item) => sum + toNumber(item?.quantity) * toNumber(item?.unitCost), 0));
 };
 

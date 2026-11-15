@@ -1,4 +1,5 @@
 import type { OptionChoice, OptionSet } from './lib/estimateOptions.ts';
+import type { ProposalData } from './lib/proposal.ts';
 
 export enum FormType {
   WorkOrder = "Work Order",
@@ -165,6 +166,10 @@ export interface LineItem {
   /** Unit of the quantity ("sq ft", "lf", "box"), set by Quick measure (lib/measure.ts); printed after the quantity on PDFs ("42 sq ft") */
   unit?: string;
   itemSource?: 'pricebook' | 'inventory';
+  /** Optional add-on (proposal builder, lib/proposal.ts): printed with its price, not counted unless `selected` */
+  optional?: boolean;
+  /** an optional add-on switched on: counted in the totals like a normal line */
+  selected?: boolean;
   // Assemblies
   isAssembly?: boolean;
   hideComponentsOnPdf?: boolean;
@@ -387,6 +392,8 @@ export interface EstimateData extends DocumentStyle {
   estimateOptionsInternal?: Record<string, Record<string, unknown>>;
   /** the client's pick, written by the database when the client signs with an option (draft SQL) */
   clientOptionChoice?: OptionChoice | '';
+  /** proposal builder (lib/proposal.ts): scope sections, payment milestones, project images */
+  proposal?: ProposalData;
 }
 
 export interface ExpenseLogData extends DocumentStyle {
