@@ -68,6 +68,7 @@ const VideoCourse: React.FC<{ manifest: VideoManifest; appLanguage?: string | nu
   const [dur, setDur] = useState(chapters[startIdx]?.duration || 0);
   const [watched, setWatched] = useState<Record<string, number>>(initial.watched);
   const [bundle, setBundle] = useState<SubtitleBundle>({});
+  const [enBundle, setEnBundle] = useState<SubtitleBundle>({}); // English captions fill in where a language has no captions for a section yet
   const [menu, setMenu] = useState<null | 'speed' | 'cc' | 'voice'>(null);
   const [transcript, setTranscript] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -89,9 +90,12 @@ const VideoCourse: React.FC<{ manifest: VideoManifest; appLanguage?: string | nu
     let live = true;
     if (sub === 'off') { setBundle({}); return; }
     void loadSubtitles(manifest, sub).then((b) => { if (live) setBundle(b); });
+    if (sub !== 'en') void loadSubtitles(manifest, 'en').then((b) => { if (live) setEnBundle(b); });
     return () => { live = false; };
   }, [manifest, sub]);
-  const cues: Cue[] = bundle[chapter?.id] || [];
+  const ownCues: Cue[] | undefined = bundle[chapter?.id];
+  const usingEnglish = sub !== 'off' && sub !== 'en' && !ownCues && !!enBundle[chapter?.id];
+  const cues: Cue[] = ownCues || (sub !== 'off' ? enBundle[chapter?.id] : undefined) || [];
   const cueIdx = cueIndexAt(cues, now);
 
   // load the chapter
@@ -289,6 +293,7 @@ const VideoCourse: React.FC<{ manifest: VideoManifest; appLanguage?: string | nu
             </div>
           </div>
           {audio !== 'off' && audioMissing && <p className="mt-2 text-xs text-muted-foreground">There is no voice-over in {audioName} for this section yet. Captions are on instead.</p>}
+          {usingEnglish && <p className="mt-2 text-xs text-muted-foreground">There are no {subName} captions for this section yet, so the English captions are shown.</p>}
 
           <div className="mt-3">
             <h3 className="text-base font-semibold text-foreground"><span className="tabular-nums text-muted-foreground">{chapter.number}.</span> {pickTitle(chapter, titleLang)}</h3>

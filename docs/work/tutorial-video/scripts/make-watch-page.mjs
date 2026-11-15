@@ -23,7 +23,7 @@ for (const ch of await loadChapters(null)) {
   const slug = `${String(ch.number).padStart(2, '0')}-${ch.id}`;
   const src = path.join(work, 'out', 'chapters', slug);
   const info = (() => { try { return JSON.parse(fs.readFileSync(path.join(src, 'chapter.json'), 'utf8')); } catch { return null; } })();
-  if (!info || !fs.existsSync(path.join(src, 'video.mp4')) || !(info.langs || []).includes('en') || !fs.existsSync(path.join(src, 'en.m4a'))) continue;
+  if (!info || !info.sync || !fs.existsSync(path.join(src, 'video.mp4')) || !(info.langs || []).includes('en') || !fs.existsSync(path.join(src, 'en.m4a'))) continue;
   const dur = Number(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', path.join(src, 'video.mp4')], { encoding: 'utf8' }).stdout);
   total += dur;
   const versions = [];
