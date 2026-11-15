@@ -245,6 +245,16 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').delete()", what: 'delete supplier item', offline: 'needs_connection' },
     { file: 'lib/suppliers/suppliersDb.ts', match: "from('saved_items').update(row)", what: 'price-book item: link, specs, preferred supplier', offline: 'needs_connection' },
     { file: 'lib/suppliers/suppliersDb.ts', match: "from('supplier_items').insert(chunk)", what: 'supplier price list import: new items', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------------- leads + appointments (D1)
+    { file: 'lib/leads/leadsApi.ts', match: "from('quote_requests').insert(row)", what: 'add a lead by hand', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: "from('quote_requests').update(row)", what: 'edit a lead / stage / follow-up / lost reason / attachments list', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: 'storage.from(LEAD_FILES_BUCKET).remove(paths)', what: 'delete a lead: its attachment files', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: 'storage.from(LEAD_FILES_BUCKET).upload(path, file', what: 'lead attachment upload', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: 'storage.from(LEAD_FILES_BUCKET).remove([path])', what: 'remove a lead attachment file (also undo of a failed add)', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: "from('appointments').insert(row)", what: 'book an appointment', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: "from('appointments').update(row)", what: 'edit / cancel / mark done an appointment', offline: 'needs_connection' },
+    { file: 'lib/leads/leadsApi.ts', match: "from('appointments').delete()", what: 'delete an appointment', offline: 'needs_connection' },
 ];
 
 /** Rows of the table that cover a scanned line. */
