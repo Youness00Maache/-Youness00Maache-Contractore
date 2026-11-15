@@ -6,7 +6,8 @@
  *   Budget  = contract value (lib/finance.ts): accepted (or client-signed) estimates + approved change orders
  *             (an estimate with good/better/best options counts its chosen option, else Recommended, else lowest).
  *             Split by kind from their lines (price-book type, inventory link, then the words of the line);
- *             a line that mixes labor and materials stays "not split".
+ *             a line that mixes labor and materials stays "not split", except a price-book kit with labor /
+ *             expense rows (roadmap N5), which splits by those rows (assemblyBudgetShares).
  *   Actual  = the costs of the shared profit definition (lib/finance.ts: material logs + expense logs + labor at the
  *             labor rate, overtime 1.5×) + purchase orders, but only what has ARRIVED: the delivered quantities, or
  *             the whole order once Delivered / Received / Invoiced / Paid (an Invoiced / Paid order with the
@@ -93,6 +94,9 @@ interface LineLike extends MoneyLineItem {
     inventoryItemId?: unknown;
     item_id?: unknown;
     itemSource?: unknown;
+    /** a price-book kit on the line (components: LineItem.assemblyComponents) */
+    isAssembly?: unknown;
+    assemblyComponents?: unknown;
 }
 
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v)).trim();
@@ -143,6 +147,27 @@ const isInventoryLine = (li: LineLike): boolean =>
 export const classifyBudgetLine = (li: LineLike, types: Map<string, string> = new Map()): CostCategory | null => {
     const text = str(li.description ?? li.name);
     return typeOfLine(text, types) ?? (isInventoryLine(li) ? 'materials' : classifyText(text));
+};
+
+/**
+ * An assembly line (roadmap N5) with labor and / or expense rows: its budget split by what the kit is made of, in
+ * proportion to the prices of its rows. Labor rows → labor; expense rows → "Expenses" when their words say fuel, travel
+ * and the like, else "Subs & other" (rental, dump fee, permit, subcontract); everything else in the kit → materials.
+ * null for any other line, including every kit without labor / expense rows, so those are classified exactly as before.
+ */
+export const assemblyBudgetShares = (li: LineLike): Array<{ kind: CostCategory; weight: number }> | null => {
+    if (!li || li.isAssembly !== true || !Array.isArray(li.assemblyComponents)) return null;
+    const rows = (li.assemblyComponents as Array<Record<string, unknown> | null>).filter((c): c is Record<string, unknown> => !!c && typeof c === 'object');
+    if (!rows.some(c => c.kind === 'labor' || c.kind === 'expense')) return null;
+    const weights: Record<CostCategory, number> = { labor: 0, materials: 0, expenses: 0, other: 0 };
+    for (const c of rows) {
+        const amount = Math.max(0, toNumber(c.quantity) * toNumber(c.rate));
+        if (!amount) continue;
+        const kind: CostCategory = c.kind === 'labor' ? 'labor' : c.kind === 'expense' ? (classifyText(c.name) === 'expenses' ? 'expenses' : 'other') : 'materials';
+        weights[kind] += amount;
+    }
+    const out = COST_CATEGORIES.map(({ id }) => ({ kind: id, weight: weights[id] })).filter(x => x.weight > 0);
+    return out.length ? out : null;
 };
 
 /** Kind of a purchase-order line: a supplier order unless its words say labor/subcontract (→ subs) or an expense. */
@@ -399,6 +424,13 @@ export const summarizeJobCosting = (
         if (Math.abs(sum) < 0.005) { unsplit += total; continue; }
         lines.forEach((li, i) => {
             const share = (amounts[i] / sum) * total;
+            // a kit with labor / expense rows splits by what it is made of (roadmap N5); other lines as before
+            const parts = assemblyBudgetShares(li);
+            if (parts) {
+                const weight = parts.reduce((a, p) => a + p.weight, 0);
+                for (const p of parts) { planned[p.kind] += share * (p.weight / weight); hasPlanned[p.kind] = true; }
+                return;
+            }
             const kind = classifyBudgetLine(li, types);
             if (kind) { planned[kind] += share; hasPlanned[kind] = true; } else unsplit += share;
         });

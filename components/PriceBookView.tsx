@@ -7,6 +7,10 @@ import { isPaidTier, normalizeTier } from '../lib/plans.ts';
 import type { SavedItem } from '../types.ts';
 import { BoxIcon, BriefcaseIcon, CopyIcon, EditIcon, PlusIcon, SearchIcon, TagIcon, TrashIcon, UsersIcon } from './Icons.tsx';
 import PriceBookItemDetails, { type PriceBookDraft } from './PriceBookItemDetails.tsx';
+import StarterKitsModal from './assemblies/StarterKitsModal.tsx';
+import { extraRowsSummary } from '../lib/assemblies/pricing.ts';
+import { planStarterImport, usableLaborRate } from '../lib/assemblies/starterImport.ts';
+import { resolveLaborRate } from '../lib/finance.ts';
 import {
   ActionMenu, ConfirmDialog, EmptyState, GridIcon, InlineError, LayersIcon, NoticeToast, PageHeader, Pager, RowsIcon, Segmented,
   SkeletonGrid, fetchAllPages, friendlyError, getCurrentUserId, money, ownStoragePath, uploadToOwnFolder, useNotice, withSchemaFallback,
@@ -45,6 +49,8 @@ interface PriceBookViewProps {
   openAddModal?: boolean;
   /** Values for that Add dialog. */
   prefillData?: { name?: string; rate?: number; unit_cost?: number; description?: string; category?: string } | null;
+  /** the account's default labor rate ($/h): where a kit's labor and the starter kits' labor start (roadmap N5) */
+  defaultLaborRate?: number;
 }
 
 type Item = SavedItem & { unit?: string };
@@ -90,7 +96,7 @@ const MarginChip: React.FC<{ item: Item }> = ({ item }) => {
   return <span className={`badge ${m < 0 ? 'badge-danger' : m < 15 ? 'badge-warning' : 'badge-success'}`}>{m}% margin</span>;
 };
 
-const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed, onUploadImage, isPremium: isPremiumProp, onUpgrade, onDataChanged, openAddModal, prefillData }) => {
+const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed, onUploadImage, isPremium: isPremiumProp, onUpgrade, onDataChanged, openAddModal, prefillData, defaultLaborRate }) => {
   const [items, setItems] = useState<Item[]>(() => (seed || []).map(normalize));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -109,6 +115,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Item> | null>(null);
+  const [starterOpen, setStarterOpen] = useState(false);
   const [deleteFor, setDeleteFor] = useState<Item | null>(null);
   const [deleting, setDeleting] = useState(false);
   const sessionUploads = useRef<string[]>([]);
@@ -314,6 +321,35 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
     changed.current?.();
   };
 
+  /** Starter kits (roadmap N5): the chosen kits become ordinary price-book kits; a name already in the price book is skipped. */
+  const laborRate = usableLaborRate(resolveLaborRate(defaultLaborRate));
+  const importStarterKits = async (kitIds: string[]) => {
+    const uid = userId ?? (await getCurrentUserId());
+    if (!uid) throw new Error('Your session has expired. Please sign in again.');
+    const plan = planStarterImport(kitIds, items.map((i) => i.name), { laborRate });
+    if (!plan.rows.length) { notify('info', 'Those kits are already in your price book.'); setStarterOpen(false); return; }
+    const created: Item[] = [];
+    let failure: unknown = null;
+    for (const r of plan.rows) {
+      const row = { id: crypto.randomUUID(), user_id: uid, ...r };
+      // offline: the kit waits on this device like any new item
+      const outbox = offlineEntityQueueFor(undefined);
+      if (outbox) { await outbox.queue('price_item', 'create', row.id, row); created.push(normalize(row)); continue; }
+      const { data, error } = await withSchemaFallback(row, (p) => supabase.from('saved_items').insert(p).select('*').single());
+      if (error) { failure = error; break; }
+      created.push(normalize(data || row));
+    }
+    if (created.length) { setItems((prev) => [...prev, ...created]); changed.current?.(); }
+    const skippedText = plan.skipped.length ? ` ${plan.skipped.length} already in your price book: skipped.` : '';
+    if (failure) {
+      notify('error', `${created.length ? `${created.length} kit${created.length === 1 ? '' : 's'} imported, then it stopped: ` : ''}${friendlyError(failure, 'Could not import the kits.')}`);
+      if (!created.length) throw failure;
+      return;
+    }
+    notify('success', `${created.length} starter kit${created.length === 1 ? '' : 's'} imported. These are starter prices: set your own.${skippedText}`);
+    setStarterOpen(false);
+  };
+
   const confirmDelete = async () => {
     if (!deleteFor) return;
     setDeleting(true);
@@ -375,6 +411,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
         actions={
           <>
             <HelpButton topic="pricebook" />
+            <button type="button" className="btn btn-outline" onClick={() => setStarterOpen(true)}>Starter kits</button>
             <button type="button" className="btn btn-outline" onClick={() => openNew(true)}><LayersIcon className="h-4 w-4" /> New kit</button>
             <button type="button" className="btn btn-primary" onClick={() => openNew(false)}><PlusIcon className="h-4 w-4" /> New item</button>
           </>
@@ -454,6 +491,7 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
                   </div>
                   <h3 className="line-clamp-2 pr-8 font-semibold leading-snug text-foreground">{item.name}</h3>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">{[(item.category || 'General'), item.sku].filter(Boolean).join(' · ')}</p>
+                  {item.is_assembly && extraRowsSummary(item.assembly_items) && <p className="mt-0.5 truncate text-xs font-medium text-primary">{extraRowsSummary(item.assembly_items)}</p>}
                   <div className="mt-auto flex items-end justify-between gap-2 pt-3">
                     <div>
                       <div className="text-lg font-bold tabular-nums text-foreground">{money(item.rate)}</div>
@@ -532,7 +570,10 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
         onUploadImage={uploadImage}
         isPremium={isPremium}
         onUpgrade={onUpgrade}
+        laborRate={laborRate}
       />
+
+      <StarterKitsModal open={starterOpen} onClose={() => setStarterOpen(false)} existingNames={items.map((i) => i.name)} laborRate={laborRate} onImport={importStarterKits} />
 
       <ConfirmDialog
         open={!!deleteFor}

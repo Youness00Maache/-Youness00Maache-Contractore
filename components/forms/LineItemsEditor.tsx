@@ -7,6 +7,7 @@ import { NumberInput } from './Fields.tsx';
 import ItemPickerModal from './ItemPickerModal.tsx';
 import { addLineToPriceBook } from './inventory.ts';
 import { blankLineItem } from './formUtils.ts';
+import { documentComponents } from '../../lib/assemblies/pricing.ts';
 import { Spinner } from './Spinner.tsx';
 import QuickMeasureSheet, { type QuickMeasureResult } from '../measure/QuickMeasureSheet.tsx';
 
@@ -107,16 +108,10 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
 
     /** Puts a price book item on a line (from the line's picker or from Quick measure). */
     const applySaved = (lineId: string, s: SavedItem) => {
+        // a kit stays ONE line at the kit price; its parts are listed under it. Labor and expense rows (roadmap N5) are
+        // listed too, so the line shows what the price is made of (lib/assemblies/pricing.ts)
         const components = s.is_assembly && Array.isArray(s.assembly_items)
-            ? s.assembly_items.map(c => {
-                const def = catalog.find(i => i.id === c.item_id);
-                return {
-                    item_id: c.item_id,
-                    name: c.custom_name || def?.name || 'Component',
-                    quantity: toNumber(c.quantity),
-                    rate: c.override_price !== null && c.override_price !== undefined ? toNumber(c.override_price) : toNumber(def?.rate),
-                };
-            })
+            ? documentComponents(s.assembly_items, catalog)
             : undefined;
         onChange(items.map(li => li.id !== lineId ? li : {
             ...li,
@@ -357,7 +352,7 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                                         <ul className="mt-2 space-y-1.5 border-l-2 border-primary/30 pl-4">
                                             {li.assemblyComponents.map((c, i) => (
                                                 <li key={`${c.item_id}-${i}`} className="flex flex-wrap justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs">
-                                                    <span className="font-medium text-foreground">{c.name}</span>
+                                                    <span className="font-medium text-foreground">{c.name}{c.kind && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-primary">{c.kind}</span>}</span>
                                                     <span className="tabular-nums text-muted-foreground">Qty {toNumber(c.quantity) * (qty || 1)} · {formatMoney(toNumber(c.rate) * toNumber(c.quantity), currency)} each kit</span>
                                                 </li>
                                             ))}

@@ -25,6 +25,19 @@ export interface KitComponent {
   override_price?: number | string | null;
   /** price-book kits only: internal cost of a custom component */
   custom_cost?: number | string | null;
+  /**
+   * Assemblies (roadmap N5), price-book kits only. Absent = a price-book item or custom part, as always.
+   *  'labor'   quantity = hours; cost = hours × labor_rate × (1 + burden_pct); price = cost × (1 + markup_pct)
+   *  'expense' a cost line that is not stock (rental, dump fee, permit, subcontract): cost = quantity × custom_cost
+   * These rows are also written as custom parts (is_custom, custom_cost, override_price per unit) so readers that
+   * only know custom parts still see them.
+   */
+  kind?: 'material' | 'labor' | 'expense';
+  /** unit of the quantity for a custom part ("sheet", "gal", "hr") */
+  unit?: string;
+  labor_rate?: number | string | null;
+  burden_pct?: number | string | null;
+  markup_pct?: number | string | null;
 }
 
 /** Low-stock threshold with `??` semantics: an explicit 0 means "warn only when empty" (VIEW-024). */
@@ -135,13 +148,35 @@ export interface PriceBookLike {
   cost?: number | string | null;
 }
 
-/** Cost and summed retail price of a price-book kit's components. */
+/**
+ * Cost and price of one labor or expense row of a kit (roadmap N5), each rounded to the cent. Labor: hours × labor rate,
+ * plus the labor burden (payroll taxes, insurance), priced with its own markup. Expense: quantity × cost, plus markup.
+ * Anything else is not an extra row: zero.
+ */
+export const extraLineAmounts = (c: KitComponent): { cost: number; price: number } => {
+  if (c.kind !== 'labor' && c.kind !== 'expense') return { cost: 0, price: 0 };
+  const qty = toNumber(c.quantity);
+  if (qty <= 0) return { cost: 0, price: 0 };
+  const markup = Math.max(-100, toNumber(c.markup_pct));
+  const cost = c.kind === 'labor'
+    ? roundMoney(qty * Math.max(0, toNumber(c.labor_rate)) * (1 + Math.max(0, toNumber(c.burden_pct)) / 100))
+    : roundMoney(qty * Math.max(0, toNumber(c.custom_cost)));
+  return { cost, price: roundMoney(cost * (1 + markup / 100)) };
+};
+
+/** Cost and summed retail price of a price-book kit's components (labor and expense rows included). */
 export const priceBookKitTotals = (components: KitComponent[] | null | undefined, byId: Map<string, PriceBookLike>) => {
   let cost = 0;
   let retail = 0;
   for (const c of Array.isArray(components) ? components : []) {
     const qty = toNumber(c.quantity);
     if (qty <= 0) continue;
+    if (c.kind === 'labor' || c.kind === 'expense') {
+      const x = extraLineAmounts(c);
+      cost += x.cost;
+      retail += x.price;
+      continue;
+    }
     if (c.is_custom) {
       cost += toNumber(c.custom_cost) * qty;
       retail += toNumber(c.override_price) * qty;

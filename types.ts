@@ -179,6 +179,8 @@ export interface LineItem {
     name: string;
     quantity: number;
     rate: number;
+    /** assemblies (roadmap N5): a labor (hours) or expense row of the kit; absent = a part, as before. Never a cost. */
+    kind?: 'labor' | 'expense';
   }>;
 }
 
@@ -619,6 +621,13 @@ export interface AssemblyItem {
   override_price?: number | null; // Override component price
   is_custom?: boolean;
   custom_name?: string;
+  custom_cost?: number | null; // internal cost of a custom component (price-book kits)
+  /** assemblies (roadmap N5): see KitComponent in utils/stockMath.ts */
+  kind?: 'material' | 'labor' | 'expense';
+  unit?: string;
+  labor_rate?: number | null;
+  burden_pct?: number | null;
+  markup_pct?: number | null;
 }
 
 export interface RecurringInvoice {
