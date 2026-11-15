@@ -273,6 +273,33 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/leads/leadsApi.ts', match: "from('appointments').insert(row)", what: 'book an appointment', offline: 'needs_connection' },
     { file: 'lib/leads/leadsApi.ts', match: "from('appointments').update(row)", what: 'edit / cancel / mark done an appointment', offline: 'needs_connection' },
     { file: 'lib/leads/leadsApi.ts', match: "from('appointments').delete()", what: 'delete an appointment', offline: 'needs_connection' },
+
+    // ------------------------------------------------------------------------ client selections + mood boards (D5)
+    { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_IMAGES_BUCKET).upload(imagePath, file', what: 'selection option image upload (document-assets)', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_IMAGES_BUCKET).remove([imagePath])', what: 'remove an option image that was never saved', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: '.copy(imagePath, portalPath', what: 'option / board image: public portal copy', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_PORTAL_BUCKET).upload(portalPath, blob', what: 'option / board image: public portal copy (older storage servers)', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_PORTAL_BUCKET).remove(made)', what: 'failed share of option images: remove the public copies again', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').update({ options: optionsToJson(options) })", what: 'save the portal copies of option images', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').insert(row)", what: 'add a client selection (draft)', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').update(row)", what: 'edit a client selection (title, options, allowance, due date)', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_IMAGES_BUCKET).remove(dropped)', what: 'edit a selection: remove option images it no longer uses', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').update({ status })", what: 'send / withdraw / approve / ask for changes / ask again / close a selection', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').update(body)", what: 'mark a selection ordered (optional purchase order link)', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').delete()", what: 'delete a client selection', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_IMAGES_BUCKET).remove(paths)', what: 'delete a selection: its option images', offline: 'needs_connection' },
+    { file: 'lib/selections/selectionsApi.ts', match: "from('documents').insert(record)", what: 'Draft purchase order from an approved selection', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).upload(imagePath, file', what: 'mood board image upload (document-assets)', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).remove([imagePath])', what: 'remove a board image that was never saved', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_PORTAL_BUCKET).remove(made)', what: 'failed board share / edit: remove the public copies again', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: "from('job_boards').insert(row)", what: 'add a mood board', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: "from('job_boards').update(row)", what: 'edit a mood board (title, notes, items)', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).remove(dropped)', what: 'edit a board: remove images it no longer uses', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: "from('job_boards').update({ shared_in_portal: false })", what: 'stop sharing a mood board in the portal', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: "from('job_boards').update({ shared_in_portal: true, items: itemsToJson(items) })", what: 'share a mood board in the portal', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: "from('job_boards').delete()", what: 'delete a mood board', offline: 'needs_connection' },
+    { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).remove(paths)', what: 'delete a mood board: its images', offline: 'needs_connection' },
+    { file: 'lib/portal/selectionsApi.ts', match: "rpc('choose_portal_selection'", what: 'client chooses an option of a selection (portal)', offline: 'public' },
 ];
 
 /** Rows of the table that cover a scanned line. */
