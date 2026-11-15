@@ -8,8 +8,9 @@
  * Offline: every tap is stored on the phone first (lib/crew/punchQueue.ts) and sent in order when the connection is
  * back; the page itself opens offline from the last copy it saw.
  * English / Spanish by the phone's language (toggle at the bottom).
+ * "My tasks" (components/crew/CrewMyTasks.tsx): the job tasks the boss gave this worker, Start / Done with a photo.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     allowedKinds, buildSessions, clockLabel, distanceLabel, durationLabel, firstName, isCrewToken, localDayOf, mapPortal, newClientId,
     punchLocationFlag, splitPortalJobs, workedInWeek, workerState, type PortalJob, type Punch, type PunchKind, type WorkerPortal,
@@ -23,6 +24,16 @@ import { parseLocalDate } from '../../utils/localDates.ts';
 import { fetchWorkerPortal, workerSender } from '../../lib/crew/crewPublicApi.ts';
 import { compressImage, describeImageError } from '../../utils/imageCompression.ts';
 import { registerOfflineShell, warmOfflineShell } from '../../lib/offline/offlineShell.ts';
+
+// "My tasks" (job tasks the boss gave this worker): its own small chunk; renders nothing when the task list can't be reached
+const CrewMyTasks = lazy(() => import('./CrewMyTasks.tsx'));
+
+/** A problem inside the task list must never break the clock-in page. */
+class TasksBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+    state = { failed: false };
+    static getDerivedStateFromError() { return { failed: true }; }
+    render() { return this.state.failed ? null : this.props.children; }
+}
 
 // ------------------------------------------------------------------------------------------------------------- words
 type Lang = 'en' | 'es';
@@ -635,6 +646,15 @@ const CrewClockPage: React.FC<{ token: string }> = ({ token }) => {
                         </div>
                     )}
                 </section>
+            )}
+
+            {/* my tasks (job tasks); nothing at all when they can't be reached */}
+            {!paused && (
+                <TasksBoundary>
+                    <Suspense fallback={null}>
+                        <CrewMyTasks token={token} lang={lang} today={today} now={now} online={online} />
+                    </Suspense>
+                </TasksBoundary>
             )}
 
             {/* today's punches + the week */}

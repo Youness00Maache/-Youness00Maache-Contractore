@@ -68,6 +68,10 @@ import { TEMP_TAG } from './utils/clientPortalRules.ts';
 import { dataUrlToBlob, extensionForType, rememberOfflinePhoto } from './lib/offline/offlinePhotos.ts';
 import { registerOfflineShell, warmOfflineShell } from './lib/offline/offlineShell.ts';
 import { useCrewFeature } from './lib/crew/crewFeature.ts';
+import { useTasksFeature } from './lib/tasks/taskFeature.ts';
+import { taskProgress, type TaskProgress } from './lib/tasks/taskLogic.ts';
+import { tabCount } from './lib/tasks/taskView.ts';
+import { listJobTasks } from './lib/tasks/tasksApi.ts';
 import { OfflineDocContext, OutboxStatusContext, sendBlockedReasonFor } from './components/offline/OfflineContext.tsx';
 import SyncStatusBar from './components/offline/SyncStatusBar.tsx';
 import InstallAppBanner, { DOCUMENT_SAVED_EVENT } from './components/InstallAppBanner.tsx';
@@ -132,6 +136,7 @@ const PipelineStrip = lazy(() => import('./components/pipeline/PipelineStrip.tsx
 // Crew clock-in links (/crew + the job page's Crew tab): NEXT_STEPS 0c #13. Hidden until the database has it.
 const CrewView = lazy(() => import('./components/crew/CrewView.tsx'));
 const JobCrewPanel = lazy(() => import('./components/crew/JobCrewPanel.tsx'));
+const JobTasksPanel = lazy(() => import('./components/tasks/JobTasksPanel.tsx'));
 // AI mock test page (/qa-ai-documents): development builds only. In production `import.meta.env.DEV` is false, so the
 // route resolves to notFound (lib/routes.ts) and this import is dropped from the bundle entirely.
 const DocumentAIQAHarness = import.meta.env.DEV ? lazy(() => import('./components/DocumentAIQAHarness.tsx')) : null;
@@ -1078,6 +1083,30 @@ const App: React.FC = () => {
             return { available: true, map };
         });
     }, []);
+
+    // Job tasks (Premium): are they in the database? The job page's Tasks tab, the markers on the Schedule and the
+    // work order's "Create tasks" stay hidden until they are. The tab's "3/8" is read when a job page opens and kept
+    // up to date by the Tasks panel itself.
+    const tasksFeature = useTasksFeature(session?.user?.id ?? null, isOnline);
+    const [taskCounts, setTaskCounts] = useState<Record<string, TaskProgress>>({});
+    const handleTaskProgress = useCallback((jobId: string, p: TaskProgress) => {
+        setTaskCounts(prev => {
+            const cur = prev[jobId];
+            if (cur && cur.total === p.total && cur.done === p.done && cur.overdue === p.overdue) return prev;
+            return { ...prev, [jobId]: p };
+        });
+    }, []);
+    const taskJobId = view.screen === 'jobDetails' ? view.jobId : null;
+    useEffect(() => {
+        if (tasksFeature !== 'ready' || !taskJobId || !isOnline) return;
+        let cancelled = false;
+        void listJobTasks(taskJobId).then(list => {
+            if (cancelled || !list) return;
+            const p = taskProgress(list, todayYMD());
+            setTaskCounts(prev => ({ ...prev, [taskJobId]: p }));
+        }).catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [tasksFeature, taskJobId, isOnline]);
 
     const refreshForumBadge = useCallback(async () => {
         if (!sessionUserIdRef.current || !navigator.onLine) return;
@@ -2548,6 +2577,15 @@ const App: React.FC = () => {
                         />
                     </Suspense>
                 ) : undefined}
+                tasksSlot={tasksFeature === 'ready' && session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobTasksPanel
+                            job={job} userId={session.user.id} ownerName={profile?.name} plan={plan} isOnline={isOnline}
+                            onUpgrade={openUpgrade} onProgress={handleTaskProgress}
+                        />
+                    </Suspense>
+                ) : undefined}
+                tasksLabel={tasksFeature === 'ready' && taskCounts[job.id] ? tabCount(taskCounts[job.id]) || undefined : undefined}
                 punchSlot={punchState.available && session ? (
                     <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
                         <PunchList
@@ -2638,7 +2676,16 @@ const App: React.FC = () => {
             case FormType.Invoice: return <InvoiceForm key={componentKey} {...common} userProfile={profile} invoice={form?.data as InvoiceData | null} onClose={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} onPaymentRecorded={handlePaymentRecorded} onUpgrade={openUpgrade} onEmailSent={handleEmailSent} onOpenReceipt={(r) => openDocument(r, true)} onOpenSettings={() => navigate('/settings#payments')} />;
             case FormType.DailyJobReport: return <DailyJobReportForm key={componentKey} {...common} profile={profile} report={form?.data as DailyJobReportData | null} onBack={handleCloseForm} />;
             case FormType.Note: return <NoteForm key={componentKey} {...common} profile={profile} note={form?.data as NoteData | null} createdAt={form?.createdAt} onBack={handleCloseForm} />;
-            case FormType.WorkOrder: return <WorkOrderForm key={componentKey} {...common} profile={profile} data={form?.data as WorkOrderData | null} onBack={handleCloseForm} />;
+            case FormType.WorkOrder: return (
+                <WorkOrderForm
+                    key={componentKey}
+                    {...common}
+                    profile={profile}
+                    data={form?.data as WorkOrderData | null}
+                    onBack={handleCloseForm}
+                    tasksUi={tasksFeature === 'ready' && session ? { userId: session.user.id, plan, isOnline, onUpgrade: openUpgrade, onOpenJobTasks: (jobId: string) => navigate(`/jobs/${jobId}#tasks`) } : undefined}
+                />
+            );
             case FormType.TimeSheet: return <TimeSheetForm key={componentKey} {...common} profile={profile} data={form?.data as TimeSheetData | null} onBack={handleCloseForm} />;
             case FormType.MaterialLog: return <MaterialLogForm key={componentKey} {...common} profile={profile} inventory={inventory} data={form?.data as MaterialLogData | null} onBack={handleCloseForm} />;
             case FormType.Estimate: return <EstimateForm key={componentKey} {...common} profile={profile} data={form?.data as EstimateData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} />;
@@ -2928,6 +2975,8 @@ const App: React.FC = () => {
                     onNavigateJob={(jobId) => setView({ screen: 'jobDetails', jobId })}
                     onNewJob={() => navigateToCreateJob('calendar')}
                     onNewJobOnDate={(ymd: string) => navigateToCreateJob('calendar', { startDate: ymd })}
+                    showTasks={tasksFeature === 'ready'}
+                    onOpenJobTasks={(jobId: string) => navigate(`/jobs/${jobId}#tasks`)}
                 />;
             case 'communication':
                 return <CommunicationView clients={clients} forms={forms} jobs={jobs} profile={profile} session={session} onBack={navigateToDashboard} onEmailSent={handleEmailSent} onUpgrade={() => openUpgrade(`Free plan: ${effectiveUsage.limits.emails} emails per month.`)} prefillData={view.prefillData} />;
