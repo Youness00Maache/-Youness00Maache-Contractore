@@ -165,7 +165,7 @@ const sqlRaw = readFileSync(join(root, 'supabase/migrations/20261116000300_porta
 // comments out, so the lint reads only code
 const sql = sqlRaw.split('\n').map(l => l.replace(/--.*$/, '')).join('\n');
 
-ok('header: not applied yet', sqlRaw.startsWith('-- Applied: NOT YET (needs owner OK)'));
+ok('header: applied with the owner OK', sqlRaw.startsWith("-- Applied 2026-11-15 with the owner's OK"));
 eq('exactly one function', (sql.match(/create\s+(or\s+replace\s+)?function/gi) || []).length, 1);
 ok('create or replace', /create or replace function public\.get_portal_project_dashboard\(p_key text, p_job_id uuid default null\)/.test(sql));
 ok('security definer', /\n\s*security definer\s*\n/.test(sql));

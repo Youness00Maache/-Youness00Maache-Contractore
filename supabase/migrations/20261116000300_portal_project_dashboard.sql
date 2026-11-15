@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D9) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: security definer, search_path '', stable, anon can execute, a bad key raises 28000 'Invalid portal link'.
 -- =====================================================================================
 -- ContractorDocs: client portal project dashboard (competitor roadmap batch D9, #39)
 --
