@@ -1018,6 +1018,48 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "job-timeline",
+        "title": "Job timeline",
+        "summary": "Everything that happened on a job in one list, newest first: documents sent, signed and paid, daily reports, photos, notes, questions and more. Add a note after a phone call in a few seconds.",
+        "where": [
+            "Job",
+            "Timeline"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open the Timeline tab",
+                "text": "On a job page, switch to [[Timeline]]. Entries are grouped by day with the day stuck at the top as you scroll, and the time on the left. A small mark on the line shows the kind: dot = money, square = documents, ring = photos, triangle = field, diamond = client, target = team, bar = notes."
+            },
+            {
+                "title": "What shows up",
+                "text": "Estimates and invoices created, sent, signed or approved by your client, declined, paid, turned into an invoice, revised or expired; a day’s daily report with its hours (per worker) and materials in one entry; photos (a morning of photos is one entry with small pictures); notes; punch list items; tasks; client questions and selections; subcontracts and quotes; warranty claims; feedback; reminder emails; crew clock hours; expenses and purchase orders. A tool you do not have is simply not there."
+            },
+            {
+                "title": "Open an entry",
+                "text": "Tap an entry (or [[Details]]) to read more: the note itself, the hours and materials of the day, bigger photos. [[Open]] goes to the document or the tab it comes from."
+            },
+            {
+                "title": "Find something",
+                "text": "Type in the search box (a client’s name, “tile”, an amount). [[This week]], [[This month]] and [[All]] limit the time. The chips (Money, Documents, Photos, Field, Client, Team, Notes) show how many entries each has; tap one or more to show only those, [[All]] to see everything again."
+            },
+            {
+                "title": "Newest or oldest first",
+                "text": "[[Newest first]] switches to [[Oldest first]] to read the job from the start. The list shows 50 entries at a time: [[Show earlier]] adds more."
+            },
+            {
+                "title": "Log a conversation",
+                "text": "At the top, type or tap the microphone and say what was agreed (“Client called, wants the tile in grey”), then [[Add note]]. It becomes a Note on this job (also under Documents) and is on the timeline at once. Tick [[Also make a follow-up task]] to add one task to Tasks."
+            }
+        ],
+        "tips": [
+            "The timeline is for you only: nothing on it is shown to your client.",
+            "Offline, a note you add is kept on this device and syncs when you are back online (it shows “Waiting to sync”). A follow-up task needs a connection.",
+            "The follow-up task is part of Premium, like the Tasks tab.",
+            "Emails sent from the app will be added to the timeline in a later update."
+        ]
+    },
+    {
         "id": "job-files",
         "title": "Job files and links",
         "summary": "Keep the plans, permits, contracts, specs and receipts of a job in one place, with versions, tags and a search. Show the ones your client should see.",
