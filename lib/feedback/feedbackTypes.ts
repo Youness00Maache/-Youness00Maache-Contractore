@@ -13,7 +13,7 @@
  *   PublicFeedbackRequest (what /feedback/<token> shows; never ids, email, phone or notes)
  *     { status, submitted, rating: number | null, submittedAt: string | null, jobName: string | null,
  *       clientFirstName: string | null, contractor: { name, companyName, logoUrl } }
- *   FeedbackSubmitResult  { ok: true, rating: number, reviewUrl: string | null }   (reviewUrl only for 4-5 stars)
+ *   FeedbackSubmitResult  { ok: true, rating: number, reviewUrl: string | null }   (reviewUrl for every rating when a review link is set)
  *   Testimonial (public page model) { rating, name, text: string | null, date: 'YYYY-MM-DD' }
  *   RatingSummary        { average: number | null (1 decimal), count, byStar: { 1..5: count } }
  */
@@ -31,8 +31,9 @@ export const FEEDBACK_LIMITS = {
     jobName: 160,
 } as const;
 
-/** Stars from this value up are nudged to the contractor's Google review link. */
-export const REVIEW_NUDGE_MIN_RATING = 4;
+/** Every client who sends feedback is offered the SAME Google review link, whatever the stars: showing it only to
+ *  happy clients is "review gating", which Google's policies forbid. (1 = every valid rating.) */
+export const REVIEW_NUDGE_MIN_RATING = 1;
 
 export interface FeedbackResponse {
     id: string;

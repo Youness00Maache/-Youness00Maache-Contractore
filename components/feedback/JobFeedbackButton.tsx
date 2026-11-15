@@ -165,7 +165,7 @@ const AskWindow: React.FC<JobFeedbackButtonProps & { list: FeedbackListState; on
 
                         {!hasReviewLink && (
                             <p className="rounded-xl border border-border bg-muted/40 px-3.5 py-3 text-sm leading-relaxed text-muted-foreground">
-                                Clients who give 4 or 5 stars are offered to share it on Google, once you add your Google review link.{' '}
+                                Every client who sends feedback is offered the same Google link, whatever the stars (Google does not allow asking only happy customers), once you add your Google review link.{' '}
                                 <button type="button" className="font-semibold text-primary hover:underline" onClick={() => { onClose(); navigate('/settings#payments'); }}>Add it in Settings</button>
                             </p>
                         )}

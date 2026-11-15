@@ -6,7 +6,7 @@
  *   nextStarValue(current, key)        star picker keyboard: arrows / Home / End / 1-5 -> the new rating, null = key not used
  *   shownStars(selected, hover)        how many stars look filled (the hover preview wins)
  *   tabbableStar(selected)             roving tabindex: the chosen star, else the first
- *   afterSend(rating, reviewUrl)       what the thank-you shows: google (4-5 stars + a safe https link) | thanks (4-5, no link)
+ *   afterSend(rating, reviewUrl)       what the thank-you shows: google (any stars + a safe https link) | thanks (4-5, no link)
  *                                      | sorry (1-3: "we'll make it right", never a Google prompt)
  * OWNER
  *   testimonialDraftFor(r)             name (first name + initial) and quote (the client's words, trimmed) to start from
@@ -57,15 +57,18 @@ export const tabbableStar = (selected: number | null | undefined): number =>
     typeof selected === 'number' && selected >= 1 && selected <= 5 ? selected : 1;
 
 export type AfterSend =
-    | { kind: 'google'; url: string }
+    | { kind: 'google'; url: string; low: boolean }
     | { kind: 'thanks' }
     | { kind: 'sorry' };
 
-/** 4-5 stars with a usable https review link: offer Google. 4-5 without a link: only thanks. 1-3: a gentle "we'll make it right". */
+/** Everybody who sends feedback is offered the same Google link (a usable https link), whatever the stars: showing it
+ *  only to happy clients is "review gating" and Google forbids it. 1-3 stars also get the gentle "we'll make it right"
+ *  message (`low`); without a link: 1-3 -> sorry, 4-5 -> thanks. */
 export const afterSend = (rating: number, reviewUrl: string | null | undefined): AfterSend => {
-    if (rating < REVIEW_NUDGE_MIN_RATING) return { kind: 'sorry' };
+    const low = rating < 4;
     const url = shouldNudgeReview(rating) ? safeHttpsUrl(reviewUrl) : null;
-    return url ? { kind: 'google', url } : { kind: 'thanks' };
+    if (url) return { kind: 'google', url, low };
+    return low ? { kind: 'sorry' } : { kind: 'thanks' };
 };
 
 // ------------------------------------------------------------------------------------------------- testimonials

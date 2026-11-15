@@ -29,7 +29,7 @@
  *   submitFeedback(token, { rating, comment?, name? })
  *                               -> { status: 'ready', data: { ok, rating, reviewUrl } } | { status: 'already' }
  *                                  | { status: 'invalid' } | { status: 'missing' } | { status: 'error', message }
- *                                  reviewUrl: the contractor's Google review link, ONLY for 4-5 stars (else null)
+ *                                  reviewUrl: the contractor's Google review link for every rating (null when none is set)
  *   'missing' = the migration is not applied: the page shows "link not available" (same fallback as
  *   lib/portal/questionsApi.ts; remembered until reload).
  */

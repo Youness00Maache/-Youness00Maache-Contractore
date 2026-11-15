@@ -7,7 +7,7 @@
  *   feedbackInsertRow(input, userId)         -> insert row (job / client / job name only; the rest is the database's)
  *   feedbackPatchRow(patch)                  -> update row with ONLY the owner's columns (trimmed, capped)
  *   clampRating(v)                           -> 1..5 | null
- *   shouldNudgeReview(rating)                -> rating >= 4
+ *   shouldNudgeReview(rating)                -> any valid rating (no review gating)
  *   reviewNudgeUrl(rating, url)              -> the https review link for 4-5 stars, else null
  *   validateFeedbackInput(input)             -> { ok, errors: { rating?, comment?, name? }, value }
  *   displayNameFromClientName(name)          -> 'Jane S.' | 'Jane' | null  (mirror of SQL _feedback_display_name)

@@ -236,7 +236,7 @@ const FeedbackPage: React.FC<{ token: string }> = ({ token }) => {
     const job = load.data.jobName || '';
 
     if (sent) {
-        const sorry = sent.after.kind === 'sorry';
+        const sorry = sent.after.kind === 'sorry' || (sent.after.kind === 'google' && sent.after.low);
         return shell(
             <div className="animate-fade-in">
                 <StarsDisplay value={sent.rating} size={26} />

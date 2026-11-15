@@ -70,9 +70,9 @@ ok('token: 43 url-safe', isFeedbackToken(TOKEN) && !isFeedbackToken('a'.repeat(3
 
 // ============================================================================================ stars, nudge, average
 eq('clamp', [clampRating(0), clampRating(1), clampRating(4.4), clampRating('5'), clampRating(6), clampRating(null), clampRating('x')], [null, 1, 4, 5, null, null, null]);
-eq('nudge rule', [1, 2, 3, 4, 5].map(shouldNudgeReview), [false, false, false, true, true]);
-eq('nudge url: 4+ and https only', [reviewNudgeUrl(5, 'https://g.page/r/x/review'), reviewNudgeUrl(3, 'https://g.page/r/x/review'), reviewNudgeUrl(5, 'http://g.page'), reviewNudgeUrl(4, 'javascript:alert(1)'), reviewNudgeUrl(4, null)],
-    ['https://g.page/r/x/review', null, null, null, null]);
+eq('nudge rule: no review gating (every valid rating)', [0, 1, 2, 3, 4, 5, 6].map(shouldNudgeReview), [false, true, true, true, true, true, false]);
+eq('nudge url: any rating, https only', [reviewNudgeUrl(5, 'https://g.page/r/x/review'), reviewNudgeUrl(3, 'https://g.page/r/x/review'), reviewNudgeUrl(5, 'http://g.page'), reviewNudgeUrl(4, 'javascript:alert(1)'), reviewNudgeUrl(4, null)],
+    ['https://g.page/r/x/review', 'https://g.page/r/x/review', null, null, null]);
 eq('average', [averageRating([5, 4, 4]), averageRating([]), averageRating([5, null, 3]), averageRating([4, 5])], [4.3, null, 4, 4.5]);
 eq('summary', ratingSummary([5, 5, 4, 1, null, 9]), { average: 3.8, count: 4, byStar: { 1: 1, 2: 0, 3: 0, 4: 1, 5: 2 } });
 eq('stars text', [starsText(4), starsText(null)], ['★★★★☆', '☆☆☆☆☆']);
@@ -126,8 +126,8 @@ eq('patch row: cleaned', feedbackPatchRow({ testimonialName: ' Jane S. ', testim
 // ============================================================================================ public parsers
 eq('public request parse', parsePublicFeedbackRequest({ status: 'requested', submitted: false, rating: 5, job_name: 'Kitchen', client_first_name: 'Jane', contractor: { name: 'Sam', company_name: 'Acme', logo_url: 'u', email: 'x@y', phone: '1' } }),
     { status: 'requested', submitted: false, rating: null, submittedAt: null, jobName: 'Kitchen', clientFirstName: 'Jane', contractor: { name: 'Sam', companyName: 'Acme', logoUrl: 'u' } });
-eq('submit result: review link only 4+', [parseFeedbackSubmitResult({ ok: true, rating: 5, review_url: 'https://g.page/r' }), parseFeedbackSubmitResult({ ok: true, rating: 2, review_url: 'https://g.page/r' }), parseFeedbackSubmitResult({ ok: false })],
-    [{ ok: true, rating: 5, reviewUrl: 'https://g.page/r' }, { ok: true, rating: 2, reviewUrl: null }, null]);
+eq('submit result: review link for every rating', [parseFeedbackSubmitResult({ ok: true, rating: 5, review_url: 'https://g.page/r' }), parseFeedbackSubmitResult({ ok: true, rating: 2, review_url: 'https://g.page/r' }), parseFeedbackSubmitResult({ ok: false })],
+    [{ ok: true, rating: 5, reviewUrl: 'https://g.page/r' }, { ok: true, rating: 2, reviewUrl: 'https://g.page/r' }, null]);
 eq('testimonial parse', [parseTestimonial({ rating: 4, name: '', text: 'ok', date: '2026-11-03' }), parseTestimonial({ rating: 0 })], [{ rating: 4, name: 'A client', text: 'ok', date: '2026-11-03' }, null]);
 
 // ============================================================================================ profile
@@ -174,9 +174,10 @@ eq('stars: five values', STAR_VALUES, [1, 2, 3, 4, 5]);
 
 // -- after sending: the 1-3 vs 4-5 star paths
 const G = 'https://g.page/r/abc/review';
-eq('after: 4-5 stars + https link -> Google', [afterSend(4, G), afterSend(5, G)], [{ kind: 'google', url: G }, { kind: 'google', url: G }]);
+eq('after: 4-5 stars + https link -> Google', [afterSend(4, G), afterSend(5, G)], [{ kind: 'google', url: G, low: false }, { kind: 'google', url: G, low: false }]);
 eq('after: 4-5 stars without a link -> thanks only', [afterSend(5, null), afterSend(4, ''), afterSend(5, undefined)], [{ kind: 'thanks' }, { kind: 'thanks' }, { kind: 'thanks' }]);
-eq('after: 1-3 stars never get the Google prompt, even with a link', [afterSend(1, G), afterSend(2, G), afterSend(3, G)], [{ kind: 'sorry' }, { kind: 'sorry' }, { kind: 'sorry' }]);
+eq('after: 1-3 stars get the SAME Google link (no review gating) plus the gentle message', [afterSend(1, G), afterSend(2, G), afterSend(3, G)], [{ kind: 'google', url: G, low: true }, { kind: 'google', url: G, low: true }, { kind: 'google', url: G, low: true }]);
+eq('after: 1-3 stars without a link -> sorry only', [afterSend(1, null), afterSend(3, '')], [{ kind: 'sorry' }, { kind: 'sorry' }]);
 eq('after: only https links are opened', [afterSend(5, 'http://g.page/x'), afterSend(5, 'javascript:alert(1)'), afterSend(5, 'https://x y')], [{ kind: 'thanks' }, { kind: 'thanks' }, { kind: 'thanks' }]);
 
 // -- testimonial draft: name + quote rules in the owner's editor
@@ -379,7 +380,16 @@ eq('submit: writes only the client fields', (updates[0]?.[2] || '').split('\n').
 ok('submit: once', submit.includes("if v_f.status <> 'requested' then") && submit.includes('ALREADY_SUBMITTED'));
 ok('submit: locks the row', submit.includes('for update;'));
 ok('submit: texts capped', submit.includes('public._clean_multiline(p_comment, 2000)') && submit.includes('public._clean_text(p_name, 80)'));
-ok('submit: review link only for 4+, https only', /if p_rating >= 4 then\s+select p\.google_review_link into v_review/.test(submit) && submit.includes("v_review !~* '^https://"));
+ok('submit (first version): review link is https only', /select p\.google_review_link into v_review/.test(submit) && submit.includes("v_review !~* '^https://"));
+{
+    // no review gating: the follow-up migration replaces submit_feedback so EVERY rating gets the same link
+    const FIX = readFileSync(join(ROOT, 'supabase/migrations/20261116001100_feedback_review_link_all.sql'), 'utf8').replace(/\r\n/g, '\n');
+    const fixFn = FIX.slice(FIX.indexOf('create or replace function public.submit_feedback('));
+    ok('no review gating: the replacement has no rating condition', !/if p_rating >= 4/.test(fixFn) && /select p\.google_review_link into v_review/.test(fixFn) && fixFn.includes("v_review !~* '^https://"));
+    ok('no review gating: same signature, once-per-link rule and return shape', fixFn.includes('p_token text, p_rating integer, p_comment text default null, p_name text default null') && fixFn.includes("if v_f.status <> 'requested' then") && fixFn.includes("jsonb_build_object('ok', true, 'rating', p_rating, 'review_url', v_review)"));
+    ok('no review gating: security definer, empty search_path, body opens with as $$, grants unchanged', /security definer\s+set search_path = ''\s+as \$\$/.test(fixFn) && FIX.includes('grant execute on function public.submit_feedback(text, integer, text, text) to anon, authenticated;'));
+    ok('no review gating: only submit_feedback is replaced', (FIX.match(/create or replace function/g) || []).length === 1 && !/\b(create table|alter table|drop )/i.test(FIX));
+}
 ok('submit: neutral not-found', (submit.match(/'Feedback link not found' using errcode = 'P0002'/g) || []).length === 2);
 ok('submit: no insert / delete', !/\b(insert into|delete from)\b/i.test(submit));
 ok('submit: returns ok / rating / review_url only', submit.includes("jsonb_build_object('ok', true, 'rating', p_rating, 'review_url', v_review)"));

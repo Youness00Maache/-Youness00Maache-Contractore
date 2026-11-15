@@ -680,6 +680,84 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "client-feedback",
+        "title": "Client feedback and testimonials",
+        "summary": "Send a client a short link after a job. They give 1 to 5 stars and an optional comment on their phone. You read the answers and choose which ones go on your public page.",
+        "where": [
+            "Job",
+            "Ask for feedback"
+        ],
+        "appPath": "/settings#requests",
+        "steps": [
+            {
+                "title": "Ask on the job",
+                "text": "Open the job and tap [[Ask for feedback]] in the row of buttons under the job name (on a phone it says [[Feedback]]). Tap [[Make the link]]: it is one link for this job, and your client can answer it once."
+            },
+            {
+                "title": "Send it",
+                "text": "[[Copy link]] or [[Share]] it, or send the ready message: type or check the email, then [[Send with Gmail]]. [[Copy text]], Text and WhatsApp open your own phone apps with the message already written. Nothing is sent without you tapping it."
+            },
+            {
+                "title": "What your client sees",
+                "text": "Your name and logo, the job, five big stars, an optional comment and name, then [[Send feedback]]. No login, no app. The page follows the phone’s language (English or Spanish). Everyone who sends feedback is also asked “Would you share this on Google?” when you added your Google review link in [[Settings]] › Payments & reviews: the same link for every rating, because Google does not allow asking only happy customers for reviews. With 1 to 3 stars they also see a kind message."
+            },
+            {
+                "title": "Read the answers",
+                "text": "In [[Settings]] › Request-a-quote link, open [[Client feedback]]: your average, how the stars are spread, and every answer with the client’s own words, the job and the date. The filters show All, Answered, Waiting and On page. The same answers show on the job under [[Ask for feedback]]. A link nobody answered yet has [[Copy link]] so you can send it again."
+            },
+            {
+                "title": "Use one as a testimonial",
+                "text": "On an answer, tap [[Use as testimonial]]. The name shown starts as first name and last initial (never an email or a phone number). The quote starts as the client’s comment and must stay part of what they wrote, word for word: you can cut words off the start or the end, but not rewrite it. Then [[Show on my page]]. It appears under What clients say on your request page with the average stars."
+            },
+            {
+                "title": "Hide, note, delete",
+                "text": "The ⋯ menu has [[Hide]] / [[Unhide]], [[Add private note]] (only you see it) and [[Delete]]. [[Remove from page]] takes a testimonial off your page and keeps the answer in your list."
+            }
+        ],
+        "tips": [
+            "Asking a client for feedback is part of Premium. Reading and managing the answers works on every plan.",
+            "Nothing is public unless you choose it with Use as testimonial. The client is told that you may show their comment with their first name and last initial.",
+            "Every change needs a connection; the app says so when you are offline."
+        ]
+    },
+    {
+        "id": "public-profile",
+        "title": "Your public profile",
+        "summary": "Tell clients who you are under your request form: about you, what you do, where you work, your license, photos of your work and the testimonials you approved.",
+        "where": [
+            "Settings",
+            "Request-a-quote link",
+            "Public profile"
+        ],
+        "appPath": "/settings#requests",
+        "steps": [
+            {
+                "title": "Open it",
+                "text": "In [[Settings]] › Request-a-quote link, open [[Public profile]]. It shows how much is filled in (“4 of 6 filled · 3 photos”)."
+            },
+            {
+                "title": "Fill in your details",
+                "text": "Write [[About your business]]. Under [[What you do]] type a service and press Enter (up to 20, each one a short chip). Add [[Where you work]], your [[License]] line and your [[Experience]] line, then [[Save profile]]. A field you leave empty is simply not shown."
+            },
+            {
+                "title": "Add photos of your work",
+                "text": "Under Photo gallery tap [[Pick photos from your jobs]] and tap the photos you want (up to 12; the After photos come first). Write a caption for each, and move them with the arrows. [[Remove]] takes one off your page. These photos and captions are public: anyone with your link can see them."
+            },
+            {
+                "title": "Check the preview",
+                "text": "The Preview shows the section as your clients see it, and it updates as you type. What you type is not public until you [[Save profile]]."
+            },
+            {
+                "title": "What clients see",
+                "text": "On your request page, below the form: About, What we do, where you work, license and experience, Our work (tap a photo to enlarge it) and What clients say, with the average stars and the testimonials you approved in [[Client feedback]]."
+            }
+        ],
+        "tips": [
+            "The profile is free on every plan. If the request page is paused, the profile shows when you turn the page back on.",
+            "Keep faces, house numbers and anything private out of gallery photos and captions. Removing a photo deletes its public copy; the photo on your job stays."
+        ]
+    },
+    {
         "id": "leads",
         "title": "Leads: from the first call to a job",
         "summary": "Every quote request and every call you get, by stage, with follow-up dates, until it becomes a job or you let it go.",
@@ -1333,6 +1411,85 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         "tips": [
             "Service plans are part of Premium. Visits are created every hour on our side, even when you don’t open the app.",
             "Visit reminders go out from your Gmail; Settings › Reminders sets the day and the wording. The client also sees the plan, the next visit and the last one in their portal."
+        ]
+    },
+    {
+        "id": "warranty-tracking",
+        "title": "Warranty tracking and claims",
+        "summary": "See when each warranty ends, keep a dated record of the problems a client reports, and void a warranty when it no longer applies.",
+        "where": [
+            "Job page",
+            "Documents",
+            "Warranty"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open or create a warranty",
+                "text": "On a job, open [[Documents]] and create a [[Warranty]] (or open one you already have). Warranties you made before open exactly as they were."
+            },
+            {
+                "title": "Set the coverage period",
+                "text": "In [[Coverage period]] pick when it starts (left empty, it starts on the day the work was completed), then [[A length]] (for example 2 years), [[Until a date]] or [[Lifetime]]. The line at the top says it plainly, for example “Active, ends 12 Mar 2028 (4 months left)”. The certificate prints the Duration you chose."
+            },
+            {
+                "title": "Add a claim",
+                "text": "When the client reports a problem, click [[Add claim]] in [[Claims]]: the date, what is wrong and up to 6 photos (photos need a connection). Open a claim to move it with [[Start review]], [[Mark resolved]] or [[Deny claim]] (a denial needs a reason), to say what was done, or to [[Reopen]] it."
+            },
+            {
+                "title": "Save",
+                "text": "Coverage and claims are part of the warranty: click [[Save]] like on any other document. They work offline and sync later."
+            },
+            {
+                "title": "Find your warranties",
+                "text": "On the job page, a [[Warranties]] list above the documents shows Ending soon, Active, Ended and Void, with the time left and an “open claims” badge. Tap one to open it. [[All jobs]] shows the warranties of every job (offline, the list as last seen on this device)."
+            },
+            {
+                "title": "Void a warranty",
+                "text": "At the bottom of [[Coverage period]], click [[Void this warranty]] and confirm. It stops counting as active and no emails go out; the claims history stays. [[Restore warranty]] brings it back."
+            }
+        ],
+        "tips": [
+            "Claims are for your records: the client does not see them. The certificate and its PDF print as before.",
+            "Warranty emails (to the client and to you) are part of Premium: see After-job emails. The Warranty emails switch in the form turns them off for that one warranty."
+        ]
+    },
+    {
+        "id": "after-job-emails",
+        "title": "After-job emails (thank-you, warranty ending, maintenance)",
+        "summary": "Three emails that go out from your own Gmail after a job: a thank-you, a warranty-ending notice and a maintenance reminder.",
+        "where": [
+            "Account menu",
+            "Settings",
+            "Automations",
+            "Jobs"
+        ],
+        "appPath": "/settings#automations",
+        "steps": [
+            {
+                "title": "Find them",
+                "text": "Open Settings, then [[Automations]]. Under Jobs you will find [[Thank-you after the job]], [[Warranty ending]] and [[Maintenance reminders]]. They are off until you switch them on, and they are part of Premium."
+            },
+            {
+                "title": "Switch one on",
+                "text": "Switching one on starts with the next job you complete (or the next warranty that ends after today). Jobs completed and warranties ending before that day are never emailed, so nothing old goes out by surprise."
+            },
+            {
+                "title": "What each one sends",
+                "text": "Thank-you: 3 days after you mark a job completed, with your Google review link if you have one and no review request already went out. Warranty ending: the client hears 60, 30 and 7 days before it ends and on the day; you get a note at 30 days and on the day. Maintenance: 180 and 365 days after completion, with your short tip."
+            },
+            {
+                "title": "Change the days and the wording",
+                "text": "Open a row with [[Days, wording and what is next]]. Change the days, the owner note, the review link switch or the tip, edit the subject and message (tap a word like {client} to add it) and check the live preview. [[Next scheduled]] lists the next emails that will go out."
+            },
+            {
+                "title": "Turn one warranty off",
+                "text": "In the Warranty form, the [[Warranty emails]] switch turns the emails off for that warranty only. A switch can only turn emails off; the switch here is what turns them on."
+            }
+        ],
+        "tips": [
+            "They go out from your Gmail at the hour set in [[Days and wording]] under Reminders, and only if Reminders are not paused. Connect Gmail first, or nothing is sent.",
+            "A void warranty or a lifetime warranty sends no warranty emails."
         ]
     },
     {
