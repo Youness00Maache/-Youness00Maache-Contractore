@@ -16,8 +16,7 @@ export interface SavedNote {
     form: FormDataType;
 }
 
-export const saveJobNote = async (input: {
-    userId: string;
+interface NoteInput {
     job: Job & { clientId?: string | null };
     profile?: UserProfile | null;
     title: string;
@@ -27,10 +26,18 @@ export const saveJobNote = async (input: {
     today: string;
     /** extra keys kept on the document data (e.g. lienWaiver: { … } so the waiver can be told apart) */
     extra?: Record<string, unknown>;
-}): Promise<SavedNote> => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(NEEDS_CONNECTION);
+}
+
+/** The `data` of a Note document, built like the Note form builds a new one (also used to queue a note offline: lib/timeline/noteSave.ts). */
+export const buildJobNoteData = (input: NoteInput): { formType: string; data: Record<string, unknown> } => {
     const built = buildPlanDocument('NOTE', { title: input.title, content: input.content, tags: input.tags || [] }, { job: input.job, profile: input.profile, today: input.today });
-    const data: Record<string, unknown> = { ...built.data, title: input.title, tags: input.tags || [], isAiGenerated: false, ...(input.extra || {}) };
+    return { formType: built.formType, data: { ...built.data, title: input.title, tags: input.tags || [], isAiGenerated: false, ...(input.extra || {}) } };
+};
+
+export const saveJobNote = async (input: NoteInput & { userId: string }): Promise<SavedNote> => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error(NEEDS_CONNECTION);
+    const built = buildJobNoteData(input);
+    const data = built.data;
     const row: Record<string, unknown> = { id: crypto.randomUUID(), user_id: input.userId, job_id: input.job.id, type: built.formType, data };
     if (input.job.clientId) row.client_id = input.job.clientId;
     let { error } = await supabase.from('documents').insert(row);
