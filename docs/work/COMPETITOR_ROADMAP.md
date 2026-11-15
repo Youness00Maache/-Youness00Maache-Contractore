@@ -154,6 +154,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   (portal project dashboard function 20261116000300_portal_project_dashboard.sql + lib/portal). Full test suite running
   in background (scratchpad fullsuite.sh) -> if green: push my-branch + main, redeploy ai-assistant (bundle: esbuild, see
   NEXT_STEPS), Done log for D4 + D2 data layer (D2 UI ships with the next pair).
+  SHIPPED 2026-11-15 (see Done log): D4 + D2 data layer; worktrees of finished helpers removed. Still running: D2 phase B
+  (Sonnet UI, agent-a39ca3c6a843e297a) and D9 phase A (Opus, agent-ac2e8af93cd125cc2). NEXT: merge both, apply the D9
+  migration (20261116000300_portal_project_dashboard.sql), start D9 phase B (Sonnet portal UI) + next Opus phase A (D3
+  files/questions/submittals, then D1 leads...), ship D2 UI + D9 as the next pair (sync help knowledge + redeploy
+  ai-assistant first).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -161,4 +166,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED D4 suppliers + product library (UI + data layer, migration 20261116000200 applied 2026-11-14) and D2
+  data layer (migration 20261116000100 applied 2026-11-15; AI extract_tasks route; UI still to ship): main/my-branch
+  4d5c56f. Full suite green (tsc, 29 check scripts, forms 945, payments 153, qa:document-ai 1473, templates 31418, build,
+  seo 51). ai-assistant redeployed (398 KB: estimate_review + extract_tasks + supplier help); live site 200, live bundle has
+  the supplier screens. D4 live click path: Inventory > Suppliers > a supplier > Catalogue / Price list; Price book > edit
+  item > Product; Inventory > low stock > Create reorder POs; PO > pick a saved supplier (not clicked through live: needs
+  the owner's account).
 - 2026-11-14 ~22:45 UTC: N1 estimate reviewer (deterministic checks every plan + AI missing-items Premium+AI; estimate-review-check 101, qa:document-ai 1438) and N2 budget dashboard (original/revised budget, spent vs ordered, remaining, expected final cost, category overruns) + PO lifecycle (Confirmed / Partially delivered / Delivered / Invoiced / Paid, Record delivery once per delivery, supplier invoice attachment; costing-check 155, supplier-orders-check 209). All 31 suites pass. Pushed my-branch + main a3723ea; ai-assistant redeployed (376 KB, boots). Not click-tested signed in.
