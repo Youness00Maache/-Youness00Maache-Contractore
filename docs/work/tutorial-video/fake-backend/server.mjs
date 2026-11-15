@@ -8,10 +8,35 @@
 // that asks for something we did not seed simply shows its empty state instead of breaking.
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { seed, DEMO_USER, rpcHandlers, functionHandlers } from './seed.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { seed, DEMO_USER, rpcHandlers, functionHandlers, day, iso, id as newId } from './seed.mjs';
 
 const PORT = Number(process.argv[2] || process.env.FAKE_BACKEND_PORT || 54329);
-const tables = new Map(Object.entries(seed()).map(([name, rows]) => [name, rows]));
+// per-chapter demo data: fake-backend/demo/*.mjs, each `export default ({ tables, uid, day, iso, id }) => {...}` (adds rows) and
+// optional `export const rpc = { name: (args, tables) => result }`, `export const functions = { name: async (args, tables) => result }`
+const demoDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'demo');
+const demo = [];
+if (fs.existsSync(demoDir)) for (const f of fs.readdirSync(demoDir).filter((x) => x.endsWith('.mjs')).sort()) demo.push(await import(pathToFileURL(path.join(demoDir, f)).href));
+// The same rpc / function name may be answered by several demo modules (e.g. 'ai-assistant', 'gmail'): they are asked in file order, the
+// seed handler last; the first answer that is not undefined / null / {} wins, so a handler simply returns undefined for what is not its own.
+const chain = (base, key) => {
+  const lists = {};
+  for (const m of demo) for (const [k, h] of Object.entries(m[key] || {})) (lists[k] ||= []).push(h);
+  for (const [k, h] of Object.entries(base)) (lists[k] ||= []).push(h);
+  return Object.fromEntries(Object.entries(lists).map(([k, hs]) => [k, async (args, tables) => {
+    for (const h of hs) { const r = await h(args, tables); if (r !== undefined && r !== null && !(typeof r === 'object' && !Array.isArray(r) && !Object.keys(r).length)) return r; }
+    return undefined;
+  }]));
+};
+const rpcAll = chain(rpcHandlers, 'rpc');
+const fnAll = chain(functionHandlers, 'functions');
+// `chapter` ("01", "30" ...) is only known when the caller says so: GET /__reset?chapter=NN. A demo module that needs a special
+// starting state for one chapter (e.g. a brand-new empty account) checks `chapter` in its default function; without it every
+// module builds the normal demo business.
+const build = (chapter) => { const t = new Map(Object.entries(seed())); for (const m of demo) if (typeof m.default === 'function') m.default({ tables: t, uid: DEMO_USER.id, day, iso, id: newId, chapter }); return t; };
+const tables = build();
 const log = (...a) => { if (process.env.FAKE_BACKEND_LOG) console.log(...a); };
 
 const cors = {
@@ -179,6 +204,18 @@ async function rest(req, res, url, name) {
   return send(res, 405, { message: 'method not allowed' });
 }
 
+/** A calm, believable "job site photo" as an SVG (varies with the file name): sky, wall, floor, a window or two. Put a real
+ *  picture with the same file name into fake-backend/assets/ to override it. */
+function demoImage(seedText) {
+  let h = 0; for (const ch of String(seedText)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const pick = (a) => a[h % a.length];
+  const wall = pick(['#cfc7b8', '#bfc8cf', '#d8cdbd', '#b9b2a6', '#c7cfc4']);
+  const floor = pick(['#8a6f52', '#7d756b', '#9a7b5a', '#6f6a63']);
+  const accent = pick(['#3b6ea5', '#a5603b', '#4a8a63', '#8a4a63']);
+  const win = (x) => `<rect x="${x}" y="70" width="150" height="150" fill="#9ec4e6"/><rect x="${x}" y="70" width="150" height="150" fill="none" stroke="#f4f1ea" stroke-width="10"/><path d="M${x + 75} 70V220M${x} 145H${x + 150}" stroke="#f4f1ea" stroke-width="6"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" width="640" height="480"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${wall}"/><stop offset="1" stop-color="#a7a094"/></linearGradient></defs><rect width="640" height="480" fill="url(#g)"/><rect y="330" width="640" height="150" fill="${floor}"/><path d="M0 330H640" stroke="#00000022" stroke-width="3"/>${win(60)}${h % 2 ? win(400) : ''}<rect x="${h % 2 ? 250 : 330}" y="190" width="170" height="140" rx="6" fill="${accent}"/><rect x="${h % 2 ? 262 : 342}" y="202" width="146" height="40" rx="4" fill="#ffffff33"/></svg>`;
+}
+
 // ---------- server ----------
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -187,7 +224,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (p === '/__health') return send(res, 200, { ok: true, tables: [...tables.keys()] });
     if (p === '/__tables') return send(res, 200, Object.fromEntries([...tables].map(([k, v]) => [k, v.length])));
-    if (p === '/__reset') { tables.clear(); for (const [k, v] of Object.entries(seed())) tables.set(k, v); return send(res, 200, { ok: true }); }
+    if (p === '/__reset') { tables.clear(); for (const [k, v] of build()) tables.set(k, v); return send(res, 200, { ok: true }); }
     // auth
     if (p.startsWith('/auth/v1/')) {
       if (p.endsWith('/user')) return send(res, 200, DEMO_USER);
@@ -200,9 +237,9 @@ const server = http.createServer(async (req, res) => {
       const fn = p.slice('/rest/v1/rpc/'.length);
       const buf = await readBody(req);
       let args = {}; try { args = buf.length ? JSON.parse(buf.toString('utf8')) : {}; } catch { /* ignore */ }
-      const h = rpcHandlers[fn];
+      const h = rpcAll[fn];
       log('RPC', fn);
-      return send(res, 200, h ? h(args, tables) : null);
+      return send(res, 200, h ? ((await h(args, tables)) ?? null) : null);
     }
     if (p.startsWith('/rest/v1/')) return await rest(req, res, url, p.slice('/rest/v1/'.length));
     // edge functions
@@ -210,14 +247,35 @@ const server = http.createServer(async (req, res) => {
       const fn = p.slice('/functions/v1/'.length);
       const buf = await readBody(req);
       let args = {}; try { args = buf.length ? JSON.parse(buf.toString('utf8')) : {}; } catch { /* ignore */ }
-      const h = functionHandlers[fn];
+      const h = fnAll[fn];
       log('FUNCTION', fn, args && args.task);
-      return send(res, 200, h ? await h(args, tables) : {});
+      return send(res, 200, h ? ((await h(args, tables)) ?? {}) : {});
     }
     // storage: accept uploads, serve nothing real (demo images are served by the page itself, see seed.mjs)
     if (p.startsWith('/storage/v1/')) {
-      if (req.method === 'GET' && p.includes('/object/')) return send(res, 404, { message: 'not found' });
-      await readBody(req);
+      // reads of any stored file (public or signed link) answer with a generated demo picture, so photos, logos and
+      // files always show something; signed links point back here; uploads are accepted and forgotten.
+      if (req.method === 'GET' && p.includes('/object/')) {
+        const file = p.split('/object/').pop();
+        const custom = path.join(path.dirname(fileURLToPath(import.meta.url)), 'assets', path.basename(file.split('?')[0]));
+        if (fs.existsSync(custom) && fs.statSync(custom).isFile()) {
+          const ext = path.extname(custom).toLowerCase();
+          res.writeHead(200, { ...cors, 'content-type': ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.webp': 'image/webp' })[ext] || 'application/octet-stream' });
+          return res.end(fs.readFileSync(custom));
+        }
+        res.writeHead(200, { ...cors, 'content-type': 'image/svg+xml', 'cache-control': 'max-age=3600' });
+        return res.end(demoImage(file));
+      }
+      const buf = await readBody(req);
+      if (req.method === 'POST' && p.includes('/object/sign/')) {
+        const rest = p.split('/object/sign/')[1];
+        let paths; try { paths = JSON.parse(buf.toString('utf8')).paths; } catch { paths = undefined; }
+        const bucket = rest.split('/')[0];
+        const sign = (rel) => `/object/sign/${bucket}/${rel}?token=demo`;
+        if (Array.isArray(paths)) return send(res, 200, paths.map((rel) => ({ error: null, path: rel, signedURL: sign(rel) })));
+        return send(res, 200, { signedURL: sign(rest.split('/').slice(1).join('/')) });
+      }
+      if (req.method === 'POST' && p.includes('/object/list/')) return send(res, 200, []);
       if (req.method === 'POST' || req.method === 'PUT') return send(res, 200, { Key: p.replace('/storage/v1/object/', ''), Id: randomUUID() });
       return send(res, 200, []);
     }

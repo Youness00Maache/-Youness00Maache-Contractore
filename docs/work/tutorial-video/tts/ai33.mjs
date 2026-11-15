@@ -67,32 +67,50 @@ export async function listVoices(provider = 'elevenlabs', page = 1, pageSize = 1
   return Array.isArray(j.data) ? j.data : [];
 }
 
-/** Speak `text` with `voiceId`; returns { mp3: Buffer, srtUrl }. Throws a readable error (never includes the key). */
-export async function speak(text, voiceId, { speed = 1.0, fileName = 'narration.mp3', timeoutMs = 20 * 60 * 1000 } = {}) {
-  const form = new FormData();
-  form.append('text', text);
-  form.append('voice_id', prefixed(voiceId));
-  form.append('speed', String(Math.min(1.5, Math.max(0.5, speed))));
-  form.append('with_transcript', 'true');
-  form.append('file_name', fileName);
-  const created = await request('POST', '/v3/text-to-speech', form);
-  if (created.status === 401 || created.status === 403) throw new Error('AI33 rejected the API key or account access.');
-  if (created.status === 402) throw new Error('AI33 has insufficient credits.');
-  if (!created.ok) throw new Error(`AI33 rejected the voice request (${created.status}): ${(await created.text()).slice(0, 200)}`);
-  const made = await created.json();
-  const task = made.task_id || made.id;
-  if (!task) throw new Error('AI33 did not return a task id.');
+/**
+ * Speak `text` with `voiceId`; returns { mp3: Buffer, srt: string }. Throws a readable error (never includes the key).
+ * Handles what Framitor learned the hard way (see AI33 doc): a task that stays "doing" at 0% for 6+ minutes is submitted again
+ * (up to 3 times); a transcript that never finishes is dropped after a while (the audio is still used; timing then falls back
+ * to proportional); the transcript download needs the key header; the audio CDN is retried.
+ */
+export async function speak(text, voiceId, { speed = 1.0, fileName = 'narration.mp3', timeoutMs = 30 * 60 * 1000 } = {}) {
+  const submit = async () => {
+    const form = new FormData();
+    form.append('text', text);
+    form.append('voice_id', prefixed(voiceId));
+    form.append('speed', String(Math.min(1.5, Math.max(0.5, speed))));
+    form.append('with_transcript', 'true');
+    form.append('file_name', fileName);
+    const created = await request('POST', '/v3/text-to-speech', form);
+    if (created.status === 401 || created.status === 403) throw new Error('AI33 rejected the API key or account access.');
+    if (created.status === 402) throw new Error('AI33 has insufficient credits.');
+    if (!created.ok) throw new Error(`AI33 rejected the voice request (${created.status}): ${(await created.text()).slice(0, 200)}`);
+    const made = await created.json();
+    const id = made.task_id || made.id;
+    if (!id) throw new Error('AI33 did not return a task id.');
+    return id;
+  };
+  const poll = async (task) => {
+    const res = await request('GET', `/v1/task/${task}`);
+    if (res.status === 401 || res.status === 403) throw new Error('AI33 rejected the API key while checking the voice job.');
+    if (res.status >= 500 || [408, 425, 429].includes(res.status)) throw new Error(`transient ${res.status}`);
+    return res.json();
+  };
+  const download = async (url, withKey) => {
+    for (let i = 0; i < 4; i++) {
+      try { const r = await fetch(url, withKey ? { headers: headers() } : undefined); if (r.ok) return r; } catch { /* retry */ }
+      await sleep(2000 * (i + 1));
+    }
+    throw new Error('Could not download a result file from AI33.');
+  };
+
+  let task = await submit();
+  let submittedAt = Date.now(), resubmits = 0, failures = 0, doneAt = 0;
   const deadline = Date.now() + timeoutMs;
-  let failures = 0;
   while (Date.now() < deadline) {
     let payload;
-    try {
-      const res = await request('GET', `/v1/task/${task}`);
-      if (res.status === 401 || res.status === 403) throw new Error('AI33 rejected the API key while checking the voice job.');
-      if (res.status >= 500 || [408, 425, 429].includes(res.status)) throw new Error(`transient ${res.status}`);
-      payload = await res.json();
-      failures = 0;
-    } catch (e) {
+    try { payload = await poll(task); failures = 0; }
+    catch (e) {
       if (String(e.message).includes('rejected the API key')) throw e;
       if (++failures > 8) throw new Error(`AI33 status polling failed repeatedly: ${e.message}`);
       await sleep(Math.min(30000, 3000 * failures));
@@ -100,13 +118,26 @@ export async function speak(text, voiceId, { speed = 1.0, fileName = 'narration.
     }
     const status = String(payload.status || '').toLowerCase();
     if (['done', 'completed', 'success'].includes(status)) {
-      const url = nested(payload, 'audio_url') || nested(payload, 'result_audio_url');
-      if (!url) throw new Error('AI33 finished without an audio URL.');
-      const audio = await fetch(url);
-      if (!audio.ok) throw new Error(`Could not download the audio (HTTP ${audio.status}).`);
-      return { mp3: Buffer.from(await audio.arrayBuffer()), srtUrl: nested(payload, 'srt_url') || nested(payload, 'transcript_url') };
+      const audioUrl = nested(payload, 'audio_url') || nested(payload, 'result_audio_url');
+      if (!audioUrl) throw new Error('AI33 finished without an audio URL.');
+      const srtUrl = nested(payload, 'srt_url') || nested(payload, 'transcript_url');
+      const tstatus = String(nested(payload, 'transcript_status') || '').toLowerCase();
+      if (!srtUrl && tstatus === 'processing') {
+        if (!doneAt) doneAt = Date.now();
+        if (Date.now() - doneAt < 90000) { await sleep(3000); continue; } // give the transcript a little longer, then go without
+      }
+      const mp3 = Buffer.from(await (await download(audioUrl, false)).arrayBuffer());
+      let srt = '';
+      if (srtUrl) { try { srt = await (await download(srtUrl, true)).text(); } catch { /* proportional timing is the fallback */ } }
+      return { mp3, srt };
     }
     if (['error', 'failed', 'cancelled', 'canceled'].includes(status)) throw new Error(nested(payload, 'error_message') || nested(payload, 'message') || 'AI33 voice generation failed.');
+    const progress = Number(payload.progress || 0);
+    if (!progress && Date.now() - submittedAt > 6 * 60 * 1000) { // accepted but never started
+      if (++resubmits > 3) throw new Error('AI33 accepted the task but never started it (tried 4 times).');
+      task = await submit(); submittedAt = Date.now();
+      continue;
+    }
     await sleep(3000);
   }
   throw new Error('AI33 voice generation timed out.');

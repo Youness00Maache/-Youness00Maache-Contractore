@@ -120,6 +120,7 @@ async function main() {
   await sleep(1200);
   const cap = await startCapture(page, path.join(out, 'video.mp4'));
   const me = new Actor(page);
+  let size = 'desktop';
   const unresolved = [], zooms = [], sceneTimes = [];
   const log = (m) => console.log('   ' + m);
 
@@ -132,6 +133,9 @@ async function main() {
     sceneTimes.push({ id: scene.id, start: +t0.toFixed(3), duration: +duration.toFixed(3), kind: scene.kind });
     console.log(`scene ${scene.id} (${scene.kind}) ${duration.toFixed(1)}s`);
     if (scene.kind === 'app') {
+      // phone scenes: the same app in a 390 x 844 window (the recording fits it onto the same canvas)
+      const dev = scene.device === 'phone' ? 'phone' : 'desktop';
+      if (dev !== size) { await page.setViewportSize(dev === 'phone' ? { width: 390, height: 844 } : { width: 1280, height: 720 }); size = dev; await sleep(700); }
       if (scene.route && scene !== chapter.scenes[0]) await open(page, scene.route);
       const ctx = { now: () => cap.now(), zooms, log, sentenceMs: 3500 };
       for (const [i, a] of (scene.do || []).entries()) {
@@ -158,7 +162,7 @@ async function main() {
         if (src) f.src = src; else f.srcdoc = doc;
         document.documentElement.appendChild(f);
         const c = document.getElementById('__cur'); if (c) c.style.display = 'none';
-      }, [tpl ? `/docs/work/tutorial-video/motion/${tpl}.html` : null, card]);
+      }, [tpl ? `/docs/work/tutorial-video/motion/${tpl}.html?d=${duration.toFixed(1)}` : null, card]);
       if (!tpl) unresolved.push(`${chapter.id}.${scene.id}: motion scene has no template yet (title card shown): ${String(scene.visual || '').slice(0, 90)}`);
       const stay = t0 + duration - cap.now();
       if (stay > 0) await sleep(stay * 1000);

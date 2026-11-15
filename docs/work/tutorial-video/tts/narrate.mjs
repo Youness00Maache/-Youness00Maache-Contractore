@@ -35,6 +35,14 @@ export async function loadChapters(only) {
   }
   return out;
 }
+/** translations/<lang>/NN-id.json files merged (key "<chapter>.<scene>.<sentence>" -> text); {} for English / missing. */
+export function loadTranslations(language) {
+  const out = {};
+  if (language === 'en') return out;
+  const dir = path.join(root, 'translations', language);
+  if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) Object.assign(out, JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
+  return out;
+}
 export function sentencesOf(chapter, scene, language, translations) {
   if (language === 'en') return scene.say;
   return scene.say.map((_, i) => translations[`${chapter.id}.${scene.id}.${i}`]);
@@ -83,13 +91,13 @@ async function narrateScene({ lang, chapter, scene, sentences, voice, speed, moc
     duration = +(sentences.reduce((a, s) => a + words(s) / 2.5 + 0.35, 0) + 0.4).toFixed(2); // ~150 wpm + pauses
     run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', `anullsrc=r=24000:cl=mono`, '-t', String(duration), file]);
   } else {
-    const { mp3, srtUrl } = await speak(text, voice, { speed, fileName: `${chapter.id}-${scene.id}.mp3` });
+    const { mp3, srt } = await speak(text, voice, { speed, fileName: `${chapter.id}-${scene.id}.mp3` });
     const raw = base + '.raw.mp3';
     fs.writeFileSync(raw, mp3);
     run('ffmpeg', ['-y', '-v', 'error', '-i', raw, '-af', 'loudnorm=I=-16:TP=-1.5:LRA=7', '-ar', '44100', '-ac', '1', '-b:a', '96k', file]);
     fs.rmSync(raw, { force: true });
     duration = +probe(file).toFixed(3);
-    if (srtUrl) { try { const r = await fetch(srtUrl); if (r.ok) cues = parseSrt(await r.text()); } catch { /* proportional timing is the fallback */ } }
+    if (srt) cues = parseSrt(srt); // no transcript -> proportional timing
   }
   const meta = { hash, lang, chapter: chapter.id, scene: scene.id, voice: mock ? null : voice, mock: !!mock, text, duration, sentences: alignSentences(sentences, cues, duration), file: path.basename(file) };
   fs.writeFileSync(base + '.json', JSON.stringify(meta, null, 1));
@@ -103,12 +111,8 @@ async function main() {
   const speed = Number(flag('speed', 1.0));
   const mock = !!flag('mock', false), dry = !!flag('dry', false);
   const conc = Math.max(1, Number(flag('concurrency', 3)));
-  let translations = {};
-  if (lang !== 'en') {
-    const f = path.join(root, 'translations', `${lang}.json`);
-    if (!fs.existsSync(f)) { console.error(`No translations/${lang}.json yet.`); process.exit(1); }
-    translations = JSON.parse(fs.readFileSync(f, 'utf8'));
-  }
+  const translations = loadTranslations(lang);
+  if (lang !== 'en' && !Object.keys(translations).length) { console.error(`No translations for "${lang}" yet (translations/${lang}/NN-id.json).`); process.exit(1); }
   const chapters = await loadChapters(only);
   const jobs = [];
   for (const chapter of chapters) for (const scene of chapter.scenes) {

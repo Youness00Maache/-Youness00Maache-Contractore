@@ -3151,7 +3151,7 @@ const App: React.FC = () => {
                     }}
                 />;
             case 'help':
-                return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} />;
+                return <HelpCenter onBack={() => (canGoBack() ? navigate(-1) : navigateToDashboard())} language={profile?.language} />;
             case 'analytics':
                 return <AnalyticsView
                     jobs={jobs}
