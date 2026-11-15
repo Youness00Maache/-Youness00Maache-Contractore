@@ -503,7 +503,8 @@ const read = (rel: string) => readFileSync(join(root, rel), 'utf8').replace(/\r\
     ok(app.includes("onOpenLeads={leadsReady ? () => navigate('/leads') : undefined}") && app.includes('followUpsDue={leadsReady ? leadsDue : 0}'), 'App: dashboard bar button and count only when ready');
     ok(app.includes('leadsUi={leadsReady && session ?'), 'App: Schedule markers only when ready');
     ok(app.includes("case 'leads': navigate('/leads'); break;"), 'App: nav destination');
-    ok(nav.includes("(t.dest !== 'leads' || leadsEnabled)") && /\{leadsEnabled && \(/.test(nav), 'nav: both Leads entries wait for leadsEnabled');
+    ok(nav.includes("(t.dest !== 'leads' || leadsEnabled)") && nav.includes('leadsEnabled && leadsDue > 0'), 'nav: Leads entry and due count wait for leadsEnabled');
+    ok(!/onClick=\{\(\) => onNavigate\('leads'\)\}/.test(nav) && !nav.includes("linkCls('leads')"), 'nav: Leads is listed once (in Tools), no second copy in the top bar');
     ok(view.includes("if (props.feature === 'ready') return <LeadsScreen {...props} />;") && view.includes('return <InboxOnly {...props} />;'), 'Leads screen: not ready = the old inbox');
     ok(view.includes("import('../requests/RequestsInbox.tsx')"), 'Leads screen: the fallback is the existing inbox');
     ok(inbox.includes('onOpenLeads && <button') && inbox.includes('onOpenLeads && followUpsDue > 0'), 'inbox: Leads button and due count behind onOpenLeads');

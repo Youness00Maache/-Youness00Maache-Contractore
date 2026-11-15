@@ -197,13 +197,7 @@ const AppNav: React.FC<AppNavProps> = ({
                         <button type="button" className={linkCls('dashboard')} onClick={() => onNavigate('dashboard')}>
                             <HomeIcon className="h-4 w-4" /> Dashboard
                         </button>
-                        {/* from extra-large screens on; below that Leads is the first entry of Tools */}
-                        {leadsEnabled && (
-                            <button type="button" className={`${linkCls('leads')} hidden xl:inline-flex`} onClick={() => onNavigate('leads')}>
-                                <LeadsIcon className="h-4 w-4" /> Leads
-                                {leadsDue > 0 && <span className="badge badge-warning px-1.5 py-0 text-[10px]" title="Follow-ups due">{leadsDue > 99 ? '99+' : leadsDue}</span>}
-                            </button>
-                        )}
+                        {/* Leads lives once, as the first entry of Tools (owner: it was repeated in the bar and the menu) */}
                         <button type="button" className={linkCls('clients')} onClick={() => onNavigate('clients')}>
                             <UsersIcon className="h-4 w-4" /> Clients
                             {clientBadge > 0 && <span className="badge badge-danger px-1.5 py-0 text-[10px]">{clientBadge > 99 ? '99+' : clientBadge}</span>}
@@ -217,9 +211,10 @@ const AppNav: React.FC<AppNavProps> = ({
                             asButton
                             label="Tools"
                             trigger={
-                                <span className={`${linkCls('tools')}${active === 'leads' ? ' max-xl:bg-primary/10 max-xl:text-primary' : ''}`}>
+                                <span className={`${linkCls('tools')}${active === 'leads' ? ' bg-primary/10 text-primary' : ''}`}>
                                     <GridIcon className="h-4 w-4" /> Tools
                                     {lowStockCount > 0 && <span className="badge badge-danger px-1.5 py-0 text-[10px]">{lowStockCount > 9 ? '9+' : lowStockCount}</span>}
+                                    {leadsEnabled && leadsDue > 0 && <span className="badge badge-warning px-1.5 py-0 text-[10px]" title="Leads: follow-ups due">{leadsDue > 9 ? '9+' : leadsDue}</span>}
                                     <ChevronDownIcon className="h-3.5 w-3.5 opacity-60" />
                                 </span>
                             }
