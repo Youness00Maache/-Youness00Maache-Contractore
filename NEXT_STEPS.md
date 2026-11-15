@@ -82,6 +82,22 @@ Read docs/work/tutorial-video/PLAN.md + README.md first. STATE 2026-11-15 ~15:10
 - Known narration/screen mismatches left as written (true but not shown): 08.s05.0/.1/.5 (Project tab, All documents), 09.s03.0,
   10.s02.2, 11.s02.4. Gotchas: run.mjs only makes placeholder timing when NO audio exists (pass --mock for a new chapter in a slot);
   never run two recordings on one slot; Vite reloads if any .html under the repo changes during a run; C: disk was nearly full once.
+- PAUSED BY THE OWNER 2026-11-15 ~16:20 ("pause everything, don't lose anything; I will tell you when to continue"). Nothing of
+  mine is running except the watch-page file server (port 3999, node scripts/serve-media.mjs <notes folder> 3999). Do not resume
+  until the owner says so. ALL work is committed on my-branch (NOTHING pushed); the big files (voices, recordings, packages) live in
+  C:/Users/JAAF/contractordocs-tutorial-work (cache/audio = AI33 voices en+es, out/chapters = recordings): do not delete them.
+- Owner feedback on chapters 1-2 (the 18:28 version on the watch page): unnecessary pauses, narration sometimes ahead of the screen,
+  sometimes behind. The recordings 01-11 on disk were made with the OLD timing. FIX WRITTEN, committed, NOT yet verified end to end:
+  record/lib.mjs (capture.pause()/resume() cut page-load time out of the video; cursor glide follows the clock), record/chapter.mjs
+  (narration starts 0.45 s into a scene, scene tail 0.3 s; each action is timed to LAND on the spoken word, with a learned travel
+  ratio; several actions in one sentence are spread over it; ELASTIC offsets: when a step is slow, later sentences wait, so the voice
+  never runs ahead; one audio segment per sentence placed individually; the Spanish voice is sped up <= 1.12x to fit the English
+  length; typing at most ~1.4 s; a `sync:` line + chapter.json `timing` report how well clicks landed), tts/snap.mjs + tts/resnap.mjs
+  (sentence cuts at real pauses; resnap already run on all 156 cached scenes; narrate.mjs does it for new audio), build/assemble.mjs
+  (captions use the offsets/tempo). Measured before the elastic step: chapter 02 mean click error 0.14 s, chapter 01 0.7-1.1 s.
+  NEXT: TUTORIAL_WORK_DIR=C:/Users/JAAF/contractordocs-tutorial-work node record/run.mjs f 01 02 --langs en,es (one run at a time on
+  a slot; ~4 min per chapter), read the `sync:` line, look at the result (scripts/make-watch-page.mjs), then re-record 03-11 the same
+  way (+ 12-30 later), assemble, upload.
 - Usage rule: pause at 70% of the 5-hour limit; weekly was 55% at 15:05 (the owner asked for this video explicitly).
 
 # >>> STATUS 2026-11-14 afternoon: owner requests 1-5 below are DONE and LIVE (main) <<<

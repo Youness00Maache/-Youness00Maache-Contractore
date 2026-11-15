@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { speak, credits } from './ai33.mjs';
 import { CACHE } from '../config.mjs';
+import { silences, snapSentences } from './snap.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -99,7 +100,7 @@ async function narrateScene({ lang, chapter, scene, sentences, voice, speed, moc
     duration = +probe(file).toFixed(3);
     if (srt) cues = parseSrt(srt); // no transcript -> proportional timing
   }
-  const meta = { hash, lang, chapter: chapter.id, scene: scene.id, voice: mock ? null : voice, mock: !!mock, text, duration, sentences: alignSentences(sentences, cues, duration), file: path.basename(file) };
+  const meta = { hash, lang, chapter: chapter.id, scene: scene.id, voice: mock ? null : voice, mock: !!mock, text, duration, sentences: mock ? alignSentences(sentences, cues, duration) : snapSentences(alignSentences(sentences, cues, duration), silences(file)), snapped: !mock, file: path.basename(file) };
   fs.writeFileSync(base + '.json', JSON.stringify(meta, null, 1));
   return meta;
 }

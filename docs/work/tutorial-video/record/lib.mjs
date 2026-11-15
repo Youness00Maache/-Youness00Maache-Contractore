@@ -60,8 +60,8 @@ export async function startCapture(page, outFile, { quality = 82, fps = 30, widt
   const closed = new Promise((resolve, reject) => { ff.on('close', (c) => (c === 0 ? resolve() : reject(new Error('ffmpeg exited with ' + c)))); ff.on('error', reject); });
   ff.stdin.on('error', () => {});
   const cdp = await page.context().newCDPSession(page);
-  let latest = null, written = 0, t0 = 0, timer = null;
-  const pump = () => { if (!latest) return; const due = Math.floor(((Date.now() - t0) / 1000) * fps); while (written < due) { ff.stdin.write(latest); written++; } };
+  let latest = null, written = 0, t0 = 0, timer = null, paused = false, pausedAt = 0, shift = 0;
+  const pump = () => { if (!latest || paused) return; const due = Math.floor(((Date.now() - t0 - shift) / 1000) * fps); while (written < due) { ff.stdin.write(latest); written++; } };
   cdp.on('Page.screencastFrame', (f) => {
     latest = Buffer.from(f.data, 'base64');
     if (!t0) { t0 = Date.now(); timer = setInterval(pump, 8); }
@@ -71,8 +71,12 @@ export async function startCapture(page, outFile, { quality = 82, fps = 30, widt
   for (let i = 0; i < 100 && !t0; i++) await sleep(50); // first frame starts the clock
   if (!t0) throw new Error('the screencast produced no frame');
   return {
-    /** seconds since the first frame */
-    now: () => (Date.now() - t0) / 1000,
+    /** seconds of VIDEO so far (time spent paused does not count) */
+    now: () => ((paused ? pausedAt : Date.now()) - t0 - shift) / 1000,
+    /** stop the clock (a page is loading): the video does not advance and the loading is never shown */
+    pause() { if (!paused) { paused = true; pausedAt = Date.now(); } },
+    /** start the clock again; the next frame written is the newest one, i.e. the loaded page */
+    resume() { if (paused) { shift += Date.now() - pausedAt; paused = false; } },
     get frames() { return written; },
     async stop(endPad = 0.6) {
       await sleep(endPad * 1000);
@@ -105,30 +109,44 @@ export function encode(frames, outFile, { fps = 30, crf = 23, endPad = 0.6 } = {
   return outFile;
 }
 
-/** A person at the keyboard: smooth cursor, clicks on labels, typing, scrolling. Pace in seconds. */
+/** How long the cursor takes to glide a distance (px): short hops are quick, long ones stay under ~0.75 s. */
+export const glideMs = (dist, fast = false) => (fast ? 150 : Math.min(750, Math.max(280, 220 + dist * 0.55)));
+
+/** A person at the keyboard: smooth cursor, clicks on labels, typing, scrolling. `fast` = catch up with the narration. */
 export class Actor {
-  constructor(page) { this.page = page; this.x = 640; this.y = 360; }
+  constructor(page) { this.page = page; this.x = 640; this.y = 360; this.fast = false; this.lastDown = null; this.nowFn = null; }
   async pause(s) { await sleep(s * 1000); }
-  async glide(x, y, ms = 650) {
-    const steps = Math.max(8, Math.round(ms / 16));
-    const sx = this.x, sy = this.y;
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps; const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
+  async glide(x, y, ms) {
+    if (ms == null) ms = glideMs(Math.hypot(x - this.x, y - this.y), this.fast);
+    const sx = this.x, sy = this.y, started = Date.now();
+    for (;;) { // follow the clock, not a step count: the glide lasts exactly `ms` however slow each mouse step is
+      const t = Math.min(1, (Date.now() - started) / ms); const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
       await this.page.mouse.move(sx + (x - sx) * e, sy + (y - sy) * e);
-      await sleep(ms / steps);
+      if (t >= 1) break;
     }
     this.x = x; this.y = y;
   }
   async center(locator) {
-    await locator.first().scrollIntoViewIfNeeded().catch(() => {});
-    const b = await locator.first().boundingBox();
+    let b = await locator.first().boundingBox();
+    const vp = this.page.viewportSize() || { width: 1280, height: 720 };
+    if (!b || b.y < 4 || b.x < 0 || b.y + b.height > vp.height - 4 || b.x + b.width > vp.width) { // only scroll when it is out of view
+      await locator.first().scrollIntoViewIfNeeded().catch(() => {});
+      await sleep(120);
+      b = await locator.first().boundingBox();
+    }
     if (!b) throw new Error('target not visible');
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   }
   async moveTo(locator, ms) { const p = await this.center(locator); await this.glide(p.x, p.y, ms); }
-  async click(locator, ms) { await this.moveTo(locator, ms); await this.pause(0.12); await this.page.mouse.down(); await sleep(70); await this.page.mouse.up(); await this.pause(0.25); }
-  async type(locator, text, perChar = 55) { await this.click(locator); await this.page.keyboard.type(text, { delay: perChar }); await this.pause(0.2); }
-  async scroll(dy, steps = 12) { for (let i = 0; i < steps; i++) { await this.page.mouse.wheel(0, dy / steps); await sleep(30); } await this.pause(0.3); }
+  async click(locator, ms) {
+    await this.moveTo(locator, ms);
+    await this.pause(this.fast ? 0.02 : 0.06);
+    if (this.nowFn) this.lastDown = this.nowFn(); // the moment of the click, for the sync report
+    await this.page.mouse.down(); await sleep(45); await this.page.mouse.up();
+    await this.pause(this.fast ? 0.04 : 0.1);
+  }
+  async type(locator, text, perChar) { await this.click(locator); await this.page.keyboard.type(text, { delay: perChar ?? (this.fast ? 20 : 45) }); await this.pause(0.08); }
+  async scroll(dy, steps = 10) { for (let i = 0; i < steps; i++) { await this.page.mouse.wheel(0, dy / steps); await sleep(28); } await this.pause(0.12); }
 }
 
 export function run(cmd, args, opts = {}) { return spawn(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', ...opts }); }

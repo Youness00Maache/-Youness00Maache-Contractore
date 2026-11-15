@@ -53,11 +53,14 @@ for (const ch of await loadChapters(only)) {
   for (const L of subLangs) {
     const cues = [];
     for (const [i, scene] of ch.scenes.entries()) {
-      const st = info.scenes[i].start;
+      const st = info.scenes[i].start + (info.scenes[i].lead || 0);
       const texts = sentencesOf(ch, scene, L, trs[L]);
-      const windows = (meta(L, ch.id, scene.id) || meta('en', ch.id, scene.id))?.sentences;
+      const own = meta(L, ch.id, scene.id);
+      const windows = (own || meta('en', ch.id, scene.id))?.sentences;
+      const tp = own ? (info.scenes[i].tempo?.[L] || 1) : 1; // a voice that was sped up to fit has its captions sped up too
       if (!windows || texts.some((t) => typeof t !== 'string' || !t)) continue; // not translated yet: no captions for this scene
-      texts.forEach((t, k) => cues.push([+(st + windows[k].start).toFixed(2), +(st + windows[k].end).toFixed(2), t]));
+      const offs = info.scenes[i].offsets || [];
+      texts.forEach((t, k) => cues.push([+(st + windows[k].start / tp + (offs[k] || 0)).toFixed(2), +(st + windows[k].end / tp + (offs[k] || 0)).toFixed(2), t]));
     }
     if (cues.length) bundles[L][ch.id] = cues;
   }
