@@ -7,6 +7,8 @@ export interface TotalsLineItem {
   rate?: unknown;
   percentComplete?: unknown;
   previouslyBilled?: unknown;
+  optional?: unknown;
+  selected?: unknown;
 }
 
 export interface TotalsInput {
@@ -50,6 +52,8 @@ const flag = (v: unknown) => v === true || String(v ?? '').trim().toLowerCase() 
 
 const lineAmount = (item: TotalsLineItem | null | undefined, progress: boolean): number => {
   if (!item) return 0;
+  // optional add-on not selected (utils/money.ts isExcludedOptionalLine): printed, never counted
+  if (flag(item.optional) && !flag(item.selected)) return 0;
   const scheduled = toNumber(item.quantity) * toNumber(item.rate);
   if (!progress) return roundMoney(scheduled);
   const pct = Math.min(100, Math.max(0, toNumber(item.percentComplete)));

@@ -14,7 +14,8 @@ export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
-  | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations';
+  | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
+  | 'proposals';
 
 export interface HelpStep {
   title: string;
@@ -130,6 +131,27 @@ export const HELP_GUIDES: HelpGuide[] = [
       '[[Use one total instead]] turns options off and keeps the option that counts; after applying, [[Back to options]] undoes it while the lines are unchanged.',
       'The AI assistant can draft them: in [[AI Command]] or a job’s [[AI Assistant]], ask for example “good / better / best estimate for a 12 × 14 deck” with each option’s lines and prices. The estimate opens with the options filled in: lines that are in your [[Price book]] get its prices, other prices you did not give stay empty. Nothing is saved until you click [[Save]].',
       'On an estimate you already started, click [[AI fill]] and ask “turn this into good / better / best options” or “add a premium option”: the options are built from your current lines, which stay exactly as you typed them (with an added option your current lines stay Recommended, so the total does not change). Options you already have are kept; new lines without a price stay empty for you to fill.',
+    ],
+  },
+  {
+    id: 'proposals',
+    title: 'Proposals: optional add-ons, scope, payment schedule, photos',
+    summary: 'Turn an estimate into a full proposal: extras the client can ask for, a clear scope, a payment schedule and project photos, printed in every design.',
+    where: ['Job', 'Estimate', 'Proposal'],
+    group: 'Documents & getting paid',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Add optional add-ons', text: 'Under Items, open Optional add-ons and click [[Add an add-on]], or pick a line in Move a line here. Add-ons print with their price and an Optional tag, but are not in the subtotal, tax or total. Tick In the total when the client wants one: it then counts like a normal line. [[Make it a regular line]] moves it back.' },
+      { title: 'Write the scope', text: 'In the Proposal section, Scope tab, add Scope of work, Inclusions, Exclusions, Assumptions and Timeline / schedule. Type one item per line for a list, or switch Print as to Paragraphs. The arrows change the order they print in.' },
+      { title: 'Set the payment schedule', text: 'In the Payments tab pick 50 / 50, 30 / 40 / 30 or 10 / 40 / 40 / 10, or click [[Add payment]]. Each payment is a % of the total or a fixed amount (% → $ switches). The payments must add up to the total; amounts are rounded to the cent and the last payment takes the leftover cents.' },
+      { title: 'Add project photos', text: 'In the Photos tab click [[Upload photo]] or [[From job photos]] (up to 8, JPG, PNG or WebP) and add a caption. They print as a photo page with captions; hiding Photos in a Premium design leaves them out.' },
+      { title: 'Bill the schedule', text: 'On an accepted estimate, [[Convert to invoice]] asks What to invoice: the whole estimate, the deposit (one line for the exact amount) or a later payment (a progress billing invoice with the right % complete and what was billed before).' },
+      { title: 'Reuse it', text: 'Click [[Save as template]] to keep the scope sections, payment schedule and terms. On the next estimate, Use a template fills them in. Free keeps one template; Premium keeps up to 20.' },
+    ],
+    tips: [
+      'Clients see the scope, add-ons (marked not included in the total), payment schedule and photos on the approval link and in the portal. Choosing add-ons online comes later.',
+      'Optional add-ons are left out of invoices, the job budget, Insights and the bookkeeper export until they are switched on.',
+      'Once the client signs, the scope, schedule, photos and add-ons are locked with the rest of the estimate.',
     ],
   },
   {

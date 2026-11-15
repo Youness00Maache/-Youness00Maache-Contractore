@@ -8,7 +8,8 @@ import { supabase } from '../lib/supabase.ts';
 import SignaturePad from './SignaturePad.tsx';
 import { Avatar, Notice, SkeletonRows, Spinner, StatusBadge, cx, getErrorMessage } from './commsKit.tsx';
 import { documentLabel, isMissingFunctionError } from '../utils/clientLinks.ts';
-import { formatMoney, lineItemAmount, toNumber } from '../utils/money.ts';
+import { formatMoney, isExcludedOptionalLine, lineItemAmount, toNumber } from '../utils/money.ts';
+import ProposalPortalView from './proposal/ProposalPortalView.tsx';
 import {
     SIGNABLE_TYPES, documentTotals, isDeclinedData, isPastExpiryDate, isSignedData, parseDocState, stateOfDoc, type DocState,
 } from '../utils/clientPortalRules.ts';
@@ -730,7 +731,8 @@ export const DocumentDetail: React.FC<{
     const range = optionSet ? optionRange(d) : null;
     const signedChoice = optionSet ? choiceOf(d, optionSet) : null;
     const choiceTotal = optionSet && signedChoice ? summarizeOptions(d, optionSet).find((x) => x.chosen)?.totals.total ?? 0 : 0;
-    const items: any[] = optionSet ? [] : Array.isArray(d.lineItems) ? d.lineItems.filter((it: unknown) => it && typeof it === 'object') : [];
+    // optional add-ons not taken are listed apart (ProposalPortalView), never among the counted items
+    const items: any[] = optionSet ? [] : Array.isArray(d.lineItems) ? d.lineItems.filter((it: unknown) => it && typeof it === 'object' && !isExcludedOptionalLine(it as never)) : [];
     const isProgress = !!d.isProgressBilling;
     const state = getDocState(doc);
     const label = documentLabel(doc.type, d);
@@ -928,6 +930,9 @@ export const DocumentDetail: React.FC<{
             )}
             <PayNowPanel doc={doc} contractor={contractor} onReport={onReportPayment} onReported={onPaymentReported} />
             <FinancingNotice doc={doc} contractor={contractor} />
+
+            {/* proposal builder: scope, optional add-ons (not in the total), payment schedule, photos */}
+            {doc.type === 'Estimate' && <ProposalPortalView data={d} total={totals.total} money={money} />}
 
             {sections.map(([k, v]) => <TextSection key={k} title={k} text={v} />)}
 

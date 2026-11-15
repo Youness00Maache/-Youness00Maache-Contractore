@@ -30,6 +30,10 @@ import {
 import { AppliedOptionStrip, EstimateOptionsEditor, OptionChoiceBar, optionTitle } from './options/EstimateOptionsEditor.tsx';
 import { EstimateReviewPanel, ReviewShareNotice, useEstimateReview } from './review/EstimateReview.tsx';
 import { addSuggestedLine, suggestionToLine, type ReviewFinding } from '../lib/estimateReview.ts';
+import { isPaidTier, normalizeTier } from '../lib/plans.ts';
+import { mergeLines, optionalLines, regularLines } from '../lib/proposal.ts';
+import { buildMilestoneInvoiceSeed } from './forms/signedLock.ts';
+import { MilestonePicker, OptionalAddOns, ProposalSection } from './proposal/ProposalBuilder.tsx';
 
 interface Props {
     job: Job;
@@ -45,6 +49,9 @@ interface Props {
     prefillData?: unknown;
     documentId?: string;
     existingNumbers?: string[];
+    /** plan of the account (proposal templates: Free keeps one) */
+    plan?: string | null;
+    onUpgrade?: (reason?: string) => void;
 }
 
 /** "Convert to invoice": deposit already received + a warning when an invoice was already made from this estimate. */
@@ -56,10 +63,12 @@ const ConvertDialog: React.FC<{
     estimateId?: string;
     busy: boolean;
     onCancel: () => void;
-    onConvert: (deposit: number) => void;
+    onConvert: (deposit: number, milestoneId?: string) => void;
     onOpenInvoice: (id: string) => void;
 }> = ({ open, estimate, total, jobId, estimateId, busy, onCancel, onConvert, onOpenInvoice }) => {
     const [deposit, setDeposit] = useState(0);
+    // payment schedule (proposal builder): '' = the whole estimate, as before
+    const [milestoneId, setMilestoneId] = useState('');
     const [existing, setExisting] = useState<Array<{ id: string; number: string }>>([]);
     React.useEffect(() => {
         if (!open || !estimateId) { setExisting([]); return; }
@@ -95,18 +104,21 @@ const ConvertDialog: React.FC<{
                         </div>
                     </div>
                 )}
-                <div className="mt-4">
-                    <MoneyField
-                        label="Deposit already received (optional)"
-                        value={deposit}
-                        onValueChange={v => setDeposit(Math.min(v, total))}
-                        hint="Shown on the invoice as paid; the balance due is the rest."
-                        fieldClassName="sm:max-w-xs"
-                    />
-                </div>
+                <MilestonePicker data={estimate as unknown as Record<string, any>} total={total} value={milestoneId} onChange={setMilestoneId} />
+                {!milestoneId && (
+                    <div className="mt-4">
+                        <MoneyField
+                            label="Deposit already received (optional)"
+                            value={deposit}
+                            onValueChange={v => setDeposit(Math.min(v, total))}
+                            hint="Shown on the invoice as paid; the balance due is the rest."
+                            fieldClassName="sm:max-w-xs"
+                        />
+                    </div>
+                )}
                 <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <button type="button" className="btn btn-outline" onClick={onCancel} disabled={busy}>Cancel</button>
-                    <button type="button" className="btn btn-primary" onClick={() => onConvert(deposit)} disabled={busy}>
+                    <button type="button" className="btn btn-primary" onClick={() => onConvert(milestoneId ? 0 : deposit, milestoneId || undefined)} disabled={busy}>
                         {busy ? <><Spinner /> Opening…</> : <><InvoiceIcon className="h-4 w-4" /> {existing.length ? 'Create another invoice' : 'Create invoice'}</>}
                     </button>
                 </div>
@@ -117,7 +129,9 @@ const ConvertDialog: React.FC<{
 
 const EstimateForm: React.FC<Props> = ({
     job, profile, data, clients = [], savedItems = [], inventoryItems = [], onSave, onBack, onUploadImage, publicToken, prefillData, documentId, existingNumbers,
+    plan, onUpgrade,
 }) => {
+    const paidPlan = isPaidTier(normalizeTier(plan || (profile as { plan?: string }).plan || profile.subscriptionTier));
     const navigate = useNavigate();
     const ensureDocSlot = useEnsureDocSlot();
     const [showCosts, setShowCosts] = useState(false);
@@ -267,9 +281,11 @@ const EstimateForm: React.FC<Props> = ({
         if (ensureDocSlot && !(await ensureDocSlot())) return;
         setConvertOpen(true);
     };
-    const convert = (deposit: number) => {
+    const convert = (deposit: number, milestoneId?: string) => {
         setConverting(true);
-        const seed = buildInvoiceSeedFromEstimate(form.data, idRef.current, { deposit });
+        // one payment of the schedule (deposit invoice / progress billing), else the whole estimate as before
+        const seed = (milestoneId ? buildMilestoneInvoiceSeed(form.data, idRef.current, milestoneId) : null)
+            ?? buildInvoiceSeedFromEstimate(form.data, idRef.current, { deposit });
         setConvertOpen(false);
         setConverting(false);
         navigate(`/jobs/${job.id}/forms/${encodeURIComponent(FormType.Invoice)}`, { state: { prefillData: makeSeedPrefill(seed), fromJob: true } });
@@ -385,15 +401,24 @@ const EstimateForm: React.FC<Props> = ({
                     {optionSet?.appliedId && (
                         <AppliedOptionStrip data={d} onUndo={!locked && canUndoApply(d) ? () => update(prev => undoApply(prev)) : undefined} />
                     )}
+                    {/* regular lines here; optional add-ons (lib/proposal.ts) in their own block below */}
                     <LineItemsEditor
-                        items={d.lineItems}
-                        onChange={items => update({ lineItems: items })}
+                        items={regularLines(d.lineItems)}
+                        onChange={items => update(prev => ({ ...prev, lineItems: mergeLines(items, optionalLines(prev.lineItems)) }))}
                         showCost={showCosts}
                         rateLabel="Price"
                         savedItems={savedItems}
                         inventoryItems={inventoryItems}
                         availableStock={stockLookup}
                         quickMeasure={{ jobId: job.id }}
+                    />
+                    <OptionalAddOns
+                        items={d.lineItems}
+                        onChange={items => update({ lineItems: items })}
+                        savedItems={savedItems}
+                        inventoryItems={inventoryItems}
+                        showCost={showCosts}
+                        jobId={job.id}
                     />
                     {showCosts && (
                         <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/40 p-4 sm:grid-cols-4">
@@ -412,6 +437,20 @@ const EstimateForm: React.FC<Props> = ({
                 )}
                 {!locked && <EstimateReviewPanel review={review} canEdit={!locked} onAddLine={addReviewLine} />}
             </FormSection>
+
+            {/* proposal builder: scope, payment schedule, photos, templates (lib/proposal.ts) */}
+            <ProposalSection
+                data={d}
+                update={fn => update(prev => fn(prev))}
+                total={totals.total}
+                paid={paidPlan}
+                jobId={job.id}
+                locked={locked}
+                isNew={!documentId && !data}
+                onUploadImage={onUploadImage}
+                onUpgrade={onUpgrade}
+                onFeedback={(tone, message) => form.setFeedback({ tone, message })}
+            />
 
             {/* automatic estimate follow-ups (components/reminders); outside the signed lock */}
             <DocumentRemindersPanel type="Estimate" documentId={idRef.current} data={d} clientId={(d as any).clientId} />

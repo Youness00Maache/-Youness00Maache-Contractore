@@ -556,6 +556,11 @@ export const normalizeLineItem = (raw: unknown, usedIds?: Set<string>, cleanText
     if (r.itemSource === 'pricebook' || r.itemSource === 'inventory') item.itemSource = r.itemSource;
     if (typeof r.track_inventory === 'boolean') item.track_inventory = r.track_inventory;
     if (r.currentStock !== undefined && r.currentStock !== null) item.currentStock = toNumber(r.currentStock);
+    // optional add-on (proposal builder, lib/proposal.ts): kept only when set, so other lines are unchanged
+    if (r.optional === true || r.optional === 'true') {
+        item.optional = true;
+        item.selected = r.selected === true || r.selected === 'true';
+    }
     if (r.isAssembly) item.isAssembly = true;
     if (typeof r.hideComponentsOnPdf === 'boolean') item.hideComponentsOnPdf = r.hideComponentsOnPdf;
     if (Array.isArray(r.assemblyComponents)) {

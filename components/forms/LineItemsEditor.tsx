@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { InventoryItem, LineItem, SavedItem } from '../../types.ts';
 import { cn } from '../../lib/utils.ts';
-import { formatMoney, lineItemAmount, lineItemScheduledValue, toNumber } from '../../utils/money.ts';
+import { formatMoney, isExcludedOptionalLine, lineItemDisplayAmount, lineItemScheduledValue, toNumber } from '../../utils/money.ts';
 import { BoxIcon, ChevronDownIcon, PlusIcon, RulerIcon, SaveIcon, TagIcon, TrashIcon, CheckIcon } from '../Icons.tsx';
 import { NumberInput } from './Fields.tsx';
 import ItemPickerModal from './ItemPickerModal.tsx';
@@ -327,7 +327,8 @@ const LineItemsEditor: React.FC<LineItemsEditorProps> = ({
                                 )}
                                 <div className={L.amount}>
                                     <span className={cn('text-muted-foreground', L.label)}>{progress ? 'This invoice' : amountLabel}</span>
-                                    <span className="block font-semibold tabular-nums text-foreground">{formatMoney(lineItemAmount(li, progress), currency)}</span>
+                                    {/* an optional add-on not in the total shows its price, muted */}
+                                    <span className={cn('block font-semibold tabular-nums', isExcludedOptionalLine(li) ? 'text-muted-foreground' : 'text-foreground')}>{formatMoney(lineItemDisplayAmount(li, progress), currency)}</span>
                                     {progress && (
                                         <span className="hidden text-[11px] text-muted-foreground lg:block">of {formatMoney(lineItemScheduledValue(li), currency)}</span>
                                     )}
