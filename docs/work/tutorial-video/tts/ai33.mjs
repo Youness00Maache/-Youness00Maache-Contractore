@@ -16,15 +16,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The key may also live in docs/work/tutorial-video/.env.local (one line: AI33_API_KEY=...). That file is git-ignored,
 // is created by the OWNER, and is only read here; the value is never printed.
-try {
-  const envFile = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env.local');
-  if (!process.env.AI33_API_KEY && fs.existsSync(envFile)) {
-    for (const line of fs.readFileSync(envFile, "utf8").split(/\r?\n/)) {
-      const m = line.match(/^\s*(AI33_API_KEY|AI33_BASE_URL)\s*=\s*(.*?)\s*$/);
+// The OWNER may also point AI33_ENV_FILE at an env file they already keep (for example Framitor's); only the two variable
+// names below are picked out of it, in memory, and nothing is copied or written anywhere.
+for (const envFile of [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env.local'), process.env.AI33_ENV_FILE]) {
+  try {
+    if (!envFile || process.env.AI33_API_KEY || !fs.existsSync(envFile)) continue;
+    for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*(?:export\s+)?(AI33_API_KEY|AI33_BASE_URL)\s*=\s*(.*?)\s*$/);
       if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
     }
-  }
-} catch { /* ignore */ }
+  } catch { /* ignore */ }
+}
 const BASE = (process.env.AI33_BASE_URL || 'https://api.ai33.pro').replace(/\/$/, '');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

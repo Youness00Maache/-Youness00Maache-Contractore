@@ -18,7 +18,8 @@ const root = path.join(here, '..');
 const repo = path.join(root, '..', '..', '..');
 const args = process.argv.slice(2);
 const slot = args[0];
-const lang = args.includes('--lang') ? args[args.indexOf('--lang') + 1] : 'en';
+const langsArg = args.includes('--langs') ? args[args.indexOf('--langs') + 1] : (args.includes('--lang') ? args[args.indexOf('--lang') + 1] : 'en');
+const lang = langsArg.split(',')[0];
 const chapters = args.slice(1).filter((a) => /^\d+$/.test(a)).map((a) => a.padStart(2, '0'));
 if (!slot || !/^[a-z]$/.test(slot) || !chapters.length) { console.log('usage: node record/run.mjs <slot a-z> <NN> [<NN> ...] [--lang en]'); process.exit(1); }
 const n = slot.charCodeAt(0) - 97;
@@ -49,7 +50,7 @@ try {
     const has = fs.existsSync(audioDir) && fs.readdirSync(audioDir).some((d) => fs.existsSync(path.join(audioDir, d)));
     if (!has || args.includes('--mock')) spawnSync('node', [path.join(root, 'tts', 'narrate.mjs'), lang, '--chapters', nn, '--mock'], { stdio: 'inherit', env });
     console.log(`\n=== chapter ${nn} (slot ${slot}, app :${appPort}) ===`);
-    spawnSync('node', [path.join(root, 'record', 'chapter.mjs'), nn, '--lang', lang], { stdio: 'inherit', env });
+    spawnSync('node', [path.join(root, 'record', 'chapter.mjs'), nn, '--langs', langsArg], { stdio: 'inherit', env });
   }
 } finally {
   for (const c of started) kill(c);

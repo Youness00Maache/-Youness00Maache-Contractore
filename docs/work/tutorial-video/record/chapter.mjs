@@ -11,12 +11,15 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { launch, startCapture, Actor, APP_URL, sleep } from './lib.mjs';
 import { OUT, CACHE } from '../config.mjs';
-import { loadChapters } from '../tts/narrate.mjs';
+import { loadChapters, loadTranslations, sentencesOf } from '../tts/narrate.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
 const num = process.argv[2];
-const lang = (process.argv.includes('--lang') ? process.argv[process.argv.indexOf('--lang') + 1] : 'en');
+// --langs en,es : every listed language gets its own voice track + captions; each scene lasts as long as the LONGEST of them,
+// and the actions follow the FIRST language's sentence times.
+const langs = (process.argv.includes('--langs') ? process.argv[process.argv.indexOf('--langs') + 1] : (process.argv.includes('--lang') ? process.argv[process.argv.indexOf('--lang') + 1] : 'en')).split(',');
+const lang = langs[0];
 const noAudio = process.argv.includes('--no-audio');
 if (!num) { console.log('usage: node record/chapter.mjs <NN> [--lang en] [--no-audio]'); process.exit(1); }
 
@@ -110,7 +113,7 @@ async function main() {
   const slug = `${String(chapter.number).padStart(2, '0')}-${chapter.id}`;
   const out = path.join(OUT, 'chapters', slug);
   fs.mkdirSync(out, { recursive: true });
-  const audioMeta = (scene) => { try { return JSON.parse(fs.readFileSync(path.join(CACHE, 'audio', lang, chapter.id, scene.id + '.json'), 'utf8')); } catch { return null; } };
+  const audioMeta = (scene, L = lang) => { try { return JSON.parse(fs.readFileSync(path.join(CACHE, 'audio', L, chapter.id, scene.id + '.json'), 'utf8')); } catch { return null; } };
 
   const { browser, page } = await launch();
   await page.addInitScript(OVERLAY);
@@ -128,7 +131,8 @@ async function main() {
     const meta = audioMeta(scene);
     if (!meta && !noAudio) throw new Error(`no narration timing for ${chapter.id}.${scene.id}: run  node tts/narrate.mjs ${lang} --chapters ${num} --mock`);
     const sentences = meta ? meta.sentences : scene.say.map((s, i) => ({ start: i * 4, end: (i + 1) * 4 }));
-    const duration = (meta ? meta.duration : sentences.at(-1).end) + 0.6;
+    const longest = Math.max(meta ? meta.duration : sentences.at(-1).end, ...langs.map((L) => audioMeta(scene, L)?.duration || 0));
+    const duration = longest + 0.6;
     const t0 = cap.now();
     sceneTimes.push({ id: scene.id, start: +t0.toFixed(3), duration: +duration.toFixed(3), kind: scene.kind });
     console.log(`scene ${scene.id} (${scene.kind}) ${duration.toFixed(1)}s`);
@@ -174,26 +178,29 @@ async function main() {
   const video = await cap.stop();
   await browser.close();
 
-  // audio + subtitles for this language
-  const vtt = ['WEBVTT', ''];
-  const fmt = (t) => { const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = (t % 60).toFixed(3).padStart(6, '0'); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${s}`; };
-  const inputs = [], filters = [];
-  chapter.scenes.forEach((scene, i) => {
-    const meta = audioMeta(scene); if (!meta) return;
-    const st = sceneTimes[i].start;
-    meta.sentences.forEach((s, k) => vtt.push(`${fmt(st + s.start)} --> ${fmt(st + s.end)}`, scene.say[k], ''));
-    inputs.push('-i', path.join(CACHE, 'audio', lang, chapter.id, meta.file));
-    filters.push(`[${inputs.length / 2 - 1}:a]adelay=${Math.round(st * 1000)}|${Math.round(st * 1000)}[a${filters.length}]`);
-  });
-  fs.writeFileSync(path.join(out, `${lang}.vtt`), vtt.join('\n'));
+  // voice track + captions for each language
+  const fmt = (t) => { const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, sec = (t % 60).toFixed(3).padStart(6, '0'); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${sec}`; };
   let preview = null;
-  if (filters.length) {
-    const mix = filters.map((_, i) => `[a${i}]`).join('') + `amix=inputs=${filters.length}:normalize=0[out]`;
-    ffmpeg([...inputs, '-filter_complex', [...filters, mix].join(';'), '-map', '[out]', '-c:a', 'aac', '-b:a', '48k', '-ac', '1', path.join(out, `${lang}.m4a`)]);
-    preview = path.join(out, 'preview.mp4');
-    ffmpeg(['-i', video, '-i', path.join(out, `${lang}.m4a`), '-c:v', 'copy', '-c:a', 'copy', '-shortest', preview]);
+  for (const L of langs) {
+    const tr = loadTranslations(L);
+    const vtt = ['WEBVTT', ''];
+    const inputs = [], filters = [];
+    chapter.scenes.forEach((scene, i) => {
+      const meta = audioMeta(scene, L); if (!meta) return;
+      const st = sceneTimes[i].start;
+      const texts = sentencesOf(chapter, scene, L, tr);
+      meta.sentences.forEach((sn, k) => vtt.push(`${fmt(st + sn.start)} --> ${fmt(st + sn.end)}`, texts[k], ''));
+      inputs.push('-i', path.join(CACHE, 'audio', L, chapter.id, meta.file));
+      filters.push(`[${inputs.length / 2 - 1}:a]adelay=${Math.round(st * 1000)}|${Math.round(st * 1000)}[a${filters.length}]`);
+    });
+    fs.writeFileSync(path.join(out, `${L}.vtt`), vtt.join('\n'));
+    if (filters.length) {
+      const mix = filters.map((_, i) => `[a${i}]`).join('') + `amix=inputs=${filters.length}:normalize=0[out]`;
+      ffmpeg([...inputs, '-filter_complex', [...filters, mix].join(';'), '-map', '[out]', '-c:a', 'aac', '-b:a', '48k', '-ac', '1', path.join(out, `${L}.m4a`)]);
+      if (L === lang) { preview = path.join(out, 'preview.mp4'); ffmpeg(['-i', video, '-i', path.join(out, `${L}.m4a`), '-c:v', 'copy', '-c:a', 'copy', '-shortest', preview]); }
+    }
   }
-  const info = { chapter: slug, lang, video: 'video.mp4', scenes: sceneTimes, zooms, unresolved, frames: cap.frames };
+  const info = { chapter: slug, lang, langs, video: 'video.mp4', scenes: sceneTimes, zooms, unresolved, frames: cap.frames };
   fs.writeFileSync(path.join(out, 'chapter.json'), JSON.stringify(info, null, 1));
   console.log(`\n${slug}: ${sceneTimes.at(-1).start + sceneTimes.at(-1).duration > 0 ? (sceneTimes.at(-1).start + sceneTimes.at(-1).duration).toFixed(0) : 0}s, ${unresolved.length} unresolved action(s)`);
   for (const u of unresolved) console.log('  - ' + u);

@@ -52,10 +52,17 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 
 # >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
 Read docs/work/tutorial-video/PLAN.md + README.md first. Done so far: 30-chapter plan (CHAPTERS.md, ~92 min, 3 waves), script
-format + validator, English scripts written by helpers (chapters/*.mjs), fake demo backend + real-app recording spike (works:
-Chrome screencast -> MP4), AI33 client (tts/ai33.mjs, copied from the Framitor project). NOT done: owner answers (spoken
-languages, hosting = public Supabase bucket needs OK, wave scope), AI33 key (owner puts AI33_API_KEY in the environment or in
-docs/work/tutorial-video/.env.local; never in chat), translations, voice, recordings, player, publish. No app code changed yet.
+format + validator, English scripts written by helpers (chapters/*.mjs), fake demo backend + real-app recording (works:
+Chrome screencast streamed to ffmpeg -> MP4, one-command runner `record/run.mjs <slot> <NN>`), AI33 client (tts/ai33.mjs).
+OWNER ANSWERED 2026-11-15: spoken voice English + Spanish first, subtitles in all 10 languages, public Supabase bucket
+`tutorial-media` is OK, ship in waves (wave 1 = chapters 1-11). Done: Spanish narration for 1-11 (translations/es), in-app player
+(lib/tutorialVideo.ts, components/help/VideoCourse.tsx, wired in HelpCenter; hidden until `<media base>/manifest.json` exists,
+so safe to ship; tsc + scripts/video-course-check.ts pass). Two Sonnet helpers were fixing/recording chapters 1-6 (slot a) and
+7-11 (slot b). WAITING FOR THE OWNER: AI33 key via `powershell -NoProfile -File docs/work/tutorial-video/scripts/set-ai33-key.ps1`
+(hidden input, git-ignored .env.local; never in chat). TODO: real voice EN+ES for wave 1 (`node tts/narrate.mjs en|es`), final
+recordings with real timing (record/chapter.mjs must use the longest of en/es per scene), build/assemble.mjs (manifest +
+subtitles bundles + posters), create bucket + upload (owner drags the publish folder), subtitle translations for the other 8
+languages, wave 2 and 3 chapters, npm run build / seo:check / full suites, push, test on a phone.
 
 # >>> STATUS 2026-11-14 afternoon: owner requests 1-5 below are DONE and LIVE (main) <<<
 - Community in the phone bottom bar (457427c); phone app bar: offline = one-line strip under the bar (0f0d9ba).

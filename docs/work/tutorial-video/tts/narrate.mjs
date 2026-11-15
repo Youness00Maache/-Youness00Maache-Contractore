@@ -84,7 +84,7 @@ async function narrateScene({ lang, chapter, scene, sentences, voice, speed, moc
   const base = path.join(dir, scene.id);
   const text = sentences.join(' ');
   const hash = crypto.createHash('sha1').update([lang, mock ? 'mock' : voice, speed, text].join('|')).digest('hex');
-  try { const m = JSON.parse(fs.readFileSync(base + '.json', 'utf8')); if (m.hash === hash) return m; } catch { /* not cached */ }
+  try { const m = JSON.parse(fs.readFileSync(base + '.json', 'utf8')); if (m.hash === hash || (mock && !m.mock && m.text === text)) return m; /* a mock run never overwrites real narration of the same text */ } catch { /* not cached */ }
   let duration, cues = [];
   const file = base + (mock ? '.wav' : '.mp3');
   if (mock) {
