@@ -16,6 +16,7 @@ import {
     withProposal, type Milestone, type MilestoneKind, type ProposalTemplate, type ScopeKind,
 } from '../../lib/proposal.ts';
 import { loadProposalTemplatesRaw, saveProposalTemplatesRaw } from '../../lib/userData.ts';
+import type { ClientAddonChoice } from '../../lib/addonChoice.ts';
 import { ChevronDownIcon, ImageIcon, PlusIcon, TrashIcon, CameraIcon } from '../Icons.tsx';
 import { FormSection, NumberInput, Segmented } from '../forms/Fields.tsx';
 import LineItemsEditor from '../forms/LineItemsEditor.tsx';
@@ -36,7 +37,9 @@ export const OptionalAddOns: React.FC<{
     inventoryItems?: InventoryItem[];
     showCost?: boolean;
     jobId?: string;
-}> = ({ items, onChange, savedItems, inventoryItems, showCost, jobId }) => {
+    /** D13: what the client chose when signing (lib/addonChoice.ts clientAddonChoiceOf); null/undefined = no client choice */
+    clientChoice?: ClientAddonChoice | null;
+}> = ({ items, onChange, savedItems, inventoryItems, showCost, jobId, clientChoice }) => {
     const regular = regularLines(items);
     const optional = optionalLines(items);
     const [open, setOpen] = useState(optional.length > 0);
@@ -70,6 +73,14 @@ export const OptionalAddOns: React.FC<{
                 <p className="text-sm font-semibold text-foreground">Optional add-ons</p>
                 <p className="text-xs text-muted-foreground">{optional.length ? `${formatMoney(notCounted)} not in the total` : 'Not in the total unless you switch one on'}</p>
             </div>
+            {clientChoice && (
+                <p className="mb-3 rounded-lg border border-primary/30 bg-card px-3 py-2 text-xs text-foreground">
+                    <span className="font-semibold">Chosen by the client when signing</span>
+                    {clientChoice.name ? ` (${clientChoice.name})` : ''}: {clientChoice.ids.length
+                        ? `${optional.filter(li => clientChoice.ids.includes(li.id)).length} of ${optional.length} add-ons, included in the total.`
+                        : 'no add-ons.'}
+                </p>
+            )}
             <LineItemsEditor
                 items={optional}
                 onChange={setOptional}
@@ -90,6 +101,11 @@ export const OptionalAddOns: React.FC<{
                                 <input type="checkbox" className="h-4 w-4 rounded border-input" checked={!!li.selected} onChange={e => toggleIncluded(li.id, e.target.checked)} />
                                 {li.selected ? 'In the total' : 'Not in the total'}
                             </label>
+                            {clientChoice && (
+                                <span className={cn('rounded border px-1.5 text-[10px] font-bold uppercase tracking-wide', clientChoice.ids.includes(li.id) ? 'border-primary/40 text-primary' : 'border-border text-muted-foreground')}>
+                                    {clientChoice.ids.includes(li.id) ? 'Client chose it' : 'Not chosen'}
+                                </span>
+                            )}
                             <button type="button" className="text-xs font-medium text-primary underline-offset-2 hover:underline" onClick={() => makeRegular(li.id)}>Make it a regular line</button>
                         </li>
                     ))}
@@ -104,7 +120,7 @@ export const OptionalAddOns: React.FC<{
                     </select>
                 </div>
             )}
-            <p className="mt-2 text-xs text-muted-foreground">The PDF and the client page list these under “Optional add-ons” with their price, clearly not included in the total.</p>
+            <p className="mt-2 text-xs text-muted-foreground">The PDF and the client page list these under “Optional add-ons” with their price, clearly not included in the total. When signing online, the client can tick the ones they want.</p>
         </div>
     );
 };

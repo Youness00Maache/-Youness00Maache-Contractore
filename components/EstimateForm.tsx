@@ -32,6 +32,7 @@ import { EstimateReviewPanel, ReviewShareNotice, useEstimateReview } from './rev
 import { addSuggestedLine, suggestionToLine, type ReviewFinding } from '../lib/estimateReview.ts';
 import { isPaidTier, normalizeTier } from '../lib/plans.ts';
 import { mergeLines, optionalLines, regularLines } from '../lib/proposal.ts';
+import { clientAddonChoiceOf } from '../lib/addonChoice.ts';
 import { buildMilestoneInvoiceSeed } from './forms/signedLock.ts';
 import { MilestonePicker, OptionalAddOns, ProposalSection } from './proposal/ProposalBuilder.tsx';
 
@@ -419,6 +420,7 @@ const EstimateForm: React.FC<Props> = ({
                         inventoryItems={inventoryItems}
                         showCost={showCosts}
                         jobId={job.id}
+                        clientChoice={clientAddonChoiceOf(d)}
                     />
                     {showCosts && (
                         <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-muted/40 p-4 sm:grid-cols-4">

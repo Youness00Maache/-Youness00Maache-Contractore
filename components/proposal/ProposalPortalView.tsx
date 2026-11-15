@@ -1,18 +1,29 @@
 /**
- * What the client sees of a proposal on the approval link / portal (read-only): scope sections, optional add-ons
- * (with their price, NOT in the total: choosing them online comes with D13), payment schedule and photos.
- * Money: utils/money.ts (the same rule as the PDF and the forms).
+ * What the client sees of a proposal on the approval link / portal: scope sections, optional add-ons (with their
+ * price), payment schedule and photos. Money: utils/money.ts (the same rule as the PDF and the forms).
+ *
+ * Optional add-ons (D13, lib/addonChoice.ts):
+ *   - no `addons` prop (or another document): listed read-only, "Not included in the total" (as before);
+ *   - mode 'choose' (an open estimate): a tick box per add-on, "Add to my estimate"; the caller recomputes the total;
+ *   - mode 'chosen' (signed with the client's choice stored): the add-ons not taken are listed as "Not chosen" (the
+ *     chosen ones are counted lines, shown with the items).
  */
 import React from 'react';
 import { isExcludedOptionalLine, lineItemScheduledValue } from '../../utils/money.ts';
 import { bulletItems, computeMilestones, filledSections, readProposal } from '../../lib/proposal.ts';
 
-export const ProposalPortalView: React.FC<{ data: Record<string, any>; total: number; money: (v: number) => string }> = ({ data, total, money }) => {
+export type AddonsMode =
+    | { mode: 'choose'; lines: Array<Record<string, any>>; picks: string[]; onToggle: (id: string, on: boolean) => void }
+    | { mode: 'chosen' };
+
+export const ProposalPortalView: React.FC<{ data: Record<string, any>; total: number; money: (v: number) => string; addons?: AddonsMode }> = ({ data, total, money, addons }) => {
     const p = readProposal(data);
     const sections = filledSections(p);
-    const addOns = (Array.isArray(data.lineItems) ? data.lineItems : []).filter((li: unknown) => li && typeof li === 'object' && isExcludedOptionalLine(li as never));
+    const choose = addons?.mode === 'choose' ? addons : null;
+    const addOns = choose ? choose.lines : (Array.isArray(data.lineItems) ? data.lineItems : []).filter((li: unknown) => li && typeof li === 'object' && isExcludedOptionalLine(li as never));
     const sched = computeMilestones(p.milestones, total);
     if (!sections.length && !addOns.length && !sched.rows.length && !p.images.length) return null;
+    const chosenMode = addons?.mode === 'chosen';
     return (
         <div className="space-y-6">
             {sections.map(s => (
@@ -23,15 +34,47 @@ export const ProposalPortalView: React.FC<{ data: Record<string, any>; total: nu
                         : <p className="whitespace-pre-wrap break-words text-sm text-foreground">{s.text.trim()}</p>}
                 </section>
             ))}
-            {addOns.length > 0 && (
+            {addOns.length > 0 && choose && (
                 <section>
                     <h3 className="label">Optional add-ons</h3>
-                    <p className="mb-2 text-sm text-muted-foreground">Not included in the total. Ask the contractor to add any of them.</p>
+                    <p className="mb-2 text-sm text-muted-foreground">Tick the ones you want: the total updates and they are part of what you sign.</p>
+                    <ul className="divide-y divide-border rounded-xl border border-border">
+                        {choose.lines.map((li, i) => {
+                            const id = String(li.id);
+                            const on = choose.picks.includes(id);
+                            return (
+                                <li key={id || i}>
+                                    <label className="flex min-h-[48px] cursor-pointer items-start gap-3 p-3 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
+                                            checked={on}
+                                            onChange={e => choose.onToggle(id, e.target.checked)}
+                                            aria-label={`Add to my estimate: ${String(li.description || '').trim() || 'Add-on'}`}
+                                        />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block whitespace-pre-wrap break-words text-foreground">{String(li.description || '').trim() || 'Add-on'}</span>
+                                            <span className={on ? 'text-xs font-semibold text-primary' : 'text-xs text-muted-foreground'}>{on ? 'Added to my estimate' : 'Add to my estimate'}</span>
+                                        </span>
+                                        <span className={on ? 'shrink-0 font-semibold tabular-nums text-foreground' : 'shrink-0 font-medium tabular-nums text-muted-foreground'}>{on ? '+' : ''}{money(lineItemScheduledValue(li))}</span>
+                                    </label>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </section>
+            )}
+            {addOns.length > 0 && !choose && (
+                <section>
+                    <h3 className="label">Optional add-ons</h3>
+                    <p className="mb-2 text-sm text-muted-foreground">
+                        {chosenMode ? 'Not chosen when this estimate was signed, so not in the total.' : 'Not included in the total. Ask the contractor to add any of them.'}
+                    </p>
                     <ul className="divide-y divide-border rounded-xl border border-dashed border-border">
                         {addOns.map((li: any, i: number) => (
                             <li key={String(li.id || i)} className="flex items-start justify-between gap-3 p-3 text-sm">
                                 <span className="min-w-0 whitespace-pre-wrap break-words text-foreground">
-                                    <span className="mr-2 inline-block rounded border border-border px-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Optional</span>
+                                    <span className="mr-2 inline-block rounded border border-border px-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{chosenMode ? 'Not chosen' : 'Optional'}</span>
                                     {String(li.description || '').trim() || 'Add-on'}
                                 </span>
                                 <span className="shrink-0 font-medium tabular-nums text-muted-foreground">{money(lineItemScheduledValue(li))}</span>

@@ -142,6 +142,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     appPath: '/dashboard',
     steps: [
       { title: 'Add optional add-ons', text: 'Under Items, open Optional add-ons and click [[Add an add-on]], or pick a line in Move a line here. Add-ons print with their price and an Optional tag, but are not in the subtotal, tax or total. Tick In the total when the client wants one: it then counts like a normal line. [[Make it a regular line]] moves it back.' },
+      { title: 'Let the client choose add-ons', text: 'On the approval link and in the portal, the client ticks Add to my estimate next to each add-on they want. The total and the payment schedule update as they tick, and the add-ons they chose are part of what they sign. Add-ons you already switched on start ticked. Once signed, the estimate shows Client chose it or Not chosen next to each add-on, and its totals, invoices and stock use the client’s choice. Estimates with good / better / best options keep their add-ons as they are.' },
       { title: 'Write the scope', text: 'In the Proposal section, Scope tab, add Scope of work, Inclusions, Exclusions, Assumptions and Timeline / schedule. Type one item per line for a list, or switch Print as to Paragraphs. The arrows change the order they print in.' },
       { title: 'Set the payment schedule', text: 'In the Payments tab pick 50 / 50, 30 / 40 / 30 or 10 / 40 / 40 / 10, or click [[Add payment]]. Each payment is a % of the total or a fixed amount (% → $ switches). The payments must add up to the total; amounts are rounded to the cent and the last payment takes the leftover cents.' },
       { title: 'Add project photos', text: 'In the Photos tab click [[Upload photo]] or [[From job photos]] (up to 8, JPG, PNG or WebP) and add a caption. They print as a photo page with captions; hiding Photos in a Premium design leaves them out.' },
@@ -149,7 +150,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Reuse it', text: 'Click [[Save as template]] to keep the scope sections, payment schedule and terms. On the next estimate, Use a template fills them in. Free keeps one template; Premium keeps up to 20.' },
     ],
     tips: [
-      'Clients see the scope, add-ons (marked not included in the total), payment schedule and photos on the approval link and in the portal. Choosing add-ons online comes later.',
+      'Clients see the scope, add-ons (with a tick box to add each one), payment schedule and photos on the approval link and in the portal.',
       'Optional add-ons are left out of invoices, the job budget, Insights and the bookkeeper export until they are switched on.',
       'Once the client signs, the scope, schedule, photos and add-ons are locked with the rest of the estimate.',
     ],
