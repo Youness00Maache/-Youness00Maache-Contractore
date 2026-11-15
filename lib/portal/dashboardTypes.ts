@@ -175,7 +175,7 @@ export interface DashboardView {
     /** "Nov 3 - Dec 20, 2026", "Starts Nov 3, 2026", "" */
     datesText: string;
     progress: DashboardProgress | null;
-    /** "7 of 12 tasks done (58%)" or "" when the job has no tasks */
+    /** "7 of 12 steps done" or "" when the job has no tasks */
     progressLabel: string;
     milestones: MilestoneView[];
     nextMilestone: MilestoneView | null;

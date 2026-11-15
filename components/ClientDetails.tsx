@@ -10,6 +10,7 @@ import { offlineEntityQueueFor } from '../lib/offline/offlineEntities.ts';
 import { computeDocumentTotals, formatMoney, toNumber } from '../utils/money.ts';
 import { portalShareMessage } from '../lib/messaging.ts';
 import { MessageAppButtons } from './MessageAppButtons.tsx';
+import OwnerPortalPreview from './portal/OwnerPortalPreview.tsx';
 import {
     approvalUrl,
     copyToClipboard,
@@ -50,6 +51,7 @@ import {
     CopyIcon,
     EditIcon,
     EstimateIcon,
+    EyeIcon,
     FileTextIcon,
     GlobeIcon,
     InvoiceIcon,
@@ -887,6 +889,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
 
     const [showEdit, setShowEdit] = useState(false);
     const [showApproval, setShowApproval] = useState(false);
+    const [showPortalPreview, setShowPortalPreview] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -921,6 +924,12 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
     }, [client.id, client.name]);
 
     useEffect(() => { load(); }, [load]);
+
+    /** the client's jobs for the "What my client sees" preview (components/portal/OwnerPortalPreview.tsx) */
+    const previewJobs = useMemo(
+        () => (jobs || []).map((j) => ({ id: j.id, name: j.name, status: j.status, startDate: j.startDate, endDate: j.endDate })),
+        [jobs],
+    );
 
     const applyClientUpdate = (updated: Client) => {
         setClient(updated);
@@ -1271,6 +1280,12 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                         <RefreshCwIcon className="h-4 w-4" /> New link
                                     </button>
                                 </div>
+                                {(jobs || []).length > 0 && (
+                                    <button type="button" className="btn btn-ghost mt-2 min-h-[40px] w-full justify-between" onClick={() => setShowPortalPreview(true)}>
+                                        <span className="flex items-center gap-2"><EyeIcon className="h-4 w-4" /> What my client sees</span>
+                                        <span className="text-xs font-normal text-muted-foreground">Project page preview</span>
+                                    </button>
+                                )}
                                 {/* send it from your own phone: Messages / WhatsApp open with the link typed in */}
                                 <MessageAppButtons
                                     className="mt-2 [&>a]:flex-1"
@@ -1402,6 +1417,14 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                     if (saved.name !== client.name) load();
                 }}
                 onUpgrade={onUpgradeClick}
+            />
+            <OwnerPortalPreview
+                open={showPortalPreview}
+                onClose={() => setShowPortalPreview(false)}
+                clientName={client.name}
+                jobs={previewJobs}
+                userId={userId || null}
+                profile={userProfile}
             />
             <RequestApprovalModal
                 open={showApproval}
