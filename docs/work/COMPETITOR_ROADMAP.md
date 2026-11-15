@@ -164,6 +164,18 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   button "What my client sees" in ClientDetails; click path: /?portal=<key> > Project tab; Clients > client > Client portal
   card. Running: D2 phase B (Sonnet, agent-a39ca3c6a843e297a) and D3 phase A (Opus, agent-ad14aaf9362318f8c: migration
   20261116000400_job_files_questions.sql, lib/jobFiles, lib/questions, portal RPCs get_portal_questions/answer_portal_question).
+  2026-11-15 ~03:00 UTC: SHIPPED D2 UI + D9 (main 6dba0a6; full suite green after 2 small fixes; ai-assistant redeployed
+  with task help; live bundle has Tasks/Note to tasks/What my client sees). D3 + D1 phase A merged (6045c7f) and BOTH
+  migrations APPLIED + verified (20261116000400_job_files_questions.sql, 20261116000500_leads_appointments.sql).
+  RUNNING: D3 phase B (Sonnet, agent-aca227d03d93c6dc4: job Files/Questions tabs + portal Questions/Files) and D1 phase B
+  (Sonnet, agent-a8dd3fb3603f357bb: Leads board/detail/appointments/calendar). NEXT: merge both, sync help knowledge
+  (`npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`), full suite (scratchpad fullsuite.sh: tsc, all scripts/*-check.ts,
+  forms-prefill-qa, payments-qa, qa:document-ai, templates-qa --no-browser, build, seo:check), push, redeploy ai-assistant
+  (esbuild bundle + dashboard method; use JS click on the dialog's "Deploy updates" AND check the functions list shows
+  "a few seconds ago"), Done log. Then Build order 4-5: N12 automations (Sonnet), N4 proposal builder (+D13), N5
+  assemblies, D5 selections + boards, D7 subs + quote comparison, D10 warranty/email automations, N7 job AI, D8 profile +
+  reviews, N3 business overview, N6 AI documents, N8 setup, N9 plan measurement, N10 integrations, N11 timeline + D11,
+  D6 bills, D12 push (needs VAPID secrets from the owner).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -171,6 +183,13 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED D2 job tasks + schedule UI (Tasks tab, Timeline, calendar markers, templates, AI "Note to tasks", work-order
+  tasks, worker "My tasks") and D9 client portal project dashboard (portal Project tab, owner "What my client sees"); DB:
+  20261116000100 (applied 2026-11-15), 20261116000300 get_portal_project_dashboard (applied 2026-11-15). main/my-branch
+  6dba0a6; suite green (tsc, 29 checks, forms 945, payments 153, qa:document-ai 1473, templates 31418, build, seo 51);
+  ai-assistant redeployed (help for tasks/dashboard); live bundle verified. Click paths: Job > Tasks; Documents > Work Order
+  > Tasks; Tools > Calendar; crew link > My tasks; /?portal=<key> > Project tab; Clients > client > Client portal >
+  "What my client sees" (not clicked through live: needs the owner's account).
 - 2026-11-15 SHIPPED D4 suppliers + product library (UI + data layer, migration 20261116000200 applied 2026-11-14) and D2
   data layer (migration 20261116000100 applied 2026-11-15; AI extract_tasks route; UI still to ship): main/my-branch
   4d5c56f. Full suite green (tsc, 29 check scripts, forms 945, payments 153, qa:document-ai 1473, templates 31418, build,
