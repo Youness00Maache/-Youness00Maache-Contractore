@@ -59,7 +59,7 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             "Settings",
             "Setup assistant"
         ],
-        "appPath": "/settings#setup",
+        "appPath": "/settings",
         "steps": [
             {
                 "title": "Open it",

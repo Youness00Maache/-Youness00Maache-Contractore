@@ -66,7 +66,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     summary: 'A short checklist that gets a new account to its first professional estimate: business details, tax and terms, price book, look, payment links and your team.',
     where: ['Dashboard', 'Settings', 'Setup assistant'],
     group: 'Start here',
-    appPath: '/settings#setup',
+    appPath: '/settings',
     steps: [
       { title: 'Open it', text: 'A brand-new account sees the setup sheet once on the dashboard, after the tour. Any time later, click [[Continue]] on the Setup line of the dashboard, or [[Resume setup]] under Settings, Setup assistant.' },
       { title: 'Go one step at a time', text: 'Each screen saves when you click [[Save and continue]], into the same place Settings uses, so nothing is entered twice. [[Skip this step]] leaves a step for later. A step you already filled in is marked Already set up.' },
