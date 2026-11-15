@@ -43,6 +43,16 @@ export interface SendEmailParams {
     html?: string;
     fromName?: string;
     attachments?: EmailAttachment[];
+    /** Optional links for the sent-email log (D11). Only ids + a kind; never changes what is sent. */
+    log?: EmailLogLinks;
+}
+
+/** What the sent-email log records about an email besides recipient/subject (all optional). */
+export interface EmailLogLinks {
+    kind?: 'document' | 'purchase_order' | 'review_request' | 'job_update' | 'payment' | 'paper' | 'export' | 'other';
+    jobId?: string | null;
+    clientId?: string | null;
+    documentId?: string | null;
 }
 
 export interface SendEmailResult {
@@ -195,6 +205,11 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
         html: params.html,
         from_name: params.fromName,
         attachments: (params.attachments || []).map((a) => ({ filename: a.filename, mime_type: a.mimeType, data_base64: a.dataBase64 })),
+        // sent-email log links (ignored by older servers)
+        kind: params.log?.kind || undefined,
+        job_id: params.log?.jobId || undefined,
+        client_id: params.log?.clientId || undefined,
+        document_id: params.log?.documentId || undefined,
     });
     return { id: res?.id || '', threadId: res?.thread_id || '', from: res?.from || '' };
 }

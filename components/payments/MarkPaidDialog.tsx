@@ -282,7 +282,10 @@ const ReviewRequestPanel: React.FC<{
         setStatus(null);
         try {
             const html = plainTextToEmailHtml(body).split(esc(link)).join(`<a href="${esc(link)}">${esc(link)}</a>`);
-            await sendEmail({ to: recipient, subject: msg.subject, text: body, html, fromName: sender.displayName });
+            await sendEmail({
+                to: recipient, subject: msg.subject, text: body, html, fromName: sender.displayName,
+                log: { kind: 'review_request', jobId: invoice.jobId || null, clientId: client?.id ?? null, documentId: invoice.id || null },
+            });
             setStatus({ tone: 'ok', text: `${auto ? 'Sent automatically' : 'Sent'} to ${recipient} from your Gmail.` });
             onEmailSent?.();
             await remember();

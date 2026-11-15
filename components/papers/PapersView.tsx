@@ -505,6 +505,7 @@ const SendPaperModal: React.FC<{
                 await sendEmail({
                     accountId: getPreferredSender(), to: address, subject: subject.trim() || draft.subject, text: body,
                     fromName: company || undefined, attachments: [{ filename: name, mimeType: paper.fileType || file.type, dataBase64: file.base64 }],
+                    log: { kind: 'paper' },
                 });
             } catch (e) {
                 const code = e instanceof GmailError ? e.code : '';

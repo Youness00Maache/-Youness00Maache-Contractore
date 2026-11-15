@@ -66,5 +66,6 @@ export async function emailBookkeeperExport(exp: BookkeeperExport, to: string, p
         text,
         fromName: profile?.companyName || profile?.name || undefined,
         attachments: [{ filename: exp.fileName, mimeType: 'text/csv', dataBase64: utf8ToBase64(exp.csv) }],
+        log: { kind: 'export' },
     });
 }

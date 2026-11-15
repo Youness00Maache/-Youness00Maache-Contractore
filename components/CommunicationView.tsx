@@ -23,6 +23,7 @@ import {
     GmailError, isPlanLimitGmailError, listGmailAccounts, sendEmail, setDefaultGmailAccount, setPreferredSender, startGmailConnect,
     type GmailAccount, type GmailUsage,
 } from '../services/gmailService.ts';
+import { emailLogLinksForDocs } from '../lib/emailLog/format.ts';
 
 /** What other screens (Clients, AI router, ShareModal) may pass via `navigate('/communication', { state: { prefillData } })`. */
 export interface CommunicationPrefill {
@@ -517,6 +518,7 @@ const CommunicationView: React.FC<CommunicationViewProps> = ({ clients: propClie
                 html: composeHtml(),
                 fromName: senderIdentity(profile).displayName || undefined,
                 attachments,
+                log: emailLogLinksForDocs(selectedDocs, client?.id ?? null),
             });
             setSentInfo({ to: toList, from: res.from || sender.gmail_address, attachments: attachments.length });
             setPhase('sent');

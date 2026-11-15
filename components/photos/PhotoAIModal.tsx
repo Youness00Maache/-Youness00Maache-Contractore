@@ -254,6 +254,7 @@ const PhotoAIModal: React.FC<PhotoAIModalProps> = ({
                 text,
                 html,
                 fromName: senderIdentity(profile).displayName || undefined,
+                log: { kind: 'job_update', jobId: job.id || null },
             });
             setStatus({ tone: 'ok', text: `Sent to ${recipient} from your Gmail.` });
             onEmailSent?.();
