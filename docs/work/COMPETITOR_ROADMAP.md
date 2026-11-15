@@ -230,6 +230,37 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   tab), N6 AI documents (Opus: Gemini vision for receipts/invoices; ai-assistant), N9 plan measurement (Opus: pdf.js,
   measurements JSON in storage), D6 bills to pay (DB; Opus A -> Sonnet B), D12 push (needs the owner's VAPID secrets:
   never type them; ask the owner). Weekly usage was ~44% (stop at 50% = resume Thu 2026-11-19 17:00 UTC).
+  2026-11-15 ~07:20 UTC HAND-OVER (weekly 46%, 5-hour 43%; owner rule: stop at 50% weekly; resume Thu 2026-11-19 17:00 UTC):
+  EVERYTHING BELOW IS SHIPPED AND LIVE (main = my-branch = abb05e1 + docs): N1, N2, D2, D4, D9, D1, D3, N4, N12, D13, D5, N5, N3,
+  N8, D7, D10, N7, D8, N10, N6. All migrations 20261116000100..001100 are APPLIED (headers say so). No helper is running.
+  REMAINING (each = Opus phase A, review SQL, apply, Sonnet phase B UI, then ship):
+    1. N11 job timeline + D11 email log (#19/#4/#46): D11 = new table email_log written by the `gmail` edge function when it
+       sends (redeploy gmail; check `supabase/functions/gmail`) + owner RLS; N11 = one per-job "Timeline" tab (documents
+       created/sent/approved/signed/paid, daily reports + time sheets + material logs of that day, photos, notes, reminders
+       sent, emails from email_log, tasks done, questions answered, selections chosen; dictated "conversation note" -> Note
+       document). Mostly derived client-side: Sonnet can build the timeline from existing data first (no DB), D11 after.
+    2. N9 plan measurement (#7): job "Plans" tool (PDF/image upload to document-assets <user>/plans/<job>/, pdf.js render,
+       calibrate by a known length, line/area/count tools with labels, totals per label, send to an estimate as lines with
+       price-book match; measurements JSON stored next to the plan). No DB. Opus.
+    3. D6 bills to pay (#32): bills + bill_payments tables, overdue notifications (extend N12 automations), job cost. DB.
+    4. D12 push notifications (#24): push_subscriptions table + service-worker push + a sender edge function; needs VAPID
+       secrets that THE OWNER adds (never type/create them): ask the owner first.
+  OWNER TO-DOs: (a) check QuickBooks/Xero column names, account codes, tax names in lib/integrations/accountingExport.ts;
+  (b) click-test the new screens with a real account (all helpers verified with fake-data harnesses only): paths are in the Done
+  log; (c) test the Premium path of feedback_responses (no Premium account existed when D8 was applied); (d) real-model quality
+  of: AI estimate reviewer, task extraction, business summary, receipt reading; (e) Google review link: now offered to EVERY
+  rating (policy-safe).
+  HOW TO CONTINUE (fresh coordinator session, small context): read this file's top + NEXT_STEPS.md top; pattern per batch is in
+  the Done log; helpers Opus for SQL/AI, Sonnet for UI; apply SQL via the Supabase SQL editor method in NEXT_STEPS (Chrome;
+  hidden file input + monaco setValue; JS-click "Run" then the confirm dialog; verify with a read-only DO block that raises
+  its result); ship: sync help (`npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`), full suite (scratchpad fullsuite.sh
+  = tsc + every scripts/*-check.ts + forms-prefill-qa + payments-qa + qa:document-ai + templates-qa --no-browser + build +
+  seo:check), push my-branch and my-branch:main, redeploy changed edge functions (esbuild bundle, dashboard "Deploy updates":
+  JS-click the dialog button; confirm "a few seconds ago" in the functions list; `reminders` keeps JWT verify OFF), curl the live
+  site/bundles, Done log. Known gotchas: Windows CRLF (read migrations with .replace(/\r\n/g,'\n') in checks); never use
+  String.replace with a replacement containing `$'`/`$$` (use a callback); helper worktree folders sometimes stay locked
+  ("Permission denied" on remove): ignore or rmdir later; leftover worktree folders .claude/worktrees/agent-a30d73f8a09732abb and
+  agent-ae7bd8327b0ff78fc may exist (remove with `git worktree remove --force` after the app restarts).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -237,6 +268,11 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED N6 AI document understanding (ai-assistant task `read_document`: 1-4 photos or one PDF <= 4 MB / 10 pages ->
+  vendor, date, number, lines, subtotal/tax/total, category from the Expense Log list, per-field confidence, warnings; Expense
+  Log "Read with AI" review screen with editable fields + "adds up" indicator; Save uses the existing expense save; Premium + AI;
+  Tesseract and manual entry untouched). main/my-branch abb05e1; suite green (48 steps); ai-assistant REDEPLOYED (also carries
+  the help knowledge for N10); live bundle has "Read with AI". Not tested: real model accuracy on real receipts, real PDF path.
 - 2026-11-15 SHIPPED N10 integrations + exports (Settings > "Integrations & data": Gmail status/connect, calendar .ics download
   with period + include boxes, QuickBooks Online / Xero CSV exports for invoices, customers, expenses, payments (sums equal the
   documents), price-book price-list import with review + "download old prices" instead of undo). main/my-branch 0488329;
