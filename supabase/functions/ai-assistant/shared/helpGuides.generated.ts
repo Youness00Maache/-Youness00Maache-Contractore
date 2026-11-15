@@ -1093,6 +1093,52 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "plans",
+        "title": "Plans and measuring",
+        "summary": "Upload the plans of a job, set the scale once, and measure lengths, areas and counts on them. Totals per label (with waste) go onto an estimate.",
+        "where": [
+            "Job",
+            "Plans"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Add a plan",
+                "text": "On a job page, switch to [[Plans]] and tap [[Add plan]]. Pick a PDF (the first 10 pages can be measured) or an image (JPG, PNG, WebP; a photo of a paper plan works), up to 15 MB. It opens straight away; tap [[Measure]] to open it again later."
+            },
+            {
+                "title": "Set the scale",
+                "text": "Each page needs its scale before you measure lengths and areas. Tap [[Scale]], then tap both ends of a length you know (a dimension line, a door, a wall) and type it: 12' 6\", 12.5 ft, 3.8 m or 3800 mm. For a PDF printed at its true size you can also pick the drawing scale (1/4\" = 1', 1:50, 1:100…). The scale shows in the toolbar."
+            },
+            {
+                "title": "Measure",
+                "text": "[[Line]]: tap point after point; the running length shows as you go; tap the last point again or [[Done]] (Enter) to finish. [[Area]]: tap the corners and tap the first point to close it; area and perimeter are shown. Turn on [[Cut-out]] to draw an opening (a stair, a fireplace) that is taken away from the area. [[Count]]: tap each outlet, light or fixture to drop a numbered marker. Points snap to nearby corners."
+            },
+            {
+                "title": "Labels and colours",
+                "text": "Every measurement belongs to a label (Drywall, Baseboard, Outlets…) with its own colour. Tap the label button at the bottom to pick or add one, rename it, change its colour or waste %, and hide or show it on the plan."
+            },
+            {
+                "title": "Move, fix and undo",
+                "text": "Pinch or use the mouse wheel to zoom, drag (or two fingers) to move, [[Fit]] to see the whole width. In [[Move]], tap a measurement to select it, then drag its corners or tap [[Delete]]. [[Undo]] / [[Redo]] (Ctrl+Z / Ctrl+Y) work on everything; Esc cancels the shape you are drawing."
+            },
+            {
+                "title": "Totals and the estimate",
+                "text": "[[Totals]] lists each label: length, area net of cut-outs, or count, plus waste (10% for lengths and areas, 0 for counts unless you change it). [[Add to estimate]]: pick the label, check the price book item it matched (or pick another), see the line it adds, then [[New estimate with this line]]. For an estimate you already started, the quantity is kept in Quick measure on this job: open the draft, tap the ruler on a line and pick it under Recent on this job."
+            },
+            {
+                "title": "Download",
+                "text": "From [[Totals]]: [[Marked-up plan (PNG)]] saves the current page with your measurements and a legend with the totals; [[Totals (CSV)]] opens in any spreadsheet."
+            }
+        ],
+        "tips": [
+            "Plans are part of Premium. Without it you can still open plans you already have.",
+            "Measurements save by themselves a moment after each change (the newest save wins if two devices edit the same plan).",
+            "Plans need a connection to upload, open and save.",
+            "Check one known length after setting the scale: a plan printed or scanned at another size changes every measurement."
+        ]
+    },
+    {
         "id": "job-files",
         "title": "Job files and links",
         "summary": "Keep the plans, permits, contracts, specs and receipts of a job in one place, with versions, tags and a search. Show the ones your client should see.",
