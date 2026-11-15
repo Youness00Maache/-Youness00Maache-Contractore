@@ -571,6 +571,8 @@ export const normalizeLineItem = (raw: unknown, usedIds?: Set<string>, cleanText
                 name: toSingleLine(c.name ?? ''),
                 quantity: toNumber(c.quantity),
                 rate: linePrice(c.rate, asStored),
+                // a labor / expense row of the kit (roadmap N5): kept only when set, so other kits are unchanged
+                ...(c.kind === 'labor' || c.kind === 'expense' ? { kind: c.kind as 'labor' | 'expense' } : {}),
             }));
     }
     return item;

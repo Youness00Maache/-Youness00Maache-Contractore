@@ -4,6 +4,8 @@ import { ImageIcon, PlusIcon, SearchIcon, StarIcon } from './Icons.tsx';
 import { Field, IMAGE_ACCEPT, InlineError, LayersIcon, Modal, NumberInput, XIcon, friendlyError, money } from './viewKit.tsx';
 import { PRICE_BOOK_DEFAULT_MARKUP, kitPriceIsManual as partsPriceIsManual, markupFromPrice, marginFromPrice, priceBookKitTotals, priceFromMarkup, type KitComponent } from '../utils/stockMath.ts';
 import { roundMoney, toNumber } from '../utils/money.ts';
+import { EXPENSE_NAME, LABOR_NAME, assemblyBreakdown, isExpenseRow, isExtraRow, isLaborRow, newExpenseRow, newLaborRow, withDerived } from '../lib/assemblies/pricing.ts';
+import { KitBreakdown, KitLaborExpenses } from './assemblies/KitLaborExpenses.tsx';
 import ProductLibrarySection from './suppliers/ProductLibrarySection.tsx';
 import { hasLibraryPatch, libraryDraftFromItem, libraryPatch, specProblem, urlProblem, type LibraryDraft } from '../lib/suppliers/libraryView.ts';
 import type { PriceBookLibraryPatch } from '../lib/suppliers/types.ts';
@@ -28,7 +30,12 @@ interface PriceBookItemDetailsProps {
   isPremium: boolean;
   /** opens the upgrade prompt (Premium supplier hints) */
   onUpgrade?: (reason?: string) => void;
+  /** the user's labor rate ($/h): where a kit's labor row starts (roadmap N5) */
+  laborRate?: number;
 }
+
+/** One-tap names for an expense row (equipment rental, dump fee, permit fee, subcontract). */
+const EXPENSE_PRESETS = ['Equipment rental', 'Dump fee', 'Permit fee', 'Subcontract'];
 
 const TYPES: { value: NonNullable<SavedItem['type']>; label: string }[] = [
   { value: 'service', label: 'Service' },
@@ -73,7 +80,7 @@ const fromItem = (item: NonNullable<PriceBookItemDetailsProps['item']>): PriceBo
 const kitPriceIsManual = (item: PriceBookItemDetailsProps['item'] | undefined, byId: Map<string, SavedItem>): boolean =>
   !!item?.id && !!item.is_assembly && partsPriceIsManual({ rate: item.rate, assembly_items: item.assembly_items as KitComponent[] | undefined }, byId);
 
-const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onClose, onSave, item, categories, allItems, onUploadImage, isPremium, onUpgrade }) => {
+const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onClose, onSave, item, categories, allItems, onUploadImage, isPremium, onUpgrade, laborRate = 0 }) => {
   // All hooks run on every render (the early return is at the end: VIEW-029).
   const [form, setForm] = useState<PriceBookDraft>(() => (item?.id ? fromItem(item) : blankDraft(item)));
   const [saving, setSaving] = useState(false);
@@ -105,6 +112,7 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
   }, [isOpen, item]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const kitTotals = useMemo(() => priceBookKitTotals(form.assembly_items, byId), [form.assembly_items, byId]);
+  const breakdown = useMemo(() => assemblyBreakdown(form.assembly_items, byId), [form.assembly_items, byId]);
   const isKit = !!form.is_assembly;
 
   const duplicate = useMemo(() => {
@@ -145,7 +153,12 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
       ? components.map((c) => (c === existing ? { ...c, quantity: toNumber(c.quantity) + 1 } : c))
       : [...components, { item_id: target.id, quantity: 1, override_price: null }]);
   };
-  const patchComponent = (idx: number, patch: Partial<KitComponent>) => updateComponents(components.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  const patchComponent = (idx: number, patch: Partial<KitComponent>) => updateComponents(components.map((c, i) => (i === idx ? withDerived({ ...c, ...patch }) : c)));
+  // labor and expense rows (roadmap N5): kept apart from the parts list, with their own place in the editor
+  const laborRows = components.map((c, idx) => ({ c, idx })).filter((x) => isLaborRow(x.c));
+  const expenseRows = components.map((c, idx) => ({ c, idx })).filter((x) => isExpenseRow(x.c));
+  const addLabor = () => updateComponents([...components, newLaborRow(laborRate, 1)]);
+  const addExpense = (name = '') => updateComponents([...components, newExpenseRow(name)]);
   const catalog = useMemo(() => {
     const q = componentSearch.trim().toLowerCase();
     return allItems
@@ -203,7 +216,9 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
         unit_cost: toNumber(form.unit_cost),
         markup: Math.round(toNumber(form.markup) * 10) / 10,
         type: isKit ? 'bundle' : form.type,
-        assembly_items: isKit ? components.filter((c) => toNumber(c.quantity) > 0) : [],
+        assembly_items: isKit
+          ? components.filter((c) => toNumber(c.quantity) > 0).map((c) => (isExtraRow(c) ? withDerived({ ...c, custom_name: (c.custom_name || '').trim() || (isLaborRow(c) ? LABOR_NAME : EXPENSE_NAME) }) : c))
+          : [],
         ...(hasLibraryPatch(library) ? { library } : {}),
       });
     } catch (e) {
@@ -225,7 +240,7 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
       busy={saving || uploading}
       size="lg"
       title={isEdit ? `Edit ${isKit ? 'kit' : 'item'}` : isKit ? 'New kit' : 'New price book item'}
-      description={isKit ? 'A kit bundles several price-book items into one line on your estimates and invoices.' : 'Saved items can be added to estimates and invoices in one tap.'}
+      description={isKit ? 'A kit bundles materials, labor and expenses into one line on your estimates and invoices.' : 'Saved items can be added to estimates and invoices in one tap.'}
       footer={
         <>
           <button type="button" className="btn btn-outline" onClick={onClose} disabled={saving}>Cancel</button>
@@ -295,9 +310,10 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
             )}
             {components.length === 0 ? (
               <p className="rounded-xl border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">Search above to add items, or add a custom line.</p>
-            ) : (
+            ) : components.every((c) => isExtraRow(c)) ? null : (
               <ul className="space-y-2">
                 {components.map((c, idx) => {
+                  if (isExtraRow(c)) return null;
                   const def = c.is_custom ? undefined : byId.get(c.item_id);
                   return (
                     <li key={`${c.item_id}-${idx}`} className="space-y-2 rounded-xl border border-border bg-card p-3">
@@ -312,7 +328,7 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
                         <button type="button" aria-label="Remove component" className="btn btn-ghost h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive" onClick={() => updateComponents(components.filter((_, i) => i !== idx))}><XIcon className="h-4 w-4" /></button>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
-                        <Field label="Qty" htmlFor={`pbc-q-${idx}`}><NumberInput id={`pbc-q-${idx}`} className="h-10 py-1.5" value={toNumber(c.quantity)} onValue={(n) => patchComponent(idx, { quantity: n })} /></Field>
+                        <Field label={c.unit ? `Qty (${c.unit})` : 'Qty'} htmlFor={`pbc-q-${idx}`}><NumberInput id={`pbc-q-${idx}`} className="h-10 py-1.5" value={toNumber(c.quantity)} onValue={(n) => patchComponent(idx, { quantity: n })} /></Field>
                         {c.is_custom && <Field label="Cost" htmlFor={`pbc-c-${idx}`}><NumberInput id={`pbc-c-${idx}`} className="h-10 py-1.5" value={toNumber(c.custom_cost)} onValue={(n) => patchComponent(idx, { custom_cost: n })} /></Field>}
                         <Field label={c.is_custom ? 'Price' : 'Price override'} htmlFor={`pbc-p-${idx}`}>
                           <NumberInput
@@ -333,8 +349,18 @@ const PriceBookItemDetails: React.FC<PriceBookItemDetailsProps> = ({ isOpen, onC
             <button type="button" className="btn btn-outline w-full" onClick={() => updateComponents([...components, { item_id: crypto.randomUUID(), quantity: 1, is_custom: true, custom_name: '', override_price: 0, custom_cost: 0 }])}>
               <PlusIcon className="h-4 w-4" /> Custom line
             </button>
+            <KitLaborExpenses
+              laborRows={laborRows}
+              expenseRows={expenseRows}
+              laborRate={laborRate}
+              onPatch={patchComponent}
+              onRemove={(idx) => updateComponents(components.filter((_, i) => i !== idx))}
+              onAddLabor={addLabor}
+              onAddExpense={addExpense}
+            />
+            {(laborRows.length > 0 || expenseRows.length > 0) && <KitBreakdown b={breakdown} price={toNumber(form.rate)} />}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm">
-              <span className="text-muted-foreground">Components cost <strong className="text-foreground">{money(kitTotals.cost)}</strong> · priced separately <strong className="text-foreground">{money(kitTotals.retail)}</strong></span>
+              <span className="text-muted-foreground">Kit costs you <strong className="text-foreground">{money(kitTotals.cost)}</strong> · parts priced separately <strong className="text-foreground">{money(kitTotals.retail)}</strong></span>
               {priceTouched
                 ? <button type="button" className="btn btn-ghost btn-sm h-9" onClick={() => { setPriceTouched(false); setForm((f) => ({ ...f, rate: kitTotals.retail, markup: markupFromPrice(f.unit_cost, kitTotals.retail) ?? f.markup })); }} disabled={!kitTotals.retail}>Use {money(kitTotals.retail)} as kit price</button>
                 : <span className="text-xs text-muted-foreground">Kit price follows the parts until you type your own.</span>}

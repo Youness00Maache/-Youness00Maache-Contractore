@@ -2945,6 +2945,7 @@ const App: React.FC = () => {
                     savedItems={savedItems}
                     isPremium={paid}
                     onUpgrade={openUpgrade}
+                    defaultLaborRate={profile?.defaultLaborRate}
                     onDataChanged={() => { const uid = sessionUserIdRef.current; if (uid) loadSavedItems(uid).catch(() => undefined); }}
                     openAddModal={(view as any).openAddModal}
                     prefillData={(view as any).prefillData}
