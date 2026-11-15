@@ -33,6 +33,8 @@ const RELATED: Partial<Record<HelpTopicId, HelpTopicId[]>> = {
   settings: ['payments', 'reminders', 'quote-link', 'notifications', 'automations'],
   notifications: ['settings', 'reminders', 'inventory', 'automations'],
   automations: ['notifications', 'reminders', 'settings'],
+  'warranty-tracking': ['after-job-emails', 'documents', 'photos'],
+  'after-job-emails': ['automations', 'reminders', 'warranty-tracking'],
   crew: ['job-costing', 'jobs', 'notifications'],
   'job-files': ['job-questions', 'photos', 'clients'],
   'job-questions': ['job-files', 'clients', 'job-tasks'],

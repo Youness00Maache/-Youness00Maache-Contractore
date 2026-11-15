@@ -294,6 +294,9 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/selections/selectionsApi.ts', match: "from('job_selections').delete()", what: 'delete a client selection', offline: 'needs_connection' },
     { file: 'lib/selections/selectionsApi.ts', match: 'storage.from(SELECTION_IMAGES_BUCKET).remove(paths)', what: 'delete a selection: its option images', offline: 'needs_connection' },
     { file: 'lib/selections/selectionsApi.ts', match: "from('documents').insert(record)", what: 'Draft purchase order from an approved selection', offline: 'needs_connection' },
+    // warranty claim photos (D10): the claim itself is saved by the Warranty form's normal document save
+    { file: 'lib/warranty/claimPhotos.ts', match: 'storage.from(CLAIM_PHOTO_BUCKET).upload(path, upload', what: 'warranty claim photo upload (document-assets)', offline: 'needs_connection' },
+    { file: 'lib/warranty/claimPhotos.ts', match: 'storage.from(CLAIM_PHOTO_BUCKET).remove([path])', what: 'remove a claim photo that was added and not kept', offline: 'background' },
     { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).upload(imagePath, file', what: 'mood board image upload (document-assets)', offline: 'needs_connection' },
     { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_IMAGES_BUCKET).remove([imagePath])', what: 'remove a board image that was never saved', offline: 'needs_connection' },
     { file: 'lib/boards/boardsApi.ts', match: 'storage.from(BOARD_PORTAL_BUCKET).remove(made)', what: 'failed board share / edit: remove the public copies again', offline: 'needs_connection' },

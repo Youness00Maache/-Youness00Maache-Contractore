@@ -14,6 +14,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import HelpButton from '../help/HelpButton.tsx';
+import PostJobRows from './PostJobRows.tsx';
 import { cx, Switch } from '../reminders/ui.tsx';
 import { automationStore } from '../../lib/automations/store.ts';
 import {
@@ -147,9 +148,13 @@ function useReminderSwitches() {
 interface Props {
     plan: string | null | undefined;
     onUpgradeClick?: () => void;
+    /** saved Google review link and the names used in the after-the-job wording preview (optional) */
+    reviewLink?: string;
+    company?: string;
+    myName?: string;
 }
 
-const AutomationsSettings: React.FC<Props> = ({ plan, onUpgradeClick }) => {
+const AutomationsSettings: React.FC<Props> = ({ plan, onUpgradeClick, reviewLink, company, myName }) => {
     const auto = useSyncExternalStore(automationStore.subscribe, automationStore.getSnapshot, automationStore.getSnapshot);
     const bell = useSyncExternalStore(notificationStore.subscribe, notificationStore.getSnapshot, notificationStore.getSnapshot);
     const uid = auto.uid || bell.uid;
@@ -281,6 +286,10 @@ const AutomationsSettings: React.FC<Props> = ({ plan, onUpgradeClick }) => {
                             <ul className="mt-1 divide-y divide-border">
                                 {rules.map(ruleRow)}
                                 {bound.map(boundRow)}
+                                {/* after-the-job emails (D10): thank-you, warranty ending, maintenance (components/automations/PostJobRows.tsx) */}
+                                {g.id === 'jobs' && rem.state.status === 'ready' && (
+                                    <PostJobRows paid={paid} basics={rem.state.basics} hasSender={hasSender} onUpgradeClick={onUpgradeClick} reviewLink={reviewLink} company={company} myName={myName} />
+                                )}
                                 {always.map(a => (
                                     <li key={a.id} className="flex items-start gap-3 py-3 pl-4">
                                         <span className="mt-px w-[68px] shrink-0 font-mono text-[10px] font-bold uppercase tracking-wider text-success">Always on</span>

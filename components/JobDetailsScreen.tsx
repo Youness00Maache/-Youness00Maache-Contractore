@@ -13,6 +13,7 @@ import { getDocumentTitle } from '../lib/documents.ts';
 import HelpButton from './help/HelpButton.tsx';
 import type { Translation } from '../utils/translations.ts';
 import { DocSyncChip, useDocSyncState } from './offline/OfflineContext.tsx';
+import WarrantiesStrip from './warranty/WarrantiesStrip.tsx';
 
 interface JobDetailsScreenProps {
     job: Job;
@@ -340,6 +341,11 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                             </div>
                         )}
                     </div>
+                )}
+
+                {/* warranties of this job (and all jobs) with their end dates and open claims (components/warranty) */}
+                {!query.trim() && (typeFilter === 'All' || typeFilter === 'Warranty') && documents.some(f => String(f.type) === 'Warranty') && (
+                    <WarrantiesStrip documents={documents} jobId={job.id} onOpen={onOpenDocument} />
                 )}
 
                 {loadingDocuments && documents.length === 0 ? (

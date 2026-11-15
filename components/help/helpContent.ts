@@ -16,7 +16,7 @@ export type HelpTopicId =
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
   | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview' | 'setup-assistant'
-  | 'subcontractors' | 'compare-quotes' | 'sub-link';
+  | 'subcontractors' | 'compare-quotes' | 'sub-link' | 'warranty-tracking' | 'after-job-emails';
 
 export interface HelpStep {
   title: string;
@@ -678,6 +678,45 @@ export const HELP_GUIDES: HelpGuide[] = [
     tips: [
       `Service plans are part of ${premium.name}. Visits are created every hour on our side, even when you don’t open the app.`,
       'Visit reminders go out from your Gmail; Settings › Reminders sets the day and the wording. The client also sees the plan, the next visit and the last one in their portal.',
+    ],
+  },
+  {
+    id: 'warranty-tracking',
+    title: 'Warranty tracking and claims',
+    summary: 'See when each warranty ends, keep a dated record of the problems a client reports, and void a warranty when it no longer applies.',
+    where: ['Job page', 'Documents', 'Warranty'],
+    group: 'Tools',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open or create a warranty', text: 'On a job, open [[Documents]] and create a [[Warranty]] (or open one you already have). Warranties you made before open exactly as they were.' },
+      { title: 'Set the coverage period', text: 'In [[Coverage period]] pick when it starts (left empty, it starts on the day the work was completed), then [[A length]] (for example 2 years), [[Until a date]] or [[Lifetime]]. The line at the top says it plainly, for example “Active, ends 12 Mar 2028 (4 months left)”. The certificate prints the Duration you chose.' },
+      { title: 'Add a claim', text: 'When the client reports a problem, click [[Add claim]] in [[Claims]]: the date, what is wrong and up to 6 photos (photos need a connection). Open a claim to move it with [[Start review]], [[Mark resolved]] or [[Deny claim]] (a denial needs a reason), to say what was done, or to [[Reopen]] it.' },
+      { title: 'Save', text: 'Coverage and claims are part of the warranty: click [[Save]] like on any other document. They work offline and sync later.' },
+      { title: 'Find your warranties', text: 'On the job page, a [[Warranties]] list above the documents shows Ending soon, Active, Ended and Void, with the time left and an “open claims” badge. Tap one to open it. [[All jobs]] shows the warranties of every job (offline, the list as last seen on this device).' },
+      { title: 'Void a warranty', text: 'At the bottom of [[Coverage period]], click [[Void this warranty]] and confirm. It stops counting as active and no emails go out; the claims history stays. [[Restore warranty]] brings it back.' },
+    ],
+    tips: [
+      'Claims are for your records: the client does not see them. The certificate and its PDF print as before.',
+      `Warranty emails (to the client and to you) are part of ${premium.name}: see After-job emails. The Warranty emails switch in the form turns them off for that one warranty.`,
+    ],
+  },
+  {
+    id: 'after-job-emails',
+    title: 'After-job emails (thank-you, warranty ending, maintenance)',
+    summary: 'Three emails that go out from your own Gmail after a job: a thank-you, a warranty-ending notice and a maintenance reminder.',
+    where: ['Account menu', 'Settings', 'Automations', 'Jobs'],
+    group: 'Account',
+    appPath: '/settings#automations',
+    steps: [
+      { title: 'Find them', text: 'Open Settings, then [[Automations]]. Under Jobs you will find [[Thank-you after the job]], [[Warranty ending]] and [[Maintenance reminders]]. They are off until you switch them on, and they are part of Premium.' },
+      { title: 'Switch one on', text: 'Switching one on starts with the next job you complete (or the next warranty that ends after today). Jobs completed and warranties ending before that day are never emailed, so nothing old goes out by surprise.' },
+      { title: 'What each one sends', text: 'Thank-you: 3 days after you mark a job completed, with your Google review link if you have one and no review request already went out. Warranty ending: the client hears 60, 30 and 7 days before it ends and on the day; you get a note at 30 days and on the day. Maintenance: 180 and 365 days after completion, with your short tip.' },
+      { title: 'Change the days and the wording', text: 'Open a row with [[Days, wording and what is next]]. Change the days, the owner note, the review link switch or the tip, edit the subject and message (tap a word like {client} to add it) and check the live preview. [[Next scheduled]] lists the next emails that will go out.' },
+      { title: 'Turn one warranty off', text: 'In the Warranty form, the [[Warranty emails]] switch turns the emails off for that warranty only. A switch can only turn emails off; the switch here is what turns them on.' },
+    ],
+    tips: [
+      'They go out from your Gmail at the hour set in [[Days and wording]] under Reminders, and only if Reminders are not paused. Connect Gmail first, or nothing is sent.',
+      'A void warranty or a lifetime warranty sends no warranty emails.',
     ],
   },
   {

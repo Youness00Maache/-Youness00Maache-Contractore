@@ -471,7 +471,8 @@ function ymd(ms: number) { const d = new Date(ms); return `${d.getFullYear()}-${
     const sections = settings.slice(settings.indexOf('const SECTIONS'), settings.indexOf('const editableKeys'));
     ok(/'automations' \| 'reminders'/.test(settings) && sections.includes("{ id: 'automations', label: 'Automations' }"), 'Settings: the Automations section is in the list');
     ok(sections.indexOf("'automations'") < sections.indexOf("'reminders'") && sections.indexOf("'billing'") < sections.indexOf("'automations'"), 'Settings: between Plan & billing and Reminders');
-    ok(settings.includes('<AutomationsSettings plan={plan} onUpgradeClick={onUpgradeClick} />') && settings.indexOf('<AutomationsSettings') < settings.indexOf('<ReminderSettingsCard'), 'Settings: rendered before the Reminders card');
+    // D10: the page also gets the saved review link and the names for the after-the-job wording preview (extra optional props)
+    ok(/<AutomationsSettings plan=\{plan\} onUpgradeClick=\{onUpgradeClick\}[^>]*\/>/.test(settings) && settings.indexOf('<AutomationsSettings') < settings.indexOf('<ReminderSettingsCard'), 'Settings: rendered before the Reminders card');
     ok(settings.includes('<ReminderSettingsCard') && settings.includes('<NotificationSettingsCard') && settings.includes('<DocumentDesignSettings'), 'Settings: the old cards are all still there');
 
     const ui = read('components/automations/AutomationsSettings.tsx');
