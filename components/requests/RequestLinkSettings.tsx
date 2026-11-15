@@ -20,6 +20,7 @@ import {
 } from './requestsApi.ts';
 import { downloadQrPng, printHtml, qrSignHtml, svgMarkup } from './qrSign.ts';
 import HelpButton from '../help/HelpButton.tsx';
+import PublicProfileEditor from '../profile/PublicProfileEditor.tsx';
 
 export interface RequestLinkSettingsProps {
     plan: string;
@@ -29,6 +30,8 @@ export interface RequestLinkSettingsProps {
     onUpgrade?: (reason: string) => void;
     /** Rendered without its own card (inside a modal). */
     embedded?: boolean;
+    /** Adds the "Public profile" editor under the link settings (about, services, gallery; roadmap D8). Settings turns it on. */
+    withProfile?: boolean;
     className?: string;
 }
 
@@ -46,7 +49,7 @@ const Switch: React.FC<{ checked: boolean; onChange: (v: boolean) => void; disab
     </button>
 );
 
-const RequestLinkSettings: React.FC<RequestLinkSettingsProps> = ({ plan, companyName, logoUrl, phone, onUpgrade, embedded, className = '' }) => {
+const RequestLinkSettings: React.FC<RequestLinkSettingsProps> = ({ plan, companyName, logoUrl, phone, onUpgrade, embedded, withProfile = false, className = '' }) => {
     const [page, setPage] = useState<MyRequestPage | null>(null);
     const [state, setState] = useState<'loading' | 'ready' | 'unavailable' | 'error'>('loading');
     const [error, setError] = useState('');
@@ -275,6 +278,8 @@ const RequestLinkSettings: React.FC<RequestLinkSettingsProps> = ({ plan, company
                     {onUpgrade && <button type="button" className="font-semibold text-primary hover:underline" onClick={() => onUpgrade('Premium removes the ContractorDocs branding from your request page.')}>Premium removes it.</button>}
                 </p>
             )}
+
+            {withProfile && <PublicProfileEditor pageEnabled={page.enabled} companyName={company} className="mt-5" />}
 
             <div className="mt-5 border-t border-border pt-4">
                 {confirmSlug ? (

@@ -12,6 +12,7 @@ import MarketingSite from './pages/MarketingSite.tsx';
 import { isMarketingPath, isAppCallback, rootBelongsToApp, markLandingForced, normalizePath } from './pages/routes.ts';
 import { requestSlugFromPath } from './components/requests/requestLogic.ts';
 import { crewTokenFromPath } from './lib/crew/crewPath.ts';
+import { feedbackTokenFromPath } from './lib/feedback/feedbackPath.ts';
 import { preloadRouteData } from './pages/blogLoader.ts';
 import { LogoMark } from './pages/components/Logo.tsx';
 import './index.css';
@@ -23,6 +24,8 @@ const App = lazy(() => import('./App.tsx'));
 const RequestQuotePage = lazy(() => import('./components/requests/RequestQuotePage.tsx'));
 /** Crew clock-in link (/clock/<token>): the worker's phone page, its own small chunk (no login, no app shell). */
 const CrewClockPage = lazy(() => import('./components/crew/CrewClockPage.tsx'));
+/** Client feedback link (/feedback/<token>): the client's rating page, its own small chunk (no login, no app shell). */
+const FeedbackPage = lazy(() => import('./components/feedback/FeedbackPage.tsx'));
 
 /** Fonts used by the document templates: only needed inside the app, so loaded on demand. */
 const TEMPLATE_FONTS_HREF =
@@ -77,6 +80,8 @@ const Root: React.FC = () => {
   if (requestSlug !== null) return <RequestBranch slug={requestSlug} />;
   const crewToken = crewTokenFromPath(location.pathname);
   if (crewToken !== null) return <CrewBranch token={crewToken} />;
+  const feedbackToken = feedbackTokenFromPath(location.pathname);
+  if (feedbackToken !== null) return <FeedbackBranch token={feedbackToken} />;
   return <AppBranch />;
 };
 
@@ -89,6 +94,19 @@ const CrewBranch: React.FC<{ token: string }> = ({ token }) => {
   return (
     <Suspense fallback={<div className="min-h-screen bg-background" aria-busy="true" />}>
       <CrewClockPage token={token} />
+    </Suspense>
+  );
+};
+
+/** /feedback/<token>: the client's feedback page (rating + comment; no login, no app shell). */
+const FeedbackBranch: React.FC<{ token: string }> = ({ token }) => {
+  useEffect(() => {
+    document.documentElement.classList.remove('cd-site');
+    document.documentElement.classList.add('cd-app');
+  }, []);
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" aria-busy="true" />}>
+      <FeedbackPage token={token} />
     </Suspense>
   );
 };
