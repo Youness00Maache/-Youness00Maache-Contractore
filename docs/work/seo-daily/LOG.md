@@ -76,6 +76,11 @@ article. Nothing was pushed, no search engine was pinged. Branch `seo-daily` = o
   a 2-file `tsc --strict` of the post and the registry (pass), no "Kelviq" / "merchant of record". NOT run:
   `npx tsc --noEmit -p .`, `npm run build`, `npm run seo:check` (the owner was recording a video: `record/run.mjs` and
   `chapter.mjs` node processes were running; heavy checks postponed). The first timer run must run all of step D.
+- Heavy checks DONE later on 2026-11-15 (video recording had finished): `seo-blog-lint` all pass, `npx tsc --noEmit -p .`
+  exit 0, `npm run build` exit 0, `npm run seo:check` passed (52 pages incl. the new post: 2924 rendered words,
+  BlogPosting + BreadcrumbList + FAQPage + HowTo JSON-LD, sitemap lists it with lastmod 2026-11-16). Built HTML read once:
+  4 tables, checklist renders, no stray markdown. Still nothing pushed. The first run only needs to re-run the checks
+  after its own changes (the new posts, the date fix if the day differs).
 - Registry entry already has `date`/`updated` = 2026-11-16 (the planned publishing day). If the first run happens on
   another day, change both dates to that day (the sitemap lastmod follows `updated`).
 - First run: count this article as 1 of the 4 for 2026-11-16 (so write 3 new ones; re-read this one once with fresh eyes
