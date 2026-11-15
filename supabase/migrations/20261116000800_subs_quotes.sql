@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK). Roadmap D7 phase A; do not run until the owner approves it.
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D7) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: 3 new crew_members columns (kind default 'employee'), RLS on both new tables with 8 owner policies, 6 triggers, no anon table grants, anon can run only crew_sub_get / crew_sub_accept, existing crew_tasks_get still answers.. Roadmap D7 phase A; do not run until the owner approves it.
 -- =====================================================================================
 -- ContractorDocs: subcontractors + sub commitments + quote comparison + the sub's view of the crew link
 -- (competitor roadmap batch D7: #11, #29, #23)

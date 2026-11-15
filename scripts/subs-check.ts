@@ -284,7 +284,7 @@ ok('limits: amounts / retainage / payments / lead time', lower.includes('amount 
 }
 
 // ============================================================================================ SQL lint
-ok('header: not applied yet, needs owner OK', /^-- Applied: NOT YET \(needs owner OK\)/.test(SQL));
+ok('header: applied with the owner OK', /^-- Applied 2026-11-15 with the owner's OK/.test(SQL));
 ok('no Kelviq / merchant of record', !/kelviq|merchant of record/i.test(SQL));
 for (const re of [/\bdrop\s+table\b/, /\bdrop\s+column\b/, /\btruncate\s+(table\s+)?public\./, /\bdelete\s+from\b/, /\bdrop\s+function\b/, /\bdrop\s+schema\b/,
     /\bupdate\s+storage\./, /\binsert\s+into\s+storage\./, /\bon\s+storage\.objects/, /\balter\s+type\b/, /\bstorage\.buckets\b/, /\bdrop\s+index\b/,
