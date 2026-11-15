@@ -346,7 +346,7 @@ const newId = () => `id-${++seq}`;
 
 // ─────────────────────────────────────────────────────────────── 10. migration lint
 {
-    const sql = readFileSync(join(root, 'supabase/migrations/20261116000100_job_tasks.sql'), 'utf8');
+    const sql = readFileSync(join(root, 'supabase/migrations/20261116000100_job_tasks.sql'), 'utf8').replace(/\r\n/g, '\n');
     const code = sql.replace(/--[^\n]*/g, '');
     ok(/^-- Applied 2026-11-15 with the owner's OK/.test(sql), 'header: applied with the owner OK');
     for (const table of ['job_tasks', 'task_comments']) {
