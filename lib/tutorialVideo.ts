@@ -58,7 +58,7 @@ export type Cue = [number, number, string];
 export type SubtitleBundle = Record<string, Cue[]>;
 
 const env: Record<string, string | undefined> = (((import.meta as unknown as { env?: Record<string, string | undefined> }).env) || {});
-export const VIDEO_MEDIA_BASE = (env.VITE_TUTORIAL_MEDIA_BASE?.trim() || 'https://iauteblvljppwzsxloyd.supabase.co/storage/v1/object/public/tutorial-media/v1').replace(/\/+$/, '');
+export const VIDEO_MEDIA_BASE = (env.VITE_TUTORIAL_MEDIA_BASE?.trim() || 'https://iauteblvljppwzsxloyd.supabase.co/storage/v1/object/public/tutorial-media').replace(/\/+$/, '');
 
 export const mediaUrl = (rel: string, base: string = VIDEO_MEDIA_BASE): string => (/^(https?:|data:|blob:)/.test(rel) ? rel : `${base}/${rel.replace(/^\/+/, '')}`);
 

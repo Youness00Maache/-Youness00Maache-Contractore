@@ -4,11 +4,11 @@
 // Reads  <work>/out/chapters/NN-id/{video.mp4, <lang>.m4a, chapter.json}  (from `record/run.mjs ... --langs en,es`)
 //        <work>/cache/audio/<lang>/<chapter>/<scene>.json                  (sentence times of each spoken language)
 //        translations/<lang>/NN-id.json and _titles.json                    (captions + chapter titles)
-// Writes <work>/publish/v1/
+// Writes <work>/publish/v1/ (flat)
 //        manifest.json                 chapters (titles in every language, duration, files, a small poster as a data URI)
-//        ch/NN-id/video.mp4, <lang>.m4a
-//        subtitles/<lang>.json         { chapterId: [[start, end, text], ...] } for every language that has a translation
-// Upload this folder (keeping the structure) into the public Supabase bucket `tutorial-media`, folder `v1`.
+//        NN-id.video.mp4, NN-id.<lang>.m4a
+//        subtitles.<lang>.json         { chapterId: [[start, end, text], ...] } for every language that has a translation
+// One flat folder: upload ALL its files into the root of the public Supabase bucket `tutorial-media` (no sub-folders).
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,7 +33,7 @@ const titles = {};
 for (const L of subLangs) { const f = path.join(root, 'translations', L, '_titles.json'); titles[L] = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {}; }
 
 fs.rmSync(outDir, { recursive: true, force: true });
-fs.mkdirSync(path.join(outDir, 'subtitles'), { recursive: true });
+fs.mkdirSync(outDir, { recursive: true }); // one FLAT folder: easy to upload in a few batches, no sub-folders to create
 const chapters = [];
 const bundles = Object.fromEntries(subLangs.map((l) => [l, {}]));
 const trs = Object.fromEntries(subLangs.map((l) => [l, loadTranslations(l)]));
@@ -43,12 +43,11 @@ for (const ch of await loadChapters(only)) {
   const src = path.join(work, 'out', 'chapters', slug);
   const info = (() => { try { return JSON.parse(fs.readFileSync(path.join(src, 'chapter.json'), 'utf8')); } catch { return null; } })();
   if (!info || !fs.existsSync(path.join(src, 'video.mp4'))) { console.log(`skip ${slug}: not recorded yet`); continue; }
-  const dest = path.join(outDir, 'ch', slug);
-  fs.mkdirSync(dest, { recursive: true });
-  fs.copyFileSync(path.join(src, 'video.mp4'), path.join(dest, 'video.mp4'));
+  const dest = outDir;
+  fs.copyFileSync(path.join(src, 'video.mp4'), path.join(dest, `${slug}.video.mp4`));
   const duration = +probe(path.join(src, 'video.mp4')).toFixed(2);
   const audio = {};
-  for (const L of info.langs || [info.lang]) if (fs.existsSync(path.join(src, `${L}.m4a`))) { fs.copyFileSync(path.join(src, `${L}.m4a`), path.join(dest, `${L}.m4a`)); audio[L] = `ch/${slug}/${L}.m4a`; }
+  for (const L of info.langs || [info.lang]) if (fs.existsSync(path.join(src, `${L}.m4a`))) { fs.copyFileSync(path.join(src, `${L}.m4a`), path.join(dest, `${slug}.${L}.m4a`)); audio[L] = `${slug}.${L}.m4a`; }
   // captions: a spoken language uses its own sentence times, the others reuse the English windows
   for (const L of subLangs) {
     const cues = [];
@@ -65,17 +64,17 @@ for (const ch of await loadChapters(only)) {
     if (cues.length) bundles[L][ch.id] = cues;
   }
   // poster: a small JPEG as a data URI
-  const posterFile = path.join(dest, 'poster.jpg');
+  const posterFile = path.join(dest, `_poster-${slug}.jpg`);
   run('ffmpeg', ['-y', '-v', 'error', '-ss', String(Math.min(3, duration * 0.1)), '-i', path.join(src, 'video.mp4'), '-frames:v', '1', '-vf', 'scale=480:-1', '-q:v', '8', posterFile]);
   const poster = 'data:image/jpeg;base64,' + fs.readFileSync(posterFile).toString('base64');
   fs.rmSync(posterFile);
   const title = { en: ch.title }, summary = { en: ch.summary };
   for (const L of subLangs) { if (titles[L][`${ch.id}.title`]) title[L] = titles[L][`${ch.id}.title`]; if (titles[L][`${ch.id}.summary`]) summary[L] = titles[L][`${ch.id}.summary`]; }
-  chapters.push({ id: ch.id, number: ch.number, title, summary, duration, video: `ch/${slug}/video.mp4`, poster, audio, guides: ch.covers || [] });
+  chapters.push({ id: ch.id, number: ch.number, title, summary, duration, video: `${slug}.video.mp4`, poster, audio, guides: ch.covers || [] });
   console.log(`ok   ${slug}  ${duration}s  voices: ${Object.keys(audio).join(',') || 'none'}`);
 }
 const subtitles = {};
-for (const L of subLangs) if (Object.keys(bundles[L]).length) { fs.writeFileSync(path.join(outDir, 'subtitles', `${L}.json`), JSON.stringify(bundles[L])); subtitles[L] = `subtitles/${L}.json`; }
+for (const L of subLangs) if (Object.keys(bundles[L]).length) { fs.writeFileSync(path.join(outDir, `subtitles.${L}.json`), JSON.stringify(bundles[L])); subtitles[L] = `subtitles.${L}.json`; }
 fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify({ version: 1, chapters, subtitles }));
 const bytes = (d) => { let n = 0; for (const f of fs.readdirSync(d, { withFileTypes: true })) n += f.isDirectory() ? bytes(path.join(d, f.name)) : fs.statSync(path.join(d, f.name)).size; return n; };
 console.log(`\n${chapters.length} chapter(s), captions in: ${Object.keys(subtitles).join(', ')}; ${(bytes(outDir) / 1e6).toFixed(1)} MB -> ${outDir}`);
