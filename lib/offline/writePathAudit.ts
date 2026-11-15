@@ -85,6 +85,11 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'components/PriceBookView.tsx', match: "from('saved_items').insert(p)", what: 'add / duplicate price-book item', offline: 'queue' },
     { file: 'components/PriceBookView.tsx', match: "from('saved_items').delete()", what: 'delete price-book item (one only on this device is discarded offline)', offline: 'needs_connection' },
     { file: 'components/forms/inventory.ts', match: "from('saved_items').insert(row)", what: 'line item → price book (from a form)', offline: 'queue' },
+    // setup assistant (N8): starter kits use the price book's own insert + outbox; the example project's removal needs a connection
+    { file: 'components/setup/setupApi.ts', match: "from('saved_items').insert(p)", what: 'setup assistant: import starter kits (same insert as the price book; offline → outbox)', offline: 'queue' },
+    { file: 'components/setup/setupApi.ts', match: "from('documents').delete()", what: 'setup assistant: remove the example estimate (exactly the id it created)', offline: 'needs_connection' },
+    { file: 'components/setup/setupApi.ts', match: "from('jobs').delete()", what: 'setup assistant: remove the example job (only when nothing else is in it)', offline: 'needs_connection' },
+    { file: 'components/setup/setupApi.ts', match: "from('clients').delete()", what: 'setup assistant: remove the example client (only when it has no other job)', offline: 'needs_connection' },
     { file: 'components/viewKit.tsx', match: 'storage.from(bucket).upload(path, file', what: 'price-book item photo upload', offline: 'needs_connection' },
     { file: 'lib/suppliersApi.ts', match: "from('documents').insert(record)", what: 'purchase orders (reorder)', offline: 'needs_connection' },
     { file: 'lib/suppliersApi.ts', match: "from('documents').update({ data }).eq('id', doc.id)", what: 'purchase order update', offline: 'needs_connection' },

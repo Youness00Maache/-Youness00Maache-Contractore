@@ -15,7 +15,7 @@ export type HelpTopicId =
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
-  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view';
+  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'setup-assistant';
 
 export interface HelpStep {
   title: string;
@@ -58,6 +58,31 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Act on what clients send you', text: 'When a client taps “I’ve paid” or sends a quote request, a card appears here: Payments reported by clients, or Quote requests with [[Inbox]] and [[Link & QR code]].' },
     ],
     tips: ['Recent documents (your last 5) and the next job start are in the side column.', 'Your search and filters are kept while the browser tab stays open.', 'The Pipeline bar counts your jobs by stage and what needs you; click it to open the [[Pipeline]] board.'],
+  },
+  {
+    id: 'setup-assistant',
+    title: 'Setup assistant',
+    summary: 'A short checklist that gets a new account to its first professional estimate: business details, tax and terms, price book, look, payment links and your team.',
+    where: ['Dashboard', 'Settings', 'Setup assistant'],
+    group: 'Start here',
+    appPath: '/settings#setup',
+    steps: [
+      { title: 'Open it', text: 'A brand-new account sees the setup sheet once on the dashboard, after the tour. Any time later, click [[Continue]] on the Setup line of the dashboard, or [[Resume setup]] under Settings, Setup assistant.' },
+      { title: 'Go one step at a time', text: 'Each screen saves when you click [[Save and continue]], into the same place Settings uses, so nothing is entered twice. [[Skip this step]] leaves a step for later. A step you already filled in is marked Already set up.' },
+      { title: 'Business, contact, tax and terms', text: 'Company name and logo, the phone and address printed on documents, then your sales tax, how many days invoices are due and your deposit wording. Only the fields you fill in change NEW estimates and invoices; documents you already saved are never touched.' },
+      { title: 'What you do', text: 'Pick your trades and type your hourly labor rate. Kits, job profit tracking and time-and-materials bills use that rate.' },
+      { title: 'Price book', text: 'The kits for your trades are listed with prices at your labor rate. Click Import to add them, or [[Choose which ones, with details]]. Kits already in your price book are skipped. They are starter prices: set your own.' },
+      { title: 'Document look', text: 'Free accounts use the Basic designs. Premium designs are shown with a lock; picking one opens the upgrade window. [[Keep Classic (Basic) for now]] keeps the default.' },
+      { title: 'Get paid', text: 'Add your payment link (PayPal, Venmo, Square, Stripe, Cash App, bank page) and your Google review link. New invoices get a Pay now button; the money goes straight to you.' },
+      { title: 'Your team', text: 'On Premium, add a worker and click [[Add and get link]]: they get a private clock-in link for their phone. Free accounts do not see this step.' },
+      { title: 'Look around with an example', text: 'On the last screen, [[Add an example project]] creates a sample client, job and draft estimate, all marked Example. It is never added by itself. [[Remove example data]] removes exactly those, and nothing else.' },
+    ],
+    tips: [
+      'Close the sheet any time with [[Skip for now]]: every step already saved stays saved, and Resume opens where you left off.',
+      'To stop the reminder, use Do not remind me again in the sheet or the X on the dashboard line. Settings, Setup assistant brings it back.',
+      'Offline, the steps save on your device and reach your account later. Adding a worker and the example project need a connection.',
+      'An account that already has everything set up never sees the sheet or the dashboard line.',
+    ],
   },
   {
     id: 'jobs',

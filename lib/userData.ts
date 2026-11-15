@@ -19,6 +19,9 @@
  *   automation rule choices    → public.user_settings 'automations.prefs' (lib/automations/rules.ts; Settings → Automations)
  *   jobs seen completed        → public.user_settings 'automations.seen' (lib/automations/state.ts, bounded)
  *   drafts a rule made         → public.user_settings 'automations.done' (lib/automations/state.ts, bounded)
+ *   setup assistant progress   → public.user_settings 'setup.state' (lib/setup/state.ts; Settings → Setup assistant)
+ *   tax + terms defaults       → public.user_settings 'documents.money' (lib/setup/moneyDefaults.ts)
+ *   example project ids        → public.user_settings 'setup.example' (lib/setup/example.ts)
  *   default labor rate         → profiles.default_labor_rate  (existing column)
  *   default signature          → profiles.default_signature_url (existing column)
  *   theme + language           → public.user_settings 'ui.preferences' + profiles.theme / profiles.language
@@ -383,6 +386,31 @@ export const loadDesignDefaultRaw = (): Promise<unknown> => loadJsonSetting(DESI
 
 /** Saves an already validated default design (device copy + account). */
 export const saveDesignDefaultRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(DESIGN_DEFAULT_KEY, designDefaultLocalKey, value);
+
+// ------------------------------------------------------------------------------ setup assistant
+// Raw storage only: lib/setup/state.ts, moneyDefaults.ts and example.ts validate the values. Same key strings as
+// SETUP_STATE_SETTING, MONEY_DEFAULTS_SETTING and SETUP_EXAMPLE_SETTING (scripts/setup-check.ts checks they match).
+export const SETUP_STATE_KEY = 'setup.state';
+const setupStateLocalKey = (uid: string) => `cd.setup.state:${uid}`;
+export const loadSetupStateRaw = (): Promise<unknown> => loadJsonSetting(SETUP_STATE_KEY, setupStateLocalKey);
+export const saveSetupStateRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(SETUP_STATE_KEY, setupStateLocalKey, value);
+
+export const MONEY_DEFAULTS_KEY = 'documents.money';
+const moneyDefaultsLocalKey = (uid: string) => `cd.documents.money:${uid}`;
+/** This device's copy of the tax / terms defaults (raw JSON; instant: what a new estimate or invoice starts with). */
+export function readMoneyDefaultsRaw(uid: string | null = activeUserId): unknown {
+    if (!uid) return null;
+    const raw = browserStore.getItem(moneyDefaultsLocalKey(uid));
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+}
+export const loadMoneyDefaultsRaw = (): Promise<unknown> => loadJsonSetting(MONEY_DEFAULTS_KEY, moneyDefaultsLocalKey);
+export const saveMoneyDefaultsRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(MONEY_DEFAULTS_KEY, moneyDefaultsLocalKey, value);
+
+export const SETUP_EXAMPLE_KEY = 'setup.example';
+const setupExampleLocalKey = (uid: string) => `cd.setup.example:${uid}`;
+export const loadSetupExampleRaw = (): Promise<unknown> => loadJsonSetting(SETUP_EXAMPLE_KEY, setupExampleLocalKey);
+export const saveSetupExampleRaw = (value: unknown): Promise<SyncMode> => saveJsonSetting(SETUP_EXAMPLE_KEY, setupExampleLocalKey, value);
 
 // --------------------------------------------------------------------------- task templates
 // Raw storage only: lib/tasks/taskLogic.ts parses / size-checks the value (parseTaskTemplates, serializeTaskTemplates)

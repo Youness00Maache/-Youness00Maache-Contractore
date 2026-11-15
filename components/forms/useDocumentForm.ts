@@ -5,6 +5,8 @@ import { DOC_NUMBER_CONFIG, errorMessage, newId, nextDocumentNumber } from './fo
 import { isDraftConsumed, markDraftConsumed, mergeDraftIntoForm, useDocumentDraftPrefill, type DraftPrefillState } from '../../hooks/useDocumentDraftPrefill.ts';
 import { applyDesignDefault, baselineOf, basicFallbackId, designPlan, enforceDocumentDesign, replacedDesignMessage, type DesignBaseline } from '../../lib/designAccess.ts';
 import { currentDesignDefault } from '../../lib/designDefaults.ts';
+import { applyMoneyDefaults } from '../../lib/setup/moneyDefaults.ts';
+import { currentMoneyDefaults } from '../../lib/setup/moneyStore.ts';
 
 /**
  * What a form's `onSave` may return:
@@ -121,7 +123,8 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
 
     const buildNew = useCallback((): T => {
         // new documents start with the user's default design (a Premium default becomes Classic on the Free plan)
-        const base = applyDesignDefault(optsRef.current.makeDefaults(), currentDesignDefault(), designPlan());
+        // ...and the tax / terms defaults from the setup assistant (only the fields the person set; Estimate / Invoice only)
+        const base = applyMoneyDefaults(formType, applyDesignDefault(optsRef.current.makeDefaults(), currentDesignDefault(), designPlan()), currentMoneyDefaults());
         if (numberCfg) {
             if (!autoNumberRef.current) autoNumberRef.current = nextDocumentNumber(numberCfg.prefix, optsRef.current.existingNumbers || []);
             (base as Record<string, unknown>)[numberCfg.field] = autoNumberRef.current;

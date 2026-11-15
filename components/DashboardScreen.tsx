@@ -29,6 +29,8 @@ interface DashboardScreenProps {
     t: Translation;
     /** AI assistant entry point (rendered by App, owned by the AI area). */
     aiSlot?: React.ReactNode;
+    /** Setup assistant hint, "Setup 4 of 7" (rendered by App; nothing when setup is complete or hidden). */
+    setupSlot?: React.ReactNode;
     /** "Payments reported by clients" card between the overview and the jobs (rendered by App; nothing when empty). */
     paymentsSlot?: React.ReactNode;
     /** Quote requests from the public request page (rendered by App; nothing until the feature exists in the database). */
@@ -113,7 +115,7 @@ const StatCard: React.FC<{
 };
 
 const DashboardScreen: React.FC<DashboardScreenProps> = ({
-    userName, plan, jobs, forms, clientsCount, lowStockCount, usage, loading, t, aiSlot, paymentsSlot, requestsSlot, pipelineSlot,
+    userName, plan, jobs, forms, clientsCount, lowStockCount, usage, loading, t, aiSlot, setupSlot, paymentsSlot, requestsSlot, pipelineSlot,
     onNewJob, onOpenJob, onOpenDocument, onDuplicateJob, onDeleteJob, onUpgrade, onOpenClients, onOpenInventory, onOpenCalendar,
 }) => {
     const initial = useMemo(readFilters, []);
@@ -213,6 +215,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                     </button>
                 </div>
             </div>
+
+            {setupSlot}
 
             {/* KPIs */}
             <section aria-label="Overview" className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
