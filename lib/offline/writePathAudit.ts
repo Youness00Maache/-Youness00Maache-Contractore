@@ -322,6 +322,17 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').update({ status })", what: 'shortlist / reject / choose a quote', offline: 'needs_connection' },
     { file: 'lib/subs/subsApi.ts', match: "from('job_quotes').delete()", what: 'delete a quote', offline: 'needs_connection' },
     { file: 'lib/subs/subPublicApi.ts', match: "rpc('crew_sub_accept'", what: 'crew link: the sub accepts their commitment', offline: 'public' },
+    // ------------------------------------------------------------------------ client feedback + public profile (D8)
+    { file: 'lib/feedback/feedbackApi.ts', match: "from('feedback_responses').insert(row)", what: 'ask a client for feedback (new private link)', offline: 'needs_connection' },
+    { file: 'lib/feedback/feedbackApi.ts', match: "from('feedback_responses').update(row)", what: 'feedback: testimonial on / off, display name, quote, hide, private note', offline: 'needs_connection' },
+    { file: 'lib/feedback/feedbackApi.ts', match: "from('feedback_responses').delete()", what: 'delete a feedback request / answer', offline: 'needs_connection' },
+    { file: 'lib/feedback/feedbackApi.ts', match: "rpc('submit_feedback'", what: 'client sends stars + comment (feedback link)', offline: 'public' },
+    { file: 'lib/profile/profileApi.ts', match: "rpc('update_request_profile'", what: 'public profile: about, services, service area, license / years lines', offline: 'needs_connection' },
+    { file: 'lib/profile/profileApi.ts', match: "rpc('set_request_profile_gallery', { p_items: galleryRpcPayload(items)", what: 'public profile gallery: reorder / captions / remove', offline: 'needs_connection' },
+    { file: 'lib/profile/profileApi.ts', match: "rpc('set_request_profile_gallery', { p_items: galleryRpcPayload(next)", what: 'public profile gallery: add a job photo', offline: 'needs_connection' },
+    { file: 'lib/profile/profileApi.ts', match: '.copy(photo.storagePath, path', what: 'public profile gallery: public copy of a job photo', offline: 'needs_connection' },
+    { file: 'lib/profile/profileApi.ts', match: 'storage.from(PORTAL_PHOTOS_BUCKET).upload(path, blob', what: 'public profile gallery: public copy, older storage', offline: 'needs_connection' },
+    { file: 'lib/profile/profileApi.ts', match: 'storage.from(PORTAL_PHOTOS_BUCKET).remove([path])', what: 'undo a gallery copy whose save failed', offline: 'needs_connection' },
 ];
 
 /** Rows of the table that cover a scanned line. */
