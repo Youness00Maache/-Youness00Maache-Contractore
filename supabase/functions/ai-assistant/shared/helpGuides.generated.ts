@@ -1901,6 +1901,174 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ]
     },
     {
+        "id": "integrations",
+        "title": "Integrations & exports",
+        "summary": "Connect your Gmail, put your schedule in your phone’s calendar, move your numbers to QuickBooks or Xero, and update your price book from a price list.",
+        "where": [
+            "Account menu",
+            "Settings",
+            "Integrations & data"
+        ],
+        "appPath": "/settings#integrations",
+        "steps": [
+            {
+                "title": "Open the list",
+                "text": "Open Settings and find Integrations & data. Each row says in one line what it does and shows its state: Connected, Reconnect needed, Not connected, File download, CSV files or Premium."
+            },
+            {
+                "title": "Gmail",
+                "text": "Click [[Connect Gmail]] and choose your address on Google’s page. ContractorDocs asks only to send email for you: it cannot read your inbox. [[Reconnect]] renews a connection that stopped working and [[Disconnect]] removes one. This is the same connection the Messages screen uses."
+            },
+            {
+                "title": "Calendar",
+                "text": "Click [[Set up the file]] on the Calendar row to make a calendar file of your jobs, appointments, follow-ups and due dates. It is a snapshot you add to Google, Apple or Outlook Calendar. See the Calendar file guide."
+            },
+            {
+                "title": "Accounting",
+                "text": "Click [[Make a file]] on the Accounting row for import files in QuickBooks Online or Xero columns: invoices, customers, expenses and payments received. See the QuickBooks and Xero files guide."
+            },
+            {
+                "title": "Price list",
+                "text": "Click [[Import price list]] to change many prices in your price book from a CSV file, with a review before anything is saved. It is part of Premium. See the Import a price list guide."
+            },
+            {
+                "title": "Everything as a backup",
+                "text": "One backup of everything you have made, and the monthly bookkeeper CSV, are in Your data: click [[Open Your data]]. They work on every plan."
+            }
+        ],
+        "tips": [
+            "Nothing here sends anything by itself. The calendar and accounting files are made on your device and you download them.",
+            "Everything on this page is free except the price list import, which is part of Premium.",
+            "Offline, the Gmail row says it needs a connection. The price list import keeps its changes on your device and saves them when you are back online."
+        ]
+    },
+    {
+        "id": "calendar-file",
+        "title": "Calendar file (.ics)",
+        "summary": "Your upcoming jobs, appointments, lead follow-ups, task due dates and invoice dates as one file for Google, Apple or Outlook Calendar.",
+        "where": [
+            "Settings",
+            "Integrations & data",
+            "Calendar"
+        ],
+        "appPath": "/settings#integrations",
+        "steps": [
+            {
+                "title": "Open it",
+                "text": "In Settings, Integrations & data, click [[Set up the file]] on the Calendar row. Your dates are read once and counted next to each choice."
+            },
+            {
+                "title": "Choose the days",
+                "text": "Pick 30 days, 90 days or A year. It starts today."
+            },
+            {
+                "title": "Choose what to include",
+                "text": "Tick Jobs (active or paused ones), Appointments, Lead follow-ups, Task due dates and Invoice, estimate and order dates. Each line shows how many items it adds. Cancelled appointments, done tasks and paid invoices are left out."
+            },
+            {
+                "title": "Download it",
+                "text": "Click [[Download calendar file]]. You get a standard .ics file."
+            },
+            {
+                "title": "Add it to your calendar",
+                "text": "Google Calendar: Settings, Import & export, Import. Apple: open the file and tap Add All. Outlook: Add calendar, Upload from file. Choose the calendar to put it in; a calendar of its own is easiest to clear later."
+            },
+            {
+                "title": "Refresh it",
+                "text": "The file is a snapshot and does not update by itself. Download it again when your jobs change. Every item keeps the same ID, so Google and Apple Calendar usually update it instead of adding a copy."
+            }
+        ],
+        "tips": [
+            "Appointments keep their time in your time zone. Jobs, follow-ups and due dates are whole-day items.",
+            "The file only contains what you tick. Nothing is sent anywhere."
+        ]
+    },
+    {
+        "id": "accounting-exports",
+        "title": "QuickBooks and Xero files",
+        "summary": "Import files for QuickBooks Online and Xero: invoices, customers, expenses and payments received, with amounts that match your documents.",
+        "where": [
+            "Settings",
+            "Integrations & data",
+            "Accounting"
+        ],
+        "appPath": "/settings#integrations",
+        "steps": [
+            {
+                "title": "Open it",
+                "text": "In Settings, Integrations & data, click [[Make a file]] on the Accounting row."
+            },
+            {
+                "title": "Pick the app and the file",
+                "text": "Choose QuickBooks Online or Xero, then the file: Invoices, Customers, Expenses or Payments received."
+            },
+            {
+                "title": "Choose the period and a filter",
+                "text": "Pick a month or Custom dates. For invoices choose All sent and paid, Unpaid only or Paid only (drafts and cancelled invoices are never included). Customers can be limited to the ones you invoiced in the period, expenses to a category, payments to receipts or to payments marked as paid."
+            },
+            {
+                "title": "Check the preview",
+                "text": "You see how many invoices, customers, expenses or payments are in the file, what they add up to, and the first five rows."
+            },
+            {
+                "title": "Download and import",
+                "text": "Click [[Download file]], then import it in your accounting app. The screen names the place to import it, for example Xero: Business, Invoices, Import."
+            },
+            {
+                "title": "Check the column names",
+                "text": "The column names follow each app’s import template as we last knew it. Compare them with the app’s current import template. Under [[Columns and settings for this file]] you can see every column and change the date format, account code, tax names and product name to match your books."
+            }
+        ],
+        "tips": [
+            "Amounts match your documents: add-ons you did not select are left out, a progress invoice exports what that invoice bills, and a discount or shipping is its own line. Each invoice adds up to the total on its PDF.",
+            "Payments received use the bank-statement layout each app imports. Your accounting app matches them to your invoices when you reconcile.",
+            "Expenses are filed as bills for the full amount you paid, tax included.",
+            "The monthly bookkeeper CSV in Your data is unchanged."
+        ]
+    },
+    {
+        "id": "import-price-list",
+        "title": "Import a price list",
+        "summary": "Change many price book prices at once from a CSV file, after you review every change.",
+        "where": [
+            "Settings",
+            "Integrations & data",
+            "Price list"
+        ],
+        "appPath": "/settings#integrations",
+        "steps": [
+            {
+                "title": "Open it",
+                "text": "In Settings, Integrations & data, click [[Import price list]] on the Price list row. It is part of Premium."
+            },
+            {
+                "title": "Say what the prices are",
+                "text": "Choose What I charge (selling prices) or What I pay (costs, like a supplier’s list). A cost list only changes the cost of items you already have."
+            },
+            {
+                "title": "Choose the file",
+                "text": "Click [[Import price list]] again and pick a CSV file with columns like SKU, Description, Unit and Price. Prices such as $1,234.50 or 1.234,50 are understood. Save an Excel sheet as CSV first."
+            },
+            {
+                "title": "Review",
+                "text": "Items are matched by SKU first, then by name. You see Price changes with the old price, the new price and the percent (5% or more is marked), New items, rows that cannot be used, and the unchanged ones. Price changes are ticked; new items are not."
+            },
+            {
+                "title": "Tick what to apply",
+                "text": "Use All, None and Big changes only, or tick row by row. Nothing is saved until you click Apply."
+            },
+            {
+                "title": "Apply",
+                "text": "Click Apply. Only the ticked rows are saved, then a summary says how many prices were updated and items added."
+            }
+        ],
+        "tips": [
+            "The price book keeps no history, so there is no undo button. Before you apply, click Save the old prices to keep a CSV of the ticked items; importing that file here puts them back.",
+            "Kits are never changed: their price comes from their parts.",
+            "Offline, the changes are kept on your device and saved to your account when you are back online."
+        ]
+    },
+    {
         "id": "settings",
         "title": "Settings, plan and billing",
         "summary": "Your company details, signature, look, plan and account.",
