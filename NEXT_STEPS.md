@@ -51,18 +51,38 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 - Keep the owner updated in short, plain messages.
 
 # >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
-Read docs/work/tutorial-video/PLAN.md + README.md first. Done so far: 30-chapter plan (CHAPTERS.md, ~92 min, 3 waves), script
-format + validator, English scripts written by helpers (chapters/*.mjs), fake demo backend + real-app recording (works:
-Chrome screencast streamed to ffmpeg -> MP4, one-command runner `record/run.mjs <slot> <NN>`), AI33 client (tts/ai33.mjs).
-OWNER ANSWERED 2026-11-15: spoken voice English + Spanish first, subtitles in all 10 languages, public Supabase bucket
-`tutorial-media` is OK, ship in waves (wave 1 = chapters 1-11). Done: Spanish narration for 1-11 (translations/es), in-app player
-(lib/tutorialVideo.ts, components/help/VideoCourse.tsx, wired in HelpCenter; hidden until `<media base>/manifest.json` exists,
-so safe to ship; tsc + scripts/video-course-check.ts pass). Two Sonnet helpers were fixing/recording chapters 1-6 (slot a) and
-7-11 (slot b). WAITING FOR THE OWNER: AI33 key via `powershell -NoProfile -File docs/work/tutorial-video/scripts/set-ai33-key.ps1`
-(hidden input, git-ignored .env.local; never in chat). TODO: real voice EN+ES for wave 1 (`node tts/narrate.mjs en|es`), final
-recordings with real timing (record/chapter.mjs must use the longest of en/es per scene), build/assemble.mjs (manifest +
-subtitles bundles + posters), create bucket + upload (owner drags the publish folder), subtitle translations for the other 8
-languages, wave 2 and 3 chapters, npm run build / seo:check / full suites, push, test on a phone.
+Read docs/work/tutorial-video/PLAN.md + README.md first. STATE 2026-11-15 ~15:10 (branch my-branch, last commit d647e27, NOTHING PUSHED):
+- Owner decisions: voice English + Spanish (subtitles in all 10 languages), public bucket `tutorial-media`, ship in waves
+  (wave 1 = chapters 1-11, wave 2 = 12-22, wave 3 = 23-30). The bucket EXISTS (created by the assistant in the Supabase
+  Storage UI 2026-11-15: public, 50 MB limit; supabase/migrations/20261116001300_tutorial_media_bucket.sql records it). It is
+  EMPTY: nothing uploaded yet, so the Help page shows no "Video course" (the player hides itself until manifest.json exists).
+- DONE: 30 English chapter scripts; wave 1 (01-11) fixed to 0 missed actions + demo data (fake-backend/demo/*.mjs) + motion/phone
+  scenes; English AND Spanish AI33 voice for 01-11 in <home>/contractordocs-tutorial-work/cache/audio/{en,es} (Mark voice
+  elevenlabs_TZCbdntnleSl53jkcRsm; Spanish at speed 1.1; en 31.7 min, es 34.6 min); subtitles fr/de/it/pt (committed) and
+  zh/ja/ko/ru (helper writing them); final recordings with real timing: 01-06 DONE in <home>/contractordocs-tutorial-work/out/chapters,
+  07-11 running (log: scratchpad final-07-11.log); the in-app player (lib/tutorialVideo.ts, components/help/VideoCourse.tsx, wired in
+  HelpCenter, App.tsx passes profile.language) tested in a browser with a 1-chapter package: plays, voice+captions in sync.
+- AI33 KEY: the owner allowed reading it IN MEMORY from C:/Users/JAAF/Documents/ChatGPT/dd/worker/.env: run with env
+  AI33_ENV_FILE=that path (tts/ai33.mjs). NEVER print, copy or store the key.
+- NEXT STEPS (wave 1): (1) when final-07-11 finishes: `node build/assemble.mjs` (from docs/work/tutorial-video, TUTORIAL_WORK_DIR=
+  <home>/contractordocs-tutorial-work) -> <work>/publish/v1/; check manifest.json + subtitles (all 10 langs; add zh/ja/ko/ru
+  _titles); (2) test the player locally: serve <work>/publish with scripts/serve-media.mjs 3998, run vite with
+  VITE_TUTORIAL_MEDIA_BASE=http://127.0.0.1:3998/v1 and the fake backend (see README), sign in via localStorage fake session;
+  (3) UPLOAD the folder v1/ into bucket tutorial-media (Supabase dashboard works in the owner's Chrome but is SLOW to boot,
+  ~40 s; chrome tool file_upload takes <10 MB per call, one file per input, folders must be created in the UI first: or ask the
+  owner to drag the publish/v1 folder into the bucket); (4) npx tsc --noEmit -p ., npm run build, npm run seo:check, scripts/
+  *-check.ts, npm run qa:document-ai; a help snapshot mismatch: npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge; (5) push
+  my-branch and my-branch:main, curl the live site; no ai-assistant redeploy needed (help guides unchanged); (6) wave 2 and 3:
+  chapters 12-30 scripts exist (chapters/), need: fix with `node record/run.mjs <slot> NN` (one helper per slot a/b, 0 unresolved),
+  Spanish + 8 languages translations (translations/<lang>/NN-id.json, scripts/dump-say.mjs, scripts/validate-translations.mjs),
+  voice `node tts/narrate.mjs en|es --speed 1.1 for es --chapters ...`, final record `run.mjs f NN --langs en,es`, assemble, upload.
+- Owner watches finished chapters on the watch page: node scripts/make-watch-page.mjs <notes folder> then node scripts/serve-media.mjs
+  <notes folder> 3999 -> http://127.0.0.1:3999/watch.html (the owner twice did not receive SendUserFile videos; reveal_path + the
+  Browser pane worked).
+- Known narration/screen mismatches left as written (true but not shown): 08.s05.0/.1/.5 (Project tab, All documents), 09.s03.0,
+  10.s02.2, 11.s02.4. Gotchas: run.mjs only makes placeholder timing when NO audio exists (pass --mock for a new chapter in a slot);
+  never run two recordings on one slot; Vite reloads if any .html under the repo changes during a run; C: disk was nearly full once.
+- Usage rule: pause at 70% of the 5-hour limit; weekly was 55% at 15:05 (the owner asked for this video explicitly).
 
 # >>> STATUS 2026-11-14 afternoon: owner requests 1-5 below are DONE and LIVE (main) <<<
 - Community in the phone bottom bar (457427c); phone app bar: offline = one-line strip under the bar (0f0d9ba).
