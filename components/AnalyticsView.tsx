@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import { isOfflineFailure, readListCopy, saveListCopy } from '../lib/offline/deviceCache.ts';
-import type { FormData as FormDataType, Job } from '../types.ts';
+import type { Client, FormData as FormDataType, Job, UserProfile } from '../types.ts';
+import BusinessOverview from './overview/BusinessOverview.tsx';
 import { AwardIcon, BarChartIcon, BriefcaseIcon, ClockIcon, CreditCardIcon, PieChartIcon, RefreshCwIcon, TrendingUpIcon, ReceiptIcon } from './Icons.tsx';
 import { EmptyState, InlineError, PageHeader, StatCard, fetchAllPages, friendlyError, getCurrentUserId, money, useIsMobile } from './viewKit.tsx';
 import { computeAnalytics, presetRange, previousRange, relativeChange, type AnalyticsDoc, type AnalyticsResult, type Bucket, type RangePreset } from '../utils/analyticsMath.ts';
@@ -16,6 +17,20 @@ interface AnalyticsViewProps {
   /** Profile labor rate (time sheets are costed with it, like Job financials). */
   defaultLaborRate?: number;
   onBack: () => void;
+  /**
+   * Business overview at the top of the screen (roadmap N3, components/overview). Optional: without it the screen is
+   * exactly as before. Everything below the overview is unchanged.
+   */
+  overview?: {
+    clients: Client[];
+    profile: UserProfile | null;
+    isOnline: boolean;
+    /** the Tasks tool is in the database: task progress and next dates show */
+    tasksReady: boolean;
+    /** the Leads tool is ready: new leads and win rate show */
+    leadsUserId?: string | null;
+    onOpenJob: (jobId: string) => void;
+  };
 }
 
 // JSON-path select: only the fields the math needs (no signatures, logos or notes are downloaded).
@@ -179,8 +194,10 @@ const TrendChart: React.FC<{ buckets: Bucket[]; granularity: AnalyticsResult['gr
 
 // ------------------------------------------------------------------------------------------------
 
-const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRate, onBack }) => {
+const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRate, onBack, overview }) => {
   const laborRate = useMemo(() => resolveLaborRate(defaultLaborRate), [defaultLaborRate]);
+  // bumped by Refresh so the business overview reads its data again too
+  const [overviewRefresh, setOverviewRefresh] = useState(0);
   const [preset, setPreset] = useState<PresetKey>('this-month');
   const initial = presetRange('this-month');
   const [startYMD, setStartYMD] = useState(initial.startYMD);
@@ -294,8 +311,22 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs = [], defaultLaborRa
         icon={<TrendingUpIcon className="h-7 w-7" />}
         title="Insights"
         subtitle="Collected, costs, profit and win rate, calculated from your invoices, receipts, estimates and job cost documents."
-        actions={<button type="button" className="btn btn-outline" onClick={load} disabled={loading}><RefreshCwIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>}
+        actions={<button type="button" className="btn btn-outline" onClick={() => { setOverviewRefresh((n) => n + 1); load(); }} disabled={loading}><RefreshCwIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>}
       />
+
+      {overview && (
+        <BusinessOverview
+          jobs={jobs}
+          clients={overview.clients}
+          profile={overview.profile}
+          laborRate={laborRate}
+          isOnline={overview.isOnline}
+          tasksReady={overview.tasksReady}
+          leadsUserId={overview.leadsUserId}
+          refreshKey={overviewRefresh}
+          onOpenJob={overview.onOpenJob}
+        />
+      )}
 
       <div className="card mb-5 flex flex-col gap-3 p-3 sm:flex-row sm:items-end sm:p-4">
         <div className="sm:w-48">

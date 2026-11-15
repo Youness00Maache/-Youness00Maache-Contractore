@@ -15,7 +15,7 @@ export type HelpTopicId =
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
-  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view';
+  | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview';
 
 export interface HelpStep {
   title: string;
@@ -684,8 +684,31 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Schedule a job', text: 'Click [[New job]], or double-click a day in the month view on a computer.' },
       { title: 'See your tasks', text: 'With job tasks switched on, the Schedule also marks the days your open tasks are due (a small diamond; red when late), under each day in the Week view, and under Tasks in the List view. Tap one to open that job’s Tasks.' },
       { title: 'See your leads', text: 'With leads switched on, the Schedule also shows the days you planned to follow up with a lead and your booked appointments (a small blue marker on the day; red when a follow-up is late), under each day in the Week view and under Leads in the List view. Tap one to open the lead.' },
-      { title: 'Check the numbers', text: 'Tools, Insights: pick a period to see revenue collected, outstanding, costs, profit, average invoice and estimate win rate, with charts.' },
+      { title: 'Check the numbers', text: 'Tools, Insights opens with the Business overview (how the business is doing at a glance: see its own guide). Below it, pick a period to see revenue collected, outstanding, costs, profit, average invoice and estimate win rate, with charts.' },
       { title: 'One job’s profit', text: 'On a job page, [[Financials]] shows that job’s income, costs and labor.' },
+    ],
+  },
+  {
+    id: 'business-overview',
+    title: 'Business overview',
+    summary: 'How your business is doing at a glance: what you billed and collected, your best and worst jobs, estimates waiting for a yes, and your active jobs.',
+    where: ['Tools', 'Insights'],
+    group: 'Tools',
+    appPath: '/analytics',
+    steps: [
+      { title: 'Open it', text: 'Open [[Tools]] and choose [[Insights]]. The Business overview is the first thing on the page; everything Insights showed before is right below it.' },
+      { title: 'Read the headline', text: 'The first line sums up the period, like “March: $24.1k billed, $18.3k collected, $5.8k waiting”. The bar under it shows how much of what you billed is paid, waiting or overdue. Then one line of figures: Billed, Collected, Waiting, Overdue, Days to get paid, Profit and Active jobs (with leads switched on, also New leads and the share you won).' },
+      { title: 'Choose the period, customer and project', text: 'Pick [[This month]], [[Last month]], [[This quarter]], [[This year]], [[Last 12 months]] or [[Custom dates]]. Choose a Customer or a Project and every section follows. [[Show everything]] clears them. Tap a customer under Revenue by customer to see only them.' },
+      { title: 'Best and worst jobs', text: 'Jobs by profit lists your five most and five least profitable jobs with revenue, cost, profit and margin; tap a job to open it. [[This period]] counts what was billed and spent in the period, [[Whole job]] counts everything the job ever billed and cost, like Job financials. [[By profit]] and [[By margin]] change the order. A job needs both income and costs to be ranked: the others are listed as “without enough data”, never shown as a 100% margin.' },
+      { title: 'Chase your estimates', text: 'Waiting on a yes lists the estimates you sent that nobody answered, longest wait first, with the total value. [[Nudge]] opens the same Share window as the follow-up on a Pipeline card, so you can send a reminder from your Gmail, a text or a link. It needs a connection.' },
+      { title: 'Watch your active jobs', text: 'Active jobs shows how much of the budget is used (spent or ordered against the accepted estimates, like Job financials), the tasks done (with job tasks switched on), the next date, and a red tag when a job is over budget, costs run ahead of the work, or a task is late. Tap a job to open it.' },
+      { title: 'Take it with you', text: '[[Download this overview as CSV]] saves what you see (the figures, jobs, waiting estimates, active jobs and customers) as a spreadsheet file.' },
+    ],
+    tips: [
+      'Nothing here is new data: it uses the same rules as Job financials and the rest of Insights (income − costs = profit), calculated on your device from your documents, jobs, tasks and leads.',
+      'Waiting on a yes and Active jobs show how things are today, whatever period is chosen. The customer and project filters still apply to them.',
+      'It opens offline with the figures last loaded on this device.',
+      'The Business overview is part of every plan.',
     ],
   },
   {
