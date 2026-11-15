@@ -237,6 +237,12 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED N10 integrations + exports (Settings > "Integrations & data": Gmail status/connect, calendar .ics download
+  with period + include boxes, QuickBooks Online / Xero CSV exports for invoices, customers, expenses, payments (sums equal the
+  documents), price-book price-list import with review + "download old prices" instead of undo). main/my-branch 0488329;
+  suite green (47 steps); live bundle has "Download calendar file". ai-assistant NOT redeployed for this (help knowledge only):
+  redeploy it with N6. TODO for the owner: check the QuickBooks/Xero column names, account codes and tax names in
+  lib/integrations/accountingExport.ts against the apps' current import templates (written from memory).
 - 2026-11-15 SHIPPED D10 warranty tracking + post-job emails (DB 20261116000900 applied: reminders kind/step_key checks widened +
   skip_reminder; `reminders` edge function REDEPLOYED, JWT verify OFF, new emails Premium + OFF by default; Warranty form
   coverage + claims, Warranties list on the job page, 3 rows in Settings > Automations), N7 job AI (assistant answers from job /
