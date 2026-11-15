@@ -161,6 +161,8 @@ const JobQuestionsPanel = lazy(() => import('./components/questions/JobQuestions
 // Client selections + mood boards (roadmap D5): job page tabs, hidden until the database has them.
 const JobSelectionsPanel = lazy(() => import('./components/selections/JobSelectionsPanel.tsx'));
 const JobSubsPanel = lazy(() => import('./components/subs/JobSubsPanel.tsx'));
+// Plans (roadmap N9): measure on an uploaded plan; pdf.js loads only inside this chunk
+const JobPlansPanel = lazy(() => import('./components/plans/JobPlansPanel.tsx'));
 const JobFeedbackButton = lazy(() => import('./components/feedback/JobFeedbackButton.tsx'));
 const JobBoardsPanel = lazy(() => import('./components/boards/JobBoardsPanel.tsx'));
 // Job timeline (roadmap N11): everything that happened on the job, derived from data already read; no tables of its own.
@@ -2727,6 +2729,11 @@ const App: React.FC = () => {
                 subsSlot={subsFeature === 'ready' && session ? (
                     <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
                         <JobSubsPanel job={job} userId={session.user.id} companyName={profile?.companyName || profile?.name || ''} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} />
+                    </Suspense>
+                ) : undefined}
+                plansSlot={session ? (
+                    <Suspense fallback={<div className="skeleton h-40 w-full" aria-busy="true" />}>
+                        <JobPlansPanel job={job} userId={session.user.id} plan={plan} isOnline={isOnline} onUpgrade={openUpgrade} documents={jobDocs} savedItems={savedItems} />
                     </Suspense>
                 ) : undefined}
                 boardsSlot={boardsFeature === 'ready' && session ? (
