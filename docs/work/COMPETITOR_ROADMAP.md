@@ -196,6 +196,14 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   comparison (Opus A -> Sonnet B), D10 warranty/email automations (touches reminders edge function), N7 job AI (Opus,
   ai-assistant), D8 profile + reviews, N3 overview (Sonnet), N6 AI documents (Opus), N8 setup (Sonnet), N9 plan measurement
   (Opus), N10 integrations (Sonnet), N11 timeline + D11 email log, D6 bills, D12 push (needs the owner's VAPID secrets).
+  2026-11-15 ~04:30 UTC: D13 + D5 + N5 SHIPPED (1c4cd10). RUNNING: N3 business overview (Sonnet, agent-abd0fe49edd61257e) and
+  D7 subs + quote comparison phase A (Opus, agent-ac151f44e1be5f483; migration 20261116000800_subs_quotes.sql; ALTERs
+  crew_members; sub link RPCs crew_sub_get / crew_sub_accept). NEXT after them: D7 phase B (Sonnet UI), D10 warranty/email
+  automations (touches the reminders edge function + a new reminders kind: check supabase/functions/reminders and the
+  reminders migration), N7 job AI (Opus; ai-assistant context aggregates; include the AI monthly summary for N3's slot),
+  D8 profile + reviews, N6 AI documents (Opus; Gemini vision), N8 setup wizard (Sonnet), N9 plan measurement (Opus),
+  N10 integrations (Sonnet), N11 timeline + D11 email log, D6 bills, D12 push (needs the owner's VAPID secrets: never
+  type them).
   OLD NOTE (superseded): review + apply the D2 migration, start the D2 Sonnet UI helper (+ the next phase-A Opus helper: D9 portal
   dashboard / D3 files), then one full test run, push, redeploy ai-assistant, Done log for D2 + D4.
 - TODO at the end: one help-guide pass for D2/D4 (+ `npx tsx scripts/document-ai-flow-qa.ts --sync-knowledge`, redeploy ai-assistant).
@@ -203,6 +211,14 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
 
 ## Done log
 (append: date, batch, commit, tests, deploys)
+- 2026-11-15 SHIPPED D13 client chooses add-ons when signing (DB 20261116000700 applied: 3 new functions + guard_document_write /
+  _document_stock_lines with only the add-on lines changed; app tolerant when the function is missing), D5 client selections +
+  mood boards (DB 20261116000600 applied; job Selections/Boards tabs, portal "Your selections" + "Ideas board", selections
+  line in job financials, PO draft from an approved selection) and N5 assemblies (labor hours/rate/burden, expense rows,
+  14 starter kits in 7 trades; old kits identical). main/my-branch 1c4cd10; suite green (41 steps); ai-assistant
+  redeployed; live bundle has "Your selections", "Ideas board", "Starter kits", "Add to my estimate". Click paths: Job >
+  Selections > New (Tile) > Send; client link > Your selections; Estimate > send add-ons client link > tick add-ons >
+  sign; Price book > Starter kits; kit editor > Labor / Expenses. Not clicked live (needs the owner's account).
 - 2026-11-15 SHIPPED N4 proposal builder (optional add-ons excluded from totals via utils/money.ts isExcludedOptionalLine /
   countedLineItems, structured scope, payment milestones + deposit invoice via progress billing, project photos, reusable
   templates; owner-only for now) and N12 Settings > Automations (rules: estimate approved -> invoice draft, job completed ->
