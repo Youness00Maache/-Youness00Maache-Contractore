@@ -348,7 +348,7 @@ const newId = () => `id-${++seq}`;
 {
     const sql = readFileSync(join(root, 'supabase/migrations/20261116000100_job_tasks.sql'), 'utf8');
     const code = sql.replace(/--[^\n]*/g, '');
-    ok(/^-- Applied: NOT YET \(needs owner OK\)/.test(sql), 'header: not applied yet');
+    ok(/^-- Applied 2026-11-15 with the owner's OK/.test(sql), 'header: applied with the owner OK');
     for (const table of ['job_tasks', 'task_comments']) {
         ok(new RegExp(`create table if not exists public\\.${table} \\(`).test(code), `${table}: create table if not exists`);
         ok(new RegExp(`alter table public\\.${table} enable row level security`).test(code), `${table}: RLS on`);

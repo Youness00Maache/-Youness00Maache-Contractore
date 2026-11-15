@@ -1,4 +1,4 @@
--- Applied: NOT YET (needs owner OK)
+-- Applied 2026-11-15 with the owner's OK ("Yes, approve all", roadmap D2) in the Supabase SQL editor (project iauteblvljppwzsxloyd); verified: RLS on both tables, 8 owner policies, 4 triggers, 6 definer functions with search_path '', anon can run only the 3 crew functions, no anon table grants, storage policy cd_crew_task_photos_insert_public.
 -- =====================================================================================
 -- ContractorDocs: job tasks + schedule (competitor roadmap batch D2: #16 #17 #18 #19)
 --
