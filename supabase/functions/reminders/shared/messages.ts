@@ -111,7 +111,8 @@ export function resolveTemplate(settings: Pick<ReminderSettings, 'templates'>, k
 }
 
 const PLACEHOLDER_RE = /\{([a-z_]+)\}/g;
-const LINK_KEYS = new Set(['link', 'pay_link']);
+// review_link: after-the-job thank-you (./postjob.ts); not used by the invoice / estimate / visit templates
+const LINK_KEYS = new Set(['link', 'pay_link', 'review_link']);
 
 /**
  * Fills {placeholders}. Unknown names are left as typed. A line whose {link}/{pay_link} is empty is dropped

@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import {
-    formatShortDate, REASON_LABELS, stepLabel, type ReminderKind, type StepState, type StepView,
+    formatShortDate, REASON_LABELS, stepLabel, type PostJobKind, type ReminderKind, type StepState, type StepView,
 } from '../../lib/reminders.ts';
 
 export const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ');
@@ -35,16 +35,16 @@ export const Switch: React.FC<{
 );
 
 /** Three-letter tag for the kind of reminder (reads faster than an icon in a dense list). */
-export const KindTag: React.FC<{ kind: ReminderKind; className?: string }> = ({ kind, className }) => (
+export const KindTag: React.FC<{ kind: ReminderKind | PostJobKind; className?: string }> = ({ kind, className }) => (
     <span
         className={cx(
             'inline-flex h-6 w-11 shrink-0 items-center justify-center rounded-md font-mono text-[10px] font-bold uppercase tracking-wider',
-            kind === 'invoice' ? 'bg-primary/10 text-primary' : kind === 'estimate' ? 'bg-warning/15 text-warning' : 'bg-success/10 text-success',
+            kind === 'invoice' ? 'bg-primary/10 text-primary' : kind === 'estimate' ? 'bg-warning/15 text-warning' : kind === 'visit' ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground',
             className,
         )}
         aria-label={kind}
     >
-        {kind === 'invoice' ? 'INV' : kind === 'estimate' ? 'EST' : 'VISIT'}
+        {kind === 'invoice' ? 'INV' : kind === 'estimate' ? 'EST' : kind === 'visit' ? 'VISIT' : kind === 'completion' ? 'THX' : kind === 'warranty' ? 'WAR' : 'MAINT'}
     </span>
 );
 

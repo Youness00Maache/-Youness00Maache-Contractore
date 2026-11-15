@@ -1,5 +1,7 @@
 // reminders: sends automatic invoice reminders, estimate follow-ups and visit reminders from each user's own Gmail,
 // and (./papers.ts) expiry reminders about the user's own papers (insurance, licenses, permits, bonds) to themselves.
+// After-the-job emails (./postjob.ts, migration 20261116000900): a thank-you after a completed job, warranty-ending
+// notes (client + owner) and maintenance reminders, through the same dispatch loop and log.
 //
 // Called every 10 minutes by pg_cron (public.reminders_cron_tick() -> pg_net) — never by browsers.
 //   POST { action: 'run', dry_run?: boolean }   header  x-reminders-secret: <Vault 'reminders_cron_secret'>
@@ -36,6 +38,7 @@ import {
 import { dispatchReminders, emptySummary, mergeSummary, SendFailure, type Claim, type OutgoingReminder } from './shared/dispatch.ts';
 import { verifyCronSecret } from './shared/cronAuth.ts';
 import { runPaperReminders } from './papers.ts';
+import { planPostJobBatch } from './postjob.ts';
 
 const SITE_URL = (env('SITE_URL') || 'https://www.contractordocs.app').split(',')[0].trim().replace(/\/+$/, '');
 const USERS_PER_BATCH = 40;
@@ -536,7 +539,8 @@ async function run(admin: SupabaseClient, opts: { dryRun: boolean }) {
   for (const batch of chunks(userIds, USERS_PER_BATCH)) {
     if (Date.now() >= deadline) break;
     const contexts = await buildUserContexts(admin, batch, accounts, now);
-    const planned = await planBatch(admin, contexts, launchedAt, now);
+    // + after-the-job emails (D10: completion / warranty / maintenance; paid plans, off until switched on)
+    const planned = [...await planBatch(admin, contexts, launchedAt, now), ...await planPostJobBatch(admin, contexts, now, SITE_URL)];
     targets += planned.length;
     if (opts.dryRun) {
       for (const p of planned) {
