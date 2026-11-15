@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'how-to-write-a-construction-scope-of-work',
+    title: 'How to Write a Scope of Work for a Construction Job (Template)',
+    description: 'How to write a construction scope of work in seven steps: areas, materials, exclusions, assumptions, schedule and a definition of done, with a checklist.',
+    date: '2026-11-16',
+    updated: '2026-11-16',
+    author: AUTHOR,
+    category: 'Project Paperwork',
+    readingTime: 9,
+    keywords: ['how to write a scope of work', 'construction scope of work template', 'scope of work for contractors', 'scope of work example'],
+    related: ['construction-estimate-template', 'change-order-form-guide', 'contractor-paperwork-checklist'],
+  },
+  {
     slug: 'how-to-create-a-construction-estimate-with-ai',
     title: 'How to Create a Construction Estimate with AI (Step by Step)',
     description: 'Create a construction estimate with AI in six steps: describe the job, let AI draft the lines, use your price book prices, check margin and send it to sign.',
