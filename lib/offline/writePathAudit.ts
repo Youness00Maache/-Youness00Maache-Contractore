@@ -219,6 +219,7 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'lib/tasks/tasksApi.ts', match: "from('task_comments').delete()", what: 'delete a task comment', offline: 'needs_connection' },
     { file: 'src/ai/extractTasks.ts', match: "functions.invoke('ai-assistant'", what: 'AI: turn a note / daily report into proposed tasks', offline: 'needs_connection' },
     { file: 'src/ai/businessSummary.ts', match: "functions.invoke('ai-assistant'", what: 'AI business summary on the Business overview (read-only; hidden offline)', offline: 'needs_connection' },
+    { file: 'src/ai/readDocument.ts', match: "functions.invoke('ai-assistant'", what: 'AI: read a receipt / supplier invoice for the Expense Log review screen (read-only; the expense saves through the form; hidden offline)', offline: 'needs_connection' },
     // job tasks on the crew link (worker, no login)
     { file: 'lib/tasks/tasksPublicApi.ts', match: "rpc('crew_tasks_get'", what: 'crew link: the worker\'s tasks', offline: 'public' },
     { file: 'lib/tasks/tasksPublicApi.ts', match: "rpc('crew_task_update'", what: 'crew link: mark a task started / done, comment', offline: 'public' },

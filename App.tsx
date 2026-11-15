@@ -420,6 +420,8 @@ const App: React.FC = () => {
         : mapJobRow({ created_at: new Date().toISOString(), ...row }))), [serverJobs, outbox.items, session?.user?.id]);
     const clients = useMemo(() => applyEntityOverlay(serverClients, outbox.items, session?.user?.id, 'client', (row, prev) => (
         { ...(prev || { created_at: new Date().toISOString() }), ...row } as Client)), [serverClients, outbox.items, session?.user?.id]);
+    /** Expense Log "Read with AI": the jobs a read document may mention (a hint only, never assigned) */
+    const expenseJobRefs = useMemo(() => jobs.map(j => ({ id: j.id, name: j.name, clientName: j.clientName })), [jobs]);
     const outboxRef = useRef(outbox);
     outboxRef.current = outbox;
     // insertClient / updateClient (Clients screen, inventory...) keep offline saves in this outbox (lib/offline/offlineEntities)
@@ -2822,7 +2824,7 @@ const App: React.FC = () => {
             case FormType.TimeSheet: return <TimeSheetForm key={componentKey} {...common} profile={profile} data={form?.data as TimeSheetData | null} onBack={handleCloseForm} />;
             case FormType.MaterialLog: return <MaterialLogForm key={componentKey} {...common} profile={profile} inventory={inventory} data={form?.data as MaterialLogData | null} onBack={handleCloseForm} />;
             case FormType.Estimate: return <EstimateForm key={componentKey} {...common} profile={profile} data={form?.data as EstimateData | null} onBack={handleCloseForm} savedItems={savedItems} inventoryItems={inventory} publicToken={publicToken} plan={plan} onUpgrade={openUpgrade} />;
-            case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} {...common} profile={profile} data={form?.data as ExpenseLogData | null} onBack={handleCloseForm} />;
+            case FormType.ExpenseLog: return <ExpenseLogForm key={componentKey} {...common} profile={profile} data={form?.data as ExpenseLogData | null} onBack={handleCloseForm} isOnline={isOnline} jobs={expenseJobRefs} />;
             case FormType.Warranty: return <WarrantyForm key={componentKey} {...common} profile={profile} data={form?.data as WarrantyData | null} onBack={handleCloseForm} />;
             case FormType.Receipt: return <ReceiptForm key={componentKey} {...common} profile={profile} data={form?.data as ReceiptData | null} onBack={handleCloseForm} publicToken={publicToken} />;
             case FormType.ChangeOrder: return <ChangeOrderForm key={componentKey} {...common} profile={profile} data={form?.data as ChangeOrderData | null} onBack={handleCloseForm} publicToken={publicToken} savedItems={savedItems} inventoryItems={inventory} />;

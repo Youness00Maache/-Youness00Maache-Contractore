@@ -17,7 +17,7 @@ export type HelpTopicId =
   | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments' | 'job-files' | 'job-questions' | 'client-questions-view' | 'automations'
   | 'proposals' | 'job-selections' | 'job-boards' | 'client-selections-view' | 'business-overview' | 'setup-assistant'
   | 'subcontractors' | 'compare-quotes' | 'sub-link' | 'warranty-tracking' | 'after-job-emails'
-  | 'client-feedback' | 'public-profile';
+  | 'client-feedback' | 'public-profile' | 'read-documents';
 
 export interface HelpStep {
   title: string;
@@ -201,6 +201,25 @@ export const HELP_GUIDES: HelpGuide[] = [
     ],
   },
   {
+    id: 'read-documents',
+    title: 'Read receipts and invoices with AI',
+    summary: 'Photograph a receipt or pick a supplier invoice PDF: the AI fills in the expense, you check every value, then save.',
+    where: ['Job', 'Expense Log', 'Scan a receipt'],
+    group: 'Documents & getting paid',
+    appPath: '/dashboard',
+    steps: [
+      { title: 'Open an expense', text: 'On a job, create an Expense Log. Under Scan a receipt, click [[Read with AI]].' },
+      { title: 'Pick the paper', text: 'Take or choose up to 4 photos of one receipt, supplier invoice, quote or delivery note (one photo per page), or one PDF of up to 10 pages and 4 MB.' },
+      { title: 'Check what it read', text: 'The original shows next to what the AI read: vendor, date, number, category, every line, subtotal, tax and total. Values the AI was unsure about are marked check, and the line under the total says whether it adds up. Change anything that is wrong, add or remove lines. A PDF invoice also gets a short AI summary.' },
+      { title: 'Save', text: 'Click [[Save expense]]. It is saved as one expense on this job, like one you typed. The document number, due date, payment method, currency and summary go into the notes. Nothing is saved until you click it.' },
+    ],
+    tips: [
+      `${ai.name} only. Each reading uses one AI request; a file nothing could be read from does not count.`,
+      'Your photo or PDF is sent to the AI service only to be read; it is not kept there. Card numbers are never kept: only the last 4 digits.',
+      'No signal? [[Scan receipt]] still reads receipts on your device, as before.',
+      'The AI never makes up values: anything it could not read stays empty for you to fill in.',
+    ],
+  },  {
     id: 'quick-measure',
     title: 'Quick measure',
     summary: 'Measure a room, an area, lengths, a roof or a slab, and put the quantity on an estimate, invoice or change order line.',
