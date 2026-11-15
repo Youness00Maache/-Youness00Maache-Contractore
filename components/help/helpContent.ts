@@ -14,7 +14,7 @@ export type HelpTopicId =
   | 'dashboard' | 'jobs' | 'documents' | 'estimates' | 'payments' | 'ai' | 'clients' | 'messages' | 'reminders'
   | 'quote-link' | 'photos' | 'inventory' | 'pricebook' | 'calculator' | 'calendar' | 'settings' | 'pipeline' | 'job-costing'
   | 'suppliers' | 'estimate-options' | 'quick-measure' | 'notifications' | 'crew' | 'punch-list' | 'papers' | 'service-plans'
-  | 'estimate-review' | 'job-tasks';
+  | 'estimate-review' | 'job-tasks' | 'leads' | 'appointments';
 
 export interface HelpStep {
   title: string;
@@ -300,7 +300,44 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Answer from the inbox', text: 'Requests appear on the dashboard under Quote requests. Open the [[Inbox]] to call, text, email or map each one.' },
       { title: 'Turn it into work', text: '[[Create client & job]] adds the client (or matches one you have) and an active job; the photos become Before photos on the job. With Premium + AI, [[Draft estimate with AI]] writes the estimate.' },
     ],
-    tips: ['The Taking requests / Paused switch turns the page off without losing your link.', '[[Change link]] makes old links and printed QR codes stop working.'],
+    tips: ['The Taking requests / Paused switch turns the page off without losing your link.', '[[Change link]] makes old links and printed QR codes stop working.',
+      'Requests also appear in Leads, where you can follow them up by stage, book a visit and convert them to jobs.'],
+  },
+  {
+    id: 'leads',
+    title: 'Leads: from the first call to a job',
+    summary: 'Every quote request and every call you get, by stage, with follow-up dates, until it becomes a job or you let it go.',
+    where: ['Leads'],
+    group: 'Clients & messages',
+    appPath: '/leads',
+    steps: [
+      { title: 'Open your leads', text: 'Click [[Leads]] at the top (on a phone: [[More]], then [[Leads]]). The Quote requests bar on the dashboard has a [[Leads]] button too. Every request from your link and QR code arrives in the New column.' },
+      { title: 'Add the people who call you', text: 'Click [[Add lead]]. Type a name and a phone number or an email, the job address and what they need. Choose where they came from (Phone call, Referral, Walk-in and so on) and, if you know them, a budget range and a [[Follow up on]] day. Then click [[Add lead]] again. Adding a lead needs an internet connection.' },
+      { title: 'Read the board', text: 'The columns are New, Contacted, Appointment set, Quote sent, Won and Lost. Each shows how many leads it holds and their budgets added up (the middle of each range). A coloured edge on a card means a follow-up is due: amber today, red when late. On a phone, tap a stage at the top to see one column at a time. [[List]] shows every lead in one list and [[Board]] goes back. The search box, the source menu and [[Needs follow-up]] narrow it down.' },
+      { title: 'Move a lead along', text: 'Tap a lead to open it. Under Stage, tap where it is now: Contacted, Appointment set or Quote sent. After you call or write, click [[Log contact]]: it saves the time and moves a New lead to Contacted. Booking an appointment moves a New or Contacted lead to Appointment set.' },
+      { title: 'Never forget a follow-up', text: 'In Follow-up, tap [[Tomorrow]], [[In 3 days]] or [[Next week]], or pick a day. When the day comes the lead gets a coloured edge and counts in [[Needs follow-up]]; the number also shows on the Leads link and on the dashboard bar. Follow-ups and appointments are on the Schedule too (Tools, Calendar); tap one to open the lead.' },
+      { title: 'Turn it into a job', text: 'Click [[Convert to job]], check the Job name, then [[Create client & job]]. It adds the client (or uses the one with the same email, phone or name), creates an active job and copies their photos as Before photos, the same as the old inbox. The lead moves to Won and [[Open job]] takes you to the job. With Premium + AI, [[Draft estimate with AI]] writes the estimate.' },
+      { title: 'When it does not work out', text: 'Click [[Mark lost]], pick a reason (Price too high, Went with another contractor and so on) and click [[Mark as lost]]. The lead moves to Lost. If they come back, open it and tap a stage under Reopen as.' },
+      { title: 'Notes and files', text: '[[Edit lead]] changes the details, the budget and your notes (only you see them). [[Add file]] attaches photos or PDFs, up to 15 MB each; [[Open]] shows one and [[Remove]] deletes it.' },
+      { title: 'See how you are doing (Premium)', text: `${premium.name} adds a strip at the top: your win rate (won out of won and lost), what is still open, where your leads come from and how many have gone quiet for a week; click it to list them. The board, follow-ups and appointments are free.` },
+    ],
+    tips: ['Requests you archived in the old inbox show in the Lost column. [[Delete lead]] removes a lead and its files for good.', 'You can read your leads offline; adding or changing one needs a connection.'],
+  },
+  {
+    id: 'appointments',
+    title: 'Appointments with leads',
+    summary: 'Book a site visit or a call, avoid double-booking, add it to your own calendar and see it on your Schedule.',
+    where: ['Leads', 'Book appointment'],
+    group: 'Clients & messages',
+    appPath: '/leads',
+    steps: [
+      { title: 'Book it', text: 'Open the lead and click [[Book appointment]]. Pick the Type (Site visit, Estimate meeting, Meeting or Call), the Day and Time, How long and Where (the job address is filled in). Then click [[Book appointment]] again.' },
+      { title: 'Watch for double-booking', text: 'If the time crosses another appointment, the window says which one. You can still book it.' },
+      { title: 'Put it in your own calendar', text: 'Click [[Add to my calendar]]. A calendar file is saved; open it on your phone or computer and the visit is in your Google, Apple or Outlook calendar. Nothing is sent to anyone.' },
+      { title: 'After the visit', text: 'Click [[Done]] or [[No-show]], or [[Cancel]] if it is off. An appointment whose time has passed asks Did it happen? [[Back to scheduled]] undoes a mistake and [[Delete]] removes it.' },
+      { title: 'See it on the Schedule', text: 'Tools, Calendar shows lead follow-up days and appointments next to your jobs: a small marker on the day in the month view, slim chips with a blue edge in the Week view, and under Leads in the List view. Tap one to open the lead.' },
+    ],
+    tips: ['Booking moves a New or Contacted lead to Appointment set. Appointments need a connection to book or change.'],
   },
   {
     id: 'photos',
@@ -496,6 +533,7 @@ export const HELP_GUIDES: HelpGuide[] = [
       { title: 'Plan the schedule', text: 'Tools, Calendar (the Schedule page) shows each job from its start to its end date, coloured by status. Switch between Month, Week and List.' },
       { title: 'Schedule a job', text: 'Click [[New job]], or double-click a day in the month view on a computer.' },
       { title: 'See your tasks', text: 'With job tasks switched on, the Schedule also marks the days your open tasks are due (a small diamond; red when late), under each day in the Week view, and under Tasks in the List view. Tap one to open that job’s Tasks.' },
+      { title: 'See your leads', text: 'With leads switched on, the Schedule also shows the days you planned to follow up with a lead and your booked appointments (a small blue marker on the day; red when a follow-up is late), under each day in the Week view and under Leads in the List view. Tap one to open the lead.' },
       { title: 'Check the numbers', text: 'Tools, Insights: pick a period to see revenue collected, outstanding, costs, profit, average invoice and estimate win rate, with charts.' },
       { title: 'One job’s profit', text: 'On a job page, [[Financials]] shows that job’s income, costs and labor.' },
     ],

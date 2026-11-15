@@ -36,6 +36,8 @@ export type AppView =
     | { screen: 'pricebook'; openAddModal?: boolean; prefillData?: any }
     | { screen: 'profitCalculator' }
     | { screen: 'pipeline' }
+    /** leads board + list (components/leads); ?lead=<id> opens one lead */
+    | { screen: 'leads'; leadId?: string }
     /** crew clock-in links: workers, their hours by week (lib/crew/*) */
     | { screen: 'crew' }
     | { screen: 'papers' }
@@ -68,6 +70,7 @@ export const parseView = (pathname: string, search: string, state: any): AppView
         case '/pricebook': return { screen: 'pricebook', openAddModal: state?.openAddModal, prefillData: state?.prefillData };
         case '/calculator': return { screen: 'profitCalculator' };
         case '/pipeline': return { screen: 'pipeline' };
+        case '/leads': return { screen: 'leads', leadId: params.get('lead') || undefined };
         case '/crew': return { screen: 'crew' };
         case '/papers': return { screen: 'papers' };
         case '/service-plans': return { screen: 'servicePlans' };

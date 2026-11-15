@@ -12,6 +12,7 @@ import { SUPPORT_EMAIL } from '../lib/account.ts';
 import { HelpCircleIcon } from './help/HelpText.tsx';
 import { PipelineIcon } from './pipeline/PipelineIcon.tsx';
 import { CrewIcon } from './crew/CrewIcon.tsx';
+import { LeadsIcon } from './leads/LeadsIcon.tsx';
 import NotificationBell from './notifications/NotificationBell.tsx';
 
 export type NavDestination =
@@ -19,6 +20,8 @@ export type NavDestination =
     | 'calculator' | 'analytics' | 'forum' | 'settings' | 'profile' | 'billing' | 'help'
     /** pipeline board (/pipeline) */
     | 'pipeline'
+    /** leads board and list (/leads) */
+    | 'leads'
     /** crew clock-in links and hours (/crew) */
     | 'crew'
     /** papers vault (/papers) and service plans (/service-plans) */
@@ -26,7 +29,7 @@ export type NavDestination =
     /** Settings → Your data (export everything, bookkeeper CSV) */
     | 'export';
 
-export type NavSection = 'dashboard' | 'clients' | 'communication' | 'tools' | 'forum' | 'settings' | 'none';
+export type NavSection = 'dashboard' | 'leads' | 'clients' | 'communication' | 'tools' | 'forum' | 'settings' | 'none';
 
 interface AppNavProps {
     active: NavSection;
@@ -48,9 +51,14 @@ interface AppNavProps {
     showTabBar: boolean;
     /** crew clock-in is in the database (Tools › Crew shows) */
     crewEnabled?: boolean;
+    /** leads are in the database (the Leads link shows) */
+    leadsEnabled?: boolean;
+    /** open leads whose follow-up is today or earlier */
+    leadsDue?: number;
 }
 
 const TOOLS: { dest: NavDestination; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; description: string }[] = [
+    { dest: 'leads', label: 'Leads', icon: LeadsIcon, description: 'Requests and calls by stage, with follow-ups' },
     { dest: 'pipeline', label: 'Pipeline', icon: PipelineIcon, description: 'Every job by stage, from request to paid' },
     { dest: 'servicePlans', label: 'Service plans', icon: RefreshCwIcon, description: 'Maintenance visits that schedule themselves' },
     { dest: 'papers', label: 'Papers', icon: ShieldCheckIcon, description: 'Insurance, licenses and permits with expiry reminders' },
@@ -112,10 +120,10 @@ const Avatar: React.FC<{ name: string; url?: string; size?: 'sm' | 'md' }> = ({ 
 
 const AppNav: React.FC<AppNavProps> = ({
     active, userName, userEmail, avatarUrl, plan, onNavigate, onUpgrade, onLogout, primaryAction,
-    clientBadge = 0, forumBadge = 0, lowStockCount = 0, isOnline, showTabBar, crewEnabled = false,
+    clientBadge = 0, forumBadge = 0, lowStockCount = 0, isOnline, showTabBar, crewEnabled = false, leadsEnabled = false, leadsDue = 0,
 }) => {
     const [moreOpen, setMoreOpen] = useState(false);
-    const tools = TOOLS.filter(t => t.dest !== 'crew' || crewEnabled);
+    const tools = TOOLS.filter(t => (t.dest !== 'crew' || crewEnabled) && (t.dest !== 'leads' || leadsEnabled));
     const paid = isPaidTier(plan);
     const hasPageTitle = useSyncExternalStore(subscribeSlots, () => slotUsers.title > 0, () => false);
 
@@ -170,7 +178,7 @@ const AppNav: React.FC<AppNavProps> = ({
         { icon: MailIcon, label: 'Messages', onClick: () => go('communication'), active: active === 'communication' },
         // Community sits in the bar itself on phones (owner: phone users could not find it inside "More")
         { icon: MessageSquareIcon, label: 'Community', onClick: () => go('forum'), active: active === 'forum', badgeCount: forumBadge },
-        { icon: GridIcon, label: 'More', onClick: () => setMoreOpen(true), active: active === 'tools' || active === 'settings', badgeCount: lowStockCount },
+        { icon: GridIcon, label: 'More', onClick: () => setMoreOpen(true), active: active === 'tools' || active === 'settings' || active === 'leads', badgeCount: lowStockCount + leadsDue },
     ];
 
     return (
@@ -189,6 +197,13 @@ const AppNav: React.FC<AppNavProps> = ({
                         <button type="button" className={linkCls('dashboard')} onClick={() => onNavigate('dashboard')}>
                             <HomeIcon className="h-4 w-4" /> Dashboard
                         </button>
+                        {/* from extra-large screens on; below that Leads is the first entry of Tools */}
+                        {leadsEnabled && (
+                            <button type="button" className={`${linkCls('leads')} hidden xl:inline-flex`} onClick={() => onNavigate('leads')}>
+                                <LeadsIcon className="h-4 w-4" /> Leads
+                                {leadsDue > 0 && <span className="badge badge-warning px-1.5 py-0 text-[10px]" title="Follow-ups due">{leadsDue > 99 ? '99+' : leadsDue}</span>}
+                            </button>
+                        )}
                         <button type="button" className={linkCls('clients')} onClick={() => onNavigate('clients')}>
                             <UsersIcon className="h-4 w-4" /> Clients
                             {clientBadge > 0 && <span className="badge badge-danger px-1.5 py-0 text-[10px]">{clientBadge > 99 ? '99+' : clientBadge}</span>}
@@ -202,7 +217,7 @@ const AppNav: React.FC<AppNavProps> = ({
                             asButton
                             label="Tools"
                             trigger={
-                                <span className={linkCls('tools')}>
+                                <span className={`${linkCls('tools')}${active === 'leads' ? ' max-xl:bg-primary/10 max-xl:text-primary' : ''}`}>
                                     <GridIcon className="h-4 w-4" /> Tools
                                     {lowStockCount > 0 && <span className="badge badge-danger px-1.5 py-0 text-[10px]">{lowStockCount > 9 ? '9+' : lowStockCount}</span>}
                                     <ChevronDownIcon className="h-3.5 w-3.5 opacity-60" />
@@ -218,6 +233,7 @@ const AppNav: React.FC<AppNavProps> = ({
                                         <span className="block truncate text-xs text-muted-foreground">{tool.description}</span>
                                     </span>
                                     {tool.dest === 'inventory' && lowStockCount > 0 && <span className="badge badge-warning">{lowStockCount} low</span>}
+                                    {tool.dest === 'leads' && leadsDue > 0 && <span className="badge badge-warning">{leadsDue} due</span>}
                                 </DropdownItem>
                             ))}
                         </DropdownMenu>
@@ -271,6 +287,9 @@ const AppNav: React.FC<AppNavProps> = ({
                                     {item.label}
                                     {item.dest === 'inventory' && lowStockCount > 0 && (
                                         <span className="absolute right-2 top-2 badge badge-warning px-1.5 py-0 text-[10px]">{lowStockCount}</span>
+                                    )}
+                                    {item.dest === 'leads' && leadsDue > 0 && (
+                                        <span className="absolute right-2 top-2 badge badge-warning px-1.5 py-0 text-[10px]" title="Follow-ups due">{leadsDue > 9 ? '9+' : leadsDue}</span>
                                     )}
                                     {item.dest === 'forum' && forumBadge > 0 && (
                                         <span className="absolute right-2 top-2 badge badge-danger px-1.5 py-0 text-[10px]">{forumBadge > 9 ? '9+' : forumBadge}</span>

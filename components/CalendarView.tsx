@@ -12,6 +12,7 @@ import { agendaGroups, layoutWeek, monthGrid, scheduleStats, spansFor, spansInRa
 import { addDaysLocal, addMonthsClamped, daysBetween, endOfMonthLocal, formatYMD, parseLocalDate, startOfMonthLocal, toLocalYMD, todayYMD } from '../utils/localDates.ts';
 import { dueCountsByDay, scheduleTasksOnDay } from '../lib/tasks/taskView.ts';
 import { TaskAgenda, TaskChips, TaskDayList, useScheduleTasks } from './tasks/ScheduleTasks.tsx';
+import { LeadAgenda, LeadChips, LeadDayList, LeadDayMarker, leadsOnDay, useScheduleLeads, type LeadsUi } from './leads/ScheduleLeads.tsx';
 
 interface CalendarViewProps {
   /** Optional seed for the first paint; the view loads all jobs itself. */
@@ -25,6 +26,8 @@ interface CalendarViewProps {
   showTasks?: boolean;
   /** Opens the job page on its Tasks tab. */
   onOpenJobTasks?: (jobId: string) => void;
+  /** Leads are in the database: also show lead follow-ups and appointments (tap opens the lead). */
+  leadsUi?: LeadsUi;
 }
 
 interface CalJob {
@@ -68,7 +71,7 @@ const dayHeading = (ymd: string) => {
 const rangeText = (s: DaySpan<CalJob>) =>
   s.days === 1 ? formatYMD(s.startYMD, { month: 'short', day: 'numeric' }) : `${formatYMD(s.startYMD, { month: 'short', day: 'numeric' })} – ${formatYMD(s.endYMD, { month: 'short', day: 'numeric' })} · ${s.days} days`;
 
-const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, onNavigateJob, onNewJob, onNewJobOnDate, showTasks = false, onOpenJobTasks }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, onNavigateJob, onNewJob, onNewJobOnDate, showTasks = false, onOpenJobTasks, leadsUi }) => {
   const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<CalJob[]>(() => seed.map(fromJob));
   const [loading, setLoading] = useState(true);
@@ -127,7 +130,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
   const jobNames = useMemo(() => new Map(jobs.map((j) => [j.id, j.name])), [jobs]);
   const dueByDay = useMemo(() => dueCountsByDay(taskList), [taskList]);
   const openTasks = onOpenJobTasks || (() => undefined);
+  // lead follow-ups and appointments; empty when the feature is off, offline, or the account has none
+  const leadData = useScheduleLeads(leadsUi);
+  const leadItems = leadData.items;
+  const openLead = leadsUi?.onOpenLead || (() => undefined);
   const stats = useMemo(() => scheduleStats(jobs, today), [jobs, today]);
+  const leadSoon = useMemo(() => leadItems.filter((i) => i.date >= today || i.overdue).length, [leadItems, today]);
   const unscheduled = useMemo(() => jobs.filter((j) => !parseLocalDate(j.startDate)), [jobs]);
 
   const newJobOn = (ymd?: string | null) => {
@@ -200,6 +208,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
           </div>
         )}
         {taskList.length > 0 && <TaskDayList tasks={scheduleTasksOnDay(taskList, selected, today)} jobNames={jobNames} onOpen={openTasks} />}
+        {leadItems.length > 0 && <LeadDayList items={leadsOnDay(leadItems, selected, today)} data={leadData} onOpen={openLead} />}
       </section>
     ) : null
   );
@@ -237,10 +246,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
                   className={`relative flex flex-col items-center border-r border-border text-left last:border-r-0 sm:items-stretch ${isMobile ? 'h-14 pt-1.5' : 'min-h-[8.25rem] p-1.5'} ${inMonth ? 'bg-card' : 'bg-muted/40'} ${isSel ? 'ring-2 ring-inset ring-primary' : 'hover:bg-muted/50'}`}
                 >
                   <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm tabular-nums sm:ml-auto ${isToday ? 'bg-primary font-bold text-primary-foreground' : inMonth ? 'text-foreground' : 'text-muted-foreground/70'}`}>{day.getDate()}</span>
-                  {isMobile && (count > 0 || dueByDay.has(ymd)) && (
+                  {isMobile && (count > 0 || dueByDay.has(ymd) || leadData.byDay.has(ymd)) && (
                     <span className="mt-1 flex items-center gap-0.5" aria-hidden="true">
                       {spansOnDay(spans, ymd).slice(0, 3).map((s) => <span key={s.id} className={`h-1.5 w-1.5 rounded-full ${styleFor(String(s.item.status)).dot}`} />)}
                       {dueByDay.has(ymd) && <span className={`h-1.5 w-1.5 rotate-45 rounded-[1px] ${dueByDay.get(ymd)!.overdue ? 'bg-destructive' : 'bg-foreground/70'}`} />}
+                      {leadData.byDay.has(ymd) && <span className={`h-1 w-2 rounded-sm ${leadData.byDay.get(ymd)!.overdue ? 'bg-destructive' : 'bg-sky-500'}`} />}
                     </span>
                   )}
                   {!isMobile && layout.hiddenPerDay[di] > 0 && (
@@ -267,6 +277,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
                   {seg.continuesBefore ? '… ' : ''}{seg.span.item.name}
                 </button>
               );
+            })}
+            {!isMobile && week.map((day, di) => {
+              const ymd = toLocalYMD(day);
+              const dayLeads = leadData.byDay.get(ymd) ? leadsOnDay(leadItems, ymd, today).filter((i) => i.date === ymd) : [];
+              if (!dayLeads.length) return null;
+              return <LeadDayMarker key={`lead-${ymd}`} col={di} items={dayLeads} overdue={Boolean(leadData.byDay.get(ymd)?.overdue)} onOpenOne={openLead} onSelectDay={() => setSelected(ymd)} />;
             })}
             {!isMobile && week.map((day, di) => {
               const ymd = toLocalYMD(day);
@@ -323,6 +339,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
                   );
                 })}
                 {taskList.length > 0 && <TaskChips tasks={scheduleTasksOnDay(taskList, ymd, today)} jobNames={jobNames} onOpen={openTasks} />}
+                {leadItems.length > 0 && <LeadChips items={leadsOnDay(leadItems, ymd, today)} onOpen={openLead} />}
               </div>
               <button type="button" onClick={() => newJobOn(ymd)} className="mt-2 flex h-9 items-center justify-center gap-1 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`New job on ${formatYMD(ymd)}`}>
                 <PlusIcon className="h-3.5 w-3.5" /> Add
@@ -337,7 +354,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
   const renderList = () => {
     const groups = agendaGroups(spans, monthStart, monthEnd);
     const hasTasks = taskList.length > 0 && (taskList.some((t) => t.overdue) || taskList.some((t) => t.end >= monthStart && t.end <= monthEnd));
-    if (!groups.length && !hasTasks) {
+    const hasLeads = leadItems.some((i) => (i.kind === 'follow_up' && i.overdue) || (i.date >= monthStart && i.date <= monthEnd));
+    if (!groups.length && !hasTasks && !hasLeads) {
       return (
         <EmptyState
           compact
@@ -359,6 +377,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
           </section>
         ))}
         {hasTasks && <TaskAgenda tasks={taskList} monthStart={monthStart} monthEnd={monthEnd} jobNames={jobNames} onOpen={openTasks} heading={dayHeading} />}
+        {hasLeads && <LeadAgenda items={leadItems} data={leadData} monthStart={monthStart} monthEnd={monthEnd} onOpen={openLead} heading={dayHeading} />}
       </div>
     );
   };
@@ -377,7 +396,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
         onBack={onBack}
         icon={<CalendarIcon className="h-7 w-7" />}
         title="Schedule"
-        subtitle={loading ? 'Loading jobs…' : `${stats.active} active · ${stats.upcoming} upcoming · ${stats.completed} completed${taskList.length ? ` · ${taskList.length} open task${taskList.length === 1 ? '' : 's'} with dates` : ''}`}
+        subtitle={loading ? 'Loading jobs…' : `${stats.active} active · ${stats.upcoming} upcoming · ${stats.completed} completed${taskList.length ? ` · ${taskList.length} open task${taskList.length === 1 ? '' : 's'} with dates` : ''}${leadSoon ? ` · ${leadSoon} lead follow-up${leadSoon === 1 ? '' : 's'} and appointment${leadSoon === 1 ? '' : 's'}` : ''}`}
         actions={<button type="button" className="btn btn-primary" onClick={() => newJobOn(selected)}><PlusIcon className="h-4 w-4" /> New job</button>}
       />
 
@@ -400,7 +419,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ jobs: seed = [], onBack, on
 
       {loading && !jobs.length ? (
         <div className="card p-4" aria-busy="true" aria-label="Loading"><div className="skeleton h-96 w-full" /></div>
-      ) : !jobs.length && !error ? (
+      ) : !jobs.length && !error && !leadItems.length ? (
         <EmptyState icon={<BriefcaseIcon />} title="No jobs yet" description="Create a job with a start date and it will appear on your schedule." action={<button type="button" className="btn btn-primary" onClick={() => newJobOn(today)}><PlusIcon className="h-4 w-4" /> Create a job</button>} />
       ) : (
         <div className="space-y-4">
