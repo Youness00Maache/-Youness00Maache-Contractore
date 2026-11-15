@@ -24,6 +24,8 @@ export const READ_ONLY_RPCS = new Set([
     'get_portal_questions', 'get_portal_job_files',
     // client portal selections + shared mood boards (D5, 20261116000600): stable, read-only
     'get_portal_selections', 'get_portal_boards',
+    // crew link: the sub's commitments (D7, 20261116000800): reads only (volatile just for the link's rate-limit log)
+    'crew_sub_get',
 ]);
 
 const DB_WRITE = /\.(insert|update|upsert|delete)\(/;
