@@ -574,7 +574,94 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
         ],
         "tips": [
             "The Taking requests / Paused switch turns the page off without losing your link.",
-            "[[Change link]] makes old links and printed QR codes stop working."
+            "[[Change link]] makes old links and printed QR codes stop working.",
+            "Requests also appear in Leads, where you can follow them up by stage, book a visit and convert them to jobs."
+        ]
+    },
+    {
+        "id": "leads",
+        "title": "Leads: from the first call to a job",
+        "summary": "Every quote request and every call you get, by stage, with follow-up dates, until it becomes a job or you let it go.",
+        "where": [
+            "Leads"
+        ],
+        "appPath": "/leads",
+        "steps": [
+            {
+                "title": "Open your leads",
+                "text": "Click [[Leads]] at the top (on a phone: [[More]], then [[Leads]]). The Quote requests bar on the dashboard has a [[Leads]] button too. Every request from your link and QR code arrives in the New column."
+            },
+            {
+                "title": "Add the people who call you",
+                "text": "Click [[Add lead]]. Type a name and a phone number or an email, the job address and what they need. Choose where they came from (Phone call, Referral, Walk-in and so on) and, if you know them, a budget range and a [[Follow up on]] day. Then click [[Add lead]] again. Adding a lead needs an internet connection."
+            },
+            {
+                "title": "Read the board",
+                "text": "The columns are New, Contacted, Appointment set, Quote sent, Won and Lost. Each shows how many leads it holds and their budgets added up (the middle of each range). A coloured edge on a card means a follow-up is due: amber today, red when late. On a phone, tap a stage at the top to see one column at a time. [[List]] shows every lead in one list and [[Board]] goes back. The search box, the source menu and [[Needs follow-up]] narrow it down."
+            },
+            {
+                "title": "Move a lead along",
+                "text": "Tap a lead to open it. Under Stage, tap where it is now: Contacted, Appointment set or Quote sent. After you call or write, click [[Log contact]]: it saves the time and moves a New lead to Contacted. Booking an appointment moves a New or Contacted lead to Appointment set."
+            },
+            {
+                "title": "Never forget a follow-up",
+                "text": "In Follow-up, tap [[Tomorrow]], [[In 3 days]] or [[Next week]], or pick a day. When the day comes the lead gets a coloured edge and counts in [[Needs follow-up]]; the number also shows on the Leads link and on the dashboard bar. Follow-ups and appointments are on the Schedule too (Tools, Calendar); tap one to open the lead."
+            },
+            {
+                "title": "Turn it into a job",
+                "text": "Click [[Convert to job]], check the Job name, then [[Create client & job]]. It adds the client (or uses the one with the same email, phone or name), creates an active job and copies their photos as Before photos, the same as the old inbox. The lead moves to Won and [[Open job]] takes you to the job. With Premium + AI, [[Draft estimate with AI]] writes the estimate."
+            },
+            {
+                "title": "When it does not work out",
+                "text": "Click [[Mark lost]], pick a reason (Price too high, Went with another contractor and so on) and click [[Mark as lost]]. The lead moves to Lost. If they come back, open it and tap a stage under Reopen as."
+            },
+            {
+                "title": "Notes and files",
+                "text": "[[Edit lead]] changes the details, the budget and your notes (only you see them). [[Add file]] attaches photos or PDFs, up to 15 MB each; [[Open]] shows one and [[Remove]] deletes it."
+            },
+            {
+                "title": "See how you are doing (Premium)",
+                "text": "Premium adds a strip at the top: your win rate (won out of won and lost), what is still open, where your leads come from and how many have gone quiet for a week; click it to list them. The board, follow-ups and appointments are free."
+            }
+        ],
+        "tips": [
+            "Requests you archived in the old inbox show in the Lost column. [[Delete lead]] removes a lead and its files for good.",
+            "You can read your leads offline; adding or changing one needs a connection."
+        ]
+    },
+    {
+        "id": "appointments",
+        "title": "Appointments with leads",
+        "summary": "Book a site visit or a call, avoid double-booking, add it to your own calendar and see it on your Schedule.",
+        "where": [
+            "Leads",
+            "Book appointment"
+        ],
+        "appPath": "/leads",
+        "steps": [
+            {
+                "title": "Book it",
+                "text": "Open the lead and click [[Book appointment]]. Pick the Type (Site visit, Estimate meeting, Meeting or Call), the Day and Time, How long and Where (the job address is filled in). Then click [[Book appointment]] again."
+            },
+            {
+                "title": "Watch for double-booking",
+                "text": "If the time crosses another appointment, the window says which one. You can still book it."
+            },
+            {
+                "title": "Put it in your own calendar",
+                "text": "Click [[Add to my calendar]]. A calendar file is saved; open it on your phone or computer and the visit is in your Google, Apple or Outlook calendar. Nothing is sent to anyone."
+            },
+            {
+                "title": "After the visit",
+                "text": "Click [[Done]] or [[No-show]], or [[Cancel]] if it is off. An appointment whose time has passed asks Did it happen? [[Back to scheduled]] undoes a mistake and [[Delete]] removes it."
+            },
+            {
+                "title": "See it on the Schedule",
+                "text": "Tools, Calendar shows lead follow-up days and appointments next to your jobs: a small marker on the day in the month view, slim chips with a blue edge in the Week view, and under Leads in the List view. Tap one to open the lead."
+            }
+        ],
+        "tips": [
+            "Booking moves a New or Contacted lead to Appointment set. Appointments need a connection to book or change."
         ]
     },
     {
@@ -714,6 +801,120 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             "Job tasks, the timeline and templates are part of Premium. Turning a note into tasks is part of Premium + AI.",
             "Tasks need a connection: when you are offline the app says so and the list comes back when you are online again.",
             "Give your workers tasks by choosing them in [[Who]]. Add workers first in Tools › Crew."
+        ]
+    },
+    {
+        "id": "job-files",
+        "title": "Job files and links",
+        "summary": "Keep the plans, permits, contracts, specs and receipts of a job in one place, with versions, tags and a search. Show the ones your client should see.",
+        "where": [
+            "Job",
+            "Files"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open the Files tab",
+                "text": "On a job page, switch to [[Files]]. Files are listed under their category (Plans, Permits, Contracts, Specs, Receipts, Visuals / renders, Other). Tap a file to open it."
+            },
+            {
+                "title": "Add a file or a link",
+                "text": "[[Add file]] takes PDFs and images (JPG, PNG, WebP, GIF) up to 15 MB. [[Take photo]] uses the camera. Pick several files at once and they are added with a category guessed from the name. For anything bigger, or a folder, a 3D walkthrough or a supplier page, use [[Add link]]."
+            },
+            {
+                "title": "Name it, sort it, tag it",
+                "text": "When you add one file, check its name, category, tags (separate with commas, like kitchen, rev B) and a note only you see. Later, open ⋯ › [[Details and versions]] to change them. The search box and the category and tag chips narrow the list."
+            },
+            {
+                "title": "Keep every revision",
+                "text": "In ⋯ › [[Upload new version]] (or inside the file) add the new drawing. The list shows the newest as v2, v3 and keeps its name, category and tags; the earlier ones fold under [[Older versions]] and can still be opened, downloaded or deleted one by one."
+            },
+            {
+                "title": "Show a file to your client",
+                "text": "Switch on [[Show in client portal]] (or ⋯ › [[Show to client]]). Images up to 5 MB and links can be shown; the client sees them under Files on their project page, images large and links in a new tab. A PDF cannot be shown yet: add a link to it (Google Drive, Dropbox) and show the link. When a shown file gets a new version, switch the new version on so the client sees it."
+            },
+            {
+                "title": "Delete",
+                "text": "⋯ › [[Delete]] removes the whole document with all its versions after you confirm. Inside the file you can delete a single version."
+            }
+        ],
+        "tips": [
+            "Job files, links and versions are part of Premium. Without it you can still open files you already have.",
+            "Files need a connection: when you are offline the app says so and the list comes back when you are online again.",
+            "Attach a file or link to a client question with [[Attach from this job]] in [[Questions]]."
+        ]
+    },
+    {
+        "id": "job-questions",
+        "title": "Client questions and submittals",
+        "summary": "Ask your client which tile or paint colour, or send a change order or product sheet for approval. They answer from their project link and you keep who said what and when.",
+        "where": [
+            "Job",
+            "Questions"
+        ],
+        "appPath": "/dashboard",
+        "steps": [
+            {
+                "title": "Open the Questions tab",
+                "text": "On a job page, switch to [[Questions]]. The number next to it is how many are waiting for your client, and the job header shows the same. The job needs a client, because the client opens the questions from their project link."
+            },
+            {
+                "title": "Write one",
+                "text": "Tap [[New]] and start from a ready-made one (Which tile?, Paint colour, Approve the change order, Submittal: product data sheet) or from blank. A [[Question]] is answered in words. A [[Submittal]] is approved or rejected (the client needs a note to reject). Add a message, an optional date to answer by, and up to 10 attachments: files and links of this job with [[Attach from this job]], or a pasted link."
+            },
+            {
+                "title": "Save it or send it",
+                "text": "[[Save draft]] keeps it to yourself. [[Send to client]] puts it on their project link. Use [[Copy client link]] on the Questions tab to give the client the link. A client sees images you have shown in the client portal and links; a PDF or an unshared file is shown by its name only, so attach a link to it."
+            },
+            {
+                "title": "See the answer",
+                "text": "When the client answers, the row says Answered, Approved or Rejected with their name, the date and their words. Tap the row for the whole history: when it was sent, edited, answered and asked again. Waiting items that pass their date show in red as overdue."
+            },
+            {
+                "title": "Ask again, close or reopen",
+                "text": "In ⋯ or inside the item: [[Ask again]] sends it back to the client (the earlier answer stays in the history), [[Close it]] ends it, [[Reopen]] sends a closed one again, [[Change it]] fixes the text of one already sent, and [[Delete]] removes it. Nothing is deleted by a close."
+            }
+        ],
+        "tips": [
+            "Client questions and submittals are part of Premium.",
+            "Questions need a connection: when you are offline the app says so and the list comes back when you are online again.",
+            "The client can answer only once for each time you send it. To get a new answer use [[Ask again]]."
+        ]
+    },
+    {
+        "id": "client-questions-view",
+        "title": "What your client sees: questions, approvals and files",
+        "summary": "On their project link your client answers your questions, approves or rejects submittals and opens the files you chose to show.",
+        "where": [
+            "Client portal",
+            "Project"
+        ],
+        "appPath": "/clients",
+        "steps": [
+            {
+                "title": "A badge on Project",
+                "text": "When something waits for the client, the Project tab of their link shows a small number, and [[Questions for you]] is the first thing on the page. Each item shows the job, the date it is due, your message and its attachments (links open in a new tab, shown images open large)."
+            },
+            {
+                "title": "A question",
+                "text": "The client types their answer in the box and taps [[Send answer]]. They cannot send an empty answer."
+            },
+            {
+                "title": "A submittal",
+                "text": "The client taps [[Approve]] or [[Reject]], types their name and, to reject, a note about what should change, then taps [[Send decision]]. Typing the name confirms the decision. You see it at once on the job, with the name and the date."
+            },
+            {
+                "title": "After answering",
+                "text": "The client sees what they said, a thank-you and the history. Finished items fold under [[Answered]] the next time they open the link. If you [[Ask again]], the item comes back to them as waiting."
+            },
+            {
+                "title": "Files",
+                "text": "Under Files on the Project page the client finds the links and images you switched on with [[Show in client portal]], by category. When you have shown nothing, the section is not there at all."
+            }
+        ],
+        "tips": [
+            "The client needs no account: the project link is enough. Use [[Copy client link]] on the Questions tab, or Copy portal link on the client.",
+            "Drafts and closed items are never shown to the client."
         ]
     },
     {
@@ -994,6 +1195,10 @@ export const HELP_GUIDES_SNAPSHOT: GuideSnapshot[] = [
             {
                 "title": "See your tasks",
                 "text": "With job tasks switched on, the Schedule also marks the days your open tasks are due (a small diamond; red when late), under each day in the Week view, and under Tasks in the List view. Tap one to open that job’s Tasks."
+            },
+            {
+                "title": "See your leads",
+                "text": "With leads switched on, the Schedule also shows the days you planned to follow up with a lead and your booked appointments (a small blue marker on the day; red when a follow-up is late), under each day in the Week view and under Leads in the List view. Tap one to open the lead."
             },
             {
                 "title": "Check the numbers",
