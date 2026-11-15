@@ -273,6 +273,7 @@ integrations   18. N11 timeline + D11 email log   19. D6 bills   20. D12 push (n
   Note document (+ optional follow-up task); email source = empty slot for D11). No DB. main/my-branch 57fce1c; suite green
   (49 steps); live bundle has "Log a conversation". ai-assistant NOT redeployed (help knowledge only): redeploy it with the
   next release. Untested: the real documents query, offline note sync after reconnect, microphone.
+  (ai-assistant REDEPLOYED later the same day with all help knowledge up to the timeline: nothing pending to deploy.)
 - 2026-11-15 SHIPPED N6 AI document understanding (ai-assistant task `read_document`: 1-4 photos or one PDF <= 4 MB / 10 pages ->
   vendor, date, number, lines, subtotal/tax/total, category from the Expense Log list, per-field confidence, warnings; Expense
   Log "Read with AI" review screen with editable fields + "adds up" indicator; Save uses the existing expense save; Premium + AI;
