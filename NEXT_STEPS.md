@@ -52,6 +52,13 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 
 # >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
 Read docs/work/tutorial-video/PLAN.md + README.md first. STATE 2026-11-15 ~15:10 (branch my-branch, last commit d647e27, NOTHING PUSHED):
+**UPDATE 2026-11-16 (after the owner said "Publish now"): THE VIDEO COURSE IS LIVE IN PRODUCTION.** `git push origin my-branch:main` done
+  (main = 7d2e4e5, Vercel production deployment "completed"); the live app's chunk chain App -> HelpCenter -> VideoCourse (16.5 KB) contains the
+  course and the bucket URL; the bucket files allow CORS from the site and the CSP (media-src https:, connect-src *.supabase.co) lets them load.
+  Not testable without a login: the page inside the signed-in app (Help & tutorials, top of the page, "Video course"). TO WATCH FOR: audio is
+  served from the bucket as `application/octet-stream` (the upload tool gave .m4a no type); Chrome plays it (tested live); iPhone Safari is UNTESTED:
+  if there is no sound on an iPhone, fix by fetching the audio in lib/VideoCourse as a Blob typed audio/mp4 (media-src already allows blob:) or by
+  re-uploading the voice files as .mp4. The daily SEO session pushes only `seo-daily:main`; always `git fetch` + rebase before any push to main.
 **UPDATE 2026-11-15 ~22:45 (NEWEST): THE WHOLE COURSE IS RECORDED AND LIVE IN THE BUCKET; ONLY THE PRODUCTION PUSH WAITS FOR THE OWNER'S OK.**
   30 chapters, 99:41 (incl. the new complete phone chapter 28 "The app on your phone, and working offline", 6:47), English voice for all,
   Spanish voice for 01-11, captions: 10 languages for 01-11, English + Spanish for 12-30 (the player shows English captions with a note
