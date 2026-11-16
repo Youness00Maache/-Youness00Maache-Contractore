@@ -2,7 +2,7 @@
 
 ## State (update at the end of every run)
 - Timer: `contractordocs-daily-seo`, every day 19:00 local (PC time zone UTC+0). Set up 2026-11-15.
-- First publication: not yet (planned by the first timer run, 2026-11-16 19:00).
+- First publication: not yet (2026-11-16 run skipped: weekly usage at 90%; next try 2026-11-17 19:00).
 - Posts live from this routine: 0. Posts on the site before it: 24 (registry order = newest first).
 - Last data review: none. First review due: 3 days after the first publication (2026-11-19 if day 1 is 2026-11-16),
   then every 3rd day.
@@ -64,7 +64,11 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
-(none yet; the first timer run writes the first entry)
+
+### 2026-11-16 (skipped: usage (5h 4%, weekly 90%))
+Timer run at ~19:10 UTC. The weekly limit (all models) was at 90% (resets 2026-11-19 17:00 UTC), the procedure's stop
+line. Nothing written, built, pushed or pinged. Note for the next run: the dry-run article's registry `date`/`updated`
+still say 2026-11-16; set them to the real publishing day before publishing it.
 
 ### 2026-11-15 setup (not published)
 Setup session: created this folder, the timer `contractordocs-daily-seo` (next run 2026-11-16 ~19:07 UTC) and a dry-run
