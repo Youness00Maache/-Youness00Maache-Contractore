@@ -48,10 +48,14 @@ the existing articles to match the data."
 - Guard against double runs: if LOG.md already has an entry for today's date with status "published", do NOT write
   4 more articles; only finish missing steps (indexing requests, data review) and stop.
 
-## A. Usage check (first)
-`mcp__ccd_session_mgmt__get_usage`. If the 5-hour limit is at 60% or more, or the weekly limit at 90% or more: write
-"skipped: usage (5h x%, weekly y%)" for today in LOG.md, commit it locally (push it with the next run's push), stop.
-Check again before step H and before the Chrome work; stop cleanly at the same limits.
+## A. Usage: NEVER skip or stop because of it (owner's order, 2026-11-17)
+The owner said: "the articles, the pages and adding them to Google and Bing must keep happening, it doesn't matter what the
+weekly limit is, it doesn't matter the percentage, just do it." So there is NO usage stop line any more (the old rule
+"skip at 5-hour 60% / weekly 90%" is cancelled; do not re-introduce it, do not ask the owner about it again).
+- Still call `mcp__ccd_session_mgmt__get_usage` once and write the percentages in the LOG entry (information only).
+- Stay economical anyway: Sonnet-class effort, text tools instead of screenshots, no helper agents unless really needed.
+- If a limit is really hit and a tool call fails, do not panic: commit what is finished (each post right after its lint
+  passes), write "stopped: limit reached" in LOG.md and end. The next run publishes the local commits first (see step 0).
 
 ## B. Choose 4 NEW topics
 1. Existing coverage: `grep "slug:" content/blog/registry.ts` and the landing pages in `content/landing/registry.ts`.
@@ -227,6 +231,7 @@ Console data is about 2 days behind; Bing is slower still: weigh small numbers c
 5. Run step D, push (E) and ping (F) for the edited posts too (request indexing only for the ones with bigger changes).
 
 ## Failure handling
+- Usage percentages are never a reason to skip a day (see step A).
 - Lint, tsc, build or seo:check fails and you cannot fix it: do not push; keep the commits local; write the reason in
   LOG.md; the next run continues from there.
 - Topic or fact you are not sure about: drop it, pick another topic. A wrong legal or price claim is worse than a missing

@@ -9,9 +9,7 @@
 - Last data review: none. First review due 2026-11-20 (3 days after the first publication), then every 3rd day.
 - Pending Google indexing requests (pending-index): none.
 - Unpublished work waiting on branch `seo-daily`: none (everything is on origin/main).
-- Usage rule in DAILY_PROCEDURE.md step A (skip at 5-hour 60% or weekly 90%) is under review by the owner, who wants
-  the daily posts to keep going; weekly usage was 94% on 2026-11-17 (resets 2026-11-19 17:00 UTC). Follow whatever the
-  newest note below says.
+- Usage: NO stop line any more (owner's order 2026-11-17: run every day whatever the percentages). See step A of the procedure.
 
 ## Access check, 2026-11-15 ~21:30 UTC (setup session, look only, nothing changed)
 Chrome: one browser connected, shown as "Browser 1" (deviceId 23a0a75c-cc82-4d0f-b3b0-312e9279d13e; NEXT_STEPS calls the
@@ -68,6 +66,11 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-17 owner's order: no usage stop line, the routine runs every day
+The owner answered: the articles, pages and Google/Bing requests must keep happening whatever the weekly limit or the
+percentage is. Step A of DAILY_PROCEDURE.md and the timer prompt were changed (no skip, no stop; percentages are only
+logged). The 19:07 UTC run of 2026-11-17 is the first one under the new rule.
 
 ### 2026-11-17 (published by hand: 1 article; the rest paused by the usage rule, owner informed)
 Owner asked why the timer was not posting. Cause: the 11-16 run (and the 11-17 19:07 run) stop at step A because weekly
