@@ -65,6 +65,30 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 
 ## Daily entries
 
+### 2026-11-17 indexing investigation (owner asked "why don't the pages get indexed"; look only, nothing changed)
+- Technical side is clean: robots.txt allows everything public, pages return 200, `index, follow`, canonical = www URL,
+  sitemap has 51 URLs and Google read it on Nov 16 (51 discovered); Bing read it Nov 14.
+- Google: the `site:contractordocs.app` search lists about 40 of the 51 pages (all blog posts except
+  construction-time-sheet-tracking and best-invoicing-software-for-contractors, most trade/compare pages, pricing,
+  features, about, contact, terms, privacy, both generators). URL Inspection says "URL is on Google / Page is indexed"
+  for /blog/work-order-template and /for/electricians. Performance (Nov 11-15): 84 impressions, 0 clicks, average position
+  56, 14 pages with impressions (top: work-order-template 17, free-electrical-invoice-template 15, estimate-generator 13).
+- BUT the Page indexing report says Indexed 0, Not indexed 29 = "Crawled - currently not indexed" 28 (first detected
+  11/14; includes pages that URL Inspection calls indexed, so that report lags) and "Page with redirect" 1 = the home page.
+- Home page problem: URL Inspection of https://www.contractordocs.app/ = "Page with redirect", last crawl Nov 13 21:48,
+  Google-selected canonical = https://contractordocs.app/ (apex). Google also still shows an OLD apex page ("The Operating
+  System for Modern Contractors", Nov 2025) and old subdomains policy./terms./images.contractordocs.app (all still answer
+  200 on Vercel). Live now: apex answers 307 (temporary) to www, although vercel.json has a permanent (308) host redirect:
+  the 307 most likely comes from the Vercel domain setting and wins. Suggested fix (owner's Vercel account, needs the
+  owner's OK): make the apex -> www redirect 308 permanent, then request indexing of the www home; retire or redirect the
+  old subdomains.
+- Bing: `site:www.contractordocs.app` shows 1 result (the home page with an OLD description); Site Explorer "Indexed URLs"
+  has no data yet; IndexNow was sent on Nov 14. Bing is slow for new domains; re-check at the first data review.
+- Why rankings are low: new domain with no backlinks, average position 56. Next levers: links from the owner's own
+  profiles (YouTube descriptions of the tutorial video, social profiles, directories) and more focused posts.
+- The Nov 16 skip means no new posts yet. Weekly usage stays at 90% until 2026-11-19 17:00 UTC, so the Nov 17 and 18 runs
+  will skip too; the first real run is expected on 2026-11-19 at 19:00.
+
 ### 2026-11-16 (skipped: usage (5h 4%, weekly 90%))
 Timer run at ~19:10 UTC. The weekly limit (all models) was at 90% (resets 2026-11-19 17:00 UTC), the procedure's stop
 line. Nothing written, built, pushed or pinged. Note for the next run: the dry-run article's registry `date`/`updated`
