@@ -2,12 +2,16 @@
 
 ## State (update at the end of every run)
 - Timer: `contractordocs-daily-seo`, every day 19:00 local (PC time zone UTC+0). Set up 2026-11-15.
-- First publication: not yet (2026-11-16 run skipped: weekly usage at 90%; next try 2026-11-17 19:00).
-- Posts live from this routine: 0. Posts on the site before it: 24 (registry order = newest first).
-- Last data review: none. First review due: 3 days after the first publication (2026-11-19 if day 1 is 2026-11-16),
-  then every 3rd day.
+- First publication: 2026-11-17 (the setup session's article, published by hand at the owner's request; the 2026-11-16
+  timer run had skipped: weekly usage at 90%).
+- Posts live from this routine: 1 (how-to-write-a-construction-scope-of-work). Posts before it: 24. Registry order =
+  newest first.
+- Last data review: none. First review due 2026-11-20 (3 days after the first publication), then every 3rd day.
 - Pending Google indexing requests (pending-index): none.
-- Unpublished work waiting on branch `seo-daily`: the dry-run article from the setup session (see "2026-11-15 setup").
+- Unpublished work waiting on branch `seo-daily`: none (everything is on origin/main).
+- Usage rule in DAILY_PROCEDURE.md step A (skip at 5-hour 60% or weekly 90%) is under review by the owner, who wants
+  the daily posts to keep going; weekly usage was 94% on 2026-11-17 (resets 2026-11-19 17:00 UTC). Follow whatever the
+  newest note below says.
 
 ## Access check, 2026-11-15 ~21:30 UTC (setup session, look only, nothing changed)
 Chrome: one browser connected, shown as "Browser 1" (deviceId 23a0a75c-cc82-4d0f-b3b0-312e9279d13e; NEXT_STEPS calls the
@@ -64,6 +68,19 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-17 (published by hand: 1 article; the rest paused by the usage rule, owner informed)
+Owner asked why the timer was not posting. Cause: the 11-16 run (and the 11-17 19:07 run) stop at step A because weekly
+usage is at 90% or more (94% now), a line this routine set on the brief's advice (the owner's own project rule in
+NEXT_STEPS says "stop entirely at 95% weekly"). Published the one finished article now (cheap):
+| # | Slug | Target query | Intent | URL | Live | IndexNow | Google | Bing |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | how-to-write-a-construction-scope-of-work | how to write a scope of work (construction scope of work template) | how-to + template | https://www.contractordocs.app/blog/how-to-write-a-construction-scope-of-work | HTTP 200, in sitemap, lastmod 2026-11-17 | 52 URLs, HTTP 200 | Request indexing sent ("added to a priority crawl queue") | Submit URLs done (99 of 100 quota left) |
+- Checks on the rebased tree (main was at 7d2e4e5): lint, `tsc -p .`, build, seo:check all green (52 pages); pushed
+  `seo-daily:main` (7d2e4e5..3e61541, only blog + docs files).
+- Heads-up: origin/main already contained the tutorial-video commits (up to 7d2e4e5 "NEXT_STEPS: the whole course is
+  recorded..."), i.e. `my-branch` content reached main before this push. Not touched by this routine; the video session
+  and the owner should confirm that was intended.
 
 ### 2026-11-17 indexing investigation (owner asked "why don't the pages get indexed"; look only, nothing changed)
 - Technical side is clean: robots.txt allows everything public, pages return 200, `index, follow`, canonical = www URL,
