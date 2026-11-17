@@ -4,7 +4,7 @@
 - Timer: `contractordocs-daily-seo`, every day 19:00 local (PC time zone UTC+0). Set up 2026-11-15.
 - First publication: 2026-11-17 (the setup session's article, published by hand at the owner's request; the 2026-11-16
   timer run had skipped: weekly usage at 90%).
-- Posts live from this routine: 1 (how-to-write-a-construction-scope-of-work). Posts before it: 24. Registry order =
+- Posts live from this routine: 5 (scope of work + 4 on 2026-11-17). Posts before it: 24. Registry order =
   newest first.
 - Last data review: none. First review due 2026-11-20 (3 days after the first publication), then every 3rd day.
 - Pending Google indexing requests (pending-index): none.
@@ -66,6 +66,19 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-17 evening run (published: 4 articles)
+Usage at start: 5-hour 7%, weekly 95% (information only, per the owner's order).
+| # | Slug | Target query | Intent | URL | Live | IndexNow | Google | Bing |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | what-to-do-when-a-client-wont-pay-a-contractor | what to do when a client won't pay a contractor | how-to | https://www.contractordocs.app/blog/what-to-do-when-a-client-wont-pay-a-contractor | 200, in sitemap | 56 URLs, HTTP 200 | Indexing requested | Submitted |
+| 2 | past-due-invoice-letter-templates-for-contractors | past due invoice letter template | template | https://www.contractordocs.app/blog/past-due-invoice-letter-templates-for-contractors | 200, in sitemap | same | Indexing requested | Submitted |
+| 3 | how-to-follow-up-on-a-construction-estimate | how to follow up on a construction estimate | how-to | https://www.contractordocs.app/blog/how-to-follow-up-on-a-construction-estimate | 200, in sitemap | same | Indexing requested | Submitted |
+| 4 | estimate-vs-invoice-difference | estimate vs invoice | question | https://www.contractordocs.app/blog/estimate-vs-invoice-difference | 200, in sitemap | same | Indexing requested | Submitted |
+Notes: lint, tsc, build, seo:check all green (56 pages); pushed seo-daily:main (b02ec65..34f9cd7). Product claims used
+(automatic reminders via Gmail: invoices due date +7/+14 days, estimates +3/+7 days; convert estimate to invoice/deposit)
+come from components/help/helpContent.ts. Not done: adding the new posts to the `related` lists of older posts (do it at
+the first data review). Backlog rows used: client won't pay, past-due letters, follow up on estimate, estimate vs invoice.
 
 ### 2026-11-17 owner's order: no usage stop line, the routine runs every day
 The owner answered: the articles, pages and Google/Bing requests must keep happening whatever the weekly limit or the
