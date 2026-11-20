@@ -90,6 +90,10 @@ Notes:
   description, answer opening; updated 2026-11-20), contractor-paperwork-checklist (3 in-context links; updated
   2026-11-20), related lists of 5 older posts (no visible text change, no date bump). Second push, IndexNow and Google
   re-requests for the edited / unindexed URLs: see the follow-up line under this entry.
+- Follow-up: data-review commit pushed (e9ae2a4..6ee1e16), live after ~1 minute, IndexNow 60 URLs HTTP 200. Google
+  "Indexing requested" for free-electrical-invoice-template (indexed), best-invoicing-software-for-contractors and
+  construction-time-sheet-tracking (both Discovered - not indexed), contractor-paperwork-checklist (indexed). 8 Google
+  requests today, no quota message. Pending-index: none. One inspection hung on "Retrieving data" for ~50 s, then loaded.
 
 ### 2026-11-17 evening run (published: 4 articles)
 Usage at start: 5-hour 7%, weekly 95% (information only, per the owner's order).
