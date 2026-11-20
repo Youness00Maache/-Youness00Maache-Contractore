@@ -67,7 +67,7 @@ A short daily record of the crew on site, hours, weather, work done, deliveries,
 
 ### Time sheets
 
-Crew hours per job and per task. They feed payroll and tell you whether labor is tracking to the estimate while there's still time to react.
+Crew hours per job and per task. They feed payroll and tell you whether labor is tracking to the estimate while there's still time to react. The [time sheet tracking guide](/blog/construction-time-sheet-tracking) covers what to record and how to use it in job costing.
 
 ### Material and expense logs
 
@@ -79,7 +79,7 @@ Every change in scope, price or schedule gets a written change order, signed *be
 
 ### Progress invoices and payment receipts
 
-Bill at each milestone, the same day you reach it, and record every payment received with a receipt.
+Bill at each milestone, the same day you reach it, and record every payment received with a receipt. If you are still choosing a tool for this, compare the options in [best invoicing software for contractors](/blog/best-invoicing-software-for-contractors).
 
 ### Inspection records
 
@@ -98,6 +98,8 @@ Client decisions, phone calls, site meetings and inspection results. A two-line 
 - **Handover package:** manufacturer warranties, manuals, paint colors, product details and final photos.
 - **Permit closeout:** the final inspection sign-off.
 - **Final receipt:** confirms the job is paid in full.
+
+For a step-by-step version of this phase, with a punch list table, the final invoice math and a closeout timeline, use the [job closeout checklist](/blog/job-closeout-checklist-for-contractors).
 
 ## The master checklist
 

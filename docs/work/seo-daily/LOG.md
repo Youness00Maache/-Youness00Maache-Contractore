@@ -4,9 +4,9 @@
 - Timer: `contractordocs-daily-seo`, every day 19:00 local (PC time zone UTC+0). Set up 2026-11-15.
 - First publication: 2026-11-17 (the setup session's article, published by hand at the owner's request; the 2026-11-16
   timer run had skipped: weekly usage at 90%).
-- Posts live from this routine: 5 (scope of work + 4 on 2026-11-17). Posts before it: 24. Registry order =
-  newest first.
-- Last data review: none. First review due 2026-11-20 (3 days after the first publication), then every 3rd day.
+- Posts live from this routine: 9 (scope of work + 4 on 2026-11-17 + 4 on 2026-11-20). Posts before it: 24. Registry
+  order = newest first.
+- Last data review: 2026-11-20 (`metrics/2026-11-20.md`). Next review due 2026-11-23.
 - Pending Google indexing requests (pending-index): none.
 - Unpublished work waiting on branch `seo-daily`: none (everything is on origin/main).
 - Usage: NO stop line any more (owner's order 2026-11-17: run every day whatever the percentages). See step A of the procedure.
@@ -32,24 +32,27 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 
 | Rating | Working title / target query | Intent | Notes | Status |
 | --- | --- | --- | --- | --- |
+| H | work order examples (filled-in, by trade) | template | data 2026-11-20: "work order example" 7, "example of work order" 5, "work order sample"; work-order-template ranks 55; distinct intent: examples, link to the template | todo |
+| H | can construction contracts and change orders be signed electronically (is it legally binding) | question | data 2026-11-20: question queries rank 2-3.5; rules vary, not legal advice; check overlap with e-signatures-for-contractors first (maybe extend that post instead) | todo |
+| M | what is a good job margin for small contractors | question | data 2026-11-20: "job margin" 26 impr at pos 55; no invented benchmarks; overlap check with the profit margin post | todo |
 | H | how to write a scope of work for a construction job (template) | template | dry run 2026-11-15 | drafted |
-| H | what to do when a client won't pay a contractor | how-to | reminders, demand letter, lien, small claims; rules vary | todo |
+| H | what to do when a client won't pay a contractor | how-to | reminders, demand letter, lien, small claims; rules vary | used 2026-11-17 |
 | H | contractor deposit: how much can you ask for | question | states limit deposits differently; no invented %; formula + examples | todo |
-| H | past-due invoice letter / payment reminder templates for contractors | template | 3 tones: friendly, firm, final | todo |
+| H | past-due invoice letter / payment reminder templates for contractors | template | 3 tones: friendly, firm, final | used 2026-11-17 |
 | H | estimate vs quote vs bid vs proposal: what is the difference | question | | todo |
-| H | estimate vs invoice: what is the difference | question | links to both generators | todo |
-| H | how to follow up on an estimate (scripts and timing) | how-to | | todo |
+| H | estimate vs invoice: what is the difference | question | links to both generators | used 2026-11-17 |
+| H | how to follow up on an estimate (scripts and timing) | how-to | | used 2026-11-17 |
 | H | contractor payment schedule template (milestone billing) | template | percent per milestone examples | todo |
 | H | punch list template for contractors and how to run one | template | only claim app support if live | todo |
-| H | job closeout checklist for contractors | template | warranty, final invoice, lien waiver, photos | todo |
-| H | time and materials vs fixed price contract | comparison | when each fits, examples | todo |
+| H | job closeout checklist for contractors | template | warranty, final invoice, lien waiver, photos | used 2026-11-20 |
+| H | time and materials vs fixed price contract | comparison | when each fits, examples | used 2026-11-20 |
 | H | cost-plus contract explained for small contractors | comparison | | todo |
-| H | how to estimate a painting job (labor, materials, prep) | how-to / trade | method + worked example, no invented rates | todo |
+| H | how to estimate a painting job (labor, materials, prep) | how-to / trade | method + worked example, no invented rates | used 2026-11-20 |
 | H | how to estimate a roofing job (squares, waste, tear-off) | how-to / trade | link /for/roofers | todo |
 | H | how to estimate a deck / fence / landscaping job | how-to / trade | one trade per post | todo |
 | H | HVAC service call pricing: flat rate vs hourly | comparison / trade | link /for/hvac | todo |
 | M | free HVAC / roofing / painting / landscaping / handyman invoice template (one per trade) | template | model: free-plumbing-invoice-template | todo |
-| M | how to set your labor rate (burden, overhead, billable hours) | how-to | formula and example | todo |
+| M | how to set your labor rate (burden, overhead, billable hours) | how-to | formula and example | used 2026-11-20 |
 | M | how much markup to put on materials | question | markup vs margin link, no fixed "right" number | todo |
 | M | retainage explained for subcontractors | question | rules vary by state | todo |
 | M | progress billing / schedule of values step by step | how-to | | todo |
@@ -66,6 +69,27 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-20 (published: 4 articles; first data review done)
+Usage at start: 5-hour 0%, weekly 17% (information only).
+| # | Slug | Target query | Intent | URL | Live (HTTP) | IndexNow | Google request | Bing |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | how-to-estimate-a-painting-job | how to estimate a painting job | how-to / trade | https://www.contractordocs.app/blog/how-to-estimate-a-painting-job | 200, in sitemap, lastmod 2026-11-20 | 60 URLs, HTTP 200 | Indexing requested | Submitted |
+| 2 | how-to-set-your-contractor-labor-rate | how to set your contractor labor rate | how-to | https://www.contractordocs.app/blog/how-to-set-your-contractor-labor-rate | same | same | Indexing requested | Submitted |
+| 3 | job-closeout-checklist-for-contractors | job closeout checklist for contractors | template | https://www.contractordocs.app/blog/job-closeout-checklist-for-contractors | same | same | Indexing requested | Submitted |
+| 4 | time-and-materials-vs-fixed-price-contract | time and materials vs fixed price contract | comparison | https://www.contractordocs.app/blog/time-and-materials-vs-fixed-price-contract | same | same | Indexing requested | Submitted |
+Notes:
+- No log entries exist for 2026-11-18 and 2026-11-19. The 11-18 run left posts 1 and 2 written but uncommitted and
+  unregistered in the worktree (files dated 11-18 19:10); nothing from 11-19. This run finished them (the labor rate post
+  was 75 words short and missing a product link; its FAQ linked the T&M post, which is one reason #4 was chosen),
+  registered, checked and published them. Cause of the two missed days unknown: check the timer's run history.
+- Checks: lint, tsc, build, seo:check (60 pages) green; pushed seo-daily:main (0475e46..e9ae2a4). Vercel took about 4
+  minutes; until then the new URLs answered 200 with the generic app shell (SPA fallback), so check the page title,
+  not just the HTTP code.
+- Data review: see metrics/2026-11-20.md and the Decisions log below. Edited: free-electrical-invoice-template (title,
+  description, answer opening; updated 2026-11-20), contractor-paperwork-checklist (3 in-context links; updated
+  2026-11-20), related lists of 5 older posts (no visible text change, no date bump). Second push, IndexNow and Google
+  re-requests for the edited / unindexed URLs: see the follow-up line under this entry.
 
 ### 2026-11-17 evening run (published: 4 articles)
 Usage at start: 5-hour 7%, weekly 95% (information only, per the owner's order).
@@ -156,4 +180,14 @@ article. Nothing was pushed, no search engine was pinged. Branch `seo-daily` = o
   the push is rejected as non-fast-forward.
 
 ## Decisions log (data review decisions, newest first; later runs judge them against the next snapshot)
-(none yet)
+### 2026-11-20 (snapshot metrics/2026-11-20.md; Google 877 impr, 2 clicks, pos 37.7)
+1. free-electrical-invoice-template: 64 impr, 0% CTR, searchers type "electrician invoice template" (pos 19.5-27.5).
+   Title/H1, description and answer opening now say "electrician invoice template". Judge on 2026-11-23: position and
+   CTR for the electrician wording.
+2. contractor-paperwork-checklist (pos 9.1): added links to closeout checklist, time sheets, invoicing software. Judge:
+   holds top 10.
+3. best-invoicing-software-for-contractors and construction-time-sheet-tracking: "Discovered - currently not indexed"
+   8 days after publishing. New internal links from indexed posts + indexing requested again. Judge: indexed?
+4. 2026-11-17 posts linked from older posts' related lists (owed since 11-17).
+5. /estimate-generator (369 impr, pos 33) left alone: position, not snippet, is the issue; app page, not blog.
+6. New backlog rows from queries: work order examples, e-signature legality question, job margin.

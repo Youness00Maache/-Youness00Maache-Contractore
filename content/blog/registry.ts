@@ -199,10 +199,10 @@ export const BLOG_POSTS: BlogPostMeta[] = [
   },
   {
     slug: 'free-electrical-invoice-template',
-    title: 'Free Electrical Invoice Template: What Electricians Should Include',
-    description: 'What an electrician’s invoice should include, field by field, with a service call and a panel upgrade example, a checklist and a free invoice generator.',
+    title: 'Electrician Invoice Template (Free): What to Include',
+    description: 'Free electrician invoice template: every field an electrical invoice needs, a service call and a panel upgrade example, a checklist and a free generator.',
     date: NOV14,
-    updated: NOV14,
+    updated: '2026-11-20',
     author: AUTHOR,
     category: 'Invoicing & Payments',
     readingTime: 6,
@@ -242,7 +242,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 8,
     keywords: ['construction invoice', 'contractor invoice template', 'how to invoice as a contractor', 'invoice checklist'],
-    related: ['how-contractors-get-paid-faster', 'free-electrical-invoice-template', 'free-plumbing-invoice-template'],
+    related: ['how-contractors-get-paid-faster', 'free-electrical-invoice-template', 'estimate-vs-invoice-difference'],
   },
   {
     slug: 'construction-estimate-template',
@@ -253,7 +253,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Estimating & Profit',
     readingTime: 8,
     keywords: ['construction estimate template', 'how to price a construction job', 'contractor estimate', 'job pricing'],
-    related: ['how-to-create-a-construction-estimate-with-ai', 'how-to-calculate-job-profit-margin', 'good-better-best-pricing-for-contractors'],
+    related: ['how-to-create-a-construction-estimate-with-ai', 'how-to-calculate-job-profit-margin', 'how-to-follow-up-on-a-construction-estimate'],
   },
   {
     slug: 'change-order-form-guide',
@@ -286,7 +286,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 8,
     keywords: ['get paid faster contractor', 'contractor deposit', 'progress billing', 'late fees for contractors'],
-    related: ['how-to-write-a-construction-invoice', 'lien-waivers-explained', 'e-signatures-for-contractors'],
+    related: ['how-to-write-a-construction-invoice', 'lien-waivers-explained', 'what-to-do-when-a-client-wont-pay-a-contractor'],
   },
   {
     slug: 'how-to-calculate-job-profit-margin',
@@ -297,7 +297,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Estimating & Profit',
     readingTime: 8,
     keywords: ['job profit margin', 'markup vs margin', 'construction profit margin', 'contractor overhead'],
-    related: ['construction-estimate-template', 'material-log-job-costing', 'construction-time-sheet-tracking'],
+    related: ['construction-estimate-template', 'how-to-set-your-contractor-labor-rate', 'construction-time-sheet-tracking'],
   },
   {
     slug: 'work-order-template',
@@ -392,11 +392,12 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     title: 'Contractor Paperwork Checklist: Every Document From Bid to Payment',
     description: 'Every document a contractor needs on a job, from the first estimate to the final invoice, warranty and lien waiver, plus how to keep it all organized.',
     date: PUBLISHED,
+    updated: '2026-11-20',
     author: AUTHOR,
     category: 'Running Your Business',
     readingTime: 8,
     keywords: ['contractor paperwork checklist', 'construction documents list', 'contractor documents'],
-    related: ['how-to-write-a-construction-invoice', 'change-order-form-guide', 'contractor-warranty-letter-template'],
+    related: ['job-closeout-checklist-for-contractors', 'how-to-write-a-construction-invoice', 'contractor-warranty-letter-template'],
   },
 ];
 
