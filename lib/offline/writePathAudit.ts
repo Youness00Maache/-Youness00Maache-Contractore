@@ -26,6 +26,7 @@ export const WRITE_PATHS: WritePathEntry[] = [
     { file: 'App.tsx', match: 'supabase.storage.from(bucket).upload(path, file', what: 'image upload (logo, document image, online)', offline: 'needs_connection' },
     { file: 'App.tsx', match: "from('profiles').update(row)", what: 'settings save (online path; offline it goes to the outbox)', offline: 'queue' },
     { file: 'App.tsx', match: "invokeFunction('delete-account'", what: 'delete account', offline: 'needs_connection' },
+    { file: 'App.tsx', match: "update({ company_name: draft.company", what: 'website generator hand-off: business name into an empty profile (skipped offline; the setup assistant asks later)', offline: 'background' },
     { file: 'App.tsx', match: "from('jobs').insert(payload)", what: 'create job (offline: outbox, then this insert on sync)', offline: 'queue' },
     { file: 'App.tsx', match: 'update({ client_id: client.id })', what: 'link the client added after an online job create', offline: 'background' },
     { file: 'App.tsx', match: 'update({ status: newStatus })', what: 'job status', offline: 'queue' },

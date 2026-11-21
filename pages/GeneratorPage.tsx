@@ -1,18 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Container, PageHero, ButtonLink, FaqList, CtaBand, CheckList } from './components/ui.tsx';
-import { Plus, Trash, Printer, ArrowRight, Info, BookOpen } from './components/icons.tsx';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Container, PageHero, FaqList, CtaBand, CheckList } from './components/ui.tsx';
+import { Plus, Trash, Eye, ArrowRight, Info, BookOpen, XIcon, Lock } from './components/icons.tsx';
 import { computeDocumentTotals, formatMoney } from '../utils/money.ts';
 import { SIGNUP_PATH, type FaqItem } from '../content/site.ts';
 import { getPostMeta } from '../content/blog/registry.ts';
+import { buildGeneratorDraft, saveGeneratorDraft } from '../lib/generatorHandoff.ts';
+import { hasStoredSession } from './routes.ts';
 
 export type GeneratorKind = 'invoice' | 'estimate';
 
 interface Line { id: number; description: string; quantity: string; rate: string }
 
-const SAMPLE: Record<GeneratorKind, { number: string; lines: Omit<Line, 'id'>[]; notes: string; tax: string; extra: string }> = {
+const SAMPLE: Record<GeneratorKind, { number: string; jobName: string; lines: Omit<Line, 'id'>[]; notes: string; tax: string; extra: string }> = {
   invoice: {
     number: 'INV-1001',
+    jobName: 'Bathroom remodel',
     lines: [
       { description: 'Bathroom demolition & disposal', quantity: '1', rate: '850' },
       { description: 'Tile installation (sq ft)', quantity: '120', rate: '12' },
@@ -24,6 +27,7 @@ const SAMPLE: Record<GeneratorKind, { number: string; lines: Omit<Line, 'id'>[];
   },
   estimate: {
     number: 'EST-2001',
+    jobName: 'Deck replacement',
     lines: [
       { description: 'Remove existing deck boards & railing', quantity: '1', rate: '900' },
       { description: 'Composite decking, supply & install (sq ft)', quantity: '240', rate: '18' },
@@ -52,8 +56,8 @@ const COPY: Record<GeneratorKind, Copy> = {
   invoice: {
     hero: {
       eyebrow: 'Free invoice generator',
-      title: 'Contractor invoice generator',
-      subtitle: 'Fill in the form and watch your invoice build itself. Print it or save it as a PDF for free, no account needed. When you want to email it, track payments and keep it with the job, create it in ContractorDocs.',
+      title: 'Free invoice generator for contractors',
+      subtitle: 'Fill in the form and watch your invoice build itself, with tax, deposits and the balance due calculated for you. Preview it free, no sign-up. When it looks right, create it in ContractorDocs: everything you typed opens in the editor, ready to download as a PDF and send.',
     },
     includeTitle: 'What to include on a contractor invoice',
     include: [
@@ -82,8 +86,9 @@ const COPY: Record<GeneratorKind, Copy> = {
     ],
     guides: ['how-to-write-a-construction-invoice', 'how-contractors-get-paid-faster', 'lien-waivers-explained'],
     faq: [
-      { q: 'Is this invoice generator really free?', a: 'Yes. You can build and print an invoice, or save it as a PDF from the print dialog, without creating an account. Nothing you type is uploaded; it stays in your browser.' },
-      { q: 'How do I save the invoice as a PDF?', a: 'Click “Print / Save as PDF” and choose “Save as PDF” (or “Microsoft Print to PDF”) as the printer. For a branded PDF with your logo that you can email directly, create the invoice in ContractorDocs.' },
+      { q: 'Is this invoice generator really free?', a: 'Yes. Building and previewing the invoice is free and needs no account. Nothing you type is uploaded while you work; it stays in your browser.' },
+      { q: 'How do I download the invoice as a PDF?', a: 'Click “Create it in ContractorDocs” and create a free account (or log in). Your invoice opens in the editor with everything you typed, inside a new job with the client saved, and you can download the PDF, add your logo and email it from your own Gmail.' },
+      { q: 'Do I have to type everything again after signing up?', a: 'No. Your business name, client, job, line items, tax, deposit, notes and dates carry over. ContractorDocs creates the job and the client for you and saves the invoice as a draft you can change.' },
       { q: 'What should a contractor invoice include?', a: 'Your business details, the client and job address, a unique invoice number, invoice and due dates, itemized work and materials, tax, deposits received, the balance due and your payment terms. See our [construction invoice guide](/blog/how-to-write-a-construction-invoice) for a full checklist.' },
       { q: 'Can I bill a job in stages?', a: 'Yes. In ContractorDocs you can use progress billing to bill a percentage of each line item, and the app subtracts what you already billed so the balance is always right.' },
       { q: 'Can clients pay the invoice online?', a: 'ContractorDocs does not process payments itself. Add your payment link or instructions in the notes, and record payments in the app so the balance due stays accurate.' },
@@ -92,9 +97,9 @@ const COPY: Record<GeneratorKind, Copy> = {
   },
   estimate: {
     hero: {
-      eyebrow: 'Free estimate generator',
-      title: 'Construction estimate generator',
-      subtitle: 'Build a clean, itemized estimate in your browser and print it or save it as a PDF, free and without an account. When you want clients to approve and sign online, create it in ContractorDocs.',
+      eyebrow: 'Free estimate maker',
+      title: 'Free estimate generator for contractors',
+      subtitle: 'Build a clean, itemized construction estimate in your browser, with tax and totals calculated as you type. Preview it free, no sign-up. When it looks right, create it in ContractorDocs: everything you typed opens in the editor, ready to download as a PDF and get approved and signed online.',
     },
     includeTitle: 'What to include in a construction estimate',
     include: [
@@ -122,7 +127,9 @@ const COPY: Record<GeneratorKind, Copy> = {
     ],
     guides: ['construction-estimate-template', 'how-to-calculate-job-profit-margin', 'change-order-form-guide'],
     faq: [
-      { q: 'Is the estimate generator free?', a: 'Yes. Build the estimate, then print it or choose “Save as PDF” in the print dialog. No account is needed and nothing you type leaves your browser.' },
+      { q: 'Is the estimate generator free?', a: 'Yes. Building and previewing the estimate is free and needs no account. Nothing you type is uploaded while you work; it stays in your browser.' },
+      { q: 'How do I download the estimate as a PDF?', a: 'Click “Create it in ContractorDocs” and create a free account (or log in). Your estimate opens in the editor with everything you typed, inside a new job with the client saved, and you can download the PDF or send a link your client signs on their phone.' },
+      { q: 'Do I have to type everything again after signing up?', a: 'No. Your business name, client, job, line items, tax, notes, valid-until date and number carry over. ContractorDocs creates the job and the client for you and saves the estimate as a draft you can change.' },
       { q: 'What is the difference between an estimate and a quote?', a: 'People use the words loosely. An estimate is usually an informed approximation that can change if conditions change; a quote or bid is usually a fixed price for a defined scope. Whatever you call it, spell out the scope, exclusions and how changes are priced.' },
       { q: 'How long should an estimate be valid?', a: 'Many contractors use 15 to 30 days, shorter when material prices are volatile. Put the expiry date on the estimate so there is no argument later.' },
       { q: 'How do I price a job without guessing?', a: 'Start from a takeoff of quantities, price labor hours and materials, add subcontractors and equipment, then overhead, profit and contingency. Our [estimating guide](/blog/construction-estimate-template) walks through it step by step.' },
@@ -135,16 +142,142 @@ const COPY: Record<GeneratorKind, Copy> = {
 const inputCls = 'block w-full rounded-xl border border-input bg-card px-3 py-2.5 text-[15px] text-foreground shadow-sm focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15';
 const labelCls = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
+interface PaperProps {
+  kind: GeneratorKind;
+  company: string;
+  client: string;
+  jobName: string;
+  jobAddress: string;
+  number: string;
+  date: string;
+  lines: Line[];
+  extra: string;
+  notes: string;
+  totals: ReturnType<typeof computeDocumentTotals>;
+  large?: boolean;
+}
+
+/** The document as the client would see it (side preview and the full-size Preview). */
+const DocPaper: React.FC<PaperProps> = ({ kind, company, client, jobName, jobAddress, number, date, lines, extra, notes, totals, large }) => {
+  const title = kind === 'invoice' ? 'Invoice' : 'Estimate';
+  return (
+    <article
+      aria-label={`${title} preview`}
+      className={`select-none rounded-2xl bg-white text-slate-800 ring-1 ring-slate-200 ${large ? 'p-6 shadow-2xl sm:p-12' : 'p-6 shadow-[0_20px_50px_-24px_rgba(16,24,40,.4)] sm:p-8'}`}
+      onCopy={(e) => e.preventDefault()}
+    >
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
+        <div>
+          <p className={`${large ? 'text-2xl' : 'text-lg'} font-extrabold`}>{company || 'Your Company'}</p>
+          <p className="mt-1 text-sm text-slate-500">Prepared for <span className="font-semibold text-slate-700">{client || 'Client'}</span></p>
+          {jobName || jobAddress ? (
+            <p className="mt-0.5 text-sm text-slate-500">{[jobName, jobAddress].filter(Boolean).join(' · ')}</p>
+          ) : null}
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-600">{title}</p>
+          <p className="text-base font-bold">{number}</p>
+          <p className="text-sm text-slate-500">{date}</p>
+        </div>
+      </header>
+      <table className="mt-5 w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
+            <th className="pb-2 font-semibold">Description</th>
+            <th className="pb-2 text-right font-semibold">Qty</th>
+            <th className="pb-2 text-right font-semibold">Rate</th>
+            <th className="pb-2 text-right font-semibold">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={l.id} className="border-b border-slate-100 align-top">
+              <td className="py-2.5 pr-3">{l.description || <span className="text-slate-400">—</span>}</td>
+              <td className="py-2.5 pl-2 text-right tabular-nums text-slate-600">{l.quantity}</td>
+              <td className="py-2.5 pl-3 text-right tabular-nums text-slate-600">{formatMoney(l.rate)}</td>
+              <td className="py-2.5 pl-3 text-right font-semibold tabular-nums">{formatMoney(computeDocumentTotals({ lineItems: [l] }).subtotal)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <dl className="ml-auto mt-5 w-full max-w-[260px] space-y-1.5 text-sm tabular-nums">
+        <div className="flex justify-between text-slate-600"><dt>Subtotal</dt><dd>{formatMoney(totals.subtotal)}</dd></div>
+        <div className="flex justify-between text-slate-600"><dt>Tax ({totals.taxRate}%)</dt><dd>{formatMoney(totals.tax)}</dd></div>
+        {kind === 'invoice' ? (
+          <>
+            <div className="flex justify-between text-slate-600"><dt>Total</dt><dd>{formatMoney(totals.total)}</dd></div>
+            <div className="flex justify-between text-slate-600"><dt>Deposit received</dt><dd>−{formatMoney(totals.amountPaid)}</dd></div>
+            <div className="mt-2 flex justify-between rounded-lg bg-brand-600 px-3 py-2 font-bold text-white"><dt>Balance due</dt><dd>{formatMoney(totals.balanceDue)}</dd></div>
+          </>
+        ) : (
+          <div className="mt-2 flex justify-between rounded-lg bg-brand-600 px-3 py-2 font-bold text-white"><dt>Estimate total</dt><dd>{formatMoney(totals.total)}</dd></div>
+        )}
+      </dl>
+      {notes ? <p className="mt-6 whitespace-pre-line border-t border-slate-200 pt-4 text-sm leading-relaxed text-slate-600">{notes}</p> : null}
+      {kind === 'estimate' ? <p className="mt-3 text-sm text-slate-500">Valid for {extra || '30'} days from the date above.</p> : null}
+      <div className="mt-8 grid grid-cols-2 gap-6 text-xs text-slate-400">
+        <div className="border-t border-slate-300 pt-2">{kind === 'estimate' ? 'Client approval' : 'Authorized signature'}</div>
+        <div className="border-t border-slate-300 pt-2">Date</div>
+      </div>
+    </article>
+  );
+};
+
+/** Full-size preview: look only. Downloading, sending and signing happen in the app. */
+const PreviewDialog: React.FC<{ title: string; onClose: () => void; onCreate: () => void; children: React.ReactNode }> = ({ title, onClose, onCreate, children }) => {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`${title} preview`} className="fixed inset-0 z-[100] flex flex-col bg-slate-900/80 backdrop-blur-sm print:hidden" onClick={onClose}>
+      <div className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-slate-950/70 px-4 py-3 text-white sm:px-6" onClick={(e) => e.stopPropagation()}>
+        <p className="flex min-w-0 flex-1 basis-60 items-center gap-2 text-sm">
+          <Lock className="h-4 w-4 flex-none text-amber-300" />
+          <span><strong>Preview only.</strong> Create it in ContractorDocs to download the PDF, send it and get it signed.</span>
+        </p>
+        <button type="button" onClick={onCreate} className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700">
+          Create it in ContractorDocs <ArrowRight className="h-4 w-4" />
+        </button>
+        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close preview" className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-white/80 hover:bg-white/10 hover:text-white">
+          <XIcon className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
+        <div className="mx-auto max-w-[816px]" onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+          {children}
+          <p className="mt-4 text-center text-xs text-white/70">Your free ContractorDocs account adds your logo, the PDF download, e-signatures and payment tracking.</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const GeneratorTool: React.FC<{ kind: GeneratorKind }> = ({ kind }) => {
   const sample = SAMPLE[kind];
+  const navigate = useNavigate();
   const [company, setCompany] = useState('Your Company LLC');
   const [client, setClient] = useState('Client name');
+  const [jobName, setJobName] = useState(sample.jobName);
+  const [jobAddress, setJobAddress] = useState('');
   const [number, setNumber] = useState(sample.number);
   const [date, setDate] = useState('2026-11-12');
   const [lines, setLines] = useState<Line[]>(() => sample.lines.map((l, i) => ({ ...l, id: i + 1 })));
   const [tax, setTax] = useState(sample.tax);
   const [extra, setExtra] = useState(sample.extra); // invoice: deposit received; estimate: valid days
   const [notes, setNotes] = useState(sample.notes);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  // today's date in the visitor's time zone (the prerendered HTML keeps a fixed sample date)
+  useEffect(() => {
+    const d = new Date();
+    setDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }, []);
 
   const totals = useMemo(
     () => computeDocumentTotals({ lineItems: lines, taxRate: tax, amountPaid: kind === 'invoice' ? extra : 0 }),
@@ -156,12 +289,25 @@ const GeneratorTool: React.FC<{ kind: GeneratorKind }> = ({ kind }) => {
   const removeLine = (id: number) => setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls));
   const title = kind === 'invoice' ? 'Invoice' : 'Estimate';
 
+  /** Keeps what was typed for the app (lib/generatorHandoff.ts), then: sign up, or straight in when signed in. */
+  const createInApp = () => {
+    saveGeneratorDraft(buildGeneratorDraft({
+      kind, source: `/${kind}-generator`, company, client, jobName, jobAddress, number, date, lines, tax, extra, notes,
+    }));
+    setPreviewOpen(false);
+    navigate(hasStoredSession() ? '/dashboard' : `${SIGNUP_PATH}?from=${kind}-generator`);
+  };
+
+  const paper = { kind, company, client, jobName, jobAddress, number, date, lines, extra, notes, totals };
+
   return (
-    <div className="grid gap-8 lg:grid-cols-[1fr_1.05fr]">
-      <form className="card card-pad space-y-5 print:hidden" onSubmit={(e) => e.preventDefault()} aria-label={`${title} details`}>
+    <div className="grid gap-8 lg:grid-cols-[1fr_1.05fr] print:hidden">
+      <form className="card card-pad space-y-5" onSubmit={(e) => e.preventDefault()} aria-label={`${title} details`}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label htmlFor="g-company" className={labelCls}>Your business</label><input id="g-company" className={inputCls} value={company} onChange={(e) => setCompany(e.target.value)} /></div>
           <div><label htmlFor="g-client" className={labelCls}>Client</label><input id="g-client" className={inputCls} value={client} onChange={(e) => setClient(e.target.value)} /></div>
+          <div><label htmlFor="g-job" className={labelCls}>Job</label><input id="g-job" className={inputCls} placeholder="e.g. Kitchen remodel" value={jobName} onChange={(e) => setJobName(e.target.value)} /></div>
+          <div><label htmlFor="g-address" className={labelCls}>Job address</label><input id="g-address" className={inputCls} placeholder="Street, city" value={jobAddress} onChange={(e) => setJobAddress(e.target.value)} autoComplete="street-address" /></div>
           <div><label htmlFor="g-number" className={labelCls}>{title} #</label><input id="g-number" className={inputCls} value={number} onChange={(e) => setNumber(e.target.value)} /></div>
           <div><label htmlFor="g-date" className={labelCls}>Date</label><input id="g-date" type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></div>
         </div>
@@ -191,69 +337,29 @@ const GeneratorTool: React.FC<{ kind: GeneratorKind }> = ({ kind }) => {
           </div>
         </div>
         <div><label htmlFor="g-notes" className={labelCls}>Notes & terms</label><textarea id="g-notes" rows={3} className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-        <p className="flex items-start gap-2 text-sm text-muted-foreground"><Info className="mt-0.5 h-4 w-4 flex-none" /> Nothing you type here is uploaded. It stays in this browser tab.</p>
+        <p className="flex items-start gap-2 text-sm text-muted-foreground"><Info className="mt-0.5 h-4 w-4 flex-none" /> Nothing is uploaded while you type. It stays in this browser until you create the {title.toLowerCase()} in ContractorDocs.</p>
       </form>
 
       <div className="lg:sticky lg:top-24 lg:self-start">
-        <article aria-label={`${title} preview`} className="rounded-2xl bg-white p-6 text-slate-800 shadow-[0_20px_50px_-24px_rgba(16,24,40,.4)] ring-1 ring-slate-200 print:shadow-none print:ring-0 sm:p-8">
-          <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
-            <div>
-              <p className="text-lg font-extrabold">{company || 'Your Company'}</p>
-              <p className="mt-1 text-sm text-slate-500">Prepared for <span className="font-semibold text-slate-700">{client || 'Client'}</span></p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-600">{title}</p>
-              <p className="text-base font-bold">{number}</p>
-              <p className="text-sm text-slate-500">{date}</p>
-            </div>
-          </header>
-          <table className="mt-5 w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
-                <th className="pb-2 font-semibold">Description</th>
-                <th className="pb-2 text-right font-semibold">Qty</th>
-                <th className="pb-2 text-right font-semibold">Rate</th>
-                <th className="pb-2 text-right font-semibold">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={l.id} className="border-b border-slate-100 align-top">
-                  <td className="py-2.5 pr-3">{l.description || <span className="text-slate-400">—</span>}</td>
-                  <td className="py-2.5 text-right tabular-nums text-slate-600">{l.quantity}</td>
-                  <td className="py-2.5 text-right tabular-nums text-slate-600">{formatMoney(l.rate)}</td>
-                  <td className="py-2.5 text-right font-semibold tabular-nums">{formatMoney(computeDocumentTotals({ lineItems: [l] }).subtotal)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <dl className="ml-auto mt-5 w-full max-w-[260px] space-y-1.5 text-sm tabular-nums">
-            <div className="flex justify-between text-slate-600"><dt>Subtotal</dt><dd>{formatMoney(totals.subtotal)}</dd></div>
-            <div className="flex justify-between text-slate-600"><dt>Tax ({totals.taxRate}%)</dt><dd>{formatMoney(totals.tax)}</dd></div>
-            {kind === 'invoice' ? (
-              <>
-                <div className="flex justify-between text-slate-600"><dt>Total</dt><dd>{formatMoney(totals.total)}</dd></div>
-                <div className="flex justify-between text-slate-600"><dt>Deposit received</dt><dd>−{formatMoney(totals.amountPaid)}</dd></div>
-                <div className="mt-2 flex justify-between rounded-lg bg-brand-600 px-3 py-2 font-bold text-white"><dt>Balance due</dt><dd>{formatMoney(totals.balanceDue)}</dd></div>
-              </>
-            ) : (
-              <div className="mt-2 flex justify-between rounded-lg bg-brand-600 px-3 py-2 font-bold text-white"><dt>Estimate total</dt><dd>{formatMoney(totals.total)}</dd></div>
-            )}
-          </dl>
-          {notes ? <p className="mt-6 whitespace-pre-line border-t border-slate-200 pt-4 text-sm leading-relaxed text-slate-600">{notes}</p> : null}
-          {kind === 'estimate' ? <p className="mt-3 text-sm text-slate-500">Valid for {extra || '30'} days from the date above.</p> : null}
-          <div className="mt-8 grid grid-cols-2 gap-6 text-xs text-slate-400">
-            <div className="border-t border-slate-300 pt-2">{kind === 'estimate' ? 'Client approval' : 'Authorized signature'}</div>
-            <div className="border-t border-slate-300 pt-2">Date</div>
-          </div>
-        </article>
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row print:hidden">
-          <button type="button" onClick={() => window.print()} className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 font-semibold text-foreground shadow-soft hover:bg-muted">
-            <Printer className="h-4 w-4" /> Print / Save as PDF
+        <DocPaper {...paper} />
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <button type="button" onClick={() => setPreviewOpen(true)} className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 font-semibold text-foreground shadow-soft hover:bg-muted">
+            <Eye className="h-4 w-4" /> Preview
           </button>
-          <ButtonLink to={SIGNUP_PATH} size="lg" arrow className="flex-1">Create it in ContractorDocs</ButtonLink>
+          <button type="button" onClick={createInApp} className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-brand-600 px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+            Create it in ContractorDocs <ArrowRight className="h-4 w-4" />
+          </button>
         </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Free account. Your {title.toLowerCase()} opens in the editor with everything above, inside a new job, ready to download as a PDF, send and get signed.
+        </p>
       </div>
+
+      {previewOpen ? (
+        <PreviewDialog title={title} onClose={() => setPreviewOpen(false)} onCreate={createInApp}>
+          <DocPaper {...paper} large />
+        </PreviewDialog>
+      ) : null}
     </div>
   );
 };
@@ -270,7 +376,7 @@ const GeneratorPage: React.FC<{ kind: GeneratorKind }> = ({ kind }) => {
           breadcrumbs={[{ name: 'Home', to: '/' }, { name: copy.hero.title }]}
         >
           <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
-            {['Free, no sign-up', 'Totals calculated for you', 'Print or save as PDF'].map((t) => (
+            {['Free, no sign-up to start', 'Totals calculated as you type', 'Full-size preview'].map((t) => (
               <li key={t} className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-success" /> {t}</li>
             ))}
           </ul>

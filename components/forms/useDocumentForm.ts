@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormType, UserProfile } from '../../types.ts';
 import { supabase } from '../../lib/supabase.ts';
 import { DOC_NUMBER_CONFIG, errorMessage, newId, nextDocumentNumber } from './formUtils.ts';
-import { isDraftConsumed, markDraftConsumed, mergeDraftIntoForm, useDocumentDraftPrefill, type DraftPrefillState } from '../../hooks/useDocumentDraftPrefill.ts';
+import { getDraftKey, isAutoSaveDraft, isDraftConsumed, markDraftConsumed, mergeDraftIntoForm, useDocumentDraftPrefill, type DraftPrefillState } from '../../hooks/useDocumentDraftPrefill.ts';
 import { applyDesignDefault, baselineOf, basicFallbackId, designPlan, enforceDocumentDesign, replacedDesignMessage, type DesignBaseline } from '../../lib/designAccess.ts';
 import { currentDesignDefault } from '../../lib/designDefaults.ts';
 import { applyMoneyDefaults } from '../../lib/setup/moneyDefaults.ts';
@@ -352,6 +352,20 @@ export function useDocumentForm<T extends object>(options: UseDocumentFormOption
         }, optsRef.current.autoSaveDelayMs ?? 900);
         return () => clearTimeout(timer);
     }, [draft.version, draft.autoSave, draft.draftKey, save]);
+
+    // ---- auto-save for a seeded document that asks for it (website generator hand-off: lib/generatorHandoff.ts),
+    //      once per seed id, never replayed by Back/refresh ----
+    const seedAutoKey = seed && isAutoSaveDraft(options.prefillData) ? getDraftKey(formType, options.prefillData) : null;
+    useEffect(() => {
+        if (!seedAutoKey || autoSavedRef.current.has(seedAutoKey) || isDraftConsumed(seedAutoKey)) return;
+        const timer = setTimeout(() => {
+            if (autoSavedRef.current.has(seedAutoKey) || isDraftConsumed(seedAutoKey)) return;
+            autoSavedRef.current.add(seedAutoKey);
+            markDraftConsumed(seedAutoKey);
+            void save();
+        }, optsRef.current.autoSaveDelayMs ?? 900);
+        return () => clearTimeout(timer);
+    }, [seedAutoKey, save]);
 
     // ---- feedback auto-dismiss + leave-page guard ----
     useEffect(() => {

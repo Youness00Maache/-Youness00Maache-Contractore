@@ -82,7 +82,7 @@ const page: TradeContent = {
     },
     {
       q: 'Can I make an invoice without signing up?',
-      a: 'Yes. The free [invoice generator](/invoice-generator) builds a printable invoice in your browser with no account. Sign up when you want to email invoices, save customers and track payments.',
+      a: 'Yes. The free [invoice generator](/invoice-generator) builds and previews an invoice in your browser with no account. Create it in ContractorDocs (free) to download the PDF with everything you typed, email it, save the customer and track payments.',
     },
     {
       q: 'Is the Free plan enough for a handyman?',

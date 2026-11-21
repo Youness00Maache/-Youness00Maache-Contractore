@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AuthShell, AuthField, PasswordInput, GoogleButton, OrDivider, FormMessage, friendlyAuthError } from '../pages/components/AuthShell.tsx';
 import { rememberPendingPlan } from '../pages/routes.ts';
 import { PLANS } from '../lib/plans.ts';
+import { generatorDocLabel, readGeneratorDraft } from '../lib/generatorHandoff.ts';
 
 interface SignupProps {
   onSignup: (email: string, pass: string) => Promise<void>;
@@ -19,8 +20,12 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onLoginWithGoogle, onSwitchTo
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingPlan, setPendingPlan] = useState<{ name: string; period: string } | null>(null);
+  /** Estimate / invoice typed on the website generator, waiting for this account (lib/generatorHandoff.ts). */
+  const [pendingDoc, setPendingDoc] = useState<string | null>(null);
 
   useEffect(() => {
+    const draft = readGeneratorDraft();
+    if (draft) setPendingDoc(generatorDocLabel(draft.kind));
     // ?plan=premium|ai&period=monthly|yearly from the pricing page → localStorage `cd_pending_plan` for after signup.
     const pending = rememberPendingPlan(window.location.search);
     if (pending) setPendingPlan({ name: PLANS[pending.plan].name, period: pending.period });
@@ -84,6 +89,10 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onLoginWithGoogle, onSwitchTo
       {pendingPlan ? (
         <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">
           You picked <strong>{pendingPlan.name}</strong>, billed {pendingPlan.period}. Create your account and we’ll take you straight to secure checkout.
+        </p>
+      ) : pendingDoc ? (
+        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">
+          Your {pendingDoc} is saved. Create your free account and it opens in the editor with everything you typed, ready to edit, download and send.
         </p>
       ) : null}
       <GoogleButton onClick={handleGoogle} disabled={loading}>Sign up with Google</GoogleButton>

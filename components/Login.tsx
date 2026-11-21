@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AuthShell, AuthField, PasswordInput, GoogleButton, OrDivider, FormMessage, friendlyAuthError } from '../pages/components/AuthShell.tsx';
 import { rememberPendingPlan } from '../pages/routes.ts';
 import { takeLoginPrefill } from '../lib/pendingPlan.ts';
+import { generatorDocLabel, readGeneratorDraft } from '../lib/generatorHandoff.ts';
 import { PLANS } from '../lib/plans.ts';
 
 interface LoginProps {
@@ -23,8 +24,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
   /** Signup found an existing account for this email: prefilled + explained. */
   const [existingAccount, setExistingAccount] = useState(false);
+  /** Estimate / invoice typed on the website generator, waiting for this account (lib/generatorHandoff.ts). */
+  const [pendingDoc, setPendingDoc] = useState<string | null>(null);
 
   useEffect(() => {
+    const draft = readGeneratorDraft();
+    if (draft) setPendingDoc(generatorDocLabel(draft.kind));
     const pending = rememberPendingPlan(window.location.search);
     if (pending) setPendingPlan(`${PLANS[pending.plan].name} (${pending.period})`);
     const prefill = takeLoginPrefill();
@@ -122,7 +127,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, onLoginWithGoogle, onSwitchToSig
           {existingAccount ? <>You already have an account. Log in to continue to <strong>{pendingPlan}</strong>.</> : <>Log in to continue to <strong>{pendingPlan}</strong>. We’ll take you straight to secure checkout.</>}
         </p>
       ) : existingAccount ? (
-        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">You already have an account with this email. Log in to continue.</p>
+        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">You already have an account with this email. Log in to continue{pendingDoc ? <> and your {pendingDoc} opens with everything you typed</> : null}.</p>
+      ) : pendingDoc ? (
+        <p className="mb-5 rounded-xl bg-accent px-3.5 py-2.5 text-sm text-accent-foreground">Log in and your {pendingDoc} opens in the editor with everything you typed.</p>
       ) : null}
       <GoogleButton onClick={handleGoogle} disabled={loading}>Continue with Google</GoogleButton>
       <OrDivider />

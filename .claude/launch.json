@@ -7,6 +7,20 @@
       "runtimeArgs": ["vite", "--port", "3010", "--strictPort", "--host", "localhost"],
       "port": 3010,
       "url": "http://localhost:3010"
+    },
+    {
+      "name": "fake-backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["docs/work/tutorial-video/fake-backend/server.mjs", "54329"],
+      "port": 54329,
+      "url": "http://127.0.0.1:54329"
+    },
+    {
+      "name": "contractordocs-fake",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_SUPABASE_URL=http://127.0.0.1:54329&& set VITE_SUPABASE_ANON_KEY=demo-anon-key&& npx vite --port 3012 --strictPort --host localhost"],
+      "port": 3012,
+      "url": "http://localhost:3012"
     }
   ]
 }

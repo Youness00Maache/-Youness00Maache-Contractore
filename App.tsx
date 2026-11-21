@@ -50,6 +50,8 @@ import { dbApi } from './utils/db.ts';
 import { saveDefaultSignatureToAccount, saveUiPreferencesToAccount, syncUiPreferencesAfterLogin, syncUserDataAfterLogin } from './lib/userData.ts';
 import { compressImage } from './utils/imageCompression.ts';
 import { DOC_NUMBER_CONFIG, nextDocumentNumber } from './components/forms/formUtils.ts';
+import { makeSeedPrefill } from './components/forms/useDocumentForm.ts';
+import { clearGeneratorDraft, generatorDocLabel, generatorDocumentSeed, generatorFormType, generatorJobValues, readGeneratorDraft } from './lib/generatorHandoff.ts';
 // Offline create / edit (competitor gap #14): outbox on this device, synced through the same document save
 import { upsertDocumentRecord, fetchDocumentForSync, fetchDocumentNumbers } from './lib/documentSave.ts';
 import { useOutbox, type OutboxDeps } from './lib/offline/useOutbox.ts';
@@ -2554,6 +2556,44 @@ const App: React.FC = () => {
         setAiHandoffTick(n => n + 1);
     };
 
+    // ── Website generator hand-off (lib/generatorHandoff.ts): the estimate / invoice typed on /estimate-generator or
+    //    /invoice-generator becomes a job + saved client + that document in the real editor, saved once as a draft.
+    //    The dashboard tour and setup assistant wait until the user opens the dashboard (they need the dashboard).
+    const [generatorBusy, setGeneratorBusy] = useState<string | null>(null);
+    const generatorRunRef = useRef(false);
+    useEffect(() => {
+        const uid = session?.user?.id;
+        if (!uid || !profile || profileStatus !== 'ready' || !jobsLoaded || generatorRunRef.current) return;
+        if (portalKey || approvalToken) return;
+        if (PUBLIC_SCREENS.includes(view.screen) || view.screen === 'billingSuccess' || view.screen === 'gmailCallback') return;
+        const draft = readGeneratorDraft();
+        if (!draft) return;
+        generatorRunRef.current = true;
+        clearGeneratorDraft(); // one shot: a failure never loops
+        const label = generatorDocLabel(draft.kind);
+        setGeneratorBusy(label);
+        void (async () => {
+            try {
+                // the business name typed on the website fills an empty profile (the setup assistant asks the rest)
+                if (!(profile.companyName || '').trim() && draft.company && navigator.onLine) {
+                    const { error } = await supabase.from('profiles').update({ company_name: draft.company, updated_at: new Date().toISOString() }).eq('id', uid);
+                    if (!error && sessionUserIdRef.current === uid) setProfile(prev => (prev ? { ...prev, companyName: draft.company } : prev));
+                }
+                const jobId = await handleSaveJob(generatorJobValues(draft), true);
+                const seed = generatorDocumentSeed(draft, localYmd(), () => crypto.randomUUID());
+                navigate(`/jobs/${jobId}/forms/${encodeURIComponent(generatorFormType(draft.kind))}`, {
+                    state: { prefillData: { ...makeSeedPrefill(seed), __autoSave: true } },
+                });
+                toast.success(`Your ${label} is ready and saved as a draft. Edit anything, then download or send it.`);
+            } catch (err) {
+                toast.error(`We couldn't open the ${label} from the website. ${describeError(err)}`);
+            } finally {
+                setGeneratorBusy(null);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user?.id, profile, profileStatus, jobsLoaded, view.screen, portalKey, approvalToken]);
+
     // ── Screens ──────────────────────────────────────────────────────────────
     const renderNotFoundJob = () => (
         <div className="page">
@@ -3415,6 +3455,16 @@ const App: React.FC = () => {
                         onOpenSettings={() => navigate('/settings#payments')}
                     />
                 </Suspense>
+            )}
+
+            {/* Website generator hand-off in progress (a modal: the first-run tour waits for it) */}
+            {generatorBusy && (
+                <div role="dialog" aria-modal="true" aria-label={`Opening your ${generatorBusy}`} className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+                    <div className="flex items-center gap-3 rounded-2xl bg-card px-5 py-4 text-sm font-semibold text-foreground shadow-xl">
+                        <span className="h-5 w-5 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" aria-hidden="true" />
+                        Opening your {generatorBusy}…
+                    </div>
+                </div>
             )}
 
             {/* First-run app tour (once per account; replay from Help & tutorials) */}

@@ -3,7 +3,7 @@ import type { BlogPostContent } from '../types.ts';
 const post: BlogPostContent = {
   slug: 'free-electrical-invoice-template',
   answer:
-    'An electrician invoice template should show your business name, contact details and license number where your state requires it, a unique invoice number and date, the client and job address, any permit number, itemized labor and materials (or a flat rate per task), tax as your state requires, deposits and prior payments, the balance due, a calendar due date and how to pay. You can build one free in a browser with an invoice generator and save it as a PDF.',
+    'An electrician invoice template should show your business name, contact details and license number where your state requires it, a unique invoice number and date, the client and job address, any permit number, itemized labor and materials (or a flat rate per task), tax as your state requires, deposits and prior payments, the balance due, a calendar due date and how to pay. Build one free with an invoice generator, then download the PDF from a free account.',
   takeaways: [
     'Put your license number on the invoice wherever your state or city requires it on business documents.',
     'Itemize materials an inspector or homeowner would recognize: breakers, devices, wire by the foot, fixtures.',
@@ -12,7 +12,7 @@ const post: BlogPostContent = {
   ],
   body: `A good electrical invoice tells the client exactly what was done, what it cost and how to pay, in a format that also stands up if anyone checks it later: an inspector, a property manager, an insurance adjuster or a client who forgot what they agreed to. This guide lists every field an electrician's invoice should have, shows two examples (a service call and a panel upgrade), and explains how to make one for free.
 
-If you only need the template, the free [invoice generator](/invoice-generator) builds a professional invoice in your browser with totals and tax calculated. You can print it or save it as a PDF without an account.
+If you only need the template, the free [invoice generator](/invoice-generator) builds a professional invoice in your browser with totals and tax calculated. Preview it free without an account; when it looks right, create it in ContractorDocs (free plan) and everything you typed opens in the editor, ready to download as a PDF and send.
 
 ## What to include on an electrical invoice
 
@@ -126,7 +126,7 @@ For estimates, change orders and work orders for electrical jobs, see our [page 
     },
     {
       q: 'Is there a free electrical invoice template?',
-      a: 'Yes. The ContractorDocs [invoice generator](/invoice-generator) is free and needs no sign-up: add your lines, tax and deposit, then print or save it as a PDF. The free plan of the app adds e-signatures, a client portal and Gmail sending.',
+      a: 'Yes. The ContractorDocs [invoice generator](/invoice-generator) is free and needs no sign-up: add your lines, tax and deposit and preview the invoice. Create it on the app’s Free plan to download the PDF; your lines carry over, and the app adds e-signatures, a client portal and Gmail sending.',
     },
     {
       q: 'When should I send the invoice for an electrical job?',
@@ -135,7 +135,7 @@ For estimates, change orders and work orders for electrical jobs, see our [page 
   ],
   cta: {
     heading: 'Make your electrical invoice now',
-    text: 'Line items, tax, deposits and a balance due, calculated for you. Print or save it as a PDF for free, no account needed.',
+    text: 'Line items, tax, deposits and a balance due, calculated for you. Preview it free with no sign-up, then download the PDF from a free account.',
     href: '/invoice-generator',
     label: 'Open the invoice generator',
   },

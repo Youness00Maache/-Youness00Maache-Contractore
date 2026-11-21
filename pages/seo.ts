@@ -136,14 +136,14 @@ const STATIC: Record<string, StaticDef> = {
     crumb: 'Templates',
   },
   '/invoice-generator': {
-    title: 'Free Contractor Invoice Generator (No Sign-Up) | ContractorDocs',
-    description: 'Build a professional contractor invoice in your browser: line items, tax and deposits calculated for you. Print or save as PDF free, no account required.',
+    title: 'Free Invoice Generator for Contractors | ContractorDocs',
+    description: 'Free invoice generator for contractors: line items, tax and deposits calculated as you type. Preview it free, no sign-up, then download the PDF and send it.',
     extra: (p) => [faqPage(p, GENERATOR_FAQ.invoice)],
     crumb: 'Invoice generator',
   },
   '/estimate-generator': {
-    title: 'Free Construction Estimate Generator | ContractorDocs',
-    description: 'Create an itemized construction estimate in minutes with automatic totals. Print or save it as a PDF for free, then get it approved and signed online.',
+    title: 'Free Estimate Generator & Estimate Maker | ContractorDocs',
+    description: 'Free estimate maker for contractors: build an itemized estimate online with totals done for you and preview it free. Then download the PDF and get it signed.',
     extra: (p) => [faqPage(p, GENERATOR_FAQ.estimate)],
     crumb: 'Estimate generator',
   },

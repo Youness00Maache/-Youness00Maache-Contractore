@@ -50,6 +50,21 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 - Never mention Kelviq or "merchant of record" on the website.
 - Keep the owner updated in short, plain messages.
 
+# >>> GENERATORS → APP HAND-OFF + SEARCH FIXES (owner request 2026-11-21) <<<
+- Search data (Google 11/11-11/19): 1.04K impressions, 3 clicks, avg position 36.8; Bing 14 impressions, 0 clicks. Cause: a 10-day-old
+  domain ranking on page 3-4 (CTR there is ~0), plus /estimate-generator (half the impressions) shows for homeowner queries ("free
+  estimate", "get a free estimate") that will never click. Fixed: the bare domain contractordocs.app now redirects 308 (was 307) in
+  Vercel → Domains (Google had picked the apex as the home canonical); generator titles/descriptions/H1 now match the queries people type
+  ("free estimate generator", "estimate maker"). Daily SEO routine keeps running (it was skipped 11/16 for usage, paused 11/18 and
+  interrupted 11/19 by the owner; 11/17 and 11/20 published). Old subdomains terms./policy./images.contractordocs.app are separate
+  Vercel projects (maybe used by the Google OAuth consent screen): left as they are.
+- /estimate-generator and /invoice-generator: "Print / Save as PDF" removed; "Preview" opens a full-size look-only preview;
+  "Create it in ContractorDocs" keeps the typed data in localStorage `cd_generator_draft` (lib/generatorHandoff.ts), goes to sign up
+  (or /dashboard when signed in); after sign-in App.tsx creates the job + saved client, fills an empty profile company name, and opens
+  the estimate/invoice as a seed with `__autoSave` (saved once as a draft; useDocumentForm.ts). Tour + setup assistant still run the
+  first time the user opens the dashboard. Signup/Login show "your estimate is saved". Tests: scripts/generator-handoff-check.ts (71).
+  Tested end to end on the fake backend (launch.json "fake-backend" + "contractordocs-fake", port 3012): estimate + invoice OK.
+
 # >>> TUTORIAL VIDEO (owner request 2026-11-15; own session; everything in docs/work/tutorial-video/) <<<
 Read docs/work/tutorial-video/PLAN.md + README.md first. STATE 2026-11-15 ~15:10 (branch my-branch, last commit d647e27, NOTHING PUSHED):
 **UPDATE 2026-11-16 (after the owner said "Publish now"): THE VIDEO COURSE IS LIVE IN PRODUCTION.** `git push origin my-branch:main` done

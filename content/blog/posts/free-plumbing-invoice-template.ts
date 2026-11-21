@@ -3,7 +3,7 @@ import type { BlogPostContent } from '../types.ts';
 const post: BlogPostContent = {
   slug: 'free-plumbing-invoice-template',
   answer:
-    'A plumbing invoice should show your business and license details, an invoice number and date, the client and service address, what you found and what you fixed, labor (hours or a flat rate), parts with brand and model for anything you installed, trip or after-hours charges on their own lines, tax, payments received, the balance due, a due date and how to pay. A free invoice generator lets you build one in a browser and save it as a PDF.',
+    'A plumbing invoice should show your business and license details, an invoice number and date, the client and service address, what you found and what you fixed, labor (hours or a flat rate), parts with brand and model for anything you installed, trip or after-hours charges on their own lines, tax, payments received, the balance due, a due date and how to pay. A free invoice generator lets you build and preview one in a browser, then download it as a PDF from a free account.',
   takeaways: [
     'Write what you found as well as what you did: “root intrusion at 40 ft” explains the bill better than “drain cleaning”.',
     'Record the brand, model and serial number of every water heater, fixture or valve you install.',
@@ -12,7 +12,7 @@ const post: BlogPostContent = {
   ],
   body: `A plumbing invoice has one job: show the client what was wrong, what you did about it and what it costs, clearly enough that they pay without calling you first. That means describing the problem as well as the fix, naming the parts you installed and keeping trip, emergency and disposal charges on their own lines.
 
-This guide lists the fields every plumbing invoice should have, walks through two examples (an emergency drain call and a water heater replacement), and shows how to make one for free. If you just want to build an invoice now, the free [invoice generator](/invoice-generator) calculates totals and tax and saves a PDF, no account needed.
+This guide lists the fields every plumbing invoice should have, walks through two examples (an emergency drain call and a water heater replacement), and shows how to make one for free. If you just want to build an invoice now, the free [invoice generator](/invoice-generator) calculates totals and tax and lets you preview it with no account; create it in ContractorDocs (free plan) to download the PDF with everything you typed.
 
 ## What to include on a plumbing invoice
 
@@ -128,7 +128,7 @@ For plumbing estimates, work orders and good/better/best options, see our [page 
     },
     {
       q: 'Can I make a plumbing invoice for free?',
-      a: 'Yes. The ContractorDocs [invoice generator](/invoice-generator) is free with no sign-up: add your lines, tax and payments, then print or save a PDF. The Free plan of the app adds job photos, e-signatures, a client portal and Gmail sending.',
+      a: 'Yes. The ContractorDocs [invoice generator](/invoice-generator) is free with no sign-up: add your lines, tax and payments and preview the invoice. Create it on the app’s Free plan to download the PDF; your lines carry over, and the app adds job photos, e-signatures, a client portal and Gmail sending.',
     },
     {
       q: 'Can clients pay a plumbing invoice on the spot?',
@@ -137,7 +137,7 @@ For plumbing estimates, work orders and good/better/best options, see our [page 
   ],
   cta: {
     heading: 'Make your plumbing invoice now',
-    text: 'Lines, tax, payments and balance due, calculated as you type. Print it or save it as a PDF for free, no account needed.',
+    text: 'Lines, tax, payments and balance due, calculated as you type. Preview it free with no sign-up, then download the PDF from a free account.',
     href: '/invoice-generator',
     label: 'Open the invoice generator',
   },
