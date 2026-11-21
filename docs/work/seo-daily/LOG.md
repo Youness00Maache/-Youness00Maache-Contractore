@@ -184,6 +184,16 @@ article. Nothing was pushed, no search engine was pinged. Branch `seo-daily` = o
   the push is rejected as non-fast-forward.
 
 ## Decisions log (data review decisions, newest first; later runs judge them against the next snapshot)
+### 2026-11-21 (owner session, outside the routine; commit c24f36a, live)
+1. Apex contractordocs.app now redirects 308 (was 307) in Vercel → Domains. Next run: URL Inspection + Request indexing for
+   https://www.contractordocs.app/ (Google had picked the apex as the home canonical; "Page with redirect"). The coordinator's
+   Search Console tab did not respond, so no indexing request was sent today.
+2. /estimate-generator: title "Free Estimate Generator & Estimate Maker | ContractorDocs", H1 "Free estimate generator for
+   contractors", new description; /invoice-generator: "Free Invoice Generator for Contractors | ContractorDocs". The print button is
+   gone (Preview + "Create it in ContractorDocs" hand-off into the app). Next run: request indexing for both. Judge at the next
+   review: position and clicks for "estimate generator", "estimate generator free", "free estimate maker", "estimate maker".
+3. Blog/landing text no longer says the generator saves a free PDF (electrician/plumbing invoice posts, handyman page): the PDF
+   now needs a free account. Keep new posts consistent with that.
 ### 2026-11-20 (snapshot metrics/2026-11-20.md; Google 877 impr, 2 clicks, pos 37.7)
 1. free-electrical-invoice-template: 64 impr, 0% CTR, searchers type "electrician invoice template" (pos 19.5-27.5).
    Title/H1, description and answer opening now say "electrician invoice template". Judge on 2026-11-23: position and
