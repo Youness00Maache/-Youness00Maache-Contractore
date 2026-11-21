@@ -3,7 +3,7 @@ import type { BlogPostContent } from '../types.ts';
 const post: BlogPostContent = {
   slug: 'free-electrical-invoice-template',
   answer:
-    'An electrical invoice should show your business name, contact details and license number where your state requires it, a unique invoice number and date, the client and job address, any permit number, itemized labor and materials (or a flat rate per task), tax as your state requires, deposits and prior payments, the balance due, a calendar due date and how to pay. You can build one free in a browser with an invoice generator and save it as a PDF.',
+    'An electrician invoice template should show your business name, contact details and license number where your state requires it, a unique invoice number and date, the client and job address, any permit number, itemized labor and materials (or a flat rate per task), tax as your state requires, deposits and prior payments, the balance due, a calendar due date and how to pay. You can build one free in a browser with an invoice generator and save it as a PDF.',
   takeaways: [
     'Put your license number on the invoice wherever your state or city requires it on business documents.',
     'Itemize materials an inspector or homeowner would recognize: breakers, devices, wire by the foot, fixtures.',
