@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'work-order-examples-for-contractors',
+    title: 'Work Order Examples for Contractors (4 Filled-In Samples)',
+    description: 'Four filled-in work order examples for contractors (plumbing, HVAC, electrical, punch list), the fields every one needs and a checklist to copy.',
+    date: '2026-11-22',
+    updated: '2026-11-22',
+    author: AUTHOR,
+    category: 'Project Paperwork',
+    readingTime: 6,
+    keywords: ['work order examples', 'work order sample', 'example of work order', 'filled in work order'],
+    related: ['work-order-template', 'change-order-form-guide', 'job-closeout-checklist-for-contractors'],
+  },
+  {
     slug: 'how-to-estimate-a-painting-job',
     title: 'How to Estimate a Painting Job (Labor, Paint and Prep)',
     description: 'How to estimate a painting job step by step: measure surfaces, convert area to gallons, price prep and each coat, then add overhead, profit and exclusions.',
