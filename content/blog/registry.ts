@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'how-much-deposit-can-a-contractor-ask-for',
+    title: 'How Much Deposit Can a Contractor Ask For? (By Your Costs)',
+    description: 'How much deposit can a contractor ask for? Why state rules differ, how to size a deposit from up-front costs, example wording and a checklist before you quote.',
+    date: '2026-11-22',
+    updated: '2026-11-22',
+    author: AUTHOR,
+    category: 'Invoicing & Payments',
+    readingTime: 6,
+    keywords: ['how much deposit can a contractor ask for', 'contractor deposit', 'contractor down payment', 'deposit on construction contract'],
+    related: ['how-contractors-get-paid-faster', 'how-to-write-a-construction-invoice', 'estimate-vs-invoice-difference'],
+  },
+  {
     slug: 'how-to-estimate-a-roofing-job',
     title: 'How to Estimate a Roofing Job: Squares, Waste and Tear-Off',
     description: 'How to estimate a roofing job step by step: measure squares, add waste, price materials, tear-off and labor, then overhead and profit, with a worked example.',
