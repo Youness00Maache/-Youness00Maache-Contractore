@@ -4,7 +4,7 @@
 - Timer: `contractordocs-daily-seo`, every day 19:00 local (PC time zone UTC+0). Set up 2026-11-15.
 - First publication: 2026-11-17 (the setup session's article, published by hand at the owner's request; the 2026-11-16
   timer run had skipped: weekly usage at 90%).
-- Posts live from this routine: 9 (scope of work + 4 on 2026-11-17 + 4 on 2026-11-20). Posts before it: 24. Registry
+- Posts live from this routine: 13 (scope of work + 4 on 2026-11-17 + 4 on 2026-11-20 + 4 on 2026-11-22). Posts before it: 24. Registry
   order = newest first.
 - Last data review: 2026-11-20 (`metrics/2026-11-20.md`). Next review due 2026-11-23.
 - Pending Google indexing requests (pending-index): none.
@@ -32,12 +32,12 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 
 | Rating | Working title / target query | Intent | Notes | Status |
 | --- | --- | --- | --- | --- |
-| H | work order examples (filled-in, by trade) | template | data 2026-11-20: "work order example" 7, "example of work order" 5, "work order sample"; work-order-template ranks 55; distinct intent: examples, link to the template | todo |
+| H | work order examples (filled-in, by trade) | template | data 2026-11-20: "work order example" 7, "example of work order" 5, "work order sample"; work-order-template ranks 55; distinct intent: examples, link to the template | used 2026-11-22 |
 | H | can construction contracts and change orders be signed electronically (is it legally binding) | question | data 2026-11-20: question queries rank 2-3.5; rules vary, not legal advice; check overlap with e-signatures-for-contractors first (maybe extend that post instead) | todo |
 | M | what is a good job margin for small contractors | question | data 2026-11-20: "job margin" 26 impr at pos 55; no invented benchmarks; overlap check with the profit margin post | todo |
 | H | how to write a scope of work for a construction job (template) | template | dry run 2026-11-15 | drafted |
 | H | what to do when a client won't pay a contractor | how-to | reminders, demand letter, lien, small claims; rules vary | used 2026-11-17 |
-| H | contractor deposit: how much can you ask for | question | states limit deposits differently; no invented %; formula + examples | todo |
+| H | contractor deposit: how much can you ask for | question | states limit deposits differently; no invented %; formula + examples | used 2026-11-22 |
 | H | past-due invoice letter / payment reminder templates for contractors | template | 3 tones: friendly, firm, final | used 2026-11-17 |
 | H | estimate vs quote vs bid vs proposal: what is the difference | question | | todo |
 | H | estimate vs invoice: what is the difference | question | links to both generators | used 2026-11-17 |
@@ -48,14 +48,14 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | H | time and materials vs fixed price contract | comparison | when each fits, examples | used 2026-11-20 |
 | H | cost-plus contract explained for small contractors | comparison | | todo |
 | H | how to estimate a painting job (labor, materials, prep) | how-to / trade | method + worked example, no invented rates | used 2026-11-20 |
-| H | how to estimate a roofing job (squares, waste, tear-off) | how-to / trade | link /for/roofers | todo |
+| H | how to estimate a roofing job (squares, waste, tear-off) | how-to / trade | link /for/roofers | used 2026-11-22 |
 | H | how to estimate a deck / fence / landscaping job | how-to / trade | one trade per post | todo |
 | H | HVAC service call pricing: flat rate vs hourly | comparison / trade | link /for/hvac | todo |
 | M | free HVAC / roofing / painting / landscaping / handyman invoice template (one per trade) | template | model: free-plumbing-invoice-template | todo |
 | M | how to set your labor rate (burden, overhead, billable hours) | how-to | formula and example | used 2026-11-20 |
 | M | how much markup to put on materials | question | markup vs margin link, no fixed "right" number | todo |
 | M | retainage explained for subcontractors | question | rules vary by state | todo |
-| M | progress billing / schedule of values step by step | how-to | | todo |
+| M | progress billing / schedule of values step by step | how-to | | used 2026-11-22 |
 | M | net 30 vs due on receipt for contractors | question | | todo |
 | M | how to take job-site photos that protect you (before, during, after) | checklist | | todo |
 | M | final walkthrough checklist and certificate of completion | template | | todo |
@@ -69,6 +69,25 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-22 (published: 4 articles; no data review, next due 2026-11-23)
+Usage at start: 5-hour 49%, weekly 62% (information only). No entry existed for 2026-11-21 (no run that day).
+| # | Slug | Target query | Intent | URL | Live (HTTP) | IndexNow | Google request | Bing |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | work-order-examples-for-contractors | work order examples | template | https://www.contractordocs.app/blog/work-order-examples-for-contractors | 200, title correct, in sitemap | 60 URLs, HTTP 200 | Indexing requested | Submitted |
+| 2 | how-to-estimate-a-roofing-job | how to estimate a roofing job | how-to / trade | https://www.contractordocs.app/blog/how-to-estimate-a-roofing-job | same | same | Indexing requested | Submitted |
+| 3 | how-much-deposit-can-a-contractor-ask-for | how much deposit can a contractor ask for | question | https://www.contractordocs.app/blog/how-much-deposit-can-a-contractor-ask-for | same | same | Indexing requested | Submitted |
+| 4 | progress-billing-schedule-of-values-for-contractors | progress billing schedule of values | how-to | https://www.contractordocs.app/blog/progress-billing-schedule-of-values-for-contractors | same | same | Indexing requested | Submitted |
+Notes:
+- Checks: lint, tsc, build, seo:check (64 pages) green; pushed seo-daily:main (c1ef57f..9e70336). Live about 4 minutes later.
+- Backlog rows used: work order examples (from the 11-20 data), contractor deposit, progress billing / schedule of values,
+  roofing estimate. Product claims (deposit line on estimate-to-invoice conversion, progress invoice with % complete,
+  deposit wording in settings, work order tasks) checked against components/help/helpContent.ts.
+- Related lists updated (no visible text change, no date bump): work-order-template, how-to-write-a-construction-invoice,
+  how-to-estimate-a-painting-job.
+- Bing: form_input did not fill the URL box; typing into it worked (quota 100 -> 96). Google: 4 requests, no quota message.
+- Pending-index: none. For the 2026-11-23 review: judge the 11-20 decisions (electrician invoice title, paperwork
+  checklist, the two Discovered posts) and the 11-21 owner-session changes (308 apex redirect, generator titles).
 
 ### 2026-11-20 (published: 4 articles; first data review done)
 Usage at start: 5-hour 0%, weekly 17% (information only).
