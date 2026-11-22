@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'how-to-estimate-a-roofing-job',
+    title: 'How to Estimate a Roofing Job: Squares, Waste and Tear-Off',
+    description: 'How to estimate a roofing job step by step: measure squares, add waste, price materials, tear-off and labor, then overhead and profit, with a worked example.',
+    date: '2026-11-22',
+    updated: '2026-11-22',
+    author: AUTHOR,
+    category: 'Estimating & Profit',
+    readingTime: 7,
+    keywords: ['how to estimate a roofing job', 'roofing estimate', 'how to price a roof', 'roofing squares calculation'],
+    related: ['construction-estimate-template', 'how-to-set-your-contractor-labor-rate', 'how-to-estimate-a-painting-job'],
+  },
+  {
     slug: 'work-order-examples-for-contractors',
     title: 'Work Order Examples for Contractors (4 Filled-In Samples)',
     description: 'Four filled-in work order examples for contractors (plumbing, HVAC, electrical, punch list), the fields every one needs and a checklist to copy.',
