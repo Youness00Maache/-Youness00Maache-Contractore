@@ -75,7 +75,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Estimating & Profit',
     readingTime: 7,
     keywords: ['how to estimate a painting job', 'painting estimate', 'how to price a paint job', 'painting labor estimate'],
-    related: ['construction-estimate-template', 'how-to-set-your-contractor-labor-rate', 'how-to-calculate-job-profit-margin'],
+    related: ['construction-estimate-template', 'how-to-set-your-contractor-labor-rate', 'how-to-estimate-a-roofing-job'],
   },
   {
     slug: 'how-to-set-your-contractor-labor-rate',
@@ -290,7 +290,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 8,
     keywords: ['construction invoice', 'contractor invoice template', 'how to invoice as a contractor', 'invoice checklist'],
-    related: ['how-contractors-get-paid-faster', 'free-electrical-invoice-template', 'estimate-vs-invoice-difference'],
+    related: ['how-contractors-get-paid-faster', 'progress-billing-schedule-of-values-for-contractors', 'estimate-vs-invoice-difference'],
   },
   {
     slug: 'construction-estimate-template',
@@ -356,7 +356,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Project Paperwork',
     readingTime: 7,
     keywords: ['work order template', 'contractor work order', 'service work order', 'work order form'],
-    related: ['daily-job-report-template', 'construction-time-sheet-tracking', 'how-to-write-a-construction-invoice'],
+    related: ['daily-job-report-template', 'construction-time-sheet-tracking', 'work-order-examples-for-contractors'],
   },
   {
     slug: 'contractor-purchase-orders',
