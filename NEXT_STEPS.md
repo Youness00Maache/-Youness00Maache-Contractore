@@ -52,7 +52,8 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 
 # >>> MOBILE UI PASS (owner request 2026-11-23: "the mobile UI/UX is not good, e.g. the navigation bar") <<<
 - Audited 34 app pages at 390 and 360 px against the fake backend (launch.json "fake-backend" + "contractordocs-fake"): no page
-  scrolls sideways; the problems were layout. Committed on my-branch; NOT pushed (waiting for the owner's OK to publish).
+  scrolls sideways; the problems were layout. PUBLISHED 2026-11-23 with the owner's OK (rebased on the SEO commits of 11-22,
+  tsc/build/seo:check green; main = the "Mobile UI pass" commit). Owner feedback on the phone layout is the next input.
 - Bottom bar (components/Dock.tsx, AppNav.tsx): always the same 5 tabs (Home, Clients, Messages, Community, More) on every screen,
   so they never shift; the current tab gets a pill behind its icon. The old raised "+" (off-centre, only on some screens) is now a
   floating "New job" / "New document" button above the bar on the right that shrinks to "+" while scrolling down (App.tsx tabPrimary;
