@@ -314,7 +314,7 @@ const navSectionFor = (screen: AppView['screen']): NavSection => {
         case 'communication': return 'communication';
         case 'inventory': case 'pricebook': case 'calendar': case 'analytics': case 'profitCalculator': case 'pipeline': case 'crew': case 'papers': case 'servicePlans': return 'tools';
         case 'forum': return 'forum';
-        case 'settings': case 'profile': return 'settings';
+        case 'settings': case 'profile': case 'help': return 'settings';
         default: return 'none';
     }
 };
@@ -3243,7 +3243,7 @@ const App: React.FC = () => {
     const tabPrimary = view.screen === 'dashboard'
         ? { label: 'New job', onClick: () => navigateToCreateJob('dashboard') }
         : view.screen === 'jobDetails' && viewJob
-            ? { label: 'New doc', onClick: () => navigateToNewDoc(viewJob.id) }
+            ? { label: 'New document', onClick: () => navigateToNewDoc(viewJob.id) }
             : undefined;
 
     return (
@@ -3294,7 +3294,8 @@ const App: React.FC = () => {
                 />
             )}
 
-            <main className={`overflow-x-clip ${showTabBar ? 'pb-24 md:pb-0' : ''}`}>
+            {/* phones: room for the tab bar (+ the floating "New job" / "New doc" button when the screen has one) */}
+            <main className={`overflow-x-clip ${showTabBar ? (tabPrimary ? 'pb-[calc(9rem+env(safe-area-inset-bottom))] md:pb-0' : 'pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0') : ''}`}>
                 <ErrorBoundary resetKey={location.pathname} onHome={() => navigate('/dashboard')}>
                     <Suspense fallback={view.screen === 'auth' || !session ? <AppSplash /> : <PageSkeleton />}>
                         <OutboxStatusContext.Provider value={outboxStatus}>

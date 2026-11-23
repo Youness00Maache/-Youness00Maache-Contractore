@@ -50,6 +50,23 @@ ode_modules` (junction only), then `git worktree remove --force <path>`.
 - Never mention Kelviq or "merchant of record" on the website.
 - Keep the owner updated in short, plain messages.
 
+# >>> MOBILE UI PASS (owner request 2026-11-23: "the mobile UI/UX is not good, e.g. the navigation bar") <<<
+- Audited 34 app pages at 390 and 360 px against the fake backend (launch.json "fake-backend" + "contractordocs-fake"): no page
+  scrolls sideways; the problems were layout. Committed on my-branch; NOT pushed (waiting for the owner's OK to publish).
+- Bottom bar (components/Dock.tsx, AppNav.tsx): always the same 5 tabs (Home, Clients, Messages, Community, More) on every screen,
+  so they never shift; the current tab gets a pill behind its icon. The old raised "+" (off-centre, only on some screens) is now a
+  floating "New job" / "New document" button above the bar on the right that shrinks to "+" while scrolling down (App.tsx tabPrimary;
+  main gets extra bottom padding when it shows). "More" sheet: grab handle, Tools as 2-column rows with badges, an Account list
+  (Settings, Plan & billing, Help & tutorials); Community no longer repeated there (it is in the bar).
+- Phones only (desktop unchanged, checked at 1280 and 700 px): dashboard help "?" moved from the app bar to the "Your jobs" row so
+  the greeting fits; dashboard stats = one joined 2x2 panel without icon tiles; job cards and shared StatCards (viewKit) without icon
+  tiles and tighter; job page = status + AI + help in one row, job tools in one sideways-scrolling row (sm:contents keeps the desktop
+  row); job page header "New document" button now md+ (the floating one covers phones/tablets); price book items without a photo get
+  a slim strip instead of an empty 16:9 box; Segmented "sm" taller on phones; .page/.page-header less top space on phones.
+- Re-runnable audit: `node docs/work/mobile-audit/mobile-audit.mjs <outDir> 390` (uses docs/work/tutorial-video's playwright-core and
+  the fake backend's DEMO_USER; writes report.json + page screenshots). Checks run: tsc, build, seo:check, leads/notifications/pipeline.
+- Known, left as is: on 360 px phones a long first name in the dashboard greeting still truncates (kept the "AI" pill as designed).
+
 # >>> GENERATORS → APP HAND-OFF + SEARCH FIXES (owner request 2026-11-21) <<<
 - Search data (Google 11/11-11/19): 1.04K impressions, 3 clicks, avg position 36.8; Bing 14 impressions, 0 clicks. Cause: a 10-day-old
   domain ranking on page 3-4 (CTR there is ~0), plus /estimate-generator (half the impressions) shows for homeowner queries ("free

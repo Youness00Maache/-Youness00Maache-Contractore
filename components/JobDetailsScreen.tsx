@@ -243,7 +243,8 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                                     </button>
                                 )}
                             </div>
-                            <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 shrink-0 sm:inline-flex" disabled={!canCreate}>
+                            {/* below md the floating "New document" button above the tab bar does this */}
+                            <button type="button" onClick={onNewDocument} className="btn btn-primary hidden h-10 shrink-0 md:inline-flex" disabled={!canCreate}>
                                 <PlusIcon className="h-4 w-4" /> {t.newDocument || 'New document'}
                             </button>
                         </div>
@@ -257,29 +258,33 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({
                         </div>
                         {papersSlot}
                     </div>
+                    {/* Phones: status + AI + help on one row, the job tools in one sideways-scrolling row under it (was three
+                        wrapped rows). From sm up the wrapper is display:contents, so the row is exactly as before. */}
                     <div className="flex flex-wrap items-center gap-2">
                         <label className="sr-only" htmlFor="job-status">Job status</label>
                         <select
                             id="job-status"
                             value={job.status}
                             onChange={(e) => onStatusChange(e.target.value as Job['status'])}
-                            className="input h-10 w-auto py-2 pr-8 font-medium"
+                            className="input order-1 h-10 w-auto min-w-0 flex-1 py-2 pr-8 font-medium sm:order-none sm:flex-none"
                             disabled={!isOnline}
                         >
                             {(Object.keys(JOB_STATUS_META) as Job['status'][]).map(s => <option key={s} value={s}>{JOB_STATUS_META[s].label}</option>)}
                         </select>
-                        <button type="button" onClick={onOpenFinancials} className="btn btn-outline h-10" title="Job financials">
-                            <CalculatorIcon className="h-4 w-4" /> <span className="hidden sm:inline">Financials</span>
-                        </button>
-                        {onBillTimeMaterials && (
-                            <button type="button" onClick={onBillTimeMaterials} className="btn btn-outline h-10" title="Bill time & materials" disabled={!isOnline}>
-                                <ClockIcon className="h-4 w-4" /> <span className="sm:hidden">Bill T&amp;M</span><span className="hidden sm:inline">Bill time &amp; materials</span>
+                        <div className="no-scrollbar order-4 -mx-4 flex w-[calc(100%+2rem)] gap-2 overflow-x-auto px-4 pb-0.5 [&>*]:shrink-0 sm:order-none sm:contents">
+                            <button type="button" onClick={onOpenFinancials} className="btn btn-outline h-10" title="Job financials">
+                                <CalculatorIcon className="h-4 w-4" /> Financials
                             </button>
-                        )}
-                        {toolsSlot}
-                        {feedbackSlot}
-                        {aiButton}
-                        <HelpButton topic="jobs" />
+                            {onBillTimeMaterials && (
+                                <button type="button" onClick={onBillTimeMaterials} className="btn btn-outline h-10" title="Bill time & materials" disabled={!isOnline}>
+                                    <ClockIcon className="h-4 w-4" /> <span className="sm:hidden">Bill T&amp;M</span><span className="hidden sm:inline">Bill time &amp; materials</span>
+                                </button>
+                            )}
+                            {toolsSlot}
+                            {feedbackSlot}
+                        </div>
+                        <span className="order-2 inline-flex empty:hidden sm:order-none">{aiButton}</span>
+                        <span className="order-3 inline-flex sm:order-none"><HelpButton topic="jobs" /></span>
                     </div>
                 </div>
             </div>

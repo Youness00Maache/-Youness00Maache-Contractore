@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownItem, DropdownSeparator, DropdownLabel } from './
 import {
     AppLogo, HomeIcon, UsersIcon, MailIcon, BoxIcon, TagIcon, CalendarIcon, CalculatorIcon, BarChartIcon,
     MessageSquareIcon, SettingsIcon, UserIcon, LogoutIcon, CreditCardIcon, StarIcon, ChevronDownIcon, GridIcon,
-    PlusIcon, XCircleIcon, WifiOffIcon, MailIcon as HelpMailIcon, DownloadIcon, RefreshCwIcon, ShieldCheckIcon,
+    XCircleIcon, ChevronRightIcon, WifiOffIcon, MailIcon as HelpMailIcon, DownloadIcon, RefreshCwIcon, ShieldCheckIcon,
 } from './Icons.tsx';
 import { PLANS, isPaidTier, type PlanTier } from '../lib/plans.ts';
 import { SUPPORT_EMAIL } from '../lib/account.ts';
@@ -171,14 +171,14 @@ const AppNav: React.FC<AppNavProps> = ({
         </DropdownMenu>
     );
 
+    // Phones: the same five tabs on every screen (they never shift); the screen's main action floats above the bar.
     const tabItems: DockItem[] = [
         { icon: HomeIcon, label: 'Home', onClick: () => go('dashboard'), active: active === 'dashboard' },
         { icon: UsersIcon, label: 'Clients', onClick: () => go('clients'), active: active === 'clients', badgeCount: clientBadge },
-        ...(primaryAction ? [{ icon: PlusIcon, label: primaryAction.label, onClick: primaryAction.onClick, primary: true } as DockItem] : []),
         { icon: MailIcon, label: 'Messages', onClick: () => go('communication'), active: active === 'communication' },
         // Community sits in the bar itself on phones (owner: phone users could not find it inside "More")
         { icon: MessageSquareIcon, label: 'Community', onClick: () => go('forum'), active: active === 'forum', badgeCount: forumBadge },
-        { icon: GridIcon, label: 'More', onClick: () => setMoreOpen(true), active: active === 'tools' || active === 'settings' || active === 'leads', badgeCount: lowStockCount + leadsDue },
+        { icon: GridIcon, label: 'More', onClick: () => setMoreOpen(true), active: moreOpen || active === 'tools' || active === 'settings' || active === 'leads', badgeCount: lowStockCount + leadsDue },
     ];
 
     return (
@@ -238,7 +238,7 @@ const AppNav: React.FC<AppNavProps> = ({
                         </button>
                     </nav>
 
-                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
                         {/* phones: the page's quick actions (e.g. the AI assistant on the dashboard) */}
                         <div ref={actionsSlotRef} className="flex items-center gap-2 empty:hidden md:hidden" />
                         {/* computers only: on phones the offline state is the thin strip under the bar (SyncStatusBar) */}
@@ -259,36 +259,50 @@ const AppNav: React.FC<AppNavProps> = ({
                 </div>
             </header>
 
-            {showTabBar && <Dock items={tabItems} />}
+            {showTabBar && <Dock items={tabItems} action={primaryAction} />}
 
             {moreOpen && (
                 <div className="modal-backdrop z-[60] md:hidden" onClick={() => setMoreOpen(false)} role="presentation">
-                    <div className="modal-panel p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" role="dialog" aria-modal="true" aria-label="More" onClick={(e) => e.stopPropagation()}>
-                        <div className="mb-3 flex items-center justify-between">
+                    <div className="modal-panel max-h-[85vh] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2" role="dialog" aria-modal="true" aria-label="More" onClick={(e) => e.stopPropagation()}>
+                        <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-border" aria-hidden />
+                        <div className="mb-2 flex items-center justify-between">
                             <h2 className="text-base font-bold">More</h2>
-                            <button type="button" onClick={() => setMoreOpen(false)} className="rounded-xl p-2 text-muted-foreground hover:bg-muted" aria-label="Close">
+                            <button type="button" onClick={() => setMoreOpen(false)} className="-mr-2 rounded-xl p-2.5 text-muted-foreground hover:bg-muted" aria-label="Close">
                                 <XCircleIcon className="h-5 w-5" />
                             </button>
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            {[...tools, { dest: 'forum' as NavDestination, label: 'Community', icon: MessageSquareIcon, description: '' }, { dest: 'settings' as NavDestination, label: 'Settings', icon: SettingsIcon, description: '' }, { dest: 'billing' as NavDestination, label: 'Billing', icon: CreditCardIcon, description: '' }].map(item => (
-                                <button
-                                    key={item.dest}
-                                    type="button"
-                                    onClick={() => go(item.dest)}
-                                    className="relative flex min-h-[84px] flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card p-2 text-center text-xs font-medium text-foreground transition hover:bg-muted"
-                                >
-                                    <item.icon className="h-5 w-5 text-primary" />
-                                    {item.label}
-                                    {item.dest === 'inventory' && lowStockCount > 0 && (
-                                        <span className="absolute right-2 top-2 badge badge-warning px-1.5 py-0 text-[10px]">{lowStockCount}</span>
-                                    )}
-                                    {item.dest === 'leads' && leadsDue > 0 && (
-                                        <span className="absolute right-2 top-2 badge badge-warning px-1.5 py-0 text-[10px]" title="Follow-ups due">{leadsDue > 9 ? '9+' : leadsDue}</span>
-                                    )}
-                                    {item.dest === 'forum' && forumBadge > 0 && (
-                                        <span className="absolute right-2 top-2 badge badge-danger px-1.5 py-0 text-[10px]">{forumBadge > 9 ? '9+' : forumBadge}</span>
-                                    )}
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            {tools.map(item => {
+                                const count = item.dest === 'inventory' ? lowStockCount : item.dest === 'leads' ? leadsDue : 0;
+                                return (
+                                    <button
+                                        key={item.dest}
+                                        type="button"
+                                        onClick={() => go(item.dest)}
+                                        className="flex min-h-[52px] min-w-0 items-center gap-2.5 rounded-xl border border-border bg-background/40 px-3 text-left text-sm font-medium text-foreground transition hover:bg-muted active:scale-[.98]"
+                                    >
+                                        <item.icon className="h-[18px] w-[18px] shrink-0 text-primary" />
+                                        <span className="line-clamp-2 min-w-0 flex-1 leading-tight">{item.label}</span>
+                                        {count > 0 && (
+                                            <span className="badge badge-warning shrink-0 px-1.5 py-0 text-[11px]" title={item.dest === 'leads' ? 'Follow-ups due' : 'Low stock'}>{count > 9 ? '9+' : count}</span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account</p>
+                        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+                            {([
+                                { dest: 'settings', label: 'Settings', icon: SettingsIcon },
+                                { dest: 'billing', label: 'Plan & billing', icon: CreditCardIcon },
+                                { dest: 'help', label: 'Help & tutorials', icon: HelpCircleIcon },
+                            ] as { dest: NavDestination; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[]).map(item => (
+                                <button key={item.dest} type="button" onClick={() => go(item.dest)} className="flex min-h-[48px] w-full items-center gap-3 bg-background/40 px-3 text-left text-sm font-medium text-foreground transition hover:bg-muted">
+                                    <item.icon className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+                                    <span className="flex-1">{item.label}</span>
+                                    {item.dest === 'billing' && <span className={`badge ${paid ? 'badge-primary' : 'badge-muted'}`}>{PLANS[plan].name}</span>}
+                                    <ChevronRightIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                                 </button>
                             ))}
                         </div>

@@ -258,7 +258,8 @@ export const StatCard: React.FC<{
     <>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-        {icon && <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg [&>svg]:h-4 [&>svg]:w-4 ${toneClass}`}>{icon}</span>}
+        {/* phones: no icon tile, so the label isn't cut off in a half-width card */}
+        {icon && <span className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:flex [&>svg]:h-4 [&>svg]:w-4 ${toneClass}`}>{icon}</span>}
       </div>
       <div className="mt-2 truncate text-xl font-bold tracking-tight text-foreground sm:text-2xl">{value}</div>
       {hint && <div className="mt-1 truncate text-xs text-muted-foreground">{hint}</div>}
@@ -266,12 +267,12 @@ export const StatCard: React.FC<{
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} aria-pressed={active} className={`card p-4 text-left transition hover:border-primary/40 hover:shadow-card ${active ? 'border-primary ring-2 ring-primary/20' : ''}`}>
+      <button type="button" onClick={onClick} aria-pressed={active} className={`card p-3.5 text-left transition hover:border-primary/40 hover:shadow-card sm:p-4 ${active ? 'border-primary ring-2 ring-primary/20' : ''}`}>
         {body}
       </button>
     );
   }
-  return <div className="card p-4">{body}</div>;
+  return <div className="card p-3.5 sm:p-4">{body}</div>;
 };
 
 export function Segmented<T extends string>({ options, value, onChange, size = 'md', ariaLabel }: {
@@ -291,7 +292,7 @@ export function Segmented<T extends string>({ options, value, onChange, size = '
           aria-selected={value === o.value}
           title={o.title}
           onClick={() => onChange(o.value)}
-          className={`whitespace-nowrap rounded-lg font-semibold transition ${size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'} ${value === o.value ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`whitespace-nowrap rounded-lg font-semibold transition ${size === 'sm' ? 'px-2.5 py-1.5 text-xs sm:py-1' : 'px-3 py-1.5 text-sm'} ${value === o.value ? 'bg-card text-foreground shadow-soft' : 'text-muted-foreground hover:text-foreground'}`}
         >
           {o.label}
         </button>

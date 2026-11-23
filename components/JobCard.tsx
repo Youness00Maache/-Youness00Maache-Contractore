@@ -51,7 +51,8 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDupl
             aria-label={`${t.viewProject || 'Open job'}: ${job.name}`}
         >
             <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                {/* phones: no icon tile, the job name gets the width */}
+                <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:flex">
                     <BriefcaseIcon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1 pr-8">
@@ -85,7 +86,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDupl
                 </div>
             </div>
 
-            <div className="mt-4 space-y-1.5 text-sm text-muted-foreground">
+            <div className="mt-3 space-y-1 text-sm text-muted-foreground sm:mt-4 sm:space-y-1.5">
                 {job.clientAddress && (
                     <p className="flex items-center gap-1.5 truncate">
                         <MapPinIcon className="h-3.5 w-3.5 shrink-0" />
@@ -102,7 +103,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onClick, onDelete, onDupl
                 )}
             </div>
 
-            <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+            <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5 sm:mt-4 sm:pt-3">
                 <span className="flex min-w-0 items-center gap-2">
                     <JobStatusBadge status={job.status} />
                     {/* created / changed offline: "Waiting to sync" until it reaches the account */}

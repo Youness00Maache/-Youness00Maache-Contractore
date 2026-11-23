@@ -481,7 +481,8 @@ const PriceBookView: React.FC<PriceBookViewProps> = ({ onBack, savedItems: seed,
           {visible.map((item) => (
             <article key={item.id} className="card group relative flex flex-col overflow-hidden transition hover:border-primary/40 hover:shadow-card">
               <button type="button" onClick={() => openEdit(item)} className="flex flex-1 flex-col text-left" aria-label={`Edit ${item.name}`}>
-                <div className="flex aspect-[16/9] items-center justify-center overflow-hidden bg-muted text-muted-foreground">
+                {/* phones: an item without a photo gets a slim strip instead of an empty 16:9 box */}
+                <div className={`flex items-center justify-center overflow-hidden bg-muted text-muted-foreground ${item.images?.[0] ? 'aspect-[16/9]' : 'h-14 sm:h-auto sm:aspect-[16/9]'}`}>
                   {item.images?.[0] ? <img src={item.images[0]} alt="" loading="lazy" className="h-full w-full object-cover" /> : <TypeIcon item={item} className="h-8 w-8 opacity-60" />}
                 </div>
                 <div className="flex flex-1 flex-col p-4">

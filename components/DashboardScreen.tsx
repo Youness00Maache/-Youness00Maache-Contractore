@@ -90,12 +90,12 @@ const StatCard: React.FC<{
     const content = (
         <>
             <div className="flex items-start justify-between gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone}`}>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">{label}</span>
+                <span className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:flex ${tone}`}>
                     <Icon className="h-4 w-4" />
                 </span>
             </div>
-            <div className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{value}</div>
+            <div className="mt-1.5 text-2xl font-bold tracking-tight text-foreground sm:mt-2 sm:text-3xl">{value}</div>
             {meter && (
                 <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
                     <div
@@ -104,13 +104,13 @@ const StatCard: React.FC<{
                     />
                 </div>
             )}
-            {hint && <div className="mt-1.5 truncate text-xs text-muted-foreground">{hint}</div>}
+            {hint && <div className="mt-1.5 line-clamp-2 text-xs text-muted-foreground sm:truncate">{hint}</div>}
         </>
     );
     return onClick ? (
-        <button type="button" onClick={onClick} className="card p-4 text-left transition hover:border-primary/40 hover:shadow-card">{content}</button>
+        <button type="button" onClick={onClick} className="card p-3.5 text-left transition hover:border-primary/40 hover:shadow-card active:bg-muted/60 sm:p-4 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none">{content}</button>
     ) : (
-        <div className="card p-4">{content}</div>
+        <div className="card p-3.5 sm:p-4 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none">{content}</div>
     );
 };
 
@@ -194,12 +194,8 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                 <h1 className="truncate text-[15px] font-semibold leading-tight text-foreground">{title}</h1>
                 <p className="truncate text-xs leading-tight text-muted-foreground">{subtitle}</p>
             </MobileHeaderSlot>
-            {/* ...and so do the header's quick actions (the AI button portals itself there too) */}
-            {headerTitleSlot && (
-                <MobileHeaderSlot name="actions">
-                    <HelpButton topic="dashboard" iconOnly className="!h-9 !w-9" />
-                </MobileHeaderSlot>
-            )}
+            {/* ...and so does the AI button (it portals itself there). The help button sits next to "Your jobs" on phones,
+                so the greeting isn't cut off in the app bar. */}
 
             {/* Header */}
             <div className={`page-header ${headerTitleSlot ? 'hidden md:flex' : ''}`}>
@@ -219,10 +215,11 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
             {setupSlot}
 
             {/* KPIs */}
-            <section aria-label="Overview" className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {/* phones: one joined panel (hairline dividers); from sm up: four separate cards */}
+            <section aria-label="Overview" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-soft sm:mb-8 sm:gap-3 sm:overflow-visible sm:rounded-none sm:border-0 sm:bg-transparent sm:shadow-none lg:grid-cols-4">
                 {loading ? (
                     [0, 1, 2, 3].map(i => (
-                        <div key={i} className="card space-y-3 p-4"><Skeleton className="h-3 w-20" /><Skeleton className="h-7 w-12" /><Skeleton className="h-3 w-24" /></div>
+                        <div key={i} className="card space-y-3 p-4 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none"><Skeleton className="h-3 w-20" /><Skeleton className="h-7 w-12" /><Skeleton className="h-3 w-24" /></div>
                     ))
                 ) : (
                     <>
@@ -250,7 +247,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                         ) : paid ? (
                             <StatCard label="Signed by clients" value={unseenSigned} hint="New since you last checked" icon={CheckCircleIcon} tone="bg-success/10 text-success" onClick={onOpenClients} />
                         ) : (
-                            <button type="button" onClick={onUpgrade} className="card flex flex-col justify-between bg-gradient-to-br from-primary/10 to-transparent p-4 text-left transition hover:border-primary/40 hover:shadow-card">
+                            <button type="button" onClick={onUpgrade} className="card flex flex-col justify-between bg-gradient-to-br from-primary/10 to-transparent p-3.5 text-left transition hover:border-primary/40 hover:shadow-card sm:p-4 max-sm:rounded-none max-sm:border-0 max-sm:shadow-none">
                                 <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary"><StarIcon className="h-4 w-4" /> Free plan</span>
                                 <span className="mt-2 text-sm font-semibold text-foreground">Unlimited jobs, clients &amp; documents</span>
                                 <span className="mt-1 text-xs font-semibold text-primary">Upgrade from $5/mo</span>
@@ -270,7 +267,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({
                 <section aria-labelledby="jobs-heading" className="min-w-0">
                     <div className="mb-3 flex items-center justify-between gap-2">
                         <h2 id="jobs-heading" className="text-lg font-bold">{t.yourJobs || 'Your jobs'}</h2>
-                        {!loading && jobs.length > 0 && <span className="text-sm text-muted-foreground">{filteredJobs.length} of {jobs.length}</span>}
+                        <span className="flex items-center gap-1">
+                            {!loading && jobs.length > 0 && <span className="text-sm text-muted-foreground">{filteredJobs.length} of {jobs.length}</span>}
+                            {headerTitleSlot && <HelpButton topic="dashboard" iconOnly className="!h-9 !w-9 md:!hidden" />}
+                        </span>
                     </div>
 
                     {jobs.length > 0 && (
