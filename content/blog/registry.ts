@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'how-to-estimate-a-deck-job',
+    title: 'How to Estimate a Deck Job: Framing, Railing and Labor',
+    description: 'How to estimate a deck job step by step: sketch the framing, take off footings, joists and boards, price railing and stairs, then labor, permit and profit.',
+    date: '2026-11-23',
+    updated: '2026-11-23',
+    author: AUTHOR,
+    category: 'Estimating & Profit',
+    readingTime: 7,
+    keywords: ['how to estimate a deck job', 'deck estimate', 'how to price a deck', 'deck material takeoff'],
+    related: ['how-to-estimate-a-roofing-job', 'construction-estimate-template', 'how-to-set-your-contractor-labor-rate'],
+  },
+  {
     slug: 'progress-billing-schedule-of-values-for-contractors',
     title: 'Progress Billing and Schedule of Values: A Step-by-Step Guide',
     description: 'Progress billing for contractors step by step: build a schedule of values, record percent complete, calculate each invoice, handle change orders and retainage.',
