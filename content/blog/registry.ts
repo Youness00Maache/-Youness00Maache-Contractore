@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'job-site-photos-for-contractors',
+    title: 'Job Site Photos: What Contractors Should Shoot and When',
+    description: 'How to take job site photos that protect you: the four moments to shoot, wide and close-up shots, what to capture by trade and how to file photos by job.',
+    date: '2026-11-23',
+    updated: '2026-11-23',
+    author: AUTHOR,
+    category: 'Field Reports & Crews',
+    readingTime: 6,
+    keywords: ['job site photos', 'construction progress photos', 'before and after photos contractor', 'how to document a construction job with photos'],
+    related: ['daily-job-report-template', 'change-order-form-guide', 'job-closeout-checklist-for-contractors'],
+  },
+  {
     slug: 'how-to-estimate-a-deck-job',
     title: 'How to Estimate a Deck Job: Framing, Railing and Labor',
     description: 'How to estimate a deck job step by step: sketch the framing, take off footings, joists and boards, price railing and stairs, then labor, permit and profit.',
