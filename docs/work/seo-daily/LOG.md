@@ -4,11 +4,21 @@
 - Timer: `contractordocs-daily-seo`, every day 19:00 local (PC time zone UTC+0). Set up 2026-11-15.
 - First publication: 2026-11-17 (the setup session's article, published by hand at the owner's request; the 2026-11-16
   timer run had skipped: weekly usage at 90%).
-- Posts live from this routine: 13 (scope of work + 4 on 2026-11-17 + 4 on 2026-11-20 + 4 on 2026-11-22). Posts before it: 24. Registry
-  order = newest first.
-- Last data review: 2026-11-20 (`metrics/2026-11-20.md`). Next review due 2026-11-23.
-- Pending Google indexing requests (pending-index): none.
+- METHOD CHANGED 2026-11-24 (owner): data-first topics (Search Console + Keyword Planner volumes), SERP check, one post
+  at a time, 1-2 page improvements every day. See "The method" at the top of DAILY_PROCEDURE.md.
+- Posts live from this routine: 20 (scope of work + 4 on 2026-11-17 + 4 on 2026-11-20 + 4 on 2026-11-22 + 7 on
+  2026-11-24). Posts before it: 24. Registry order = newest first.
+- Last data review: 2026-11-24 short review (`metrics/2026-11-24.md`, Google only). Next full review (Google + Bing,
+  Page indexing report) due 2026-11-27.
+- Pending Google indexing requests (pending-index), request these FIRST next run (Google said "Quota Exceeded" on
+  2026-11-24 at the first request; the Framitor job uses the same Google account and had used the quota):
+  /blog/punch-list-template-for-contractors, /blog/cost-plus-contract-for-contractors, /blog/estimate-vs-quote-vs-bid,
+  /blog/retainage-in-construction, /blog/construction-payment-schedule-template, /blog/job-site-photos-for-contractors,
+  /blog/how-to-estimate-a-deck-job, /blog/free-electrical-invoice-template (edited), then https://www.contractordocs.app/
+  and /estimate-generator (owed since 2026-11-21). That is 10: the whole daily quota.
 - Unpublished work waiting on branch `seo-daily`: none (everything is on origin/main).
+- Google quota tip: run the Google requests BEFORE ~20:00 local, or at least before the Framitor job reaches its
+  indexing step, because both share the account's daily quota.
 - Usage: NO stop line any more (owner's order 2026-11-17: run every day whatever the percentages). See step A of the procedure.
 
 ## Access check, 2026-11-15 ~21:30 UTC (setup session, look only, nothing changed)
@@ -32,6 +42,15 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 
 | Rating | Working title / target query | Intent | Notes | Status |
 | --- | --- | --- | --- | --- |
+| H | change order template (copyable, filled-in) | template | KP 2026-11-24: "change order template" 1K-10K; check overlap with change-order-form-guide (47 impr, pos 30.7): maybe refresh that post for this query instead | todo |
+| H | construction proposal template | template | KP: 1K-10K; distinct from scope of work and estimate template; link estimate-vs-quote-vs-bid | todo |
+| H | subcontractor agreement: what to include (checklist) | template | KP: subcontractor agreement / contract 1K-10K each; not legal advice; app: subcontracts (Premium) | todo |
+| H | certificate of completion (construction) template | template | KP: certificate of completion 1K-10K, construction variant 100-1K | todo |
+| M | net 30 invoice: what it means for contractors | question | KP: net30 1K-10K, net 30 invoice 100-1K; "net 30 vs due on receipt" row below | todo |
+| M | HVAC service call pricing: flat fee vs hourly | comparison / trade | KP: 100-1K (service call cost, average hvac service call cost); write for HVAC contractors, no invented prices | todo |
+| M | HVAC invoice template | template / trade | KP: 100-1K; model: free-electrical-invoice-template | todo |
+| M | bid proposal / contractor bid template | template | KP: 100-1K each; link estimate-vs-quote-vs-bid | todo |
+| H | REFRESH how-to-calculate-job-profit-margin for "markup vs margin" | refresh | KP: markup vs margin 1K-10K; post ranks ~60 for "job margin" (54 impr) | todo |
 | H | work order examples (filled-in, by trade) | template | data 2026-11-20: "work order example" 7, "example of work order" 5, "work order sample"; work-order-template ranks 55; distinct intent: examples, link to the template | used 2026-11-22 |
 | H | can construction contracts and change orders be signed electronically (is it legally binding) | question | data 2026-11-20: question queries rank 2-3.5; rules vary, not legal advice; check overlap with e-signatures-for-contractors first (maybe extend that post instead) | todo |
 | M | what is a good job margin for small contractors | question | data 2026-11-20: "job margin" 26 impr at pos 55; no invented benchmarks; overlap check with the profit margin post | todo |
@@ -39,25 +58,25 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | H | what to do when a client won't pay a contractor | how-to | reminders, demand letter, lien, small claims; rules vary | used 2026-11-17 |
 | H | contractor deposit: how much can you ask for | question | states limit deposits differently; no invented %; formula + examples | used 2026-11-22 |
 | H | past-due invoice letter / payment reminder templates for contractors | template | 3 tones: friendly, firm, final | used 2026-11-17 |
-| H | estimate vs quote vs bid vs proposal: what is the difference | question | | todo |
+| H | estimate vs quote vs bid vs proposal: what is the difference | question | KP 1K-10K | used 2026-11-24 |
 | H | estimate vs invoice: what is the difference | question | links to both generators | used 2026-11-17 |
 | H | how to follow up on an estimate (scripts and timing) | how-to | | used 2026-11-17 |
-| H | contractor payment schedule template (milestone billing) | template | percent per milestone examples | todo |
-| H | punch list template for contractors and how to run one | template | only claim app support if live | todo |
+| H | contractor payment schedule template (milestone billing) | template | KP 100-1K | used 2026-11-24 |
+| H | punch list template for contractors and how to run one | template | KP 1K-10K | used 2026-11-24 |
 | H | job closeout checklist for contractors | template | warranty, final invoice, lien waiver, photos | used 2026-11-20 |
 | H | time and materials vs fixed price contract | comparison | when each fits, examples | used 2026-11-20 |
-| H | cost-plus contract explained for small contractors | comparison | | todo |
+| H | cost-plus contract explained for small contractors | comparison | KP 1K-10K | used 2026-11-24 |
 | H | how to estimate a painting job (labor, materials, prep) | how-to / trade | method + worked example, no invented rates | used 2026-11-20 |
 | H | how to estimate a roofing job (squares, waste, tear-off) | how-to / trade | link /for/roofers | used 2026-11-22 |
-| H | how to estimate a deck / fence / landscaping job | how-to / trade | one trade per post | todo |
+| H | how to estimate a deck / fence / landscaping job | how-to / trade | deck used 2026-11-24; fence, landscaping todo | todo |
 | H | HVAC service call pricing: flat rate vs hourly | comparison / trade | link /for/hvac | todo |
 | M | free HVAC / roofing / painting / landscaping / handyman invoice template (one per trade) | template | model: free-plumbing-invoice-template | todo |
 | M | how to set your labor rate (burden, overhead, billable hours) | how-to | formula and example | used 2026-11-20 |
 | M | how much markup to put on materials | question | markup vs margin link, no fixed "right" number | todo |
-| M | retainage explained for subcontractors | question | rules vary by state | todo |
+| M | retainage explained for subcontractors | question | KP 1K-10K | used 2026-11-24 |
 | M | progress billing / schedule of values step by step | how-to | | used 2026-11-22 |
 | M | net 30 vs due on receipt for contractors | question | | todo |
-| M | how to take job-site photos that protect you (before, during, after) | checklist | | todo |
+| M | how to take job-site photos that protect you (before, during, after) | checklist | | used 2026-11-24 |
 | M | final walkthrough checklist and certificate of completion | template | | todo |
 | M | how to schedule multiple jobs and crews | how-to | | todo |
 | M | how to track leftover materials and tools (small contractor inventory) | how-to | | todo |
@@ -69,6 +88,40 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-24 (published: 7 articles + 1 improvement; method switched to the Framitor way)
+Usage at start: 5-hour 22%, weekly 90% (information only). The owner stopped the timer run at its first command, asked
+why posts were missing and why the routine is worse than the Framitor SEO job, then said "Yes, upgrade and run".
+- Missed days found: 2026-11-21 (run finished, published nothing, no log), 2026-11-23 (run wrote 3 posts, committed 2
+  and left the punch list post uncommitted and 125 words short; nothing pushed; no log; the data review due that day was
+  skipped). Today published those 3 too (dates set to 2026-11-24).
+- Procedure upgraded (DAILY_PROCEDURE.md "The method", B, "Order of work", E Googlebot check, H1) and the timer prompt
+  (scheduled task SKILL.md) updated to match.
+| # | Slug | Target query (US volume, Keyword Planner) | Intent | URL | Live (Googlebot) | IndexNow | Google request | Bing |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | punch-list-template-for-contractors | punch list (1K-10K) | template | https://www.contractordocs.app/blog/punch-list-template-for-contractors | 200, title, JSON-LD ok, in sitemap | 71 URLs, HTTP 200 | Quota Exceeded: pending-index | Submitted |
+| 2 | job-site-photos-for-contractors | job site photos for contractors (not measured) | checklist | https://www.contractordocs.app/blog/job-site-photos-for-contractors | same | same | pending-index | Submitted |
+| 3 | how-to-estimate-a-deck-job | deck estimate (100-1K) | how-to / trade | https://www.contractordocs.app/blog/how-to-estimate-a-deck-job | same | same | pending-index | Submitted |
+| 4 | cost-plus-contract-for-contractors | cost plus contract (1K-10K) | comparison | https://www.contractordocs.app/blog/cost-plus-contract-for-contractors | same | same | pending-index | Submitted |
+| 5 | estimate-vs-quote-vs-bid | estimate vs quote / quote vs estimate (1K-10K each) | question | https://www.contractordocs.app/blog/estimate-vs-quote-vs-bid | same | same | pending-index | Submitted |
+| 6 | retainage-in-construction | retainage in construction (1K-10K) | how-to | https://www.contractordocs.app/blog/retainage-in-construction | same | same | pending-index | Submitted |
+| 7 | construction-payment-schedule-template | construction / contractor payment schedule (100-1K each) | template | https://www.contractordocs.app/blog/construction-payment-schedule-template | same | same | pending-index | Submitted |
+Improved: https://www.contractordocs.app/blog/free-electrical-invoice-template: H2s use the searched words (sample,
+example, "What should an electrician invoice include?"), new self-employed electrician section, description and
+keywords (because: 167 impressions, 0 clicks, "electrician invoice sample" pos 23.3, "electrician invoice example" 29.6,
+"invoice template electrician" 18.7). updated = 2026-11-24. Bing submitted; Google pending-index.
+Notes:
+- SERP check (WebSearch) before writing: Procore, Autodesk, NetSuite, FreshBooks, Jobber dominate these queries; our
+  posts add worked examples with numbers, copyable tables and wording, small-contractor focus, state-rules caution.
+- Product claims checked in components/help/helpContent.ts (proposals/payment schedule presets, job costing/Bill T&M,
+  subcontracts with retainage (Premium), punch lists on every plan). No invoice-level retainage feature exists: the
+  retainage post says so implicitly (ledger table) and does not claim one.
+- Pushes: c5f9b2c (punch list + dates), 8246995 (cost-plus), 5eb8bcb (estimate vs quote, retainage), 740ae80 (payment
+  schedule + electrician improvement). The last push first failed with GitHub "Internal Server Error", then worked.
+  Posts 2 and 3 of the new ones were pushed together (one build) to save time.
+- Keyword Planner opened in Morocco / French by default: switched to United States / English before reading.
+- Related lists: T&M -> cost-plus, progress billing -> retainage, estimate vs invoice -> estimate vs quote, deposit ->
+  payment schedule.
 
 ### 2026-11-22 (published: 4 articles; no data review, next due 2026-11-23)
 Usage at start: 5-hour 49%, weekly 62% (information only). No entry existed for 2026-11-21 (no run that day).
@@ -203,6 +256,13 @@ article. Nothing was pushed, no search engine was pinged. Branch `seo-daily` = o
   the push is rejected as non-fast-forward.
 
 ## Decisions log (data review decisions, newest first; later runs judge them against the next snapshot)
+### 2026-11-24 (snapshot metrics/2026-11-24.md; Google 28 days 1,380 impr, 3 clicks, pos 38.6)
+1. Topics now come from Keyword Planner volumes + Search Console (owner's order). Judge at the 11-27 review: are the 7
+   new posts indexed, and do they get impressions for their target queries?
+2. free-electrical-invoice-template: headings/description use "electrician invoice sample/example". Judge: position for
+   the electrician cluster under 25, first clicks.
+3. Next refresh candidates: how-to-calculate-job-profit-margin for "markup vs margin" (1K-10K) and "job margin" (54
+   impr, pos 63); change-order-form-guide for "change order template" (1K-10K; page at pos 30.7).
 ### 2026-11-21 (owner session, outside the routine; commit c24f36a, live)
 1. Apex contractordocs.app now redirects 308 (was 307) in Vercel → Domains. Next run: URL Inspection + Request indexing for
    https://www.contractordocs.app/ (Google had picked the apex as the home canonical; "Page with redirect"). The coordinator's
