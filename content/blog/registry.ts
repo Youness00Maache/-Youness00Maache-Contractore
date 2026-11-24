@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'construction-payment-schedule-template',
+    title: 'Construction Payment Schedule Template (With Examples)',
+    description: 'A free construction payment schedule template with milestone examples for decks and remodels, how to keep payments ahead of costs and what the contract should say.',
+    date: '2026-11-24',
+    updated: '2026-11-24',
+    author: AUTHOR,
+    category: 'Invoicing & Payments',
+    readingTime: 6,
+    keywords: ['construction payment schedule', 'contractor payment schedule', 'payment schedule template', 'construction draw schedule', 'milestone payment schedule'],
+    related: ['how-much-deposit-can-a-contractor-ask-for', 'progress-billing-schedule-of-values-for-contractors', 'retainage-in-construction'],
+  },
+  {
     slug: 'retainage-in-construction',
     title: 'Retainage in Construction: How It Works and How to Get Paid',
     description: 'Retainage in construction explained: how much is held back, a worked example, how to show it on progress invoices and how to get the release paid on time.',
@@ -111,7 +123,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 6,
     keywords: ['how much deposit can a contractor ask for', 'contractor deposit', 'contractor down payment', 'deposit on construction contract'],
-    related: ['how-contractors-get-paid-faster', 'how-to-write-a-construction-invoice', 'estimate-vs-invoice-difference'],
+    related: ['how-contractors-get-paid-faster', 'how-to-write-a-construction-invoice', 'construction-payment-schedule-template'],
   },
   {
     slug: 'how-to-estimate-a-roofing-job',
