@@ -332,13 +332,13 @@ export const BLOG_POSTS: BlogPostMeta[] = [
   {
     slug: 'free-electrical-invoice-template',
     title: 'Electrician Invoice Template (Free): What to Include',
-    description: 'Free electrician invoice template: every field an electrical invoice needs, a service call and a panel upgrade example, a checklist and a free generator.',
+    description: 'Free electrician invoice template with filled-in samples (a service call and a panel upgrade), every field to include, a checklist and a free generator.',
     date: NOV14,
-    updated: '2026-11-20',
+    updated: '2026-11-24',
     author: AUTHOR,
     category: 'Invoicing & Payments',
     readingTime: 6,
-    keywords: ['electrical invoice template', 'electrician invoice', 'free electrical invoice', 'electrical contractor invoice'],
+    keywords: ['electrician invoice template', 'electrical invoice template', 'electrician invoice sample', 'electrical contractor invoice', 'free electrical invoice'],
     related: ['how-to-write-a-construction-invoice', 'how-contractors-get-paid-faster', 'lien-waivers-explained'],
   },
   {

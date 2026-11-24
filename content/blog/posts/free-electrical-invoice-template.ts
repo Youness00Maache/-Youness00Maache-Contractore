@@ -14,7 +14,7 @@ const post: BlogPostContent = {
 
 If you only need the template, the free [invoice generator](/invoice-generator) builds a professional invoice in your browser with totals and tax calculated. Preview it free without an account; when it looks right, create it in ContractorDocs (free plan) and everything you typed opens in the editor, ready to download as a PDF and send.
 
-## What to include on an electrical invoice
+## What should an electrician invoice include?
 
 | Field | What to write | Why it matters |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ If you only need the template, the free [invoice generator](/invoice-generator) 
 
 Sales tax rules for electrical work vary a lot by state, and sometimes by whether the job is a repair or new construction. Check with your state's tax agency or your accountant rather than copying another contractor's invoice.
 
-## Example 1: a service call invoice
+## Electrician invoice sample 1: a service call
 
 Here's a hypothetical service call with round example numbers, not market rates.
 
@@ -49,7 +49,7 @@ Here's a hypothetical service call with round example numbers, not market rates.
 
 Notice the service call is its own line. If the client asks why they paid $95 before any repair, the answer is on the invoice. Notice also that each device is named, so the client can see what was installed and where.
 
-## Example 2: a panel upgrade invoice
+## Electrician invoice example 2: a panel upgrade
 
 Bigger jobs are often priced as a fixed contract, with a deposit up front and the balance after inspection. Again, these are hypothetical example figures.
 
@@ -63,6 +63,16 @@ Bigger jobs are often priced as a fixed contract, with a deposit up front and th
 | **Balance due** | **$3,120** |
 
 The invoice refers to the signed estimate and lists the change order on its own line with its number, so it matches the paperwork the client already signed. The permit number shows the work was permitted. If you work for general contractors, they may also ask for a lien waiver with each payment; our [lien waivers guide](/blog/lien-waivers-explained) explains which kind to sign and when.
+
+## Invoice template for a self-employed electrician
+
+If you work on your own, the invoice is the same, with a few details that matter more:
+
+- Use the name you are registered under. If you trade under a business name, put it at the top; if you are a sole proprietor using your own name, use that consistently on every invoice and on your bank account, so payments match.
+- Number invoices in one sequence for the whole business (INV-1001, INV-1002...), never per client. Gaps and repeats are what an accountant or tax office asks about first.
+- Keep the license line even on small jobs, wherever your state or city requires it.
+- A business or property manager client may ask you for a W-9 form for their records. That is a separate form; it does not need to be printed on every invoice.
+- Keep a copy of every invoice you send, with the date it was paid.
 
 ## Flat rate or time and materials?
 
