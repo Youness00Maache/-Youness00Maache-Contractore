@@ -18,6 +18,30 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'retainage-in-construction',
+    title: 'Retainage in Construction: How It Works and How to Get Paid',
+    description: 'Retainage in construction explained: how much is held back, a worked example, how to show it on progress invoices and how to get the release paid on time.',
+    date: '2026-11-24',
+    updated: '2026-11-24',
+    author: AUTHOR,
+    category: 'Invoicing & Payments',
+    readingTime: 6,
+    keywords: ['retainage in construction', 'retainage', 'construction retainage', 'retention in construction', 'retainage invoice'],
+    related: ['progress-billing-schedule-of-values-for-contractors', 'job-closeout-checklist-for-contractors', 'lien-waivers-explained'],
+  },
+  {
+    slug: 'estimate-vs-quote-vs-bid',
+    title: 'Estimate vs Quote vs Bid vs Proposal: The Real Differences',
+    description: 'Estimate vs quote vs bid vs proposal for contractors: plain definitions, a side-by-side table, one job written three ways and wording that avoids disputes.',
+    date: '2026-11-24',
+    updated: '2026-11-24',
+    author: AUTHOR,
+    category: 'Estimating & Profit',
+    readingTime: 6,
+    keywords: ['estimate vs quote', 'quote vs estimate', 'estimate vs bid', 'quote vs bid vs proposal', 'is an estimate legally binding'],
+    related: ['estimate-vs-invoice-difference', 'construction-estimate-template', 'how-to-write-a-construction-scope-of-work'],
+  },
+  {
     slug: 'cost-plus-contract-for-contractors',
     title: 'Cost-Plus Contract: How It Works for Contractors (Example)',
     description: 'How a cost-plus contract works: what counts as cost, percentage vs fixed fee vs guaranteed maximum price, a worked example and what to put in the contract.',
@@ -75,7 +99,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 7,
     keywords: ['progress billing', 'schedule of values', 'progress billing for contractors', 'percent complete invoice'],
-    related: ['how-to-write-a-construction-invoice', 'change-order-form-guide', 'how-much-deposit-can-a-contractor-ask-for'],
+    related: ['how-to-write-a-construction-invoice', 'how-much-deposit-can-a-contractor-ask-for', 'retainage-in-construction'],
   },
   {
     slug: 'how-much-deposit-can-a-contractor-ask-for',
@@ -207,7 +231,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Estimating & Profit',
     readingTime: 6,
     keywords: ['estimate vs invoice', 'difference between estimate and invoice', 'estimate vs quote', 'convert estimate to invoice'],
-    related: ['construction-estimate-template', 'how-to-write-a-construction-invoice', 'change-order-form-guide'],
+    related: ['construction-estimate-template', 'how-to-write-a-construction-invoice', 'estimate-vs-quote-vs-bid'],
   },
   {
     slug: 'how-to-write-a-construction-scope-of-work',
