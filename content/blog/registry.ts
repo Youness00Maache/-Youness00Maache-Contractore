@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'cost-plus-contract-for-contractors',
+    title: 'Cost-Plus Contract: How It Works for Contractors (Example)',
+    description: 'How a cost-plus contract works: what counts as cost, percentage vs fixed fee vs guaranteed maximum price, a worked example and what to put in the contract.',
+    date: '2026-11-24',
+    updated: '2026-11-24',
+    author: AUTHOR,
+    category: 'Estimating & Profit',
+    readingTime: 7,
+    keywords: ['cost plus contract', 'cost plus construction contract', 'cost plus fixed fee', 'guaranteed maximum price', 'cost plus percentage'],
+    related: ['time-and-materials-vs-fixed-price-contract', 'job-costing-budget-vs-actual', 'change-order-form-guide'],
+  },
+  {
     slug: 'punch-list-template-for-contractors',
     title: 'Punch List Template for Contractors (Free, With Example)',
     description: 'A free punch list template for contractors with a filled-in example, the walkthrough routine, done vs verified status and how to keep new requests off the list.',
@@ -147,7 +159,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Estimating & Profit',
     readingTime: 7,
     keywords: ['time and materials vs fixed price contract', 'time and materials contract', 'fixed price vs hourly contractor', 'not to exceed clause'],
-    related: ['how-to-set-your-contractor-labor-rate', 'change-order-form-guide', 'good-better-best-pricing-for-contractors'],
+    related: ['how-to-set-your-contractor-labor-rate', 'change-order-form-guide', 'cost-plus-contract-for-contractors'],
   },
   {
     slug: 'what-to-do-when-a-client-wont-pay-a-contractor',
