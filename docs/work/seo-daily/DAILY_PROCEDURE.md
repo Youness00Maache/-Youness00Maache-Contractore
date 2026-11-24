@@ -4,6 +4,26 @@ Owner request, 2026-11-15: "Every day at 7 p.m. create 4 blog articles, add them
 helps our SEO. After a couple of days look at the data Bing and Google show, adjust the articles we create next and edit
 the existing articles to match the data."
 
+## The method (owner, 2026-11-24: "do it the way the Framitor SEO job does it")
+The owner compared this routine with the Framitor daily SEO job (`C:\Users\JAAF\Documents\ChatGPT\dd-seo\content\seo\PLAYBOOK.md`),
+which brings real users, and asked to copy its method. Since 2026-11-24 every run works like this:
+1. **Topics come from real search data, never from guesses.** Search Console first (queries with impressions and no
+   focused page, or a page at position 8 to 40 with low CTR), then Google Ads Keyword Planner (monthly searches and
+   competition, United States, English). Every new post's target query has a Keyword Planner volume of at least
+   "100 - 1K" or real Search Console impressions; write the volume into LOG.md.
+2. **Look at the top 3 Google results before writing** (WebSearch, mode standard, plus the web-fetch agent for the 1 or 2
+   strongest pages): what they cover, their format, what they miss. Our post must answer the intent better.
+3. **Publish one post at a time**: write, lint, commit, checks, push, check live, IndexNow, Google request, then the
+   next post. A run that stops halfway still ships what it finished (on 2026-11-23 two finished posts sat unpublished
+   because the old routine pushed only at the end).
+4. **Improve 1 or 2 existing pages EVERY day** from Search Console (step H1), not only every 3rd day.
+5. **Write for buyers and for AI assistants** (ChatGPT, Perplexity, Gemini, Copilot quote pages): answer in the first
+   2 to 3 sentences, H2 headings phrased as the questions people type, short factual sentences, a table or numbered
+   steps, name "ContractorDocs" plainly where it helps. Prefer topics where the reader is a working contractor who could
+   use the app (templates, paperwork, pricing, getting paid, comparisons, "X vs Y"), not homeowners after a price.
+6. **Check every live page** like Google does: HTTP 200 with a Googlebot user agent, the right `<title>`, JSON-LD that
+   parses.
+
 - Timer: scheduled task `contractordocs-daily-seo`, cron `0 19 * * *` (local time of this PC; the PC time zone is
   Casablanca = UTC+0, so 19:00 local = 19:00 UTC; the app adds a delay of a few minutes).
 - Each run is a NEW session with no memory. This file + `LOG.md` + `metrics/` are the memory. Read this file fully, then
@@ -57,18 +77,38 @@ weekly limit is, it doesn't matter the percentage, just do it." So there is NO u
 - If a limit is really hit and a tool call fails, do not panic: commit what is finished (each post right after its lint
   passes), write "stopped: limit reached" in LOG.md and end. The next run publishes the local commits first (see step 0).
 
-## B. Choose 4 NEW topics
+## B. Choose 4 NEW topics (from data)
 1. Existing coverage: `grep "slug:" content/blog/registry.ts` and the landing pages in `content/landing/registry.ts`.
-   Never duplicate a slug or an intent (the same question answered twice cannibalizes itself).
-2. Sources, in order: (a) the newest `metrics/` snapshot (queries with impressions but no matching page; "Decision"
-   section), (b) the "Topic backlog" table in LOG.md (take the highest-rated unused rows), (c) fresh ideas: WebSearch
-   (mode "standard") for contractor questions; read what the first results answer and what they leave out; look at the
-   "People also ask" style questions in the results.
-3. Prefer specific, answerable, high-intent queries over broad ones ("how to write a scope of work for a bathroom
-   remodel", not "construction tips"). Think: what would a contractor type into Google on a phone at 9 p.m.?
-4. Mix per day: 2 how-to guides, 1 template/checklist page, 1 question/comparison or trade-specific piece.
-5. Write the target query (the exact phrase), search intent (informational / template / comparison / trade) and the
-   chosen slug of each into LOG.md BEFORE writing. Keep slugs short, lowercase, hyphenated, matching the query.
+   Never duplicate a slug or an intent (the same question answered twice cannibalizes itself). If an existing post
+   already answers the query, improve that post instead (step H1).
+2. **Search Console** (Chrome; Performance, last 28 days, link in step F): turn on CTR and Position, set 100 rows,
+   read the Queries table with `javascript_tool` (snippet: map `table tbody tr` cells to text, join with
+   `String.fromCharCode(10)`, no backslashes). A query with 20+ impressions and no focused page = a new topic. A query
+   where our page sits at position 8 to 40 = an improvement (H1), not a new post.
+3. **Keyword Planner** (Chrome): `https://ads.google.com/aw/keywordplanner/home?__e=7480942613` (the owner's Google Ads
+   account 748-094-2613, also used by the Framitor job; ignore the "Balance exhausted" banner, Keyword Planner works
+   without spending anything, never click "Fix it" or any payment button). "Discover new keywords" > up to 10 seeds,
+   comma-separated > Get results. **The account defaults to Morocco / French: on the results page set the location to
+   United States only and the language to English BEFORE reading numbers** (location: remove Morocco with its x, type
+   "United States", Include, Save; language: pick English). Read the table with `javascript_tool` (rows are rendered
+   lazily: scroll the scroll containers in a loop and collect `[role=row]` text; keep "100 - 1K" and above). Never
+   download the CSV (not approved for this project), never create campaigns. To change seeds: open the seeds box, remove
+   the chips (their buttons have aria-label "Delete"), type new seeds.
+   The "Competition" column is ad competition, not ranking difficulty; use it only as a tiebreak.
+4. Pick queries with a volume of "100 - 1K" or more (or 20+ Search Console impressions), contractor intent, and no
+   existing post. Volumes found on 2026-11-24 (US): punch list 1K-10K, cost plus contract 1K-10K, estimate vs quote /
+   quote vs estimate 1K-10K, retainage / retainage in construction 1K-10K, markup vs margin 1K-10K (covered by the
+   profit margin post), change order template 1K-10K, construction proposal template 1K-10K, subcontractor agreement
+   1K-10K, certificate of completion 1K-10K, net 30 invoice 100-1K, contractor / construction payment schedule 100-1K,
+   hvac service call pricing 100-1K, hvac invoice template 100-1K, bid proposal template 100-1K.
+5. **SERP check** before writing each post: WebSearch (mode standard) for the exact query; note what the top 3 cover and
+   their format; fetch the strongest one with the web-fetch agent only if needed. Write down in LOG.md what our post
+   adds (a worked example, a copyable table, a clearer answer, state-rules caution...). Never copy their text.
+6. A good mix (2 how-to, 1 template, 1 question/comparison) is nice but data comes first.
+7. Write the target query, its volume, intent and slug of each into LOG.md BEFORE writing. Keep slugs short, lowercase,
+   hyphenated, matching the query.
+8. Backlog: keep the "Topic backlog" in LOG.md with a "Volume" note per row; when fewer than 7 good rows are `todo`,
+   refill it from Keyword Planner (step 3) before writing.
 
 ## C. Write each post
 Create `content/blog/posts/<slug>.ts` (default export `BlogPostContent`, see `content/blog/types.ts`) and register it at
@@ -103,7 +143,9 @@ Reports & Crews, Running Your Business), `readingTime`, `keywords` (3 to 5, firs
 EXISTING slugs). Also list the new post in the `related` of 1 or 2 older relevant posts (that is an internal link for
 Google and a minor edit: bump their `updated` only if you changed visible text).
 
-Quality bar (this is what ranks, not the count): answer first; concrete worked examples with realistic numbers labelled
+Quality bar (this is what ranks, not the count): the target query in the title near the start and in the first
+sentence of `answer`; H2 headings phrased as the questions people type ("What is retainage in construction?", "How much
+retainage is normal?"), so AI assistants and Google's question boxes can lift them; answer first; concrete worked examples with realistic numbers labelled
 "example"; a table or checklist the reader can copy; short paragraphs; real steps a contractor can do today; internal
 links to related posts and to the real feature or generator page; one natural call to action to try ContractorDocs
 (free plan), placed where it helps, never pushy; an honest "what this does not cover". Vary structure between posts;
@@ -135,6 +177,11 @@ const post: BlogPostContent = {
 export default post;
 ```
 
+## Order of work: ONE POST AT A TIME (since 2026-11-24)
+For each of today's posts, in turn: write it (C), lint and commit it, run the checks (D), push and check it live (E),
+IndexNow and the Google request (F), then start the next post. Then the 1 or 2 improvements (H1), then the log (G).
+Unpushed commits found at the start (step 0) are published first, the same way.
+
 ## D. Checks (all must pass; fix everything)
 ```
 npx tsx scripts/seo-blog-lint.ts          # fast; run it after every post
@@ -153,6 +200,9 @@ Run the slow ones in the background and read only the last lines. Also read the 
 4. Wait 2 to 3 minutes for Vercel, then check every new URL and the sitemap (cache-bust):
    `curl -s -o NUL -w "%{http_code}\n" "https://www.contractordocs.app/blog/<slug>?x=$RANDOM"` -> 200, and
    `curl -s "https://www.contractordocs.app/sitemap.xml?x=$RANDOM"` must contain the 4 URLs with today's lastmod.
+   Check it like Google: `curl -s -A "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" <url>`
+   must return 200 with the post's own `<title>` (not the generic app shell) and its `application/ld+json` blocks must
+   parse (`node -e` with JSON.parse on each block).
    Not live after 10 minutes: look at the Vercel deployment in Chrome; if the build failed, fix forward or
    `git revert` your commit and push, then log it.
 
@@ -199,6 +249,18 @@ Entry format:
 Notes: anything odd, quota messages, pending-index URLs, what changed on older posts and why.
 ```
 
+## H1. Daily improvements (EVERY run, 1 or 2 pages, since 2026-11-24)
+After the new posts, improve 1 or 2 existing pages using the Search Console data read in step B (last 28 days):
+- First choice: a page with 30+ impressions and CTR under 2% where the top queries use different words than the title:
+  rewrite title, description, H1 and the first answer sentence to the words people type (one metadata change per page
+  per 3 days; judge it at the next review).
+- Second choice: a page at average position 5 to 20 (or a cluster of queries at 15 to 40 on one page): answer the
+  main query better at the top, add the missing section the top results have (a filled-in example, a table), add or
+  sharpen FAQ entries (max 6), add internal links to it from stronger posts.
+- Keep the URL; bump `updated` only for a visible, meaningful change; lint and checks as for a new post; push; IndexNow;
+  request indexing in Google for the changed URL if quota is left.
+- Log each as `improved <url>: <what changed> (because <numbers>)` in today's entry and in the Decisions log.
+
 ## H. Data review (every 3rd day)
 When: the first run that is 3 days after the first published articles (first publication: see LOG.md State; so on
 2026-11-19 if day 1 was 2026-11-16), then every 3rd day after the previous snapshot (`metrics/YYYY-MM-DD.md`). Search
@@ -236,5 +298,5 @@ Console data is about 2 days behind; Bing is slower still: weigh small numbers c
   LOG.md; the next run continues from there.
 - Topic or fact you are not sure about: drop it, pick another topic. A wrong legal or price claim is worse than a missing
   post. A day with 3 excellent posts beats 4 thin ones, but log why.
-- Final message of every run: a few plain sentences: the 4 URLs, each target query, what was requested in Google/Bing,
-  usage %, anything that failed or needs the owner.
+- Final message of every run: a few plain sentences: the 4 URLs, each target query and its monthly volume, the pages
+  improved and why, what was requested in Google/Bing, usage %, anything that failed or needs the owner.
