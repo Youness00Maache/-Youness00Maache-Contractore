@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'subcontractor-agreement-checklist',
+    title: 'Subcontractor Agreement: What to Include (With Checklist)',
+    description: 'What to include in a subcontractor agreement: scope, payment terms, retainage, changes, insurance and lien waivers, with an example and a copyable checklist.',
+    date: '2026-11-26',
+    updated: '2026-11-26',
+    author: AUTHOR,
+    category: 'Project Paperwork',
+    readingTime: 6,
+    keywords: ['subcontractor agreement', 'subcontractor contract', 'what to include in a subcontractor agreement', 'subcontractor agreement checklist'],
+    related: ['retainage-in-construction', 'how-to-write-a-construction-scope-of-work', 'lien-waivers-explained'],
+  },
+  {
     slug: 'construction-proposal-template',
     title: 'Construction Proposal Template (Copyable, With Example)',
     description: 'A construction proposal template with 12 sections, a filled-in deck example, wording for exclusions and assumptions, payment schedule and a pre-send checklist.',
@@ -63,7 +75,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 6,
     keywords: ['retainage in construction', 'retainage', 'construction retainage', 'retention in construction', 'retainage invoice'],
-    related: ['progress-billing-schedule-of-values-for-contractors', 'job-closeout-checklist-for-contractors', 'lien-waivers-explained'],
+    related: ['progress-billing-schedule-of-values-for-contractors', 'job-closeout-checklist-for-contractors', 'subcontractor-agreement-checklist'],
   },
   {
     slug: 'estimate-vs-quote-vs-bid',
@@ -519,7 +531,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 8,
     keywords: ['lien waiver', 'conditional lien waiver', 'unconditional lien waiver', 'mechanics lien'],
-    related: ['how-contractors-get-paid-faster', 'how-to-write-a-construction-invoice', 'contractor-paperwork-checklist'],
+    related: ['how-contractors-get-paid-faster', 'how-to-write-a-construction-invoice', 'subcontractor-agreement-checklist'],
   },
   {
     slug: 'e-signatures-for-contractors',
