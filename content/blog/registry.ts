@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'net-30-invoice-for-contractors',
+    title: 'Net 30 Invoice: What It Means for Contractors',
+    description: 'What a net 30 invoice means, when the 30 days start, net 30 vs due on receipt, the cash flow cost with an example, copyable wording and a checklist.',
+    date: '2026-11-26',
+    updated: '2026-11-26',
+    author: AUTHOR,
+    category: 'Invoicing & Payments',
+    readingTime: 6,
+    keywords: ['net 30 invoice', 'net 30 meaning', 'net 30 vs due on receipt', 'contractor payment terms', '2/10 net 30'],
+    related: ['past-due-invoice-letter-templates-for-contractors', 'how-to-write-a-construction-invoice', 'construction-payment-schedule-template'],
+  },
+  {
     slug: 'subcontractor-agreement-checklist',
     title: 'Subcontractor Agreement: What to Include (With Checklist)',
     description: 'What to include in a subcontractor agreement: scope, payment terms, retainage, changes, insurance and lien waivers, with an example and a copyable checklist.',
@@ -255,7 +267,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 8,
     keywords: ['past due invoice letter template', 'payment reminder email for contractors', 'overdue invoice reminder', 'final notice for unpaid invoice'],
-    related: ['what-to-do-when-a-client-wont-pay-a-contractor', 'how-to-write-a-construction-invoice', 'how-contractors-get-paid-faster'],
+    related: ['what-to-do-when-a-client-wont-pay-a-contractor', 'how-to-write-a-construction-invoice', 'net-30-invoice-for-contractors'],
   },
   {
     slug: 'how-to-follow-up-on-a-construction-estimate',
@@ -454,7 +466,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Invoicing & Payments',
     readingTime: 8,
     keywords: ['get paid faster contractor', 'contractor deposit', 'progress billing', 'late fees for contractors'],
-    related: ['how-to-write-a-construction-invoice', 'lien-waivers-explained', 'what-to-do-when-a-client-wont-pay-a-contractor'],
+    related: ['how-to-write-a-construction-invoice', 'lien-waivers-explained', 'net-30-invoice-for-contractors'],
   },
   {
     slug: 'how-to-calculate-job-profit-margin',
