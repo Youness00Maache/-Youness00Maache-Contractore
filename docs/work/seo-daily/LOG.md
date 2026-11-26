@@ -6,19 +6,16 @@
   timer run had skipped: weekly usage at 90%).
 - METHOD CHANGED 2026-11-24 (owner): data-first topics (Search Console + Keyword Planner volumes), SERP check, one post
   at a time, 1-2 page improvements every day. See "The method" at the top of DAILY_PROCEDURE.md.
-- Posts live from this routine: 20 (scope of work + 4 on 2026-11-17 + 4 on 2026-11-20 + 4 on 2026-11-22 + 7 on
-  2026-11-24). Posts before it: 24. Registry order = newest first.
+- Posts live from this routine: 24 (20 up to 2026-11-24 + 4 on 2026-11-26). Posts before it: 24. Registry order = newest first.
 - Last data review: 2026-11-24 short review (`metrics/2026-11-24.md`, Google only). Next full review (Google + Bing,
-  Page indexing report) due 2026-11-27.
-- Pending Google indexing requests (pending-index), request these FIRST next run (Google said "Quota Exceeded" on
-  2026-11-24 at the first request; the Framitor job uses the same Google account and had used the quota):
-  /blog/punch-list-template-for-contractors, /blog/cost-plus-contract-for-contractors, /blog/estimate-vs-quote-vs-bid,
-  /blog/retainage-in-construction, /blog/construction-payment-schedule-template, /blog/job-site-photos-for-contractors,
-  /blog/how-to-estimate-a-deck-job, /blog/free-electrical-invoice-template (edited), then https://www.contractordocs.app/
-  and /estimate-generator (owed since 2026-11-21). That is 10: the whole daily quota.
+  Page indexing report) due 2026-11-27: DO IT on the next run.
+- Pending Google indexing requests (pending-index): none. On 2026-11-26 the 7 posts of 2026-11-24 were already indexed;
+  the electrician page, home and /estimate-generator were requested again.
 - Unpublished work waiting on branch `seo-daily`: none (everything is on origin/main).
 - Google quota tip: run the Google requests BEFORE ~20:00 local, or at least before the Framitor job reaches its
   indexing step, because both share the account's daily quota.
+- Chrome note 2026-11-26: the owner's device (deviceId 23a0a75c) showed as "Browser 3"; select it by deviceId. In a
+  narrow window the URL inspection box is hidden behind the search icon.
 - Usage: NO stop line any more (owner's order 2026-11-17: run every day whatever the percentages). See step A of the procedure.
 
 ## Access check, 2026-11-15 ~21:30 UTC (setup session, look only, nothing changed)
@@ -42,11 +39,11 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 
 | Rating | Working title / target query | Intent | Notes | Status |
 | --- | --- | --- | --- | --- |
-| H | change order template (copyable, filled-in) | template | KP 2026-11-24: "change order template" 1K-10K; check overlap with change-order-form-guide (47 impr, pos 30.7): maybe refresh that post for this query instead | todo |
-| H | construction proposal template | template | KP: 1K-10K; distinct from scope of work and estimate template; link estimate-vs-quote-vs-bid | todo |
-| H | subcontractor agreement: what to include (checklist) | template | KP: subcontractor agreement / contract 1K-10K each; not legal advice; app: subcontracts (Premium) | todo |
-| H | certificate of completion (construction) template | template | KP: certificate of completion 1K-10K, construction variant 100-1K | todo |
-| M | net 30 invoice: what it means for contractors | question | KP: net30 1K-10K, net 30 invoice 100-1K; "net 30 vs due on receipt" row below | todo |
+| H | change order template (copyable, filled-in) | template | KP 2026-11-24: "change order template" 1K-10K; check overlap with change-order-form-guide (47 impr, pos 30.7): maybe refresh that post for this query instead | used 2026-11-26 |
+| H | construction proposal template | template | KP: 1K-10K; distinct from scope of work and estimate template; link estimate-vs-quote-vs-bid | used 2026-11-26 |
+| H | subcontractor agreement: what to include (checklist) | template | KP: subcontractor agreement / contract 1K-10K each; not legal advice; app: subcontracts (Premium) | used 2026-11-26 |
+| H | certificate of completion (construction) template | template | KP: certificate of completion 1K-10K, construction variant 100-1K | used 2026-11-26 |
+| M | net 30 invoice: what it means for contractors | question | KP: net30 1K-10K, net 30 invoice 100-1K; "net 30 vs due on receipt" row below | used 2026-11-26 |
 | M | HVAC service call pricing: flat fee vs hourly | comparison / trade | KP: 100-1K (service call cost, average hvac service call cost); write for HVAC contractors, no invented prices | todo |
 | M | HVAC invoice template | template / trade | KP: 100-1K; model: free-electrical-invoice-template | todo |
 | M | bid proposal / contractor bid template | template | KP: 100-1K each; link estimate-vs-quote-vs-bid | todo |
@@ -88,6 +85,36 @@ Verify every fact (laws, numbers, product features) before writing. Legal and ta
 | L | how to write a change order for a handyman job (example) | how-to / trade | | todo |
 
 ## Daily entries
+
+### 2026-11-26 (published: 4 articles + 1 improvement)
+Usage at start: weekly 0% (all models), no 5-hour window reported (information only). No entry for 2026-11-25 (nothing
+from that day on origin/main or on this branch).
+Topics and volumes (Keyword Planner, US, English, read 2026-11-24): certificate of completion 1K-10K (construction
+variant 100-1K), construction proposal template 1K-10K, subcontractor agreement / contract 1K-10K, net30 1K-10K (net 30
+invoice 100-1K). Keyword Planner was not reopened today (two-day-old volumes, enough backlog rows).
+Search Console 28 days (11/11-11/24): 4 clicks, 1.69K impressions, CTR 0.2%, position 39; overview shows 59 pages
+indexed, 4 not indexed.
+SERP check (WebSearch, search summaries only, no page fetched): template sites and software vendors rank (Sitemate,
+Mastt, Certifier; Smartsheet, ClickUp, PandaDoc, Jobber; JobNimbus, Knowify; Invoice Simple, InvoiceOwl, Sage). Our posts
+add copyable field tables, invented examples whose numbers add up, wording to copy, checklists and state-rules caution.
+
+| # | Slug | Target query | Intent | URL | Live (Googlebot) | IndexNow | Google request | Bing |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | certificate-of-completion-construction | certificate of completion construction | template | https://www.contractordocs.app/blog/certificate-of-completion-construction | 200, title, JSON-LD ok, in sitemap | HTTP 200 | requested | Submitted |
+| 2 | construction-proposal-template | construction proposal template | template | https://www.contractordocs.app/blog/construction-proposal-template | same | same | requested | Submitted |
+| 3 | subcontractor-agreement-checklist | subcontractor agreement | checklist | https://www.contractordocs.app/blog/subcontractor-agreement-checklist | same | same | requested | Submitted |
+| 4 | net-30-invoice-for-contractors | net 30 invoice | question | https://www.contractordocs.app/blog/net-30-invoice-for-contractors | same | same | requested | Submitted |
+
+Improved https://www.contractordocs.app/blog/change-order-form-guide: new title "Change Order Template for Contractors
+(Free, With Example)", description, answer, copyable "Change order template" section, 3 H2s phrased as questions,
+keywords, updated = 2026-11-26 (because: 59 impressions, 1 click, position 28.7; "change orders" 25 impressions at 35;
+"change order template" 1K-10K and the page had no copyable template). Judge at the review after next.
+Checks: lint, tsc (before post 1; later posts add only typed content, covered by each build), build and seo:check
+(75 pages) green. Final push 047f4c4. IndexNow after the last push: 75 URLs, HTTP 200.
+Google: 8 requests accepted, no quota message (4 new posts, change order guide, electrician invoice page,
+/estimate-generator, home). Already indexed, so not requested: the 7 posts of 2026-11-24.
+Product claims checked in components/help/helpContent.ts (proposals, subcontracts and papers on Premium, reminders).
+The certificate post states that ContractorDocs has no certificate of completion document type.
 
 ### 2026-11-24 (published: 7 articles + 1 improvement; method switched to the Framitor way)
 Usage at start: 5-hour 22%, weekly 90% (information only). The owner stopped the timer run at its first command, asked
