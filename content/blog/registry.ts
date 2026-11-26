@@ -437,13 +437,14 @@ export const BLOG_POSTS: BlogPostMeta[] = [
   },
   {
     slug: 'change-order-form-guide',
-    title: 'Change Order Forms: A Contractor’s Guide to Scope Changes That Get Paid',
-    description: 'How to write a construction change order that clients sign quickly: what to include, how to price it, when to send it, and the mistakes that cost contractors money.',
+    title: 'Change Order Template for Contractors (Free, With Example)',
+    description: 'A free construction change order template you can copy, a priced example, what each line should say and how to get it signed before the extra work starts.',
     date: PUBLISHED,
+    updated: '2026-11-26',
     author: AUTHOR,
     category: 'Project Paperwork',
     readingTime: 8,
-    keywords: ['change order form', 'construction change order', 'change order template', 'scope change'],
+    keywords: ['change order template', 'construction change order template', 'change order form', 'construction change order', 'contractors guide to change orders'],
     related: ['change-orders-with-ai', 'e-signatures-for-contractors', 'daily-job-report-template'],
   },
   {

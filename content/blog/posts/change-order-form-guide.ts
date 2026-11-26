@@ -3,7 +3,7 @@ import type { BlogPostContent } from '../types.ts';
 const post: BlogPostContent = {
   slug: 'change-order-form-guide',
   answer:
-    'A construction change order is a short written agreement, signed before the extra work starts, that describes the change in scope, its price and its effect on the schedule. Price it like a mini-estimate, number it, add it to a running contract total and get the client’s signature first, because extras done on a handshake are the hardest money to collect.',
+    'A construction change order template needs a change order number, the job and parties, an exact description of the change, the reason, a cost breakdown, the days added, the revised contract total and both signatures. Copy the template below, price the change like a small estimate and get it signed before the extra work starts.',
   takeaways: [
     'Any change to scope, price or schedule after the contract is signed deserves its own written change order, even when the price is zero.',
     'Price the change like a mini-estimate: labor, materials, equipment, subs, markup, plus the days it adds to the schedule.',
@@ -16,7 +16,28 @@ A change order is the short document that turns "can you also..." into an agreed
 
 This guide covers what triggers a change order, the fields to include, how to price the change (including the time it adds), how to get it signed before you start, and the mistakes that quietly eat your margin.
 
-## What triggers a change order
+## Change order template (copy this)
+
+Copy these lines into a document. Keep one change per form.
+
+| Line | Fill in |
+| --- | --- |
+| Change order | CO number and date |
+| Job | Job name, address, original contract date |
+| Parties | Client and contractor |
+| Description of change | What, where, how many, which products, what is excluded |
+| Reason | Client request, hidden condition, design change or code |
+| Cost of this change | Labor, materials, equipment, subs, overhead and profit, credits |
+| Contract total | Original, plus earlier changes, plus this change, equals revised total |
+| Schedule | Days added or none, and the new finish date |
+| Payment | When this change is billed and due |
+| Approval | Client and contractor names, signatures and dates |
+
+Approval wording to place above the signatures: "This change order is part of the contract referenced above. Work on this change starts after both parties sign. All other terms stay the same." Check that it fits your contract before you use it.
+
+A filled-in pricing example is further down.
+
+## What triggers a change order?
 
 If something changes the scope, the price or the finish date of the original contract, write a change order. The most common triggers:
 
@@ -59,7 +80,7 @@ A good change order reads on its own. Someone who has never seen the job should 
 
 The revised contract total is the line clients care about most. Showing original contract, previous approved changes and this change in one place prevents the end-of-job surprise when the final invoice is 20% higher than the client remembers.
 
-## How to price a change order
+## How do you price a change order?
 
 Price a change the same way you price a job, just smaller. If your [estimating process](/blog/construction-estimate-template) is solid, change orders are easy. Build it from:
 
@@ -138,7 +159,7 @@ On any job with more than one change, keep a simple log. It is the single source
 
 Bill approved change orders as their own line items on your next progress invoice, referencing the CO number. That way the client sees exactly what they are paying for. Our guide on [how to write a construction invoice](/blog/how-to-write-a-construction-invoice) shows how to lay those lines out.
 
-## Common change order mistakes
+## What are the most common change order mistakes?
 
 - **Vague scope.** "Extra electrical" is not a scope. Quantities, products and locations are.
 - **No schedule impact.** Leaving days off the form makes every delay look like your fault.
