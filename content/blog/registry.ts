@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'certificate-of-completion-construction',
+    title: 'Construction Certificate of Completion Template (With Example)',
+    description: 'A copyable construction certificate of completion template with a filled-in example, substantial vs final completion, and what to check before anyone signs.',
+    date: '2026-11-26',
+    updated: '2026-11-26',
+    author: AUTHOR,
+    category: 'Project Paperwork',
+    readingTime: 6,
+    keywords: ['certificate of completion construction', 'certificate of completion', 'construction completion certificate template', 'substantial completion certificate'],
+    related: ['punch-list-template-for-contractors', 'job-closeout-checklist-for-contractors', 'lien-waivers-explained'],
+  },
+  {
     slug: 'construction-payment-schedule-template',
     title: 'Construction Payment Schedule Template (With Examples)',
     description: 'A free construction payment schedule template with milestone examples for decks and remodels, how to keep payments ahead of costs and what the contract should say.',
@@ -75,7 +87,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Project Paperwork',
     readingTime: 6,
     keywords: ['punch list template', 'construction punch list', 'punch list example', 'punch list walkthrough'],
-    related: ['job-closeout-checklist-for-contractors', 'work-order-examples-for-contractors', 'change-order-form-guide'],
+    related: ['job-closeout-checklist-for-contractors', 'work-order-examples-for-contractors', 'certificate-of-completion-construction'],
   },
   {
     slug: 'job-site-photos-for-contractors',
@@ -183,7 +195,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Project Paperwork',
     readingTime: 7,
     keywords: ['job closeout checklist for contractors', 'construction closeout checklist', 'punch list and final invoice', 'project closeout documents'],
-    related: ['contractor-warranty-letter-template', 'lien-waivers-explained', 'how-to-write-a-construction-invoice'],
+    related: ['contractor-warranty-letter-template', 'lien-waivers-explained', 'certificate-of-completion-construction'],
   },
   {
     slug: 'time-and-materials-vs-fixed-price-contract',
