@@ -18,6 +18,18 @@ export const BLOG_CATEGORIES: { name: BlogCategory; slug: string; description: s
  */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: 'construction-proposal-template',
+    title: 'Construction Proposal Template (Copyable, With Example)',
+    description: 'A construction proposal template with 12 sections, a filled-in deck example, wording for exclusions and assumptions, payment schedule and a pre-send checklist.',
+    date: '2026-11-26',
+    updated: '2026-11-26',
+    author: AUTHOR,
+    category: 'Estimating & Profit',
+    readingTime: 6,
+    keywords: ['construction proposal template', 'construction proposal', 'contractor proposal template', 'how to write a construction proposal'],
+    related: ['how-to-write-a-construction-scope-of-work', 'estimate-vs-quote-vs-bid', 'construction-payment-schedule-template'],
+  },
+  {
     slug: 'certificate-of-completion-construction',
     title: 'Construction Certificate of Completion Template (With Example)',
     description: 'A copyable construction certificate of completion template with a filled-in example, substantial vs final completion, and what to check before anyone signs.',
@@ -63,7 +75,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Estimating & Profit',
     readingTime: 6,
     keywords: ['estimate vs quote', 'quote vs estimate', 'estimate vs bid', 'quote vs bid vs proposal', 'is an estimate legally binding'],
-    related: ['estimate-vs-invoice-difference', 'construction-estimate-template', 'how-to-write-a-construction-scope-of-work'],
+    related: ['estimate-vs-invoice-difference', 'construction-estimate-template', 'construction-proposal-template'],
   },
   {
     slug: 'cost-plus-contract-for-contractors',
@@ -267,7 +279,7 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     category: 'Project Paperwork',
     readingTime: 9,
     keywords: ['how to write a scope of work', 'construction scope of work template', 'scope of work for contractors', 'scope of work example'],
-    related: ['construction-estimate-template', 'change-order-form-guide', 'contractor-paperwork-checklist'],
+    related: ['construction-estimate-template', 'change-order-form-guide', 'construction-proposal-template'],
   },
   {
     slug: 'how-to-create-a-construction-estimate-with-ai',
